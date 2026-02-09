@@ -1731,6 +1731,29 @@ async def get_network_scans(limit: int = 10, current_user: dict = Depends(get_cu
     scans = await db.network_scans.find({}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
     return scans
 
+@api_router.get("/agent/download")
+async def download_agent_script():
+    """Download the local security agent script"""
+    agent_script_path = ROOT_DIR.parent / "scripts" / "local_agent.py"
+    
+    if not agent_script_path.exists():
+        raise HTTPException(status_code=404, detail="Agent script not found")
+    
+    with open(agent_script_path, 'r') as f:
+        content = f.read()
+    
+    # Update the API URL in the script dynamically
+    content = content.replace(
+        '"API_URL": "https://aidefender-21.preview.emergentagent.com/api"',
+        f'"API_URL": "{os.environ.get("REACT_APP_BACKEND_URL", "https://aidefender-21.preview.emergentagent.com")}/api"'
+    )
+    
+    return StreamingResponse(
+        io.BytesIO(content.encode()),
+        media_type="text/x-python",
+        headers={"Content-Disposition": "attachment; filename=local_agent.py"}
+    )
+
 # ============ ROOT ENDPOINT ============
 
 @api_router.get("/")
