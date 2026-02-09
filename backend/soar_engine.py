@@ -517,8 +517,214 @@ class SOAREngine:
             "success_rate": round((successful / total_executions * 100) if total_executions > 0 else 0, 1),
             "by_trigger": by_trigger,
             "available_actions": [a.value for a in PlaybookAction],
-            "available_triggers": [t.value for t in PlaybookTrigger]
+            "available_triggers": [t.value for t in PlaybookTrigger],
+            "total_templates": len(self.templates)
         }
+    
+    def _init_templates(self):
+        """Initialize playbook templates"""
+        templates_data = [
+            {
+                "id": "tpl_data_breach",
+                "name": "Data Breach Response",
+                "description": "Comprehensive response to potential data breach",
+                "category": "incident_response",
+                "trigger": PlaybookTrigger.THREAT_DETECTED,
+                "trigger_conditions": {"severity": ["critical"], "type": ["data_exfiltration"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.ISOLATE_ENDPOINT, {"network": True}, 30),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"memory_dump": True, "disk_image": True}, 300),
+                    PlaybookStep(PlaybookAction.DISABLE_USER, {}, 10),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack", "email", "sms"], "priority": "critical"}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "data_breach", "escalate": True}, 30)
+                ],
+                "tags": ["breach", "data", "critical", "compliance"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_credential_theft",
+                "name": "Credential Theft Response",
+                "description": "Response when credential theft is detected",
+                "category": "identity",
+                "trigger": PlaybookTrigger.IOC_MATCH,
+                "trigger_conditions": {"ioc_type": ["credential"], "confidence": ["high"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.DISABLE_USER, {"force_logout": True}, 10),
+                    PlaybookStep(PlaybookAction.BLOCK_IP, {"duration": 86400}, 30),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"auth_logs": True}, 60),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack", "email"], "priority": "high"}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "credential_theft"}, 30)
+                ],
+                "tags": ["identity", "credentials", "authentication"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_ddos_mitigation",
+                "name": "DDoS Attack Mitigation",
+                "description": "Automated response to DDoS attacks",
+                "category": "network",
+                "trigger": PlaybookTrigger.ANOMALY_DETECTED,
+                "trigger_conditions": {"anomaly_type": ["traffic_spike"], "severity": ["high", "critical"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.UPDATE_FIREWALL, {"rule_type": "rate_limit"}, 30),
+                    PlaybookStep(PlaybookAction.BLOCK_IP, {"duration": 3600, "bulk": True}, 60),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack"], "priority": "high"}, 30)
+                ],
+                "tags": ["network", "ddos", "availability"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_insider_threat",
+                "name": "Insider Threat Response",
+                "description": "Response to potential insider threat activity",
+                "category": "insider",
+                "trigger": PlaybookTrigger.ANOMALY_DETECTED,
+                "trigger_conditions": {"anomaly_type": ["user_behavior"], "confidence": ["high"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"user_activity": True, "file_access": True}, 120),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["email"], "priority": "medium", "recipients": ["security@company.com"]}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "insider_threat", "confidential": True}, 30)
+                ],
+                "tags": ["insider", "user", "behavior"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_compliance_violation",
+                "name": "Compliance Violation Alert",
+                "description": "Alert and document compliance violations",
+                "category": "compliance",
+                "trigger": PlaybookTrigger.THREAT_DETECTED,
+                "trigger_conditions": {"type": ["compliance_violation"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"audit_trail": True}, 60),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["email"], "priority": "medium"}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "compliance", "sla": "24h"}, 30)
+                ],
+                "tags": ["compliance", "audit", "regulatory"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_crypto_mining",
+                "name": "Cryptomining Detection Response",
+                "description": "Response to detected cryptomining activity",
+                "category": "malware",
+                "trigger": PlaybookTrigger.MALWARE_FOUND,
+                "trigger_conditions": {"malware_type": ["cryptominer"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.KILL_PROCESS, {"force": True}, 10),
+                    PlaybookStep(PlaybookAction.QUARANTINE_FILE, {}, 30),
+                    PlaybookStep(PlaybookAction.SCAN_ENDPOINT, {"full_scan": True}, 300),
+                    PlaybookStep(PlaybookAction.BLOCK_IP, {"duration": 604800}, 30),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack"], "priority": "medium"}, 30)
+                ],
+                "tags": ["malware", "cryptominer", "resource_abuse"],
+                "is_official": True
+            }
+        ]
+        
+        for tpl_data in templates_data:
+            template = PlaybookTemplate(
+                id=tpl_data["id"],
+                name=tpl_data["name"],
+                description=tpl_data["description"],
+                category=tpl_data["category"],
+                trigger=tpl_data["trigger"],
+                trigger_conditions=tpl_data["trigger_conditions"],
+                steps=tpl_data["steps"],
+                tags=tpl_data["tags"],
+                is_official=tpl_data["is_official"]
+            )
+            self.templates[template.id] = template
+    
+    def get_templates(self, category: Optional[str] = None) -> List[Dict]:
+        """Get all playbook templates"""
+        templates = list(self.templates.values())
+        
+        if category:
+            templates = [t for t in templates if t.category == category]
+        
+        result = []
+        for tpl in templates:
+            d = asdict(tpl)
+            d["trigger"] = tpl.trigger.value
+            d["steps"] = [{"action": s.action.value, "params": s.params, "timeout": s.timeout} for s in tpl.steps]
+            result.append(d)
+        
+        return result
+    
+    def get_template(self, template_id: str) -> Optional[Dict]:
+        """Get a specific template"""
+        tpl = self.templates.get(template_id)
+        if tpl:
+            d = asdict(tpl)
+            d["trigger"] = tpl.trigger.value
+            d["steps"] = [{"action": s.action.value, "params": s.params, "timeout": s.timeout} for s in tpl.steps]
+            return d
+        return None
+    
+    def clone_from_template(self, template_id: str, name: str, created_by: str) -> Dict:
+        """Create a new playbook from a template"""
+        template = self.templates.get(template_id)
+        if not template:
+            raise ValueError(f"Template {template_id} not found")
+        
+        playbook_id = f"pb_{uuid.uuid4().hex[:8]}"
+        
+        playbook = Playbook(
+            id=playbook_id,
+            name=name,
+            description=f"Created from template: {template.name}",
+            trigger=template.trigger,
+            trigger_conditions=template.trigger_conditions.copy(),
+            steps=template.steps.copy(),
+            created_by=created_by,
+            template_id=template_id,
+            tags=template.tags.copy()
+        )
+        
+        self.playbooks[playbook_id] = playbook
+        template.use_count += 1
+        
+        return asdict(playbook)
+    
+    def create_template(self, data: Dict, created_by: str) -> Dict:
+        """Create a custom template"""
+        template_id = f"tpl_{uuid.uuid4().hex[:8]}"
+        
+        steps = []
+        for step_data in data.get("steps", []):
+            steps.append(PlaybookStep(
+                action=PlaybookAction(step_data["action"]),
+                params=step_data.get("params", {}),
+                timeout=step_data.get("timeout", 30),
+                continue_on_failure=step_data.get("continue_on_failure", False)
+            ))
+        
+        template = PlaybookTemplate(
+            id=template_id,
+            name=data["name"],
+            description=data.get("description", ""),
+            category=data.get("category", "custom"),
+            trigger=PlaybookTrigger(data["trigger"]),
+            trigger_conditions=data.get("trigger_conditions", {}),
+            steps=steps,
+            tags=data.get("tags", []),
+            is_official=False
+        )
+        
+        self.templates[template_id] = template
+        return asdict(template)
+    
+    def get_template_categories(self) -> List[Dict]:
+        """Get all template categories with counts"""
+        categories = {}
+        for tpl in self.templates.values():
+            if tpl.category not in categories:
+                categories[tpl.category] = {"name": tpl.category, "count": 0, "templates": []}
+            categories[tpl.category]["count"] += 1
+            categories[tpl.category]["templates"].append(tpl.name)
+        
+        return list(categories.values())
 
 
 # Global instance
