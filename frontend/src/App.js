@@ -66,6 +66,8 @@ function App() {
               <Route path="agents" element={<AgentsPage />} />
               <Route path="quarantine" element={<QuarantinePage />} />
               <Route path="response" element={<ThreatResponsePage />} />
+              <Route path="timeline" element={<TimelinePage />} />
+              <Route path="audit" element={<AuditLogPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>
