@@ -36,6 +36,18 @@ class TriggerEventRequest(BaseModel):
     ioc_type: Optional[str] = None
     extra: Dict = {}
 
+class CreateTemplateRequest(BaseModel):
+    name: str
+    description: str = ""
+    category: str = "custom"
+    trigger: str
+    trigger_conditions: Dict = {}
+    steps: List[Dict]
+    tags: List[str] = []
+
+class CloneTemplateRequest(BaseModel):
+    name: str
+
 @router.get("/stats")
 async def get_soar_stats(current_user: dict = Depends(get_current_user)):
     """Get SOAR engine statistics"""
