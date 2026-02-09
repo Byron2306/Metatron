@@ -85,6 +85,8 @@ function App() {
               <Route path="correlation" element={<CorrelationPage />} />
               <Route path="edr" element={<EDRPage />} />
               <Route path="soar" element={<SOARPage />} />
+              <Route path="honey-tokens" element={<HoneyTokensPage />} />
+              <Route path="zero-trust" element={<ZeroTrustPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
