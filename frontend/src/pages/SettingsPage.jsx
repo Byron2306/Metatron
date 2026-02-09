@@ -14,9 +14,15 @@ const SettingsPage = () => {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [settings, setSettings] = useState({
-    slack: { enabled: false, webhook_configured: false },
-    email: { enabled: false, sendgrid_configured: false, sender_email: '', recipients_count: 0 },
-    elasticsearch: { enabled: false, url_configured: false }
+    slack_enabled: false,
+    slack_webhook_url: '',
+    email_enabled: false,
+    sendgrid_api_key: '',
+    email_from: '',
+    email_to: '',
+    elasticsearch_enabled: false,
+    elasticsearch_url: '',
+    elasticsearch_api_key: ''
   });
   const [formData, setFormData] = useState({
     slack_webhook_url: '',
