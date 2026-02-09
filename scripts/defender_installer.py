@@ -1603,6 +1603,412 @@ if __name__ == "__main__":
     os.chmod(agent_script, 0o755)
     log("ok", "Agent script created")
 
+def create_advanced_security_module():
+    """Create the advanced security monitoring module"""
+    log("info", "Creating advanced security module...")
+    
+    module_path = MODULES_DIR / "advanced_security.py"
+    
+    # Download the advanced security module from the cloud API
+    # For now, we embed a minimal version that will be enhanced
+    module_code = '''#!/usr/bin/env python3
+"""
+Advanced Security Module v3.0
+=============================
+Live task manager monitoring, suspicious process detection,
+PUP scanning, hidden file detection, and rootkit repair.
+"""
+
+import os
+import sys
+import json
+import time
+import hashlib
+import platform
+import threading
+import subprocess
+import re
+import stat
+from pathlib import Path
+from datetime import datetime, timedelta
+from collections import deque
+from typing import Dict, List, Optional, Set, Any
+
+try:
+    import psutil
+except ImportError:
+    print("ERROR: psutil required")
+    sys.exit(1)
+
+# Suspicious patterns
+SUSPICIOUS_PATTERNS = [
+    r"nc\\s+-[el]", r"ncat\\s+-[el]", r"/dev/tcp/", r"bash\\s+-i.*>&",
+    r"python.*socket.*subprocess", r"xmrig", r"minerd", r"cgminer",
+    r"base64\\s+-d.*\\|.*sh", r"curl.*\\|.*bash", r"wget.*\\|.*sh",
+    r"powershell.*-enc", r"mimikatz", r"rm\\s+-rf\\s+/",
+]
+
+SUSPICIOUS_SERVICES = {"cryptominer", "miner", "xmrig", "backdoor", "rootkit", "trojan", "keylogger", "rat", "botnet"}
+
+PUP_SIGNATURES = {"adware", "toolbar", "browser helper", "popup", "registry cleaner", "driver updater", "opencandy", "installcore"}
+
+
+class AdvancedSecurityMonitor:
+    def __init__(self, config=None):
+        self.config = config or {}
+        self.running = False
+        self.alerts = deque(maxlen=1000)
+        self.flagged_processes = deque(maxlen=500)
+        self.killed_processes = deque(maxlen=100)
+        self.auto_kill_enabled = self.config.get("auto_kill_enabled", False)
+        self.alert_callback = self.config.get("alert_callback")
+        self.scan_interval = self.config.get("scan_interval", 10)
+        self.threads = []
+        self.process_baseline = {}
+        self._build_baseline()
+    
+    def _build_baseline(self):
+        for proc in psutil.process_iter(["pid", "name", "exe"]):
+            try:
+                self.process_baseline[proc.info["pid"]] = {"name": proc.info["name"], "exe": proc.info.get("exe")}
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    
+    def _emit_alert(self, alert_type, severity, details):
+        alert = {"type": alert_type, "severity": severity, "details": details, "timestamp": datetime.now().isoformat()}
+        self.alerts.append(alert)
+        if self.alert_callback:
+            try:
+                self.alert_callback(alert)
+            except Exception:
+                pass
+        return alert
+    
+    def get_live_processes(self) -> List[Dict]:
+        processes = []
+        for proc in psutil.process_iter(["pid", "name", "username", "cpu_percent", "memory_percent", "status", "create_time", "exe", "cmdline", "connections"]):
+            try:
+                info = proc.info
+                cmdline = " ".join(info.get("cmdline", []) or [])
+                runtime = str(timedelta(seconds=int(time.time() - info.get("create_time", time.time()))))
+                is_suspicious = self._is_suspicious(info["name"], cmdline, info.get("exe"))
+                processes.append({
+                    "pid": info["pid"], "name": info["name"], "username": info.get("username", "unknown"),
+                    "cpu_percent": round(info.get("cpu_percent", 0), 1), "memory_percent": round(info.get("memory_percent", 0), 1),
+                    "status": info.get("status", "unknown"), "runtime": runtime, "exe": info.get("exe"),
+                    "cmdline": cmdline[:200], "connections": len(info.get("connections", []) or []),
+                    "is_suspicious": is_suspicious, "is_new": info["pid"] not in self.process_baseline
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return sorted(processes, key=lambda x: x["cpu_percent"], reverse=True)
+    
+    def _is_suspicious(self, name, cmdline, exe):
+        check_str = f"{name} {cmdline} {exe or ''}".lower()
+        for pattern in SUSPICIOUS_PATTERNS:
+            if re.search(pattern, check_str, re.IGNORECASE):
+                return True
+        return False
+    
+    def detect_suspicious_processes(self) -> List[Dict]:
+        suspicious = []
+        for proc in psutil.process_iter(["pid", "name", "exe", "cmdline", "username", "connections"]):
+            try:
+                info = proc.info
+                cmdline = " ".join(info.get("cmdline", []) or [])
+                check_str = f"{info['name']} {cmdline}".lower()
+                reasons = []
+                severity = "medium"
+                
+                for pattern in SUSPICIOUS_PATTERNS:
+                    if re.search(pattern, check_str, re.IGNORECASE):
+                        reasons.append(f"Pattern: {pattern}")
+                        severity = "high"
+                        if any(p in pattern for p in ["xmrig", "minerd", "mimikatz", "rm -rf /"]):
+                            severity = "critical"
+                
+                connections = info.get("connections", []) or []
+                suspicious_ports = {4444, 5555, 6666, 6667, 31337, 12345, 1337, 9001}
+                for conn in connections:
+                    if hasattr(conn, "raddr") and conn.raddr and conn.raddr.port in suspicious_ports:
+                        reasons.append(f"Suspicious port: {conn.raddr.port}")
+                        severity = "high"
+                
+                if reasons:
+                    detection = {"pid": info["pid"], "name": info["name"], "exe": info.get("exe"),
+                                "cmdline": cmdline[:200], "username": info.get("username"), "reasons": reasons,
+                                "severity": severity, "timestamp": datetime.now().isoformat()}
+                    suspicious.append(detection)
+                    self.flagged_processes.append(detection)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return suspicious
+    
+    def kill_process(self, pid: int, reason: str = "Manual kill") -> Dict:
+        try:
+            proc = psutil.Process(pid)
+            proc_info = {"pid": pid, "name": proc.name(), "exe": proc.exe() if hasattr(proc, "exe") else None,
+                        "reason": reason, "timestamp": datetime.now().isoformat()}
+            proc.kill()
+            self.killed_processes.append(proc_info)
+            self._emit_alert("process_killed", "info", proc_info)
+            return {"success": True, "process": proc_info}
+        except psutil.NoSuchProcess:
+            return {"success": False, "error": "Process not found"}
+        except psutil.AccessDenied:
+            return {"success": False, "error": "Access denied"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def get_services(self) -> List[Dict]:
+        services = []
+        system = platform.system()
+        if system == "Linux":
+            try:
+                result = subprocess.run(["systemctl", "list-units", "--type=service", "--all", "--no-pager"],
+                                       capture_output=True, text=True, timeout=30)
+                for line in result.stdout.split("\\n")[1:]:
+                    if ".service" in line:
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            name = parts[0].replace(".service", "")
+                            is_suspicious = any(s in name.lower() for s in SUSPICIOUS_SERVICES)
+                            services.append({"name": name, "state": parts[2] if len(parts) > 2 else "unknown",
+                                           "sub_state": parts[3] if len(parts) > 3 else "unknown", "is_suspicious": is_suspicious})
+            except Exception:
+                pass
+        elif system == "Windows":
+            try:
+                for service in psutil.win_service_iter():
+                    try:
+                        svc_info = service.as_dict()
+                        name = svc_info.get("name", "")
+                        is_suspicious = any(s in name.lower() for s in SUSPICIOUS_SERVICES)
+                        services.append({"name": name, "display_name": svc_info.get("display_name"),
+                                        "status": svc_info.get("status"), "is_suspicious": is_suspicious})
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return services
+    
+    def scan_for_pups(self) -> List[Dict]:
+        pups = []
+        for proc in psutil.process_iter(["pid", "name", "exe"]):
+            try:
+                info = proc.info
+                name_lower = info["name"].lower()
+                exe_lower = (info.get("exe") or "").lower()
+                reasons = []
+                for sig in PUP_SIGNATURES:
+                    if sig in name_lower or sig in exe_lower:
+                        reasons.append(f"PUP signature: {sig}")
+                if reasons:
+                    pups.append({"type": "process", "pid": info["pid"], "name": info["name"],
+                                "exe": info.get("exe"), "reasons": reasons, "timestamp": datetime.now().isoformat()})
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return pups
+    
+    def scan_hidden_files(self, directories=None) -> List[Dict]:
+        if directories is None:
+            directories = [str(Path.home()), "/tmp", "/var/tmp", "/dev/shm"]
+        hidden = []
+        for directory in directories:
+            dir_path = Path(directory)
+            if not dir_path.exists():
+                continue
+            try:
+                for item in dir_path.rglob(".*"):
+                    try:
+                        stat_info = item.stat()
+                        is_suspicious = False
+                        reasons = []
+                        if item.is_file() and (stat_info.st_mode & stat.S_IXUSR):
+                            reasons.append("Hidden executable")
+                            is_suspicious = True
+                        mtime = datetime.fromtimestamp(stat_info.st_mtime)
+                        if datetime.now() - mtime < timedelta(hours=24):
+                            reasons.append("Recently modified")
+                        suspicious_names = [".backdoor", ".shell", ".hack", ".pwn", ".rootkit", ".miner", ".crypto"]
+                        for sname in suspicious_names:
+                            if sname in item.name.lower():
+                                reasons.append(f"Suspicious name: {sname}")
+                                is_suspicious = True
+                        hidden.append({"path": str(item), "name": item.name, "type": "directory" if item.is_dir() else "file",
+                                      "size": stat_info.st_size if item.is_file() else 0, "modified": mtime.isoformat(),
+                                      "is_suspicious": is_suspicious, "reasons": reasons})
+                    except (PermissionError, OSError):
+                        pass
+            except (PermissionError, OSError):
+                pass
+        return hidden
+    
+    def detect_rootkits(self) -> Dict:
+        findings = {"ld_preload_hijack": [], "hidden_processes": [], "hidden_modules": [],
+                   "overall_status": "clean", "timestamp": datetime.now().isoformat()}
+        if platform.system() != "Linux":
+            findings["note"] = "Full rootkit detection only on Linux"
+            return findings
+        
+        # Check LD_PRELOAD
+        ld_path = Path("/etc/ld.so.preload")
+        if ld_path.exists():
+            try:
+                content = ld_path.read_text()
+                if content.strip():
+                    findings["ld_preload_hijack"].append({"path": str(ld_path), "content": content, "severity": "critical"})
+                    findings["overall_status"] = "infected"
+            except PermissionError:
+                pass
+        
+        # Check hidden processes
+        try:
+            proc_pids = {int(e.name) for e in Path("/proc").iterdir() if e.name.isdigit()}
+            psutil_pids = set(psutil.pids())
+            hidden = proc_pids - psutil_pids
+            for pid in hidden:
+                findings["hidden_processes"].append({"pid": pid, "severity": "critical"})
+                findings["overall_status"] = "infected"
+        except Exception:
+            pass
+        
+        # Check kernel modules
+        try:
+            result = subprocess.run(["lsmod"], capture_output=True, text=True)
+            for line in result.stdout.split("\\n")[1:]:
+                if line:
+                    module = line.split()[0].lower()
+                    for indicator in ["rootkit", "hide", "stealth"]:
+                        if indicator in module:
+                            findings["hidden_modules"].append({"name": module, "severity": "high"})
+                            findings["overall_status"] = "suspicious"
+        except Exception:
+            pass
+        
+        return findings
+    
+    def repair_rootkit_damage(self) -> Dict:
+        repairs = {"actions_taken": [], "success": True, "timestamp": datetime.now().isoformat()}
+        if platform.system() != "Linux":
+            repairs["note"] = "Repair only on Linux"
+            return repairs
+        
+        ld_path = Path("/etc/ld.so.preload")
+        if ld_path.exists():
+            try:
+                content = ld_path.read_text()
+                if content.strip():
+                    Path("/tmp/ld.so.preload.backup").write_text(content)
+                    ld_path.write_text("")
+                    repairs["actions_taken"].append({"action": "cleared_ld_preload", "backup": "/tmp/ld.so.preload.backup"})
+            except PermissionError:
+                repairs["success"] = False
+        
+        return repairs
+    
+    def full_system_scan(self) -> Dict:
+        results = {"scan_id": hashlib.md5(datetime.now().isoformat().encode()).hexdigest()[:16],
+                  "start_time": datetime.now().isoformat(), "suspicious_processes": [], "suspicious_services": [],
+                  "pup_detections": [], "hidden_files": [], "rootkit_findings": {}, "risk_score": 0, "summary": ""}
+        
+        results["suspicious_processes"] = self.detect_suspicious_processes()
+        results["suspicious_services"] = [s for s in self.get_services() if s.get("is_suspicious")]
+        results["pup_detections"] = self.scan_for_pups()
+        results["hidden_files"] = self.scan_hidden_files()
+        results["rootkit_findings"] = self.detect_rootkits()
+        
+        risk = len(results["suspicious_processes"]) * 10 + len(results["suspicious_services"]) * 5
+        risk += len(results["pup_detections"]) * 3 + len([f for f in results["hidden_files"] if f.get("is_suspicious")]) * 5
+        if results["rootkit_findings"].get("overall_status") == "infected":
+            risk += 50
+        elif results["rootkit_findings"].get("overall_status") == "suspicious":
+            risk += 25
+        
+        results["risk_score"] = min(100, risk)
+        if results["risk_score"] >= 75:
+            results["summary"] = "CRITICAL: Multiple severe security issues detected."
+        elif results["risk_score"] >= 50:
+            results["summary"] = "HIGH: Significant security concerns found."
+        elif results["risk_score"] >= 25:
+            results["summary"] = "MEDIUM: Some potential issues detected."
+        else:
+            results["summary"] = "LOW: System appears relatively clean."
+        
+        results["end_time"] = datetime.now().isoformat()
+        return results
+    
+    def monitor_processes(self):
+        while self.running:
+            try:
+                suspicious = self.detect_suspicious_processes()
+                for proc in suspicious:
+                    self._emit_alert("suspicious_process", proc.get("severity", "high"), proc)
+                    if self.auto_kill_enabled and proc.get("severity") == "critical":
+                        self.kill_process(proc["pid"], "Auto-kill: Critical threat")
+            except Exception:
+                pass
+            time.sleep(self.scan_interval)
+    
+    def start_all(self):
+        self.running = True
+        t = threading.Thread(target=self.monitor_processes, daemon=True)
+        t.start()
+        self.threads.append(t)
+        return self.threads
+    
+    def stop_all(self):
+        self.running = False
+        for t in self.threads:
+            t.join(timeout=5)
+    
+    def get_status(self) -> Dict:
+        return {"running": self.running, "alerts_count": len(self.alerts), "killed_processes": len(self.killed_processes),
+                "flagged_processes": len(self.flagged_processes), "auto_kill_enabled": self.auto_kill_enabled}
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Advanced Security Monitor")
+    parser.add_argument("--scan", choices=["full", "processes", "services", "hidden", "pup", "rootkit"], help="Run scan")
+    parser.add_argument("--monitor", action="store_true", help="Start monitoring")
+    parser.add_argument("--auto-kill", action="store_true", help="Enable auto-kill")
+    args = parser.parse_args()
+    
+    monitor = AdvancedSecurityMonitor({"auto_kill_enabled": args.auto_kill})
+    
+    if args.scan:
+        if args.scan == "full":
+            result = monitor.full_system_scan()
+        elif args.scan == "processes":
+            result = monitor.detect_suspicious_processes()
+        elif args.scan == "services":
+            result = monitor.get_services()
+        elif args.scan == "hidden":
+            result = monitor.scan_hidden_files()
+        elif args.scan == "pup":
+            result = monitor.scan_for_pups()
+        elif args.scan == "rootkit":
+            result = monitor.detect_rootkits()
+        print(json.dumps(result, indent=2))
+    elif args.monitor:
+        print("Starting monitor... Press Ctrl+C to stop")
+        try:
+            monitor.start_all()
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            monitor.stop_all()
+    else:
+        print(json.dumps(monitor.full_system_scan(), indent=2))
+'''
+    
+    with open(module_path, 'w') as f:
+        f.write(module_code)
+    
+    os.chmod(module_path, 0o755)
+    log("ok", "Advanced security module created")
+
 def create_launcher():
     """Create launcher scripts"""
     log("info", "Creating launcher scripts...")
