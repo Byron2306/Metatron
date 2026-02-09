@@ -1277,7 +1277,7 @@ def generate_threat_report_pdf(threats: List[dict], alerts: List[dict], stats: d
         textColor=colors.HexColor('#1E293B')
     ))
     styles.add(ParagraphStyle(
-        name='BodyText',
+        name='CustomBody',
         parent=styles['Normal'],
         fontSize=10,
         spaceAfter=8
@@ -1287,7 +1287,7 @@ def generate_threat_report_pdf(threats: List[dict], alerts: List[dict], stats: d
     
     # Title
     elements.append(Paragraph("THREAT INTELLIGENCE REPORT", styles['TitleStyle']))
-    elements.append(Paragraph(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", styles['BodyText']))
+    elements.append(Paragraph(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", styles['CustomBody']))
     elements.append(Spacer(1, 20))
     
     # Executive Summary
