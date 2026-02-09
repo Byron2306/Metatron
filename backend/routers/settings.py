@@ -26,6 +26,12 @@ class NotificationSettings(BaseModel):
     elasticsearch_url: Optional[str] = None
     elasticsearch_api_key: Optional[str] = None
     elasticsearch_enabled: bool = False
+    # Twilio SMS settings
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_from_number: Optional[str] = None
+    sms_recipients: Optional[str] = None
+    sms_enabled: bool = False
 
 @router.get("/notifications")
 async def get_notification_settings(current_user: dict = Depends(get_current_user)):
