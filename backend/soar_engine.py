@@ -100,8 +100,10 @@ class PlaybookExecution:
 class SOAREngine:
     def __init__(self):
         self.playbooks: Dict[str, Playbook] = {}
+        self.templates: Dict[str, PlaybookTemplate] = {}
         self.executions: List[PlaybookExecution] = []
         self._init_default_playbooks()
+        self._init_templates()
     
     def _init_default_playbooks(self):
         """Initialize default playbooks"""
