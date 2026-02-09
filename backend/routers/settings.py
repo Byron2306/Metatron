@@ -48,7 +48,12 @@ async def get_notification_settings(current_user: dict = Depends(get_current_use
             "email_to": "",
             "elasticsearch_url": "",
             "elasticsearch_api_key": "",
-            "elasticsearch_enabled": False
+            "elasticsearch_enabled": False,
+            "twilio_account_sid": "",
+            "twilio_auth_token": "",
+            "twilio_from_number": "",
+            "sms_recipients": "",
+            "sms_enabled": False
         }
     
     # Mask sensitive data
@@ -56,6 +61,8 @@ async def get_notification_settings(current_user: dict = Depends(get_current_use
         settings["sendgrid_api_key"] = "***" + settings["sendgrid_api_key"][-4:]
     if settings.get("elasticsearch_api_key"):
         settings["elasticsearch_api_key"] = "***" + settings["elasticsearch_api_key"][-4:]
+    if settings.get("twilio_auth_token"):
+        settings["twilio_auth_token"] = "***" + settings["twilio_auth_token"][-4:]
     
     return settings
 
