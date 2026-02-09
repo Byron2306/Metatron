@@ -1465,6 +1465,272 @@ Keep the summary professional and actionable."""
         logger.error(f"AI summary generation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate summary: {str(e)}")
 
+# ============ LOCAL AGENT ENDPOINTS ============
+
+class AgentEvent(BaseModel):
+    agent_id: str
+    agent_name: str
+    event_type: str
+    timestamp: str
+    data: Dict[str, Any]
+
+class AgentInfo(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    name: str
+    ip: Optional[str] = None
+    os: Optional[str] = None
+    status: str = "online"
+    last_heartbeat: str
+    system_info: Dict[str, Any] = {}
+    created_at: str
+
+@api_router.post("/agent/event")
+async def receive_agent_event(event: AgentEvent):
+    """Receive events from local security agents (no auth required for agents)"""
+    logger.info(f"Agent event from {event.agent_name}: {event.event_type}")
+    
+    # Update or create agent record
+    agent_doc = {
+        "id": event.agent_id,
+        "name": event.agent_name,
+        "status": "online",
+        "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    if event.event_type == "heartbeat":
+        # Update agent system info
+        agent_doc["system_info"] = event.data
+        agent_doc["ip"] = event.data.get("network_interfaces", [{}])[0].get("ip") if event.data.get("network_interfaces") else None
+        agent_doc["os"] = event.data.get("os")
+        
+        await db.agents.update_one(
+            {"id": event.agent_id},
+            {"$set": agent_doc, "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True
+        )
+        
+        # Broadcast to WebSocket
+        await ws_manager.broadcast({
+            "type": "agent_heartbeat",
+            "agent_id": event.agent_id,
+            "agent_name": event.agent_name,
+            "timestamp": event.timestamp
+        })
+        
+        return {"status": "ok", "message": "Heartbeat received"}
+    
+    elif event.event_type == "alert":
+        # Create alert from agent
+        alert_data = event.data
+        alert_doc = {
+            "id": str(uuid.uuid4()),
+            "title": alert_data.get("title", "Agent Alert"),
+            "type": alert_data.get("alert_type", "agent"),
+            "severity": alert_data.get("severity", "medium"),
+            "message": json.dumps(alert_data.get("details", {}))[:500],
+            "status": "new",
+            "source_agent": event.agent_name,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.alerts.insert_one(alert_doc)
+        
+        # Broadcast to WebSocket
+        await ws_manager.broadcast({
+            "type": "new_alert",
+            "alert": alert_doc,
+            "from_agent": event.agent_name
+        })
+        
+        return {"status": "ok", "alert_id": alert_doc["id"]}
+    
+    elif event.event_type == "suricata_alert":
+        # Create threat from Suricata IDS alert
+        suricata_data = event.data
+        threat_doc = {
+            "id": str(uuid.uuid4()),
+            "name": f"IDS Alert: {suricata_data.get('signature', 'Unknown')}",
+            "type": "ids_alert",
+            "severity": "critical" if suricata_data.get("severity", 3) == 1 else "high" if suricata_data.get("severity", 3) == 2 else "medium",
+            "status": "active",
+            "source_ip": suricata_data.get("src_ip"),
+            "target_system": suricata_data.get("dest_ip"),
+            "description": f"Suricata IDS detected: {suricata_data.get('signature')}. Category: {suricata_data.get('category')}",
+            "indicators": [
+                f"Signature ID: {suricata_data.get('signature_id')}",
+                f"Protocol: {suricata_data.get('protocol')}",
+                f"Source Port: {suricata_data.get('src_port')}",
+                f"Dest Port: {suricata_data.get('dest_port')}"
+            ],
+            "ai_analysis": None,
+            "source_agent": event.agent_name,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.threats.insert_one(threat_doc)
+        
+        # Broadcast to WebSocket
+        await ws_manager.broadcast({
+            "type": "new_threat",
+            "threat": {"id": threat_doc["id"], "name": threat_doc["name"], "severity": threat_doc["severity"]},
+            "source": "suricata"
+        })
+        
+        return {"status": "ok", "threat_id": threat_doc["id"]}
+    
+    elif event.event_type == "yara_match":
+        # Create threat from YARA malware detection
+        yara_data = event.data
+        matches = yara_data.get("matches", [])
+        match_names = [m.get("rule", "Unknown") for m in matches]
+        
+        # Determine severity based on rule metadata
+        severity = "high"
+        for match in matches:
+            if match.get("meta", {}).get("severity") == "critical":
+                severity = "critical"
+                break
+        
+        threat_doc = {
+            "id": str(uuid.uuid4()),
+            "name": f"Malware Detected: {', '.join(match_names[:3])}",
+            "type": "malware",
+            "severity": severity,
+            "status": "active",
+            "source_ip": None,
+            "target_system": yara_data.get("filepath", "Unknown"),
+            "description": f"YARA rules matched on file: {yara_data.get('filepath')}",
+            "indicators": [
+                f"File: {yara_data.get('filepath')}",
+                f"Rules matched: {', '.join(match_names)}",
+                f"File size: {yara_data.get('file_size', 'Unknown')} bytes"
+            ],
+            "ai_analysis": None,
+            "source_agent": event.agent_name,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.threats.insert_one(threat_doc)
+        
+        # Create critical alert
+        alert_doc = {
+            "id": str(uuid.uuid4()),
+            "title": f"Malware Detected: {match_names[0] if match_names else 'Unknown'}",
+            "type": "malware",
+            "severity": severity,
+            "message": f"File: {yara_data.get('filepath')}. Matched rules: {', '.join(match_names)}",
+            "status": "new",
+            "threat_id": threat_doc["id"],
+            "source_agent": event.agent_name,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.alerts.insert_one(alert_doc)
+        
+        # Broadcast
+        await ws_manager.broadcast({
+            "type": "malware_detected",
+            "threat_id": threat_doc["id"],
+            "file": yara_data.get("filepath"),
+            "rules": match_names
+        })
+        
+        return {"status": "ok", "threat_id": threat_doc["id"], "alert_id": alert_doc["id"]}
+    
+    elif event.event_type == "network_scan":
+        # Store network scan results
+        scan_doc = {
+            "id": str(uuid.uuid4()),
+            "agent_id": event.agent_id,
+            "agent_name": event.agent_name,
+            "hosts": event.data.get("hosts", []),
+            "host_count": len(event.data.get("hosts", [])),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        await db.network_scans.insert_one(scan_doc)
+        
+        # Update network topology with discovered hosts
+        for host in event.data.get("hosts", []):
+            await db.discovered_hosts.update_one(
+                {"ip": host.get("ip")},
+                {"$set": {
+                    "ip": host.get("ip"),
+                    "hostname": host.get("hostname"),
+                    "mac": host.get("mac"),
+                    "vendor": host.get("vendor"),
+                    "last_seen": datetime.now(timezone.utc).isoformat(),
+                    "discovered_by": event.agent_name
+                }},
+                upsert=True
+            )
+        
+        return {"status": "ok", "hosts_recorded": len(event.data.get("hosts", []))}
+    
+    elif event.event_type == "suspicious_packet":
+        # Log suspicious network traffic
+        packet_data = event.data
+        
+        # Create alert for suspicious traffic
+        alert_doc = {
+            "id": str(uuid.uuid4()),
+            "title": f"Suspicious Traffic: {packet_data.get('reason', 'Unknown')}",
+            "type": "network",
+            "severity": "high",
+            "message": f"From {packet_data.get('src_ip')}:{packet_data.get('src_port')} to {packet_data.get('dst_ip')}:{packet_data.get('dst_port')}",
+            "status": "new",
+            "source_agent": event.agent_name,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.alerts.insert_one(alert_doc)
+        
+        # Store packet info
+        await db.suspicious_packets.insert_one({
+            **packet_data,
+            "agent_id": event.agent_id,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        
+        return {"status": "ok", "alert_id": alert_doc["id"]}
+    
+    else:
+        # Store generic event
+        await db.agent_events.insert_one({
+            "agent_id": event.agent_id,
+            "agent_name": event.agent_name,
+            "event_type": event.event_type,
+            "data": event.data,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        return {"status": "ok", "message": "Event recorded"}
+
+@api_router.get("/agents", response_model=List[AgentInfo])
+async def get_agents(current_user: dict = Depends(get_current_user)):
+    """Get all registered security agents"""
+    agents = await db.agents.find({}, {"_id": 0}).sort("last_heartbeat", -1).to_list(50)
+    
+    # Mark agents as offline if no heartbeat in 2 minutes
+    now = datetime.now(timezone.utc)
+    for agent in agents:
+        try:
+            last_hb = datetime.fromisoformat(agent.get("last_heartbeat", "").replace("Z", "+00:00"))
+            if (now - last_hb).total_seconds() > 120:
+                agent["status"] = "offline"
+        except:
+            agent["status"] = "unknown"
+    
+    return [AgentInfo(**a) for a in agents]
+
+@api_router.get("/network/discovered-hosts")
+async def get_discovered_hosts(current_user: dict = Depends(get_current_user)):
+    """Get all hosts discovered by agents"""
+    hosts = await db.discovered_hosts.find({}, {"_id": 0}).sort("last_seen", -1).to_list(200)
+    return hosts
+
+@api_router.get("/network/scans")
+async def get_network_scans(limit: int = 10, current_user: dict = Depends(get_current_user)):
+    """Get recent network scan results"""
+    scans = await db.network_scans.find({}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+    return scans
+
 # ============ ROOT ENDPOINT ============
 
 @api_router.get("/")
