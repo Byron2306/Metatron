@@ -159,7 +159,7 @@ class AuditLogger:
             cls._log_to_file(entry)
         
         # Log to database
-        if config.log_to_db and cls._db:
+        if config.log_to_db and cls._db is not None:
             try:
                 await cls._db.audit_logs.insert_one(asdict(entry))
             except Exception as e:
