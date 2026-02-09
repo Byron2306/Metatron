@@ -223,6 +223,77 @@ async def get_elasticsearch_status(current_user: dict = Depends(get_current_user
         logger.error(f"Elasticsearch connection error: {str(e)}")
         return {"connected": False, "error": str(e)}
 
+@router.post("/elasticsearch/setup-kibana")
+async def setup_kibana_index_pattern(current_user: dict = Depends(check_permission("write"))):
+    """Create Elasticsearch index template for Kibana dashboards"""
+    db = get_db()
+    settings = await db.notification_settings.find_one({}, {"_id": 0}) or {}
+    
+    es_url = settings.get("elasticsearch_url")
+    es_api_key = settings.get("elasticsearch_api_key")
+    
+    if not es_url:
+        raise HTTPException(status_code=400, detail="Elasticsearch not configured")
+    
+    # Update notification config
+    from notifications import config as notification_config, create_elasticsearch_index_template, log_security_event
+    notification_config.elasticsearch_url = es_url
+    notification_config.elasticsearch_api_key = es_api_key
+    
+    # Create index template
+    result = await create_elasticsearch_index_template("security-events")
+    
+    if result.get("success"):
+        # Log a test event
+        await log_security_event(
+            event_type="system",
+            severity="info",
+            description="Elasticsearch index template created for Kibana",
+            action_taken="index_template_created"
+        )
+        return {
+            "success": True,
+            "message": "Index template 'security-events' created",
+            "kibana_instructions": {
+                "step1": "Go to Kibana → Stack Management → Index Patterns",
+                "step2": "Create index pattern: security-events-*",
+                "step3": "Select @timestamp as the time field",
+                "step4": "Go to Discover to see security events"
+            }
+        }
+    else:
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to create index template"))
+
+@router.post("/elasticsearch/log-test-event")
+async def log_test_security_event(current_user: dict = Depends(get_current_user)):
+    """Log a test security event to Elasticsearch"""
+    db = get_db()
+    settings = await db.notification_settings.find_one({}, {"_id": 0}) or {}
+    
+    es_url = settings.get("elasticsearch_url")
+    es_api_key = settings.get("elasticsearch_api_key")
+    
+    if not es_url:
+        raise HTTPException(status_code=400, detail="Elasticsearch not configured")
+    
+    from notifications import config as notification_config, log_security_event
+    notification_config.elasticsearch_url = es_url
+    notification_config.elasticsearch_api_key = es_api_key
+    
+    result = await log_security_event(
+        event_type="test",
+        severity="info",
+        description="Test security event from Anti-AI Defense System",
+        user=current_user.get("email", "unknown"),
+        action_taken="test_event_logged",
+        extra_fields={
+            "tags": ["test", "verification"],
+            "agent_id": "web-dashboard"
+        }
+    )
+    
+    return {"success": result, "message": "Test event logged" if result else "Failed to log event"}
+
 @router.get("/elasticsearch/indices")
 async def get_elasticsearch_indices(current_user: dict = Depends(get_current_user)):
     """Get Elasticsearch indices"""
