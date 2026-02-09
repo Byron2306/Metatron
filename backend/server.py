@@ -1733,7 +1733,45 @@ async def get_network_scans(limit: int = 10, current_user: dict = Depends(get_cu
 
 @api_router.get("/agent/download")
 async def download_agent_script():
-    """Download the local security agent script"""
+    """Download the comprehensive security suite installer"""
+    # Use the new comprehensive installer
+    installer_path = ROOT_DIR.parent / "scripts" / "defender_installer.py"
+    
+    if not installer_path.exists():
+        # Fallback to old script
+        installer_path = ROOT_DIR.parent / "scripts" / "local_agent.py"
+    
+    if not installer_path.exists():
+        raise HTTPException(status_code=404, detail="Agent installer not found")
+    
+    with open(installer_path, 'r') as f:
+        content = f.read()
+    
+    # Update the API URL dynamically
+    backend_url = os.environ.get("REACT_APP_BACKEND_URL", "https://cybershield-169.preview.emergentagent.com")
+    content = content.replace(
+        'CLOUD_API_URL = "https://cybershield-169.preview.emergentagent.com/api"',
+        f'CLOUD_API_URL = "{backend_url}/api"'
+    )
+    # Also update for legacy format
+    content = content.replace(
+        '"API_URL": "https://cybershield-169.preview.emergentagent.com/api"',
+        f'"API_URL": "{backend_url}/api"'
+    )
+    content = content.replace(
+        '"api_url": "https://cybershield-169.preview.emergentagent.com/api"',
+        f'"api_url": "{backend_url}/api"'
+    )
+    
+    return StreamingResponse(
+        io.BytesIO(content.encode()),
+        media_type="text/x-python",
+        headers={"Content-Disposition": "attachment; filename=defender_installer.py"}
+    )
+
+@api_router.get("/agent/download/legacy")
+async def download_legacy_agent():
+    """Download the legacy simple agent script"""
     agent_script_path = ROOT_DIR.parent / "scripts" / "local_agent.py"
     
     if not agent_script_path.exists():
@@ -1742,10 +1780,10 @@ async def download_agent_script():
     with open(agent_script_path, 'r') as f:
         content = f.read()
     
-    # Update the API URL in the script dynamically
+    backend_url = os.environ.get("REACT_APP_BACKEND_URL", "https://cybershield-169.preview.emergentagent.com")
     content = content.replace(
         '"API_URL": "https://cybershield-169.preview.emergentagent.com/api"',
-        f'"API_URL": "{os.environ.get("REACT_APP_BACKEND_URL", "https://cybershield-169.preview.emergentagent.com")}/api"'
+        f'"API_URL": "{backend_url}/api"'
     )
     
     return StreamingResponse(
