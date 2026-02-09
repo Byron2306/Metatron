@@ -74,12 +74,16 @@ Build a defensive AI system with:
 - [x] Network topology visualization
 - [x] Real-time WebSocket infrastructure
 - [x] Threat hunting automation with AI
+- [x] Honeypot integration system
+- [x] Role-based access control (admin/analyst/viewer)
+- [x] PDF report generation
+- [x] AI-powered executive summaries
 
 ### P2 (Medium Priority) - Future
-- [ ] Role-based access control
 - [ ] Audit logging
 - [ ] Email notifications
-- [ ] Report generation (PDF)
+- [ ] Custom dashboard widgets
+- [ ] Multi-tenant support
 
 ### P3 (Nice to Have) - Future
 - [ ] Dark/Light theme toggle
@@ -88,7 +92,7 @@ Build a defensive AI system with:
 - [ ] Multi-tenant support
 
 ## Next Tasks
-1. Implement honeypot integration
-2. Add role-based access control
-3. Create threat investigation deep-dive view
-4. Add PDF report generation for threat intelligence
+1. Add audit logging for security events
+2. Implement email/Slack notifications for critical alerts
+3. Create custom dashboard widgets
+4. Add threat timeline reconstruction view
