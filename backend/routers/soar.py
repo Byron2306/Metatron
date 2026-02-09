@@ -226,3 +226,68 @@ def _get_trigger_description(trigger: str) -> str:
         "manual": "Manual playbook execution"
     }
     return descriptions.get(trigger, "No description available")
+
+# =============================================================================
+# PLAYBOOK TEMPLATES
+# =============================================================================
+
+@router.get("/templates")
+async def list_templates(
+    category: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all playbook templates"""
+    templates = soar_engine.get_templates(category=category)
+    return {"templates": templates, "count": len(templates)}
+
+@router.get("/templates/categories")
+async def get_template_categories(current_user: dict = Depends(get_current_user)):
+    """Get all template categories"""
+    categories = soar_engine.get_template_categories()
+    return {"categories": categories}
+
+@router.get("/templates/{template_id}")
+async def get_template(
+    template_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get a specific template"""
+    template = soar_engine.get_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template
+
+@router.post("/templates")
+async def create_template(
+    request: CreateTemplateRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Create a custom playbook template"""
+    try:
+        template = soar_engine.create_template(
+            request.model_dump(),
+            created_by=current_user["id"]
+        )
+        logger.info(f"Created template {template['id']} by user {current_user['id']}")
+        return template
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/templates/{template_id}/clone")
+async def clone_template(
+    template_id: str,
+    request: CloneTemplateRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Create a new playbook from a template"""
+    try:
+        playbook = soar_engine.clone_from_template(
+            template_id=template_id,
+            name=request.name,
+            created_by=current_user["id"]
+        )
+        logger.info(f"Cloned template {template_id} to playbook {playbook['id']} by user {current_user['id']}")
+        return playbook
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
