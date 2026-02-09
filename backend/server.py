@@ -1854,6 +1854,272 @@ async def download_legacy_agent():
         headers={"Content-Disposition": "attachment; filename=local_agent.py"}
     )
 
+# ============ QUARANTINE MANAGEMENT ENDPOINTS ============
+
+class QuarantineActionRequest(BaseModel):
+    entry_id: str
+
+@api_router.get("/quarantine")
+async def get_quarantine_list(
+    status: Optional[str] = None,
+    threat_type: Optional[str] = None,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get list of quarantined files"""
+    entries = list_quarantined(status=status, threat_type=threat_type, limit=limit)
+    return {"entries": [vars(e) if hasattr(e, '__dict__') else e.__dict__ for e in entries]}
+
+@api_router.get("/quarantine/summary")
+async def get_quarantine_stats(current_user: dict = Depends(get_current_user)):
+    """Get quarantine system summary statistics"""
+    return get_quarantine_summary()
+
+@api_router.get("/quarantine/{entry_id}")
+async def get_quarantine_details(entry_id: str, current_user: dict = Depends(get_current_user)):
+    """Get details of a specific quarantine entry"""
+    entry = get_quarantine_entry(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Quarantine entry not found")
+    return vars(entry) if hasattr(entry, '__dict__') else entry.__dict__
+
+@api_router.post("/quarantine/{entry_id}/restore")
+async def restore_quarantined_file(entry_id: str, current_user: dict = Depends(get_current_user)):
+    """Restore a quarantined file to its original location"""
+    # Only admins can restore files
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Only administrators can restore quarantined files")
+    
+    success = restore_file(entry_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to restore file")
+    
+    return {"status": "ok", "message": "File restored successfully"}
+
+@api_router.delete("/quarantine/{entry_id}")
+async def delete_quarantine_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
+    """Permanently delete a quarantined file"""
+    # Only admins can delete
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Only administrators can delete quarantined files")
+    
+    success = delete_quarantined(entry_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to delete file")
+    
+    return {"status": "ok", "message": "File permanently deleted"}
+
+# ============ NOTIFICATION SETTINGS ENDPOINTS ============
+
+class NotificationSettingsUpdate(BaseModel):
+    slack_webhook_url: Optional[str] = None
+    sendgrid_api_key: Optional[str] = None
+    sender_email: Optional[str] = None
+    alert_recipients: Optional[List[str]] = None
+    elasticsearch_url: Optional[str] = None
+    elasticsearch_api_key: Optional[str] = None
+
+class TestNotificationRequest(BaseModel):
+    channel: str  # slack, email, or all
+    message: Optional[str] = "This is a test notification from Anti-AI Defense System"
+
+@api_router.get("/settings/notifications")
+async def get_notification_settings(current_user: dict = Depends(get_current_user)):
+    """Get current notification settings (masked for security)"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    return {
+        "slack": {
+            "enabled": notification_config.slack_enabled,
+            "webhook_configured": bool(notification_config.slack_webhook_url)
+        },
+        "email": {
+            "enabled": notification_config.email_enabled,
+            "sendgrid_configured": bool(notification_config.sendgrid_api_key),
+            "sender_email": notification_config.sender_email,
+            "recipients_count": len([r for r in notification_config.alert_recipients if r])
+        },
+        "elasticsearch": {
+            "enabled": notification_config.elasticsearch_enabled,
+            "url_configured": bool(notification_config.elasticsearch_url)
+        }
+    }
+
+@api_router.post("/settings/notifications")
+async def update_notification_settings(
+    settings: NotificationSettingsUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update notification settings"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Store settings in database for persistence
+    settings_doc = {
+        "type": "notification_settings",
+        "updated_by": current_user.get("email"),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if settings.slack_webhook_url is not None:
+        settings_doc["slack_webhook_url"] = settings.slack_webhook_url
+        notification_config.slack_webhook_url = settings.slack_webhook_url
+    
+    if settings.sendgrid_api_key is not None:
+        settings_doc["sendgrid_api_key"] = settings.sendgrid_api_key
+        notification_config.sendgrid_api_key = settings.sendgrid_api_key
+    
+    if settings.sender_email is not None:
+        settings_doc["sender_email"] = settings.sender_email
+        notification_config.sender_email = settings.sender_email
+    
+    if settings.alert_recipients is not None:
+        settings_doc["alert_recipients"] = settings.alert_recipients
+        notification_config.alert_recipients = settings.alert_recipients
+    
+    if settings.elasticsearch_url is not None:
+        settings_doc["elasticsearch_url"] = settings.elasticsearch_url
+        notification_config.elasticsearch_url = settings.elasticsearch_url
+    
+    if settings.elasticsearch_api_key is not None:
+        settings_doc["elasticsearch_api_key"] = settings.elasticsearch_api_key
+        notification_config.elasticsearch_api_key = settings.elasticsearch_api_key
+    
+    await db.settings.update_one(
+        {"type": "notification_settings"},
+        {"$set": settings_doc},
+        upsert=True
+    )
+    
+    return {"status": "ok", "message": "Notification settings updated"}
+
+@api_router.post("/settings/notifications/test")
+async def test_notification(
+    request: TestNotificationRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """Send a test notification"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    results = {}
+    
+    if request.channel in ["slack", "all"]:
+        if notification_config.slack_enabled:
+            success = await send_slack_notification(
+                title="Test Notification",
+                message=request.message,
+                severity="low",
+                fields={"Sent By": current_user.get("email", "Unknown")}
+            )
+            results["slack"] = success
+        else:
+            results["slack"] = "Not configured"
+    
+    if request.channel in ["email", "all"]:
+        if notification_config.email_enabled:
+            success = await send_email_notification(
+                subject="Test Notification",
+                body=request.message,
+                severity="low"
+            )
+            results["email"] = success
+        else:
+            results["email"] = "Not configured"
+    
+    return {"status": "ok", "results": results}
+
+# ============ ELASTICSEARCH/KIBANA INTEGRATION ============
+
+@api_router.get("/elasticsearch/status")
+async def get_elasticsearch_status(current_user: dict = Depends(get_current_user)):
+    """Check Elasticsearch connection status"""
+    if not notification_config.elasticsearch_enabled:
+        return {"status": "not_configured", "message": "Elasticsearch URL not set"}
+    
+    try:
+        import httpx
+        headers = {"Content-Type": "application/json"}
+        if notification_config.elasticsearch_api_key:
+            headers["Authorization"] = f"ApiKey {notification_config.elasticsearch_api_key}"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(notification_config.elasticsearch_url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                return {"status": "connected", "info": response.json()}
+            else:
+                return {"status": "error", "code": response.status_code}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@api_router.get("/elasticsearch/indices")
+async def get_elasticsearch_indices(current_user: dict = Depends(get_current_user)):
+    """Get list of security-related Elasticsearch indices"""
+    if not notification_config.elasticsearch_enabled:
+        raise HTTPException(status_code=400, detail="Elasticsearch not configured")
+    
+    try:
+        import httpx
+        headers = {"Content-Type": "application/json"}
+        if notification_config.elasticsearch_api_key:
+            headers["Authorization"] = f"ApiKey {notification_config.elasticsearch_api_key}"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{notification_config.elasticsearch_url}/_cat/indices/security-*?format=json",
+                headers=headers,
+                timeout=10
+            )
+            if response.status_code == 200:
+                return {"indices": response.json()}
+            else:
+                raise HTTPException(status_code=response.status_code, detail="Failed to get indices")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/elasticsearch/search")
+async def search_elasticsearch(
+    index: str = "security-events-*",
+    query: Optional[Dict[str, Any]] = None,
+    size: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
+    """Search Elasticsearch for security events"""
+    if not notification_config.elasticsearch_enabled:
+        raise HTTPException(status_code=400, detail="Elasticsearch not configured")
+    
+    search_body = {
+        "query": query or {"match_all": {}},
+        "size": min(size, 1000),
+        "sort": [{"@timestamp": "desc"}]
+    }
+    
+    try:
+        import httpx
+        headers = {"Content-Type": "application/json"}
+        if notification_config.elasticsearch_api_key:
+            headers["Authorization"] = f"ApiKey {notification_config.elasticsearch_api_key}"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{notification_config.elasticsearch_url}/{index}/_search",
+                json=search_body,
+                headers=headers,
+                timeout=30
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(status_code=response.status_code, detail="Search failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============ ROOT ENDPOINT ============
 
 @api_router.get("/")
