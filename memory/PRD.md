@@ -9,6 +9,8 @@ Build a defensive AI system with:
 - Adversarial AI Detection Engine
 - Real-time threat detection and behavioral analysis
 - AI-powered threat intelligence
+- Local network scanning capabilities
+- Integration with tools like Suricata, Falco, YARA, Kibana
 
 ## User Personas
 1. **SOC Analyst** - Monitors threats, manages alerts, reviews AI analysis reports
@@ -18,12 +20,12 @@ Build a defensive AI system with:
 ## Core Requirements (Static)
 - [x] JWT-based authentication
 - [x] Real-time threat monitoring dashboard
-- [x] AI Detection Engine with GPT-5.2
+- [x] AI Detection Engine with GPT-4o
 - [x] Threat management (CRUD)
 - [x] Alert management system
 - [x] Dark cybersecurity theme
 
-## What's Been Implemented (Jan 2026)
+## What's Been Implemented (Feb 2026)
 
 ### Backend (FastAPI + MongoDB)
 - User authentication (register, login, JWT)
@@ -42,51 +44,45 @@ Build a defensive AI system with:
 - **Suricata IDS integration** - processes and stores IDS alerts
 - **YARA malware detection** - receives malware scan results
 - **Network discovery** - tracks discovered hosts from nmap scans
+- **Agent Download Endpoint** - serves comprehensive security installer
 
-### Local Security Agent (Python)
-- Downloadable agent script for local network scanning
+### Local Security Agent v2.0 (Python)
+Comprehensive single-file installer (`defender_installer.py`) with:
+- **Network Scanning** - nmap integration for host discovery
+- **Intrusion Detection** - Suricata IDS and Falco runtime security
+- **Antivirus/Anti-malware** - ClamAV and YARA rules
+- **Packet Capture** - scapy-based network analysis
+- **Process Monitoring** - suspicious activity detection
+- **Data Recovery** - file recovery from trash/recycle bin
+- **Local Web Dashboard** - real-time monitoring at localhost:5000
+- **Cloud Sync** - heartbeats and alerts to cloud dashboard
+
+Features:
 - System monitoring (CPU, memory, network interfaces)
 - Process monitoring for suspicious activity
 - Network scanning using nmap
 - Packet capture using scapy
-- YARA malware scanning with default rules
+- YARA malware scanning with comprehensive rules
+- ClamAV virus scanning
 - Suricata log monitoring
+- Falco runtime security monitoring
+- Data recovery tools
+- Local web dashboard
 - Real-time event reporting to cloud dashboard
 
 ### Frontend (React + Tailwind)
 - 9 pages: Dashboard, Agents, AI Detection, Threats, Alerts, Network Map, Threat Hunting, Honeypots, Reports
 - Real-time agent status monitoring
 - Discovered network hosts display
-- Agent download functionality
-
-### Frontend (React + Tailwind)
-- Login/Registration page with cyberpunk aesthetic
-- Main Dashboard with:
-  - Real-time threat stats (active, contained, resolved)
-  - Threat activity area chart (24h timeline)
-  - Threat distribution pie chart by severity
-  - Recent threats feed
-  - Alert feed with critical indicator
-  - System health bar
-- AI Detection Engine page with:
-  - 4 analysis types (Threat Detection, Behavior Analysis, Malware Scan, Pattern Recognition)
-  - Content input with sample loading
-  - GPT-5.2 powered analysis
-  - Risk score visualization
-  - Analysis history
-- Threats Management page with:
-  - Add new threat dialog
-  - Filter by status/severity
-  - Contain/Resolve actions
-- Alerts Management page with:
-  - Filter by status/severity
-  - Acknowledge/Resolve actions
+- Agent download functionality with comprehensive instructions
+- Cyberpunk aesthetic design
 
 ## Technology Stack
 - Frontend: React 19, Tailwind CSS, Recharts, Framer Motion
 - Backend: FastAPI, Motor (MongoDB async)
-- AI: OpenAI GPT-5.2 via Emergent LLM key
+- AI: OpenAI GPT-4o via Emergent LLM key
 - Auth: JWT (PyJWT, bcrypt)
+- Security Tools: Nmap, Suricata, Falco, YARA, ClamAV, Scapy
 
 ## Prioritized Backlog
 
@@ -95,6 +91,7 @@ Build a defensive AI system with:
 - [x] Dashboard with real-time stats
 - [x] AI Detection Engine
 - [x] Threat/Alert management
+- [x] Comprehensive local agent installer
 
 ### P1 (High Priority) - Done
 - [x] Network topology visualization
@@ -104,21 +101,64 @@ Build a defensive AI system with:
 - [x] Role-based access control (admin/analyst/viewer)
 - [x] PDF report generation
 - [x] AI-powered executive summaries
+- [x] Local agent with all security tools integrated
 
 ### P2 (Medium Priority) - Future
+- [ ] Real-time WebSocket updates from local agent
+- [ ] Elastic/Kibana integration
 - [ ] Audit logging
-- [ ] Email notifications
+- [ ] Email notifications for critical alerts
 - [ ] Custom dashboard widgets
 - [ ] Multi-tenant support
 
 ### P3 (Nice to Have) - Future
 - [ ] Dark/Light theme toggle
-- [ ] Custom dashboard widgets
 - [ ] API rate limiting
-- [ ] Multi-tenant support
+- [ ] Threat timeline reconstruction view
+- [ ] Autonomous response capabilities
+- [ ] Polymorphic malware intelligence
+- [ ] Meta-learning and adaptation
 
-## Next Tasks
-1. Add audit logging for security events
-2. Implement email/Slack notifications for critical alerts
-3. Create custom dashboard widgets
-4. Add threat timeline reconstruction view
+## Code Architecture
+```
+/app
+├── backend/
+│   ├── .env
+│   ├── requirements.txt
+│   ├── server.py
+│   └── tests/
+├── frontend/
+│   ├── public/
+│   └── src/
+│       ├── components/
+│       ├── context/
+│       ├── pages/
+│       ├── App.js
+│       └── index.css
+├── scripts/
+│   ├── defender_installer.py  # Main installer (v2.0)
+│   ├── agent.py               # Legacy agent
+│   ├── install.py             # Legacy installer
+│   └── local_agent.py         # Legacy simple agent
+├── memory/
+│   └── PRD.md
+└── test_reports/
+```
+
+## Key API Endpoints
+- `/api/auth/{register, login}`: User authentication
+- `/api/dashboard/stats`: Dashboard statistics
+- `/api/ai/analyze`: AI threat analysis
+- `/api/network/topology`: Network graph data
+- `/api/hunting/hypotheses`: AI threat hunting
+- `/api/reports/generate`: PDF reports
+- `/api/agent/event`: Receive agent data
+- `/api/agent/download`: Download security agent installer
+- `/ws/threats`: WebSocket for real-time updates
+
+## Test Credentials
+- Email: admin@defender.io
+- Password: defender123
+
+## Last Updated
+February 9, 2026 - Added comprehensive security agent installer v2.0 with Nmap, Suricata, Falco, YARA, ClamAV, packet capture, and data recovery.
