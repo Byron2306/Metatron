@@ -10,7 +10,9 @@ import {
   Cpu,
   Activity,
   Network,
-  Crosshair
+  Crosshair,
+  Radar,
+  FileText
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -30,6 +32,8 @@ const Layout = () => {
     { path: '/alerts', icon: Bell, label: 'Alerts' },
     { path: '/network', icon: Network, label: 'Network Map' },
     { path: '/hunting', icon: Crosshair, label: 'Threat Hunting' },
+    { path: '/honeypots', icon: Radar, label: 'Honeypots' },
+    { path: '/reports', icon: FileText, label: 'Reports' },
   ];
 
   return (
