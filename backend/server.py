@@ -615,6 +615,347 @@ async def seed_data():
     
     return {"message": "Demo data seeded successfully", "threats": len(sample_threats), "alerts": len(sample_alerts)}
 
+# ============ WEBSOCKET ENDPOINT ============
+
+@app.websocket("/ws/threats")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive and listen for messages
+            data = await websocket.receive_text()
+            # Echo back or handle commands
+            await websocket.send_json({"type": "ack", "message": "received"})
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
+# Helper to broadcast threat updates
+async def broadcast_threat_update(threat_data: dict, action: str):
+    await ws_manager.broadcast({
+        "type": "threat_update",
+        "action": action,
+        "data": threat_data,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+
+# ============ NETWORK TOPOLOGY ENDPOINTS ============
+
+class NetworkNode(BaseModel):
+    id: str
+    label: str
+    type: str  # server, workstation, router, firewall, cloud, attacker
+    ip: Optional[str] = None
+    status: str = "normal"  # normal, compromised, suspicious, protected
+    threat_count: int = 0
+
+class NetworkLink(BaseModel):
+    source: str
+    target: str
+    type: str = "connection"  # connection, attack, data_flow
+    strength: float = 1.0
+
+class NetworkTopology(BaseModel):
+    nodes: List[NetworkNode]
+    links: List[NetworkLink]
+
+@api_router.get("/network/topology", response_model=NetworkTopology)
+async def get_network_topology(current_user: dict = Depends(get_current_user)):
+    """Generate network topology based on threats and system data"""
+    
+    # Get all threats with IPs
+    threats = await db.threats.find({"status": {"$ne": "resolved"}}, {"_id": 0}).to_list(100)
+    
+    # Build nodes - core infrastructure
+    nodes = [
+        NetworkNode(id="firewall-1", label="Edge Firewall", type="firewall", ip="10.0.0.1", status="protected"),
+        NetworkNode(id="router-1", label="Core Router", type="router", ip="10.0.0.2", status="normal"),
+        NetworkNode(id="server-web", label="Web Server", type="server", ip="10.0.1.10", status="normal"),
+        NetworkNode(id="server-api", label="API Server", type="server", ip="10.0.1.11", status="normal"),
+        NetworkNode(id="server-db", label="Database", type="server", ip="10.0.1.20", status="protected"),
+        NetworkNode(id="server-ml", label="ML Pipeline", type="server", ip="10.0.1.30", status="normal"),
+        NetworkNode(id="server-file", label="File Server", type="server", ip="10.0.1.40", status="normal"),
+        NetworkNode(id="cloud-1", label="Cloud Services", type="cloud", ip="cloud.defense.io", status="normal"),
+        NetworkNode(id="ws-1", label="Analyst WS-01", type="workstation", ip="10.0.2.10", status="normal"),
+        NetworkNode(id="ws-2", label="Analyst WS-02", type="workstation", ip="10.0.2.11", status="normal"),
+    ]
+    
+    # Add attacker nodes based on threats
+    attacker_ips = set()
+    for threat in threats:
+        if threat.get("source_ip") and threat["source_ip"] not in attacker_ips:
+            attacker_ips.add(threat["source_ip"])
+            severity = threat.get("severity", "medium")
+            nodes.append(NetworkNode(
+                id=f"attacker-{threat['source_ip'].replace('.', '-')}",
+                label=f"Threat: {threat['name'][:20]}",
+                type="attacker",
+                ip=threat["source_ip"],
+                status="compromised" if severity in ["critical", "high"] else "suspicious",
+                threat_count=1
+            ))
+    
+    # Update node statuses based on threats targeting them
+    target_threats = {}
+    for threat in threats:
+        target = threat.get("target_system", "")
+        if target:
+            target_lower = target.lower()
+            if "api" in target_lower:
+                target_threats["server-api"] = target_threats.get("server-api", 0) + 1
+            elif "web" in target_lower:
+                target_threats["server-web"] = target_threats.get("server-web", 0) + 1
+            elif "ml" in target_lower or "pipeline" in target_lower:
+                target_threats["server-ml"] = target_threats.get("server-ml", 0) + 1
+            elif "file" in target_lower:
+                target_threats["server-file"] = target_threats.get("server-file", 0) + 1
+            elif "database" in target_lower or "db" in target_lower:
+                target_threats["server-db"] = target_threats.get("server-db", 0) + 1
+    
+    for node in nodes:
+        if node.id in target_threats:
+            node.threat_count = target_threats[node.id]
+            node.status = "suspicious" if target_threats[node.id] >= 1 else node.status
+            if target_threats[node.id] >= 2:
+                node.status = "compromised"
+    
+    # Build links - infrastructure connections
+    links = [
+        NetworkLink(source="firewall-1", target="router-1", type="connection"),
+        NetworkLink(source="router-1", target="server-web", type="connection"),
+        NetworkLink(source="router-1", target="server-api", type="connection"),
+        NetworkLink(source="router-1", target="server-db", type="connection"),
+        NetworkLink(source="router-1", target="server-ml", type="connection"),
+        NetworkLink(source="router-1", target="server-file", type="connection"),
+        NetworkLink(source="server-api", target="server-db", type="data_flow"),
+        NetworkLink(source="server-api", target="server-ml", type="data_flow"),
+        NetworkLink(source="server-web", target="server-api", type="data_flow"),
+        NetworkLink(source="cloud-1", target="firewall-1", type="connection"),
+        NetworkLink(source="router-1", target="ws-1", type="connection"),
+        NetworkLink(source="router-1", target="ws-2", type="connection"),
+    ]
+    
+    # Add attack links from threats
+    for threat in threats:
+        if threat.get("source_ip"):
+            attacker_id = f"attacker-{threat['source_ip'].replace('.', '-')}"
+            target = threat.get("target_system", "").lower()
+            target_id = "server-api"  # default
+            if "web" in target:
+                target_id = "server-web"
+            elif "ml" in target or "pipeline" in target:
+                target_id = "server-ml"
+            elif "file" in target:
+                target_id = "server-file"
+            elif "database" in target or "db" in target:
+                target_id = "server-db"
+            
+            links.append(NetworkLink(
+                source=attacker_id,
+                target="firewall-1",
+                type="attack",
+                strength=2.0 if threat.get("severity") == "critical" else 1.5
+            ))
+    
+    return NetworkTopology(nodes=nodes, links=links)
+
+# ============ THREAT HUNTING ENDPOINTS ============
+
+class HuntingHypothesis(BaseModel):
+    id: str
+    title: str
+    description: str
+    category: str  # ai_behavior, malware, lateral_movement, data_exfil, persistence
+    confidence: float
+    indicators: List[str]
+    recommended_actions: List[str]
+    related_threats: List[str]
+    status: str = "pending"  # pending, investigating, confirmed, dismissed
+    created_at: str
+
+class HuntingRequest(BaseModel):
+    focus_area: Optional[str] = None  # ai_agents, malware, network, all
+    time_range_hours: int = 24
+
+@api_router.post("/hunting/generate", response_model=List[HuntingHypothesis])
+async def generate_hunting_hypotheses(request: HuntingRequest, current_user: dict = Depends(get_current_user)):
+    """AI-powered threat hunting hypothesis generation"""
+    
+    # Get recent threats and alerts for context
+    threats = await db.threats.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    alerts = await db.alerts.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    
+    # Build context for AI
+    context = f"""Recent Threats: {len(threats)} detected
+Threat Types: {', '.join(set(t.get('type', 'unknown') for t in threats))}
+Active Threats: {len([t for t in threats if t.get('status') == 'active'])}
+Recent Alerts: {len(alerts)}
+Focus Area: {request.focus_area or 'all'}
+Time Range: Last {request.time_range_hours} hours"""
+
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"hunting-{str(uuid.uuid4())[:8]}",
+            system_message="""You are an elite threat hunting AI. Generate threat hunting hypotheses based on the security context provided.
+For each hypothesis, provide:
+1. A clear title
+2. Detailed description of what to look for
+3. Category (ai_behavior, malware, lateral_movement, data_exfil, persistence)
+4. Confidence score (0-100)
+5. Specific indicators to search for
+6. Recommended investigation actions
+
+Return exactly 3-5 hypotheses in a structured format. Be specific and actionable."""
+        ).with_model("openai", "gpt-5.2")
+        
+        user_message = UserMessage(text=f"""Based on this security context, generate threat hunting hypotheses:
+
+{context}
+
+Threat Details:
+{json.dumps([{'name': t.get('name'), 'type': t.get('type'), 'severity': t.get('severity'), 'indicators': t.get('indicators', [])} for t in threats[:5]], indent=2)}
+
+Generate hunting hypotheses that would help discover hidden threats or validate existing detections.""")
+        
+        response = await chat.send_message(user_message)
+        
+        # Generate structured hypotheses based on context and AI response
+        hypotheses = []
+        
+        # AI Agent Detection Hypothesis
+        if not request.focus_area or request.focus_area in ["ai_agents", "all"]:
+            ai_threats = [t for t in threats if t.get("type") == "ai_agent"]
+            hypotheses.append(HuntingHypothesis(
+                id=str(uuid.uuid4()),
+                title="Undetected AI Agent Activity",
+                description="Hunt for AI agents that may be evading current detection by analyzing API request patterns, timing distributions, and behavioral signatures that indicate non-human operators.",
+                category="ai_behavior",
+                confidence=75.0 if ai_threats else 50.0,
+                indicators=[
+                    "Requests with sub-millisecond timing precision",
+                    "Perfect distribution of request intervals",
+                    "Adaptive payload modifications",
+                    "Sequential endpoint enumeration patterns"
+                ],
+                recommended_actions=[
+                    "Analyze API logs for timing anomalies",
+                    "Review authentication patterns for automated behavior",
+                    "Check for systematic data access patterns",
+                    "Monitor for adversarial ML inputs"
+                ],
+                related_threats=[t.get("id", "") for t in ai_threats[:3]],
+                status="pending",
+                created_at=datetime.now(timezone.utc).isoformat()
+            ))
+        
+        # Lateral Movement Hypothesis
+        if not request.focus_area or request.focus_area in ["network", "all"]:
+            hypotheses.append(HuntingHypothesis(
+                id=str(uuid.uuid4()),
+                title="Internal Lateral Movement Detection",
+                description="Hunt for signs of lateral movement within the network by analyzing internal traffic patterns, unusual authentication sequences, and cross-system access that deviates from baseline behavior.",
+                category="lateral_movement",
+                confidence=60.0,
+                indicators=[
+                    "Unusual internal SSH/RDP connections",
+                    "Service account usage anomalies",
+                    "Sequential system access patterns",
+                    "Off-hours administrative actions"
+                ],
+                recommended_actions=[
+                    "Review internal firewall logs",
+                    "Analyze authentication logs for pass-the-hash indicators",
+                    "Check for unusual service account activity",
+                    "Map internal connection patterns"
+                ],
+                related_threats=[],
+                status="pending",
+                created_at=datetime.now(timezone.utc).isoformat()
+            ))
+        
+        # Malware Persistence Hypothesis  
+        if not request.focus_area or request.focus_area in ["malware", "all"]:
+            malware_threats = [t for t in threats if t.get("type") in ["malware", "ransomware"]]
+            hypotheses.append(HuntingHypothesis(
+                id=str(uuid.uuid4()),
+                title="Hidden Persistence Mechanisms",
+                description="Hunt for malware persistence mechanisms that may have been established during previous compromises, including registry modifications, scheduled tasks, and startup entries.",
+                category="persistence",
+                confidence=70.0 if malware_threats else 45.0,
+                indicators=[
+                    "Modified startup registry keys",
+                    "Unusual scheduled tasks",
+                    "Hidden services or drivers",
+                    "Modified system binaries"
+                ],
+                recommended_actions=[
+                    "Run autoruns analysis on critical systems",
+                    "Compare current state to known-good baselines",
+                    "Check for unsigned drivers or services",
+                    "Review scheduled task creation logs"
+                ],
+                related_threats=[t.get("id", "") for t in malware_threats[:3]],
+                status="pending",
+                created_at=datetime.now(timezone.utc).isoformat()
+            ))
+        
+        # Data Exfiltration Hypothesis
+        hypotheses.append(HuntingHypothesis(
+            id=str(uuid.uuid4()),
+            title="Covert Data Exfiltration Channels",
+            description="Hunt for potential data exfiltration activities including DNS tunneling, encrypted channels to unknown destinations, and unusual outbound data volumes.",
+            category="data_exfil",
+            confidence=55.0,
+            indicators=[
+                "High-entropy DNS queries",
+                "Large outbound data to new destinations",
+                "Connections to known bad IPs/domains",
+                "Unusual protocol usage on standard ports"
+            ],
+            recommended_actions=[
+                "Analyze DNS query logs for tunneling patterns",
+                "Review NetFlow data for volume anomalies",
+                "Check TLS certificate validity for outbound connections",
+                "Monitor cloud storage API access patterns"
+            ],
+            related_threats=[],
+            status="pending",
+            created_at=datetime.now(timezone.utc).isoformat()
+        ))
+        
+        # Store hypotheses
+        for h in hypotheses:
+            await db.hunting_hypotheses.insert_one(h.model_dump())
+        
+        return hypotheses
+        
+    except Exception as e:
+        logger.error(f"Hunting hypothesis generation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate hypotheses: {str(e)}")
+
+@api_router.get("/hunting/hypotheses", response_model=List[HuntingHypothesis])
+async def get_hunting_hypotheses(status: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """Get all hunting hypotheses"""
+    query = {}
+    if status:
+        query["status"] = status
+    hypotheses = await db.hunting_hypotheses.find(query, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return [HuntingHypothesis(**h) for h in hypotheses]
+
+@api_router.patch("/hunting/hypotheses/{hypothesis_id}/status")
+async def update_hypothesis_status(hypothesis_id: str, status: str, current_user: dict = Depends(get_current_user)):
+    """Update hunting hypothesis status"""
+    if status not in ["pending", "investigating", "confirmed", "dismissed"]:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    
+    result = await db.hunting_hypotheses.update_one(
+        {"id": hypothesis_id},
+        {"$set": {"status": status}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+    return {"message": "Status updated", "status": status}
+
 # ============ ROOT ENDPOINT ============
 
 @api_router.get("/")
