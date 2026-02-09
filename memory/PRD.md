@@ -217,14 +217,15 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - ✅ EDR capabilities
 
 ### Simulated/Mock (Requires External Setup)
-- ⚠️ Sandbox Analysis: Simulated VM execution (real Cuckoo requires full VM infrastructure)
-- ⚠️ Kibana: Requires Elasticsearch/Kibana deployment for full visualization
 - ⚠️ Twilio SMS: Needs valid FROM number
 
 ### Real & Working
-- ✅ WireGuard VPN - Fully installed and operational
+- ✅ WireGuard VPN - Tunnel configured with client configs
 - ✅ Trivy Container Scanner - Scanning real images
 - ✅ Volatility 3 - Memory forensics ready
+- ✅ Elasticsearch 8.19.11 - Running on localhost:9200
+- ✅ Kibana 8.19.11 - Running on localhost:5601
+- ✅ Firejail Sandbox - Production mode with real process isolation
 
 ## Credentials Status
 
