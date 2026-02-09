@@ -58,7 +58,7 @@ RECOVERY_DIR = INSTALL_DIR / "recovery"
 CONFIG_FILE = INSTALL_DIR / "config.json"
 
 # Cloud API endpoint - UPDATE THIS TO YOUR DEPLOYMENT
-CLOUD_API_URL = "https://cybershield-169.preview.emergentagent.com/api"
+CLOUD_API_URL = "https://sentinel-ai-37.preview.emergentagent.com/api"
 
 # Python packages required
 PYTHON_PACKAGES = [
