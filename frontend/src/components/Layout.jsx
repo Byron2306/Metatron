@@ -13,7 +13,9 @@ import {
   Crosshair,
   Radar,
   FileText,
-  Monitor
+  Monitor,
+  ShieldAlert,
+  Settings
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -32,10 +34,12 @@ const Layout = () => {
     { path: '/ai-detection', icon: Cpu, label: 'AI Detection' },
     { path: '/threats', icon: AlertTriangle, label: 'Threats' },
     { path: '/alerts', icon: Bell, label: 'Alerts' },
+    { path: '/quarantine', icon: ShieldAlert, label: 'Quarantine' },
     { path: '/network', icon: Network, label: 'Network Map' },
     { path: '/hunting', icon: Crosshair, label: 'Threat Hunting' },
     { path: '/honeypots', icon: Radar, label: 'Honeypots' },
     { path: '/reports', icon: FileText, label: 'Reports' },
+    { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 
   return (
