@@ -7,9 +7,35 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v1.0.0**: Initial dashboard with simulated threats
 - **v2.0.0**: Real network scanning, local agent, notifications
 - **v3.0.0**: Backend refactoring + 4 enterprise security features
-- **v3.1.0**: Frontend pages for all 6 enterprise features + Enhanced installer (CURRENT)
+- **v3.1.0**: Frontend pages for all 6 enterprise features + Enhanced installer
+- **v3.2.0**: SOAR Playbook Engine + Bug fixes (CURRENT - Feb 2026)
 
-## v3.1 New Features (Feb 2026)
+## v3.2 New Features (Feb 2026)
+
+### 1. SOAR Playbook Engine ✅
+- **5 Pre-configured Playbooks**: Malware, Ransomware, IOC Match, Suspicious Process, Honeypot
+- **10 Available Actions**: Block IP, Kill Process, Quarantine File, Send Alert, Isolate Endpoint, Collect Forensics, Disable User, Scan Endpoint, Update Firewall, Create Ticket
+- **8 Trigger Types**: Threat Detected, Malware Found, Ransomware Detected, Suspicious Process, IOC Match, Honeypot Triggered, Anomaly Detected, Manual
+- **Execution Tracking**: Full history with step-by-step results
+
+### 2. Bug Fixes ✅
+- Fixed Settings page crash (frontend expected nested structure, backend returned flat)
+- Fixed Quarantine page crash (frontend expected {entries: []}, backend returned [])
+
+### 3. New UI Page ✅
+- **SOAR Page**: Visual playbook management with toggle switches, execution buttons, and history
+
+## Credentials Required for Full Functionality
+
+| Service | Credential | How to Get |
+|---------|-----------|------------|
+| **Slack** | Webhook URL | api.slack.com/apps → Create App → Incoming Webhooks → Add to Workspace |
+| **SendGrid** | API Key | sendgrid.com → Settings → API Keys → Create (starts with `SG.`) |
+| **Twilio** | Account SID, Auth Token, Phone | twilio.com → Console Dashboard |
+| **Elasticsearch** | URL + API Key | elastic.co/cloud → Create Deployment → Security → API Key |
+| **OpenClaw** | API Key + Gateway URL | From your OpenClaw provider |
+
+## v3.1 Features (Completed)
 
 ### 1. Complete UI for All Enterprise Features ✅
 - **Threat Intelligence Page**: IOC lookup, feed stats, real-time search
@@ -31,9 +57,9 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **Volatility 3 Installation**: Memory forensics framework
 - **Improved UX**: Automatic browser opening for manual downloads
 
-## Architecture (v3.1)
+## Architecture (v3.2)
 
-### Frontend Structure (20 Pages)
+### Frontend Structure (21 Pages)
 ```
 /app/frontend/src/pages/
 ├── DashboardPage.jsx          # Main dashboard
@@ -50,12 +76,13 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 ├── ThreatResponsePage.jsx     # Auto-response rules
 ├── TimelinePage.jsx           # Threat timeline
 ├── AuditLogPage.jsx           # Audit logs
-├── ThreatIntelPage.jsx        # NEW: Threat intelligence
-├── RansomwarePage.jsx         # NEW: Ransomware protection
-├── ContainerSecurityPage.jsx  # NEW: Container security
-├── VPNPage.jsx                # NEW: VPN management
-├── CorrelationPage.jsx        # NEW: Threat correlation
-└── EDRPage.jsx                # NEW: EDR & Memory Forensics
+├── ThreatIntelPage.jsx        # Threat intelligence
+├── RansomwarePage.jsx         # Ransomware protection
+├── ContainerSecurityPage.jsx  # Container security
+├── VPNPage.jsx                # VPN management
+├── CorrelationPage.jsx        # Threat correlation
+├── EDRPage.jsx                # EDR & Memory Forensics
+└── SOARPage.jsx               # NEW: SOAR Playbooks
 ```
 
 ### Backend Structure (23 Router Modules)
