@@ -291,7 +291,8 @@ class BayesianClassifier:
         
         posteriors = {}
         
-        for category in self.categories:
+        # Only iterate over categories that have been trained
+        for category in self.priors.keys():
             log_prob = math.log(self.priors[category])
             
             for i, val in enumerate(x):
