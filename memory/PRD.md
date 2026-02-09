@@ -6,170 +6,175 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 ## Version History
 - **v1.0.0**: Initial dashboard with simulated threats
 - **v2.0.0**: Real network scanning, local agent, notifications
-- **v3.0.0**: Backend refactoring, advanced security monitoring (CURRENT)
+- **v3.0.0**: Backend refactoring + 4 enterprise security features (CURRENT)
 
-## Core Features (Implemented)
+## v3.0 New Features
 
-### Authentication & Authorization
-- [x] JWT-based authentication
-- [x] Role-Based Access Control (admin, analyst, viewer)
-- [x] User registration and login
+### 1. Threat Intelligence Feeds ✅
+- **Abuse.ch Integration**: URLhaus (malicious URLs), Feodo Tracker (botnet C2 IPs)
+- **Emerging Threats Integration**: Compromised IP blocklists
+- **AlienVault OTX**: Ready for API key (optional)
+- **Total Indicators**: ~20,500+ IOCs loaded
+- **Features**:
+  - Real-time IOC lookup (IP, domain, URL, file hashes)
+  - Bulk checking capability
+  - Auto-refresh feeds (configurable interval)
+  - Match logging and history
 
-### Dashboard & Visualization
-- [x] Real-time threat dashboard with statistics
-- [x] Network topology graph visualization
-- [x] Threat severity and type breakdown
-- [x] System health monitoring
+### 2. Ransomware Protection ✅
+- **Canary Files**: Decoy files that trigger alerts when modified
+  - Attractive filenames (Financial_Records, Passwords, etc.)
+  - Auto-deployed to user directories
+- **Behavioral Detection**: 
+  - Mass encryption pattern detection
+  - Suspicious file rename monitoring (.encrypted, .locked, etc.)
+- **Protected Folders**: Whitelist-based folder protection
+- **Auto-response**: Optional auto-kill for detected ransomware
 
-### Threat Management
-- [x] Threat detection and classification
-- [x] AI-powered threat analysis (GPT-5.2/Emergent LLM)
-- [x] Threat hunting with hypothesis generation
-- [x] Honeypot management and monitoring
+### 3. Container Security (Trivy) ✅
+- **Image Vulnerability Scanning**: Trivy-based CVE detection
+- **Runtime Monitoring**: 
+  - Privileged container detection
+  - Crypto-miner detection
+  - Container escape monitoring
+- **Security Scoring**: Per-container risk assessment
+- **Integration**: Works with existing Falco integration
 
-### Local Security Agent (v3.0)
-- [x] Comprehensive installer script (defender_installer.py)
-- [x] Network scanning (nmap)
-- [x] Intrusion detection (Suricata, Falco)
-- [x] Malware detection (YARA, ClamAV)
-- [x] **NEW: Live task manager monitoring**
-- [x] **NEW: Suspicious process detection & auto-kill**
-- [x] **NEW: PUP (Potentially Unwanted Programs) detection**
-- [x] **NEW: Privilege escalation monitoring**
-- [x] **NEW: Hidden file/folder scanner**
-- [x] **NEW: Rootkit detection & repair**
-- [x] **NEW: Advanced scan functions (full/quick)**
+### 4. VPN Integration (WireGuard) ✅
+- **Server Management**: Initialize, start, stop WireGuard server
+- **Peer Management**: Add/remove VPN clients
+- **Config Generation**: Auto-generate client configs
+- **Kill Switch**: Block all traffic if VPN drops
+- **DNS Leak Protection**: Configurable DNS servers
 
-### Automated Response
-- [x] Automatic IP blocking
-- [x] File quarantine system
-- [x] SMS alerts via Twilio
-- [x] Slack notifications
-- [x] Email alerts via SendGrid
+## Architecture (v3.0)
 
-### Auditing & Forensics
-- [x] Comprehensive audit logging
-- [x] Threat timeline reconstruction
-- [x] PDF report generation
-
-### Integrations
-- [x] OpenClaw AI gateway (configuration ready)
-- [x] Elasticsearch (configuration ready)
-- [x] Slack, SendGrid, Twilio (require API keys)
-
-## Architecture (v3.0 - Refactored)
-
-### Backend Structure
+### Backend Structure (21 Router Modules)
 ```
 /app/backend/
-├── server.py              # Main FastAPI app (171 lines - refactored!)
-├── routers/               # Modular API routers
-│   ├── __init__.py
-│   ├── dependencies.py    # Shared auth, models, utilities
-│   ├── auth.py           # Authentication endpoints
-│   ├── threats.py        # Threat CRUD
-│   ├── alerts.py         # Alert CRUD
-│   ├── ai_analysis.py    # AI-powered analysis
-│   ├── dashboard.py      # Dashboard stats
-│   ├── network.py        # Network topology
-│   ├── hunting.py        # Threat hunting
-│   ├── honeypots.py      # Honeypot management
-│   ├── reports.py        # Report generation
-│   ├── agents.py         # Local agent management
-│   ├── quarantine.py     # File quarantine
-│   ├── settings.py       # Notification settings
-│   ├── response.py       # Threat response
-│   ├── audit.py          # Audit logging
-│   ├── timeline.py       # Threat timeline
-│   ├── websocket.py      # WebSocket management
-│   └── openclaw.py       # OpenClaw AI config
-├── audit_logging.py
-├── threat_timeline.py
-├── threat_response.py
-├── quarantine.py
-├── notifications.py
-└── websocket_service.py
+├── server.py                    # Main FastAPI app (200 lines)
+├── routers/
+│   ├── auth.py                  # Authentication
+│   ├── threats.py               # Threat management
+│   ├── alerts.py                # Alert management
+│   ├── ai_analysis.py           # AI-powered analysis
+│   ├── dashboard.py             # Dashboard stats
+│   ├── network.py               # Network topology
+│   ├── hunting.py               # Threat hunting
+│   ├── honeypots.py             # Honeypot management
+│   ├── reports.py               # PDF reports
+│   ├── agents.py                # Local agent management
+│   ├── quarantine.py            # File quarantine
+│   ├── settings.py              # Notification settings
+│   ├── response.py              # Threat response
+│   ├── audit.py                 # Audit logging
+│   ├── timeline.py              # Threat timeline
+│   ├── websocket.py             # WebSocket management
+│   ├── openclaw.py              # OpenClaw AI config
+│   ├── threat_intel.py          # NEW: Threat intelligence
+│   ├── ransomware.py            # NEW: Ransomware protection
+│   ├── containers.py            # NEW: Container security
+│   └── vpn.py                   # NEW: VPN integration
+├── threat_intel.py              # Threat feed service
+├── ransomware_protection.py     # Ransomware service
+├── container_security.py        # Container/Trivy service
+├── vpn_integration.py           # WireGuard service
+└── ... (existing services)
 ```
 
-### Local Agent (v3.0)
-```
-/app/scripts/
-├── defender_installer.py  # Main installer (v3.0)
-└── advanced_security.py   # Advanced security module
-```
+## API Endpoints (v3.0 Additions)
 
-## API Endpoints
+### Threat Intelligence
+- `GET /api/threat-intel/stats` - Get feed statistics
+- `POST /api/threat-intel/check` - Check single IOC
+- `POST /api/threat-intel/check-bulk` - Check multiple IOCs
+- `POST /api/threat-intel/update` - Refresh feeds
+- `GET /api/threat-intel/feeds` - Get feed status
+- `GET /api/threat-intel/matches/recent` - Recent matches
 
-### Core
-- `GET /api/health` - Health check
-- `GET /api/` - API info
+### Ransomware Protection
+- `GET /api/ransomware/status` - Protection status
+- `POST /api/ransomware/start` - Start protection
+- `POST /api/ransomware/stop` - Stop protection
+- `POST /api/ransomware/canaries/deploy` - Deploy canary files
+- `GET /api/ransomware/canaries` - List canaries
+- `POST /api/ransomware/canaries/check` - Check canary integrity
+- `GET /api/ransomware/protected-folders` - List protected folders
+- `POST /api/ransomware/protected-folders` - Add protected folder
 
-### Authentication
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `GET /api/auth/me` - Current user info
+### Container Security
+- `GET /api/containers/stats` - Container security stats
+- `GET /api/containers` - Running containers
+- `GET /api/containers/{id}/security` - Container security check
+- `POST /api/containers/scan` - Scan image
+- `POST /api/containers/scan-all` - Scan all images
+- `GET /api/containers/scans/history` - Scan history
 
-### Threats & Alerts
-- `GET/POST /api/threats` - Threat management
-- `GET/POST /api/alerts` - Alert management
-- `GET /api/dashboard/stats` - Dashboard statistics
-
-### Security Features
-- `GET /api/network/topology` - Network graph
-- `POST /api/hunting/generate` - Generate hunt hypotheses
-- `GET/POST /api/honeypots` - Honeypot management
-- `GET /api/quarantine/summary` - Quarantine stats
-- `GET /api/threat-response/stats` - Response statistics
-- `GET /api/audit/logs` - Audit logs
-- `GET /api/timeline/{threat_id}` - Threat timeline
-
-### Configuration
-- `GET/POST /api/settings/notifications` - Notification config
-- `GET/POST /api/openclaw/config` - OpenClaw AI config
-- `GET /api/agent/download` - Download local agent
-
-## Configuration Required
-
-### Third-Party API Keys (via Settings page)
-- **Twilio**: SMS alerts (account_sid, auth_token, phone_number)
-- **Slack**: Webhook URL for notifications
-- **SendGrid**: Email alerts (api_key)
-- **Elasticsearch**: Log analysis (url, api_key)
-- **OpenClaw**: AI gateway (url, api_key)
+### VPN Integration
+- `GET /api/vpn/status` - VPN server status
+- `POST /api/vpn/initialize` - Initialize WireGuard
+- `POST /api/vpn/start` - Start VPN server
+- `POST /api/vpn/stop` - Stop VPN server
+- `GET /api/vpn/peers` - List VPN peers
+- `POST /api/vpn/peers` - Add peer
+- `GET /api/vpn/peers/{id}/config` - Get peer config file
+- `DELETE /api/vpn/peers/{id}` - Remove peer
+- `GET /api/vpn/kill-switch` - Kill switch status
+- `POST /api/vpn/kill-switch/enable` - Enable kill switch
+- `POST /api/vpn/kill-switch/disable` - Disable kill switch
 
 ## What's Working
-- ✅ All 17 API router modules
-- ✅ Authentication & authorization
-- ✅ Dashboard with real-time stats
-- ✅ Network topology visualization
-- ✅ Threat and alert management
-- ✅ AI-powered analysis
-- ✅ Local agent installer (v3.0 with advanced features)
-- ✅ Audit logging and timeline
-- ✅ PDF report generation
+- ✅ All 21 API router modules
+- ✅ Threat Intelligence with ~20.5k indicators
+- ✅ Ransomware canary deployment
+- ✅ Container security endpoints (Trivy integration ready)
+- ✅ VPN endpoints (WireGuard integration ready)
+- ✅ All previous v2.0 features
 
-## What Requires User Configuration
-- ⚠️ Twilio SMS alerts (need API keys)
-- ⚠️ Slack notifications (need webhook URL)
-- ⚠️ SendGrid emails (need API key)
-- ⚠️ Elasticsearch logging (need cluster URL)
-- ⚠️ OpenClaw AI (need gateway URL)
+## Configuration Notes
+
+### Threat Intelligence
+- Feeds auto-update every 6 hours
+- AlienVault OTX requires API key (optional)
+- Set `OTX_API_KEY` for OTX integration
+
+### Container Security
+- Requires Trivy installed on agent
+- Install: `apt install trivy` or `brew install trivy`
+
+### VPN Integration
+- Requires WireGuard installed on server
+- Install: `apt install wireguard`
+- Server endpoint configured via `VPN_SERVER_ENDPOINT`
+
+## Comparison: Standard AV vs This System
+
+| Feature | Standard AV | This System |
+|---------|------------|-------------|
+| Signature detection | ✅ | ✅ (YARA + feeds) |
+| Behavioral analysis | ✅ | ✅ |
+| Network protection | ✅ | ✅ (Suricata) |
+| Ransomware protection | ✅ | ✅ (Canaries + behavioral) |
+| Container security | ❌ | ✅ (Trivy + Falco) |
+| Threat intelligence | ⚠️ Limited | ✅ (20k+ IOCs) |
+| AI-powered analysis | ❌ | ✅ (GPT) |
+| VPN integration | ❌ | ✅ (WireGuard) |
+| Agentic response | ❌ | ✅ (Auto-block, auto-kill) |
+| Centralized dashboard | ⚠️ Basic | ✅ (Full SOC) |
 
 ## Backlog / Future Features
 
 ### P1 - High Priority
-- [ ] Embed Kibana dashboard in web UI
-- [ ] Full end-to-end system validation
-- [ ] Agent auto-update mechanism
+- [ ] Frontend pages for new v3.0 features
+- [ ] Memory forensics (Volatility integration)
+- [ ] EDR capabilities (process trees, FIM)
 
 ### P2 - Medium Priority
-- [ ] Meta-Learning capability
-- [ ] Polymorphic Malware Intelligence
-- [ ] Advanced data recovery tools
-- [ ] Self-healing mechanisms
+- [ ] SOAR playbook engine
+- [ ] Honey tokens and honey credentials
+- [ ] Browser isolation
 
-### P3 - Future Enhancements
-- [ ] Quantum-Enhanced Security
-- [ ] Distributed agent mesh
-- [ ] Machine learning threat prediction
-- [ ] Advanced forensic analysis
+### P3 - Future
+- [ ] Zero Trust architecture
+- [ ] ML-based threat prediction
+- [ ] Quantum-enhanced security
