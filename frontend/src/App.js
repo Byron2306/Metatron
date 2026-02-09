@@ -8,6 +8,8 @@ import AlertsPage from "./pages/AlertsPage";
 import ThreatsPage from "./pages/ThreatsPage";
 import NetworkTopologyPage from "./pages/NetworkTopologyPage";
 import ThreatHuntingPage from "./pages/ThreatHuntingPage";
+import HoneypotsPage from "./pages/HoneypotsPage";
+import ReportsPage from "./pages/ReportsPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -53,6 +55,8 @@ function App() {
               <Route path="threats" element={<ThreatsPage />} />
               <Route path="network" element={<NetworkTopologyPage />} />
               <Route path="hunting" element={<ThreatHuntingPage />} />
+              <Route path="honeypots" element={<HoneypotsPage />} />
+              <Route path="reports" element={<ReportsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
