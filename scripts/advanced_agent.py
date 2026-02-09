@@ -1312,6 +1312,936 @@ class FolderIndexer:
 
 
 # =============================================================================
+# SCHEDULED TASK / CRON MONITOR
+# =============================================================================
+
+@dataclass
+class ScheduledTask:
+    name: str
+    command: str
+    schedule: str
+    user: str
+    enabled: bool
+    last_run: Optional[str] = None
+    next_run: Optional[str] = None
+    path: str = ""
+    risk_score: int = 0
+    risk_factors: List[str] = field(default_factory=list)
+
+class ScheduledTaskMonitor:
+    """
+    Monitor scheduled tasks (Windows Task Scheduler) and cron jobs (Linux/macOS)
+    Detect persistence mechanisms and suspicious scheduled executions
+    """
+    
+    SUSPICIOUS_COMMANDS = [
+        "powershell", "cmd.exe", "wscript", "cscript", "mshta",
+        "certutil", "bitsadmin", "regsvr32", "rundll32",
+        "curl", "wget", "nc", "ncat", "python", "perl", "ruby",
+        "base64", "eval", "exec", "sh -c", "bash -c",
+    ]
+    
+    SUSPICIOUS_PATHS = [
+        "temp", "tmp", "appdata", "programdata", "public",
+        "/dev/shm", "/var/tmp", "/tmp",
+    ]
+    
+    def __init__(self):
+        self.tasks: List[ScheduledTask] = []
+        self.alerts: List[Dict] = []
+        self.system = platform.system()
+    
+    def _get_windows_tasks(self) -> List[ScheduledTask]:
+        """Get Windows scheduled tasks"""
+        tasks = []
+        
+        try:
+            # Use schtasks to list all tasks
+            result = subprocess.run(
+                ["schtasks", "/query", "/fo", "CSV", "/v"],
+                capture_output=True, text=True, timeout=60
+            )
+            
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                if len(lines) > 1:
+                    # Parse CSV header
+                    headers = [h.strip('"') for h in lines[0].split(',')]
+                    
+                    for line in lines[1:]:
+                        try:
+                            values = [v.strip('"') for v in line.split(',')]
+                            if len(values) >= len(headers):
+                                task_dict = dict(zip(headers, values))
+                                
+                                task = ScheduledTask(
+                                    name=task_dict.get("TaskName", ""),
+                                    command=task_dict.get("Task To Run", ""),
+                                    schedule=task_dict.get("Schedule Type", ""),
+                                    user=task_dict.get("Run As User", ""),
+                                    enabled=task_dict.get("Status", "") == "Ready",
+                                    last_run=task_dict.get("Last Run Time", ""),
+                                    next_run=task_dict.get("Next Run Time", ""),
+                                    path=task_dict.get("TaskName", "")
+                                )
+                                tasks.append(task)
+                        except:
+                            pass
+        except Exception as e:
+            print(f"Error getting Windows tasks: {e}")
+        
+        return tasks
+    
+    def _get_linux_cron_jobs(self) -> List[ScheduledTask]:
+        """Get Linux/macOS cron jobs"""
+        tasks = []
+        
+        # System crontabs
+        cron_dirs = [
+            "/etc/crontab",
+            "/etc/cron.d",
+            "/etc/cron.daily",
+            "/etc/cron.hourly",
+            "/etc/cron.weekly",
+            "/etc/cron.monthly",
+            "/var/spool/cron/crontabs",  # User crontabs (Linux)
+            "/var/spool/cron",            # User crontabs (some distros)
+            "/usr/lib/cron/tabs",         # macOS
+        ]
+        
+        def parse_crontab_line(line: str, source: str, user: str = "root") -> Optional[ScheduledTask]:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                return None
+            
+            # Parse cron schedule and command
+            parts = line.split()
+            if len(parts) >= 6:
+                # Standard cron format: min hour day month dow command
+                schedule = " ".join(parts[:5])
+                
+                # Check if there's a user field (system crontab)
+                if source == "/etc/crontab":
+                    user = parts[5]
+                    command = " ".join(parts[6:])
+                else:
+                    command = " ".join(parts[5:])
+                
+                return ScheduledTask(
+                    name=f"cron:{source}",
+                    command=command,
+                    schedule=schedule,
+                    user=user,
+                    enabled=True,
+                    path=source
+                )
+            return None
+        
+        # Parse crontab files
+        for cron_path in cron_dirs:
+            path = Path(cron_path)
+            if not path.exists():
+                continue
+            
+            try:
+                if path.is_file():
+                    with open(path, 'r') as f:
+                        for line in f:
+                            task = parse_crontab_line(line, str(path))
+                            if task:
+                                tasks.append(task)
+                
+                elif path.is_dir():
+                    for file in path.iterdir():
+                        if file.is_file():
+                            try:
+                                user = file.name  # User crontab filename is username
+                                with open(file, 'r') as f:
+                                    for line in f:
+                                        task = parse_crontab_line(line, str(file), user)
+                                        if task:
+                                            tasks.append(task)
+                            except:
+                                pass
+            except PermissionError:
+                pass
+            except Exception as e:
+                pass
+        
+        # Also check systemd timers
+        try:
+            result = subprocess.run(
+                ["systemctl", "list-timers", "--all", "--no-pager"],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n')[1:]:  # Skip header
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        tasks.append(ScheduledTask(
+                            name=parts[-1] if parts else "systemd-timer",
+                            command="systemd timer",
+                            schedule="systemd",
+                            user="system",
+                            enabled=True,
+                            next_run=f"{parts[0]} {parts[1]}" if len(parts) > 1 else "",
+                            path="systemd"
+                        ))
+        except:
+            pass
+        
+        # macOS launchd
+        if self.system == "Darwin":
+            launch_dirs = [
+                "/Library/LaunchDaemons",
+                "/Library/LaunchAgents",
+                Path.home() / "Library/LaunchAgents",
+            ]
+            
+            for launch_dir in launch_dirs:
+                if Path(launch_dir).exists():
+                    for plist in Path(launch_dir).glob("*.plist"):
+                        try:
+                            # Parse plist (simplified)
+                            result = subprocess.run(
+                                ["plutil", "-p", str(plist)],
+                                capture_output=True, text=True
+                            )
+                            if result.returncode == 0:
+                                # Extract program/command from plist output
+                                content = result.stdout
+                                program = ""
+                                if "ProgramArguments" in content or "Program" in content:
+                                    program = "launchd job"
+                                
+                                tasks.append(ScheduledTask(
+                                    name=plist.stem,
+                                    command=program,
+                                    schedule="launchd",
+                                    user="system",
+                                    enabled=True,
+                                    path=str(plist)
+                                ))
+                        except:
+                            pass
+        
+        return tasks
+    
+    def _analyze_task_risk(self, task: ScheduledTask) -> ScheduledTask:
+        """Analyze scheduled task for security risks"""
+        risk_factors = []
+        risk_score = 0
+        
+        cmd_lower = task.command.lower()
+        path_lower = task.path.lower()
+        
+        # Check for suspicious commands
+        for sus_cmd in self.SUSPICIOUS_COMMANDS:
+            if sus_cmd in cmd_lower:
+                risk_factors.append(f"Suspicious command: {sus_cmd}")
+                risk_score += 15
+        
+        # Check for suspicious paths
+        for sus_path in self.SUSPICIOUS_PATHS:
+            if sus_path in cmd_lower or sus_path in path_lower:
+                risk_factors.append(f"Suspicious path: {sus_path}")
+                risk_score += 20
+        
+        # Check for encoded commands
+        if "base64" in cmd_lower or "-enc" in cmd_lower or "-e " in cmd_lower:
+            risk_factors.append("Encoded/obfuscated command")
+            risk_score += 30
+        
+        # Check for network activity
+        if any(net in cmd_lower for net in ["curl", "wget", "http://", "https://", "ftp://"]):
+            risk_factors.append("Network activity in scheduled task")
+            risk_score += 20
+        
+        # Check for reverse shells
+        if any(shell in cmd_lower for shell in ["/dev/tcp", "nc -e", "ncat", "bash -i"]):
+            risk_factors.append("Potential reverse shell")
+            risk_score += 40
+        
+        # Hidden or obfuscated task names
+        if task.name.startswith('.') or len(task.name) > 50 or re.search(r'[^\x00-\x7F]', task.name):
+            risk_factors.append("Suspicious task name")
+            risk_score += 10
+        
+        task.risk_score = min(risk_score, 100)
+        task.risk_factors = risk_factors
+        
+        return task
+    
+    def get_all_tasks(self) -> List[ScheduledTask]:
+        """Get all scheduled tasks/cron jobs"""
+        if self.system == "Windows":
+            self.tasks = self._get_windows_tasks()
+        else:
+            self.tasks = self._get_linux_cron_jobs()
+        
+        # Analyze each task
+        self.tasks = [self._analyze_task_risk(t) for t in self.tasks]
+        
+        # Generate alerts
+        for task in self.tasks:
+            if task.risk_score >= 40:
+                self.alerts.append({
+                    "type": "suspicious_scheduled_task",
+                    "severity": "high" if task.risk_score >= 60 else "medium",
+                    "task_name": task.name,
+                    "message": f"Suspicious scheduled task: {task.name}",
+                    "details": asdict(task),
+                    "timestamp": datetime.now().isoformat()
+                })
+        
+        return self.tasks
+    
+    def get_suspicious_tasks(self, min_score: int = 30) -> List[ScheduledTask]:
+        """Get tasks above a certain risk threshold"""
+        if not self.tasks:
+            self.get_all_tasks()
+        return [t for t in self.tasks if t.risk_score >= min_score]
+    
+    def get_stats(self) -> Dict:
+        """Get scheduled task statistics"""
+        if not self.tasks:
+            self.get_all_tasks()
+        
+        return {
+            "total_tasks": len(self.tasks),
+            "suspicious_tasks": len([t for t in self.tasks if t.risk_score >= 30]),
+            "high_risk_tasks": len([t for t in self.tasks if t.risk_score >= 60]),
+            "by_user": dict(defaultdict(int, {t.user: 1 for t in self.tasks})),
+            "alerts_count": len(self.alerts)
+        }
+
+
+# =============================================================================
+# USB DEVICE MONITOR
+# =============================================================================
+
+@dataclass
+class USBDevice:
+    device_id: str
+    name: str
+    vendor: str
+    product: str
+    serial: Optional[str] = None
+    mount_point: Optional[str] = None
+    device_type: str = "unknown"
+    first_seen: str = ""
+    last_seen: str = ""
+    is_storage: bool = False
+    is_allowed: bool = True
+    risk_score: int = 0
+    risk_factors: List[str] = field(default_factory=list)
+
+class USBDeviceMonitor:
+    """
+    Monitor USB device connections
+    Detect unauthorized devices, BadUSB attacks, and data exfiltration
+    """
+    
+    # Known BadUSB vendor/product IDs
+    SUSPICIOUS_USB_IDS = [
+        ("16c0", "0486"),  # Teensy
+        ("16c0", "0483"),  # Teensy
+        ("1b4f", "9204"),  # Digispark
+        ("1b4f", "9205"),  # Digispark
+        ("2341", "8036"),  # Arduino Leonardo (can be used as HID)
+        ("2341", "8037"),  # Arduino Micro
+        ("1d50", "6080"),  # HackRF
+        ("0483", "5740"),  # STM32 (common in BadUSB)
+    ]
+    
+    def __init__(self):
+        self.devices: Dict[str, USBDevice] = {}
+        self.device_history: List[Dict] = []
+        self.alerts: List[Dict] = []
+        self.allowed_devices: Set[str] = set()  # Whitelisted device IDs
+        self.system = platform.system()
+    
+    def _get_linux_usb_devices(self) -> List[USBDevice]:
+        """Get USB devices on Linux"""
+        devices = []
+        
+        try:
+            # Use lsusb
+            result = subprocess.run(
+                ["lsusb"],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    # Format: Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+                    match = re.match(r'Bus (\d+) Device (\d+): ID ([0-9a-f]+):([0-9a-f]+) (.+)', line)
+                    if match:
+                        bus, dev, vendor, product, name = match.groups()
+                        device_id = f"{vendor}:{product}"
+                        
+                        device = USBDevice(
+                            device_id=device_id,
+                            name=name,
+                            vendor=vendor,
+                            product=product,
+                            first_seen=datetime.now().isoformat(),
+                            last_seen=datetime.now().isoformat()
+                        )
+                        devices.append(device)
+        except:
+            pass
+        
+        # Check for storage devices
+        try:
+            result = subprocess.run(
+                ["lsblk", "-o", "NAME,TRAN,VENDOR,MODEL,SIZE,MOUNTPOINT", "-J"],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                for block in data.get("blockdevices", []):
+                    if block.get("tran") == "usb":
+                        for dev in devices:
+                            if block.get("vendor", "").strip() in dev.name:
+                                dev.is_storage = True
+                                dev.mount_point = block.get("mountpoint")
+                                dev.device_type = "storage"
+        except:
+            pass
+        
+        return devices
+    
+    def _get_macos_usb_devices(self) -> List[USBDevice]:
+        """Get USB devices on macOS"""
+        devices = []
+        
+        try:
+            result = subprocess.run(
+                ["system_profiler", "SPUSBDataType", "-json"],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                
+                def parse_usb_tree(items):
+                    for item in items:
+                        if isinstance(item, dict):
+                            vendor_id = item.get("vendor_id", "").replace("0x", "")
+                            product_id = item.get("product_id", "").replace("0x", "")
+                            
+                            if vendor_id and product_id:
+                                device = USBDevice(
+                                    device_id=f"{vendor_id}:{product_id}",
+                                    name=item.get("_name", "Unknown"),
+                                    vendor=vendor_id,
+                                    product=product_id,
+                                    serial=item.get("serial_num"),
+                                    first_seen=datetime.now().isoformat(),
+                                    last_seen=datetime.now().isoformat()
+                                )
+                                devices.append(device)
+                            
+                            # Check for nested devices
+                            if "_items" in item:
+                                parse_usb_tree(item["_items"])
+                
+                usb_data = data.get("SPUSBDataType", [])
+                for controller in usb_data:
+                    if "_items" in controller:
+                        parse_usb_tree(controller["_items"])
+        except:
+            pass
+        
+        return devices
+    
+    def _get_windows_usb_devices(self) -> List[USBDevice]:
+        """Get USB devices on Windows"""
+        devices = []
+        
+        try:
+            # Use WMIC
+            result = subprocess.run(
+                ["wmic", "path", "Win32_USBControllerDevice", "get", "Dependent"],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    if 'DeviceID' in line:
+                        # Extract device ID
+                        match = re.search(r'USB\\VID_([0-9A-F]+)&PID_([0-9A-F]+)', line)
+                        if match:
+                            vendor, product = match.groups()
+                            device = USBDevice(
+                                device_id=f"{vendor.lower()}:{product.lower()}",
+                                name=line.strip(),
+                                vendor=vendor.lower(),
+                                product=product.lower(),
+                                first_seen=datetime.now().isoformat(),
+                                last_seen=datetime.now().isoformat()
+                            )
+                            devices.append(device)
+        except:
+            pass
+        
+        # Check for USB storage
+        try:
+            result = subprocess.run(
+                ["wmic", "logicaldisk", "where", "drivetype=2", "get", "deviceid,volumename,size"],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n')[1:]:
+                    parts = line.split()
+                    if parts:
+                        # Mark as storage device
+                        for dev in devices:
+                            dev.is_storage = True
+                            dev.device_type = "storage"
+        except:
+            pass
+        
+        return devices
+    
+    def _analyze_device_risk(self, device: USBDevice) -> USBDevice:
+        """Analyze USB device for security risks"""
+        risk_factors = []
+        risk_score = 0
+        
+        # Check against known BadUSB devices
+        device_tuple = (device.vendor.lower(), device.product.lower())
+        if device_tuple in self.SUSPICIOUS_USB_IDS:
+            risk_factors.append("Known BadUSB/HID attack device")
+            risk_score += 50
+        
+        # Check if device is not whitelisted
+        if device.device_id not in self.allowed_devices:
+            risk_factors.append("Device not in whitelist")
+            risk_score += 10
+        
+        # USB storage devices carry data exfiltration risk
+        if device.is_storage:
+            risk_factors.append("USB storage device - potential data exfiltration")
+            risk_score += 15
+        
+        # Check for HID devices that could be keyboard emulators
+        hid_indicators = ["keyboard", "mouse", "hid", "input"]
+        if any(ind in device.name.lower() for ind in hid_indicators):
+            # Multiple HID devices are suspicious
+            risk_factors.append("HID device - potential keystroke injection")
+            risk_score += 20
+        
+        # Unknown/generic devices
+        if "unknown" in device.name.lower() or not device.name.strip():
+            risk_factors.append("Unknown device type")
+            risk_score += 15
+        
+        device.risk_score = min(risk_score, 100)
+        device.risk_factors = risk_factors
+        device.is_allowed = device.device_id in self.allowed_devices
+        
+        return device
+    
+    def get_all_devices(self) -> List[USBDevice]:
+        """Get all connected USB devices"""
+        if self.system == "Linux":
+            devices = self._get_linux_usb_devices()
+        elif self.system == "Darwin":
+            devices = self._get_macos_usb_devices()
+        elif self.system == "Windows":
+            devices = self._get_windows_usb_devices()
+        else:
+            devices = []
+        
+        # Analyze each device
+        devices = [self._analyze_device_risk(d) for d in devices]
+        
+        # Update device tracking
+        for device in devices:
+            if device.device_id in self.devices:
+                device.first_seen = self.devices[device.device_id].first_seen
+            self.devices[device.device_id] = device
+        
+        # Generate alerts
+        for device in devices:
+            if device.risk_score >= 40:
+                self.alerts.append({
+                    "type": "suspicious_usb_device",
+                    "severity": "high" if device.risk_score >= 60 else "medium",
+                    "device_id": device.device_id,
+                    "message": f"Suspicious USB device: {device.name}",
+                    "details": asdict(device),
+                    "timestamp": datetime.now().isoformat()
+                })
+        
+        return list(self.devices.values())
+    
+    def add_to_whitelist(self, device_id: str):
+        """Add device to whitelist"""
+        self.allowed_devices.add(device_id)
+    
+    def remove_from_whitelist(self, device_id: str):
+        """Remove device from whitelist"""
+        self.allowed_devices.discard(device_id)
+    
+    def get_suspicious_devices(self, min_score: int = 30) -> List[USBDevice]:
+        """Get devices above a certain risk threshold"""
+        return [d for d in self.devices.values() if d.risk_score >= min_score]
+    
+    def get_stats(self) -> Dict:
+        """Get USB device statistics"""
+        devices = list(self.devices.values())
+        
+        return {
+            "total_devices": len(devices),
+            "storage_devices": len([d for d in devices if d.is_storage]),
+            "suspicious_devices": len([d for d in devices if d.risk_score >= 30]),
+            "whitelisted_devices": len(self.allowed_devices),
+            "alerts_count": len(self.alerts)
+        }
+
+
+# =============================================================================
+# MEMORY FORENSICS (Volatility Integration)
+# =============================================================================
+
+@dataclass
+class MemoryAnalysisResult:
+    analysis_id: str
+    dump_path: str
+    profile: str
+    timestamp: str
+    processes: List[Dict] = field(default_factory=list)
+    network_connections: List[Dict] = field(default_factory=list)
+    injected_code: List[Dict] = field(default_factory=list)
+    hidden_processes: List[Dict] = field(default_factory=list)
+    suspicious_dlls: List[Dict] = field(default_factory=list)
+    registry_keys: List[Dict] = field(default_factory=list)
+    risk_score: int = 0
+    findings: List[str] = field(default_factory=list)
+
+class MemoryForensics:
+    """
+    Memory dump analysis using Volatility 3
+    Detect rootkits, injected code, and hidden processes
+    """
+    
+    def __init__(self):
+        self.volatility_path = self._find_volatility()
+        self.analyses: Dict[str, MemoryAnalysisResult] = {}
+        self.alerts: List[Dict] = []
+    
+    def _find_volatility(self) -> Optional[str]:
+        """Find Volatility 3 installation"""
+        paths = ["vol", "vol3", "volatility3", "/root/.venv/bin/vol"]
+        
+        for path in paths:
+            full_path = shutil.which(path)
+            if full_path:
+                try:
+                    result = subprocess.run([full_path, "-h"], capture_output=True, timeout=10)
+                    if result.returncode == 0:
+                        return full_path
+                except:
+                    pass
+        
+        return None
+    
+    def _run_volatility(self, dump_path: str, plugin: str) -> Optional[str]:
+        """Run a Volatility plugin"""
+        if not self.volatility_path:
+            return None
+        
+        try:
+            cmd = [self.volatility_path, "-f", dump_path, plugin]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                return result.stdout
+            return None
+        except Exception as e:
+            print(f"Volatility error: {e}")
+            return None
+    
+    def create_memory_dump(self, output_path: str) -> bool:
+        """Create a memory dump of the current system"""
+        system = platform.system()
+        
+        try:
+            if system == "Linux":
+                # Use /proc/kcore or dd on /dev/mem (requires root)
+                if os.geteuid() != 0:
+                    print("Memory dump requires root privileges")
+                    return False
+                
+                # Try LiME if available
+                lime = shutil.which("lime")
+                if lime:
+                    subprocess.run([lime, output_path, "lime"], timeout=300)
+                    return Path(output_path).exists()
+                
+                # Fallback to /proc/kcore
+                if Path("/proc/kcore").exists():
+                    subprocess.run(["dd", "if=/proc/kcore", f"of={output_path}", "bs=1M", "count=100"], timeout=120)
+                    return Path(output_path).exists()
+            
+            elif system == "Windows":
+                # Use DumpIt or winpmem if available
+                dumpit = shutil.which("DumpIt.exe")
+                if dumpit:
+                    subprocess.run([dumpit, "/O", output_path], timeout=300)
+                    return Path(output_path).exists()
+            
+            elif system == "Darwin":
+                # macOS requires specialized tools
+                print("macOS memory dump requires specialized tools")
+                return False
+            
+        except Exception as e:
+            print(f"Memory dump error: {e}")
+        
+        return False
+    
+    def analyze_dump(self, dump_path: str) -> MemoryAnalysisResult:
+        """Analyze a memory dump"""
+        analysis_id = hashlib.md5(f"{dump_path}{datetime.now().isoformat()}".encode()).hexdigest()[:12]
+        
+        result = MemoryAnalysisResult(
+            analysis_id=analysis_id,
+            dump_path=dump_path,
+            profile="auto",
+            timestamp=datetime.now().isoformat()
+        )
+        
+        if not self.volatility_path:
+            result.findings.append("Volatility 3 not found - install with: pip install volatility3")
+            self.analyses[analysis_id] = result
+            return result
+        
+        if not Path(dump_path).exists():
+            result.findings.append(f"Dump file not found: {dump_path}")
+            self.analyses[analysis_id] = result
+            return result
+        
+        # Run various plugins
+        plugins = [
+            ("windows.pslist", "processes"),
+            ("windows.netscan", "network_connections"),
+            ("windows.malfind", "injected_code"),
+            ("windows.psscan", "hidden_processes"),
+            ("windows.dlllist", "suspicious_dlls"),
+        ]
+        
+        risk_score = 0
+        
+        for plugin, attr in plugins:
+            output = self._run_volatility(dump_path, plugin)
+            if output:
+                # Parse output (simplified)
+                lines = output.strip().split('\n')
+                parsed = []
+                
+                for line in lines[1:]:  # Skip header
+                    parts = line.split()
+                    if parts:
+                        parsed.append({"raw": line, "fields": parts})
+                
+                setattr(result, attr, parsed)
+                
+                # Analyze for threats
+                if plugin == "windows.malfind" and parsed:
+                    risk_score += 30 * len(parsed)
+                    result.findings.append(f"Found {len(parsed)} potential code injections")
+                
+                if plugin == "windows.psscan":
+                    # Compare with pslist for hidden processes
+                    ps_count = len(result.processes)
+                    psscan_count = len(parsed)
+                    if psscan_count > ps_count:
+                        hidden = psscan_count - ps_count
+                        risk_score += 40 * hidden
+                        result.findings.append(f"Found {hidden} potentially hidden processes")
+        
+        result.risk_score = min(risk_score, 100)
+        
+        # Generate alerts
+        if result.risk_score >= 40:
+            self.alerts.append({
+                "type": "memory_forensics",
+                "severity": "critical" if result.risk_score >= 70 else "high",
+                "analysis_id": analysis_id,
+                "message": f"Memory analysis found threats (score: {result.risk_score})",
+                "findings": result.findings,
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        self.analyses[analysis_id] = result
+        return result
+    
+    def quick_memory_scan(self) -> Dict:
+        """Quick memory scan without full dump (uses live memory)"""
+        results = {
+            "timestamp": datetime.now().isoformat(),
+            "injected_processes": [],
+            "suspicious_memory": [],
+            "risk_score": 0
+        }
+        
+        # Check for common injection indicators via psutil
+        for proc in psutil.process_iter(['pid', 'name', 'exe', 'memory_maps']):
+            try:
+                # Check memory regions for suspicious patterns
+                maps = proc.memory_maps()
+                
+                for mmap in maps:
+                    # Executable anonymous memory is suspicious
+                    if 'anon' in mmap.path.lower() and 'x' in str(mmap.perms):
+                        results["suspicious_memory"].append({
+                            "pid": proc.pid,
+                            "name": proc.name(),
+                            "region": mmap.path,
+                            "size": mmap.rss
+                        })
+                        results["risk_score"] += 15
+                
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        
+        results["risk_score"] = min(results["risk_score"], 100)
+        
+        return results
+    
+    def get_stats(self) -> Dict:
+        """Get memory forensics statistics"""
+        return {
+            "volatility_available": self.volatility_path is not None,
+            "volatility_path": self.volatility_path or "Not found",
+            "analyses_count": len(self.analyses),
+            "alerts_count": len(self.alerts)
+        }
+
+
+# =============================================================================
+# CLOUD SYNC CLIENT
+# =============================================================================
+
+class CloudSyncClient:
+    """
+    Sync agent data with cloud dashboard
+    Report events, threats, and receive commands
+    """
+    
+    def __init__(self, api_url: str = None):
+        self.api_url = api_url or CONFIG.get("api_url", "")
+        self.agent_id = CONFIG.get("agent_id", hashlib.md5(platform.node().encode()).hexdigest()[:16])
+        self.agent_name = CONFIG.get("agent_name", platform.node())
+        self.connected = False
+        self.last_sync = None
+        
+        if requests:
+            self.session = requests.Session()
+            self.session.headers.update({
+                "Content-Type": "application/json",
+                "X-Agent-ID": self.agent_id,
+                "X-Agent-Name": self.agent_name
+            })
+        else:
+            self.session = None
+    
+    def _send_event(self, event_type: str, data: Dict) -> bool:
+        """Send event to cloud API"""
+        if not self.session or not self.api_url:
+            return False
+        
+        try:
+            payload = {
+                "agent_id": self.agent_id,
+                "agent_name": self.agent_name,
+                "event_type": event_type,
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            response = self.session.post(
+                f"{self.api_url}/agent/event",
+                json=payload,
+                timeout=30
+            )
+            
+            self.connected = response.status_code == 200
+            self.last_sync = datetime.now().isoformat()
+            
+            return response.status_code == 200
+        except Exception as e:
+            self.connected = False
+            return False
+    
+    def send_heartbeat(self, system_info: Dict) -> bool:
+        """Send heartbeat with system info"""
+        return self._send_event("heartbeat", system_info)
+    
+    def send_process_alert(self, process_info: Dict) -> bool:
+        """Report suspicious process"""
+        return self._send_event("suspicious_process", process_info)
+    
+    def send_usb_event(self, device_info: Dict) -> bool:
+        """Report USB device event"""
+        return self._send_event("usb_device", device_info)
+    
+    def send_scheduled_task_alert(self, task_info: Dict) -> bool:
+        """Report suspicious scheduled task"""
+        return self._send_event("suspicious_task", task_info)
+    
+    def send_browser_extension_alert(self, extension_info: Dict) -> bool:
+        """Report suspicious browser extension"""
+        return self._send_event("suspicious_extension", extension_info)
+    
+    def send_memory_alert(self, memory_info: Dict) -> bool:
+        """Report memory forensics findings"""
+        return self._send_event("memory_forensics", memory_info)
+    
+    def send_file_alert(self, file_info: Dict) -> bool:
+        """Report suspicious file"""
+        return self._send_event("suspicious_file", file_info)
+    
+    def send_full_scan_report(self, report: Dict) -> bool:
+        """Send full scan report"""
+        return self._send_event("full_scan_report", report)
+    
+    def get_commands(self) -> List[Dict]:
+        """Get pending commands from cloud"""
+        if not self.session or not self.api_url:
+            return []
+        
+        try:
+            response = self.session.get(
+                f"{self.api_url}/agent/{self.agent_id}/commands",
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                return response.json().get("commands", [])
+        except:
+            pass
+        
+        return []
+    
+    def get_status(self) -> Dict:
+        """Get cloud sync status"""
+        return {
+            "api_url": self.api_url or "Not configured",
+            "agent_id": self.agent_id,
+            "agent_name": self.agent_name,
+            "connected": self.connected,
+            "last_sync": self.last_sync
+        }
+
+
+# =============================================================================
 # MAIN AGENT
 # =============================================================================
 
