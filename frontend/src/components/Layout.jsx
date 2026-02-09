@@ -24,7 +24,9 @@ import {
   Lock,
   GitBranch,
   Brain,
-  Workflow
+  Workflow,
+  Key,
+  ShieldCheck
 } from 'lucide-react';
 import { Button } from './ui/button';
 
