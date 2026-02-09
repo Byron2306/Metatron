@@ -91,7 +91,7 @@ class TimelineBuilder:
         - Quarantine entries
         - Agent events
         """
-        if not cls._db:
+        if cls._db is None:
             return None
         
         # Get the main threat
