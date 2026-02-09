@@ -41,7 +41,7 @@ from collections import deque
 
 # Default configuration - will be overridden by config.json if exists
 DEFAULT_CONFIG = {
-    "api_url": "https://aidefender-21.preview.emergentagent.com/api",
+    "api_url": "https://cybershield-169.preview.emergentagent.com/api",
     "agent_key": "local-agent",
     "agent_name": platform.node() or "local-agent",
     "local_dashboard_port": 5000,

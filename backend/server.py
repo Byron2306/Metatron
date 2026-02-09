@@ -1744,8 +1744,8 @@ async def download_agent_script():
     
     # Update the API URL in the script dynamically
     content = content.replace(
-        '"API_URL": "https://aidefender-21.preview.emergentagent.com/api"',
-        f'"API_URL": "{os.environ.get("REACT_APP_BACKEND_URL", "https://aidefender-21.preview.emergentagent.com")}/api"'
+        '"API_URL": "https://cybershield-169.preview.emergentagent.com/api"',
+        f'"API_URL": "{os.environ.get("REACT_APP_BACKEND_URL", "https://cybershield-169.preview.emergentagent.com")}/api"'
     )
     
     return StreamingResponse(

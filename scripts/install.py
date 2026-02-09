@@ -535,7 +535,7 @@ The installer will:
     # Create configuration
     print_step("Creating configuration...")
     config = {
-        "api_url": "https://aidefender-21.preview.emergentagent.com/api",
+        "api_url": "https://cybershield-169.preview.emergentagent.com/api",
         "agent_name": platform.node(),
         "install_dir": str(INSTALL_DIR),
         "venv_dir": str(VENV_DIR),
