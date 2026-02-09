@@ -248,8 +248,8 @@ const SettingsPage = () => {
                 <p className="text-xs text-slate-400">Send alerts via SendGrid</p>
               </div>
             </div>
-            <div className={`px-2 py-1 rounded text-xs ${settings.email.enabled ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
-              {settings.email.enabled ? 'Active' : 'Inactive'}
+            <div className={`px-2 py-1 rounded text-xs ${settings.email_enabled ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+              {settings.email_enabled ? 'Active' : 'Inactive'}
             </div>
           </div>
           
@@ -258,7 +258,7 @@ const SettingsPage = () => {
               <label className="text-sm text-slate-400 mb-1 block">SendGrid API Key</label>
               <input
                 type="password"
-                placeholder={settings.email.sendgrid_configured ? '••••••••••••••••' : 'SG.xxxxxxxx'}
+                placeholder={settings.sendgrid_api_key ? '••••••••••••••••' : 'SG.xxxxxxxx'}
                 value={formData.sendgrid_api_key}
                 onChange={(e) => setFormData({...formData, sendgrid_api_key: e.target.value})}
                 className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded focus:border-cyan-500 outline-none text-sm"
@@ -269,7 +269,7 @@ const SettingsPage = () => {
               <label className="text-sm text-slate-400 mb-1 block">Sender Email</label>
               <input
                 type="email"
-                placeholder={settings.email.sender_email || 'alerts@yourdomain.com'}
+                placeholder={settings.email_from || 'alerts@yourdomain.com'}
                 value={formData.sender_email}
                 onChange={(e) => setFormData({...formData, sender_email: e.target.value})}
                 className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded focus:border-cyan-500 outline-none text-sm"
@@ -278,7 +278,7 @@ const SettingsPage = () => {
             
             <div>
               <label className="text-sm text-slate-400 mb-1 block">
-                Alert Recipients ({settings.email.recipients_count} configured)
+                Alert Recipients
               </label>
               <input
                 type="text"
@@ -291,7 +291,7 @@ const SettingsPage = () => {
             
             <button
               onClick={() => handleTest('email')}
-              disabled={testing || !settings.email.enabled}
+              disabled={testing || !settings.email_enabled}
               className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="w-4 h-4" />
