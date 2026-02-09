@@ -29,12 +29,13 @@ class SMSTestRequest(BaseModel):
 @router.get("/stats")
 async def get_response_stats(current_user: dict = Depends(get_current_user)):
     """Get threat response statistics"""
-    return await response_engine.get_stats()
+    return await response_engine.get_response_stats()
 
 @router.get("/blocked-ips")
 async def get_blocked_ips(current_user: dict = Depends(get_current_user)):
     """Get list of blocked IPs"""
-    return await firewall.get_blocked_ips()
+    # get_blocked_ips is sync, not async
+    return firewall.get_blocked_ips()
 
 @router.post("/block-ip")
 async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_permission("write"))):
