@@ -24,6 +24,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -38,9 +39,14 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'anti-ai-defense-secret')
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
-# OpenAI Client
+# API Keys
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+
+# Try OpenAI first, fallback to Emergent
+openai_client = None
+if OPENAI_API_KEY:
+    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 app = FastAPI(title="Anti-AI Defense System API")
 api_router = APIRouter(prefix="/api")
