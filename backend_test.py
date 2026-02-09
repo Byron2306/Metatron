@@ -284,6 +284,120 @@ class AntiAIDefenseAPITester:
         """Test getting AI analyses history"""
         return self.run_test("AI Analyses History", "GET", "ai/analyses", 200)[0]
 
+    def test_network_topology(self):
+        """Test network topology endpoint"""
+        success, response = self.run_test("Network Topology", "GET", "network/topology", 200)
+        
+        if success and response:
+            # Validate response structure
+            required_fields = ['nodes', 'links']
+            missing_fields = [field for field in required_fields if field not in response]
+            
+            if missing_fields:
+                self.log_result("Network Topology Structure", False, f"Missing fields: {missing_fields}")
+                return False
+            
+            nodes = response.get('nodes', [])
+            links = response.get('links', [])
+            
+            print(f"   Nodes found: {len(nodes)}")
+            print(f"   Links found: {len(links)}")
+            
+            # Check if nodes have required fields
+            if nodes:
+                node_fields = ['id', 'label', 'type', 'status']
+                sample_node = nodes[0]
+                missing_node_fields = [field for field in node_fields if field not in sample_node]
+                if missing_node_fields:
+                    self.log_result("Network Topology Node Structure", False, f"Missing node fields: {missing_node_fields}")
+                    return False
+                else:
+                    self.log_result("Network Topology Node Structure", True, "Node structure valid")
+            
+            # Check if links have required fields
+            if links:
+                link_fields = ['source', 'target', 'type']
+                sample_link = links[0]
+                missing_link_fields = [field for field in link_fields if field not in sample_link]
+                if missing_link_fields:
+                    self.log_result("Network Topology Link Structure", False, f"Missing link fields: {missing_link_fields}")
+                    return False
+                else:
+                    self.log_result("Network Topology Link Structure", True, "Link structure valid")
+        
+        return success
+
+    def test_threat_hunting_generate(self):
+        """Test threat hunting hypothesis generation"""
+        hunting_data = {
+            "focus_area": "ai_agents",
+            "time_range_hours": 24
+        }
+        
+        print("\n🎯 Testing Threat Hunting Hypothesis Generation...")
+        print("   This may take 10-15 seconds for AI processing...")
+        
+        success, response = self.run_test(
+            "Generate Hunting Hypotheses",
+            "POST",
+            "hunting/generate",
+            200,
+            data=hunting_data
+        )
+        
+        if success and response:
+            hypotheses = response if isinstance(response, list) else []
+            print(f"   Hypotheses generated: {len(hypotheses)}")
+            
+            # Validate hypothesis structure
+            if hypotheses:
+                required_fields = ['id', 'title', 'description', 'category', 'confidence', 'indicators', 'recommended_actions', 'status', 'created_at']
+                sample_hypothesis = hypotheses[0]
+                missing_fields = [field for field in required_fields if field not in sample_hypothesis]
+                
+                if missing_fields:
+                    self.log_result("Hunting Hypothesis Structure", False, f"Missing fields: {missing_fields}")
+                    return False
+                else:
+                    self.log_result("Hunting Hypothesis Structure", True, "Hypothesis structure valid")
+                    print(f"   Sample hypothesis: {sample_hypothesis.get('title', 'N/A')}")
+                    print(f"   Confidence: {sample_hypothesis.get('confidence', 0)}%")
+        
+        return success
+
+    def test_threat_hunting_get_hypotheses(self):
+        """Test getting hunting hypotheses"""
+        return self.run_test("Get Hunting Hypotheses", "GET", "hunting/hypotheses", 200)[0]
+
+    def test_threat_hunting_update_status(self):
+        """Test updating hunting hypothesis status"""
+        # First get hypotheses to find one to update
+        success, response = self.run_test("Get Hypotheses for Update", "GET", "hunting/hypotheses", 200)
+        
+        if not success or not response:
+            self.log_result("Update Hypothesis Status", False, "No hypotheses available to update")
+            return False
+        
+        hypotheses = response if isinstance(response, list) else []
+        if not hypotheses:
+            self.log_result("Update Hypothesis Status", False, "No hypotheses found")
+            return False
+        
+        # Update the first hypothesis status
+        hypothesis_id = hypotheses[0].get('id')
+        if not hypothesis_id:
+            self.log_result("Update Hypothesis Status", False, "No hypothesis ID found")
+            return False
+        
+        success, _ = self.run_test(
+            "Update Hypothesis Status",
+            "PATCH",
+            f"hunting/hypotheses/{hypothesis_id}/status?status=investigating",
+            200
+        )
+        
+        return success
+
     def run_all_tests(self):
         """Run comprehensive API test suite"""
         print("🚀 Starting Anti-AI Defense System API Tests")
