@@ -2250,28 +2250,36 @@ class AdvancedSecurityAgent:
     Main agent that coordinates all monitoring components
     """
     
-    def __init__(self):
+    def __init__(self, api_url: str = None):
         self.process_monitor = ProcessMonitor()
         self.user_monitor = UserPrivilegeMonitor()
         self.browser_monitor = BrowserExtensionMonitor()
         self.folder_indexer = FolderIndexer()
+        self.task_monitor = ScheduledTaskMonitor()
+        self.usb_monitor = USBDeviceMonitor()
+        self.memory_forensics = MemoryForensics()
+        self.cloud_sync = CloudSyncClient(api_url)
         
         self.running = False
         self.threads: List[threading.Thread] = []
     
-    def run_full_scan(self) -> Dict:
+    def run_full_scan(self, sync_to_cloud: bool = True) -> Dict:
         """Run a complete security scan"""
         results = {
             "scan_time": datetime.now().isoformat(),
+            "agent_id": self.cloud_sync.agent_id,
             "processes": {},
             "users": {},
             "browser_extensions": {},
             "files": {},
+            "scheduled_tasks": {},
+            "usb_devices": {},
+            "memory": {},
             "alerts": []
         }
         
         print(f"\n{'='*60}")
-        print("ANTI-AI DEFENSE - ADVANCED SECURITY SCAN v{VERSION}")
+        print(f"ANTI-AI DEFENSE - ADVANCED SECURITY SCAN v{VERSION}")
         print(f"{'='*60}\n")
         
         # Process scan
