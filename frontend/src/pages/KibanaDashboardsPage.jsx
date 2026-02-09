@@ -1,0 +1,347 @@
+import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { 
+  BarChart3, 
+  Activity, 
+  PieChart, 
+  Map,
+  RefreshCw,
+  Download,
+  Settings,
+  CheckCircle,
+  XCircle,
+  Database
+} from 'lucide-react';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { toast } from 'sonner';
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
+
+const KibanaDashboardsPage = () => {
+  const { token } = useAuth();
+  const [dashboards, setDashboards] = useState([]);
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedDashboard, setSelectedDashboard] = useState(null);
+  const [activeTab, setActiveTab] = useState('dashboards');
+
+  useEffect(() => {
+    fetchData();
+  }, [token]);
+
+  const fetchData = async () => {
+    try {
+      const [dashboardsRes, statusRes] = await Promise.all([
+        fetch(`${API_URL}/api/kibana/dashboards`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`${API_URL}/api/kibana/status`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      ]);
+
+      if (dashboardsRes.ok) {
+        const data = await dashboardsRes.json();
+        setDashboards(data.dashboards || []);
+      }
+      if (statusRes.ok) {
+        setStatus(await statusRes.json());
+      }
+    } catch (error) {
+      console.error('Failed to fetch Kibana data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchDashboardDetails = async (dashboardId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/kibana/dashboards/${dashboardId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSelectedDashboard({ id: dashboardId, ...data });
+      }
+    } catch (error) {
+      console.error('Failed to fetch dashboard details:', error);
+    }
+  };
+
+  const exportDashboard = async (dashboardId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/kibana/dashboards/${dashboardId}/export`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${dashboardId}.ndjson`;
+        a.click();
+        toast.success('Dashboard exported');
+      }
+    } catch (error) {
+      toast.error('Failed to export dashboard');
+    }
+  };
+
+  const exportAllDashboards = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/kibana/export-all`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'all-security-dashboards.ndjson';
+        a.click();
+        toast.success('All dashboards exported');
+      }
+    } catch (error) {
+      toast.error('Failed to export dashboards');
+    }
+  };
+
+  const setupIndexPattern = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/kibana/setup-index`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          toast.success('Index pattern created successfully');
+        } else {
+          toast.error(result.error || 'Failed to create index pattern');
+        }
+      }
+    } catch (error) {
+      toast.error('Failed to setup index pattern');
+    }
+  };
+
+  const getDashboardIcon = (id) => {
+    const icons = {
+      'security-overview': <Activity className="w-5 h-5" />,
+      'threat-intelligence': <Database className="w-5 h-5" />,
+      'geo-threat-map': <Map className="w-5 h-5" />,
+      'mitre-attack': <BarChart3 className="w-5 h-5" />,
+      'endpoint-security': <Settings className="w-5 h-5" />,
+      'playbook-analytics': <PieChart className="w-5 h-5" />
+    };
+    return icons[id] || <BarChart3 className="w-5 h-5" />;
+  };
+
+  const getPanelTypeColor = (type) => {
+    const colors = {
+      metric: 'bg-blue-500/20 text-blue-400',
+      pie: 'bg-purple-500/20 text-purple-400',
+      bar: 'bg-green-500/20 text-green-400',
+      line: 'bg-orange-500/20 text-orange-400',
+      table: 'bg-cyan-500/20 text-cyan-400',
+      map: 'bg-red-500/20 text-red-400',
+      heatmap: 'bg-yellow-500/20 text-yellow-400'
+    };
+    return colors[type] || 'bg-slate-500/20 text-slate-400';
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-blue-500 font-mono animate-pulse">Loading Kibana Dashboards...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 p-6" data-testid="kibana-dashboards-page">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-lg bg-pink-500/20 flex items-center justify-center">
+              <BarChart3 className="w-6 h-6 text-pink-400" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">Kibana Dashboards</h1>
+              <p className="text-slate-400">Pre-built security dashboards for Elasticsearch/Kibana</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={exportAllDashboards} variant="outline" className="border-slate-700">
+              <Download className="w-4 h-4 mr-2" />
+              Export All
+            </Button>
+            <Button onClick={fetchData} variant="outline" className="border-slate-700">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Status Card */}
+      <Card className="bg-slate-900/50 border-slate-800 mb-6">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                {status?.configured ? (
+                  <CheckCircle className="w-5 h-5 text-green-400" />
+                ) : (
+                  <XCircle className="w-5 h-5 text-red-400" />
+                )}
+                <span className="text-slate-300">
+                  {status?.configured ? 'Kibana Connected' : 'Kibana Not Configured'}
+                </span>
+              </div>
+              <div className="text-slate-500 text-sm">
+                {status?.dashboards_available || 0} dashboards available
+              </div>
+            </div>
+            <Button 
+              onClick={setupIndexPattern} 
+              className="bg-pink-600 hover:bg-pink-700"
+              disabled={!status?.configured}
+            >
+              <Database className="w-4 h-4 mr-2" />
+              Setup Index Pattern
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6">
+        {['dashboards', 'details'].map((tab) => (
+          <Button
+            key={tab}
+            variant={activeTab === tab ? 'default' : 'ghost'}
+            onClick={() => setActiveTab(tab)}
+            className={activeTab === tab ? 'bg-pink-600 hover:bg-pink-700' : 'text-slate-400'}
+          >
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </Button>
+        ))}
+      </div>
+
+      {activeTab === 'dashboards' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {dashboards.map((dashboard) => (
+            <Card 
+              key={dashboard.id} 
+              className="bg-slate-900/50 border-slate-800 cursor-pointer hover:border-pink-500/50 transition-colors"
+              onClick={() => {
+                fetchDashboardDetails(dashboard.id);
+                setActiveTab('details');
+              }}
+            >
+              <CardContent className="p-6">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-10 h-10 rounded-lg bg-pink-500/20 flex items-center justify-center text-pink-400">
+                    {getDashboardIcon(dashboard.id)}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-white font-medium">{dashboard.title}</h3>
+                    <p className="text-slate-500 text-xs">{dashboard.panel_count} panels</p>
+                  </div>
+                </div>
+                <p className="text-slate-400 text-sm mb-4">{dashboard.description}</p>
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="border-slate-700 text-slate-300"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      exportDashboard(dashboard.id);
+                    }}
+                  >
+                    <Download className="w-3 h-3 mr-1" />
+                    Export
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {activeTab === 'details' && selectedDashboard && (
+        <div className="space-y-6">
+          {/* Dashboard Overview */}
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                {getDashboardIcon(selectedDashboard.id)}
+                {selectedDashboard.title}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-slate-400 mb-4">{selectedDashboard.description}</p>
+              <Button onClick={() => exportDashboard(selectedDashboard.id)} className="bg-pink-600 hover:bg-pink-700">
+                <Download className="w-4 h-4 mr-2" />
+                Export Dashboard
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Panels */}
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white">Dashboard Panels</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(selectedDashboard.panels || []).map((panel, idx) => (
+                  <div key={idx} className="p-4 bg-slate-800/50 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-white font-medium">{panel.title}</span>
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${getPanelTypeColor(panel.type)}`}>
+                        {panel.type}
+                      </span>
+                    </div>
+                    {panel.field && (
+                      <p className="text-slate-500 text-xs">Field: {panel.field}</p>
+                    )}
+                    {panel.timeRange && (
+                      <p className="text-slate-500 text-xs">Time: {panel.timeRange}</p>
+                    )}
+                    {panel.columns && (
+                      <p className="text-slate-500 text-xs">Columns: {panel.columns.join(', ')}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Back Button */}
+          <Button 
+            variant="outline" 
+            className="border-slate-700"
+            onClick={() => setActiveTab('dashboards')}
+          >
+            Back to Dashboards
+          </Button>
+        </div>
+      )}
+
+      {activeTab === 'details' && !selectedDashboard && (
+        <Card className="bg-slate-900/50 border-slate-800">
+          <CardContent className="p-8 text-center">
+            <p className="text-slate-500">Select a dashboard to view details</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+};
+
+export default KibanaDashboardsPage;
