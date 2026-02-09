@@ -96,6 +96,8 @@ from routers.threat_intel import router as threat_intel_router
 from routers.ransomware import router as ransomware_router
 from routers.containers import router as containers_router
 from routers.vpn import router as vpn_router
+from routers.correlation import router as correlation_router
+from routers.edr import router as edr_router
 
 # Register all routers with /api prefix
 app.include_router(auth_router, prefix="/api")
