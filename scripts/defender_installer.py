@@ -234,11 +234,7 @@ def install_system_packages(os_type, auto=False):
     log("info", "Installing system packages...")
     
     if os_type == "windows":
-        log("warn", "Windows detected - manual installation required for some tools:")
-        print("  - nmap: https://nmap.org/download.html")
-        print("  - npcap: https://npcap.com/")
-        print("  - ClamAV: https://www.clamav.net/downloads")
-        return True
+        return install_windows_packages(auto)
     
     config = SYSTEM_PACKAGES.get(os_type, {})
     if not config:
@@ -262,6 +258,119 @@ def install_system_packages(os_type, auto=False):
         run_cmd(f"{config['install_cmd']} {pkgs}", check=False)
     
     log("ok", "System packages installed")
+    return True
+
+def install_windows_packages(auto=False):
+    """Install packages on Windows with automated download support"""
+    log("info", "Windows detected - checking for available package managers...")
+    
+    # Check for winget (Windows Package Manager)
+    has_winget = shutil.which("winget") is not None
+    # Check for chocolatey
+    has_choco = shutil.which("choco") is not None
+    # Check for scoop
+    has_scoop = shutil.which("scoop") is not None
+    
+    packages_installed = []
+    packages_manual = []
+    
+    if has_winget:
+        log("ok", "Found Windows Package Manager (winget)")
+        # Install nmap via winget
+        if not shutil.which("nmap"):
+            log("info", "Installing Nmap via winget...")
+            result = run_cmd("winget install Insecure.Nmap --accept-source-agreements --accept-package-agreements", check=False)
+            if result:
+                packages_installed.append("nmap")
+            else:
+                packages_manual.append(("nmap", "https://nmap.org/download.html"))
+        else:
+            log("ok", "Nmap already installed")
+            packages_installed.append("nmap")
+        
+        # Install ClamAV via winget
+        if not shutil.which("clamscan"):
+            log("info", "Installing ClamAV via winget...")
+            result = run_cmd("winget install ClamAV.ClamAV --accept-source-agreements --accept-package-agreements", check=False)
+            if result:
+                packages_installed.append("clamav")
+            else:
+                packages_manual.append(("ClamAV", "https://www.clamav.net/downloads"))
+        else:
+            log("ok", "ClamAV already installed")
+            packages_installed.append("clamav")
+            
+    elif has_choco:
+        log("ok", "Found Chocolatey package manager")
+        # Install via chocolatey
+        if not shutil.which("nmap"):
+            log("info", "Installing Nmap via chocolatey...")
+            result = run_cmd("choco install nmap -y", check=False)
+            if result:
+                packages_installed.append("nmap")
+            else:
+                packages_manual.append(("nmap", "https://nmap.org/download.html"))
+        else:
+            packages_installed.append("nmap")
+            
+        if not shutil.which("clamscan"):
+            log("info", "Installing ClamAV via chocolatey...")
+            result = run_cmd("choco install clamav -y", check=False)
+            if result:
+                packages_installed.append("clamav")
+            else:
+                packages_manual.append(("ClamAV", "https://www.clamav.net/downloads"))
+        else:
+            packages_installed.append("clamav")
+            
+    elif has_scoop:
+        log("ok", "Found Scoop package manager")
+        if not shutil.which("nmap"):
+            log("info", "Installing Nmap via scoop...")
+            result = run_cmd("scoop install nmap", check=False)
+            if result:
+                packages_installed.append("nmap")
+            else:
+                packages_manual.append(("nmap", "https://nmap.org/download.html"))
+        else:
+            packages_installed.append("nmap")
+    else:
+        log("warn", "No package manager found (winget, chocolatey, or scoop)")
+        packages_manual = [
+            ("nmap", "https://nmap.org/download.html"),
+            ("npcap", "https://npcap.com/"),
+            ("ClamAV", "https://www.clamav.net/downloads"),
+        ]
+    
+    # Always need npcap for packet capture
+    if not Path("C:/Windows/System32/Npcap").exists():
+        packages_manual.append(("npcap", "https://npcap.com/"))
+    
+    # Summary
+    if packages_installed:
+        log("ok", f"Automatically installed: {', '.join(packages_installed)}")
+    
+    if packages_manual:
+        log("warn", "The following tools require manual installation:")
+        for name, url in packages_manual:
+            print(f"  - {name}: {url}")
+        
+        if not auto:
+            print()
+            print("Would you like to open the download pages in your browser? [Y/n]")
+            resp = input().strip().lower()
+            if resp != 'n':
+                import webbrowser
+                for name, url in packages_manual:
+                    webbrowser.open(url)
+    
+    # Additional Windows-specific tools suggestion
+    log("info", "Windows Security Recommendations:")
+    print("  - Consider installing Windows Defender (built-in)")
+    print("  - Consider enabling Windows Firewall with Advanced Security")
+    print("  - For container scanning, install Docker Desktop and Trivy")
+    print("  - For VPN, install WireGuard from https://www.wireguard.com/install/")
+    
     return True
 
 def install_suricata(os_type, auto=False):
