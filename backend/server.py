@@ -1040,6 +1040,406 @@ async def update_hypothesis_status(hypothesis_id: str, status: str, current_user
         raise HTTPException(status_code=404, detail="Hypothesis not found")
     return {"message": "Status updated", "status": status}
 
+# ============ ROLE-BASED ACCESS CONTROL ============
+
+ROLES = {
+    "admin": ["read", "write", "delete", "manage_users", "manage_honeypots", "export_reports"],
+    "analyst": ["read", "write", "export_reports"],
+    "viewer": ["read"]
+}
+
+class RoleUpdate(BaseModel):
+    role: str
+
+def check_permission(required_permission: str):
+    async def permission_checker(current_user: dict = Depends(get_current_user)):
+        user_role = current_user.get("role", "viewer")
+        permissions = ROLES.get(user_role, [])
+        if required_permission not in permissions:
+            raise HTTPException(status_code=403, detail=f"Permission denied. Required: {required_permission}")
+        return current_user
+    return permission_checker
+
+@api_router.patch("/users/{user_id}/role")
+async def update_user_role(user_id: str, role_update: RoleUpdate, current_user: dict = Depends(check_permission("manage_users"))):
+    """Update user role (admin only)"""
+    if role_update.role not in ROLES:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Valid roles: {list(ROLES.keys())}")
+    
+    result = await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"role": role_update.role}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "Role updated", "role": role_update.role}
+
+@api_router.get("/users")
+async def list_users(current_user: dict = Depends(check_permission("manage_users"))):
+    """List all users (admin only)"""
+    users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(100)
+    return users
+
+# ============ HONEYPOT SYSTEM ============
+
+class HoneypotCreate(BaseModel):
+    name: str
+    type: str  # ssh, http, ftp, smb, database
+    ip: str
+    port: int
+    description: Optional[str] = None
+
+class HoneypotResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    name: str
+    type: str
+    ip: str
+    port: int
+    description: Optional[str] = None
+    status: str  # active, inactive, triggered
+    interactions: int
+    last_interaction: Optional[str] = None
+    created_at: str
+
+class HoneypotInteraction(BaseModel):
+    id: str
+    honeypot_id: str
+    source_ip: str
+    source_port: int
+    timestamp: str
+    action: str  # connection, login_attempt, command, file_access
+    data: Dict[str, Any]
+    threat_level: str  # low, medium, high
+
+@api_router.post("/honeypots", response_model=HoneypotResponse)
+async def create_honeypot(honeypot_data: HoneypotCreate, current_user: dict = Depends(check_permission("manage_honeypots"))):
+    """Create a new honeypot"""
+    honeypot_id = str(uuid.uuid4())
+    honeypot_doc = {
+        "id": honeypot_id,
+        "name": honeypot_data.name,
+        "type": honeypot_data.type,
+        "ip": honeypot_data.ip,
+        "port": honeypot_data.port,
+        "description": honeypot_data.description,
+        "status": "active",
+        "interactions": 0,
+        "last_interaction": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user["id"]
+    }
+    await db.honeypots.insert_one(honeypot_doc)
+    return HoneypotResponse(**honeypot_doc)
+
+@api_router.get("/honeypots", response_model=List[HoneypotResponse])
+async def get_honeypots(current_user: dict = Depends(get_current_user)):
+    """Get all honeypots"""
+    honeypots = await db.honeypots.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return [HoneypotResponse(**h) for h in honeypots]
+
+@api_router.post("/honeypots/{honeypot_id}/interaction")
+async def record_honeypot_interaction(honeypot_id: str, source_ip: str, action: str, data: dict = {}):
+    """Record an interaction with a honeypot (called by honeypot sensors)"""
+    # Find honeypot
+    honeypot = await db.honeypots.find_one({"id": honeypot_id}, {"_id": 0})
+    if not honeypot:
+        raise HTTPException(status_code=404, detail="Honeypot not found")
+    
+    # Determine threat level based on action
+    threat_levels = {
+        "connection": "low",
+        "login_attempt": "medium",
+        "command": "high",
+        "file_access": "high"
+    }
+    
+    interaction_id = str(uuid.uuid4())
+    interaction_doc = {
+        "id": interaction_id,
+        "honeypot_id": honeypot_id,
+        "source_ip": source_ip,
+        "source_port": data.get("source_port", 0),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "data": data,
+        "threat_level": threat_levels.get(action, "medium")
+    }
+    
+    await db.honeypot_interactions.insert_one(interaction_doc)
+    
+    # Update honeypot stats
+    await db.honeypots.update_one(
+        {"id": honeypot_id},
+        {
+            "$inc": {"interactions": 1},
+            "$set": {
+                "last_interaction": datetime.now(timezone.utc).isoformat(),
+                "status": "triggered"
+            }
+        }
+    )
+    
+    # Auto-create threat if high severity
+    if threat_levels.get(action) == "high":
+        threat_doc = {
+            "id": str(uuid.uuid4()),
+            "name": f"Honeypot Triggered: {honeypot['name']}",
+            "type": "honeypot",
+            "severity": "high",
+            "status": "active",
+            "source_ip": source_ip,
+            "target_system": f"Honeypot {honeypot['name']}",
+            "description": f"High-threat interaction detected on honeypot. Action: {action}",
+            "indicators": [f"Honeypot IP: {honeypot['ip']}", f"Action: {action}", f"Source: {source_ip}"],
+            "ai_analysis": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.threats.insert_one(threat_doc)
+        
+        # Broadcast via WebSocket
+        await ws_manager.broadcast({
+            "type": "honeypot_alert",
+            "honeypot": honeypot["name"],
+            "source_ip": source_ip,
+            "action": action,
+            "threat_level": "high"
+        })
+    
+    return {"message": "Interaction recorded", "id": interaction_id, "threat_level": threat_levels.get(action)}
+
+@api_router.get("/honeypots/{honeypot_id}/interactions", response_model=List[HoneypotInteraction])
+async def get_honeypot_interactions(honeypot_id: str, current_user: dict = Depends(get_current_user)):
+    """Get interactions for a specific honeypot"""
+    interactions = await db.honeypot_interactions.find(
+        {"honeypot_id": honeypot_id}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(100)
+    return [HoneypotInteraction(**i) for i in interactions]
+
+@api_router.patch("/honeypots/{honeypot_id}/status")
+async def update_honeypot_status(honeypot_id: str, status: str, current_user: dict = Depends(check_permission("manage_honeypots"))):
+    """Update honeypot status"""
+    if status not in ["active", "inactive", "triggered"]:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    
+    result = await db.honeypots.update_one({"id": honeypot_id}, {"$set": {"status": status}})
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Honeypot not found")
+    return {"message": "Status updated", "status": status}
+
+# ============ PDF REPORT GENERATION ============
+
+def generate_threat_report_pdf(threats: List[dict], alerts: List[dict], stats: dict) -> io.BytesIO:
+    """Generate PDF threat intelligence report"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=72)
+    
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(
+        name='TitleStyle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30,
+        textColor=colors.HexColor('#3B82F6')
+    ))
+    styles.add(ParagraphStyle(
+        name='SectionTitle',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=12,
+        spaceBefore=20,
+        textColor=colors.HexColor('#1E293B')
+    ))
+    styles.add(ParagraphStyle(
+        name='BodyText',
+        parent=styles['Normal'],
+        fontSize=10,
+        spaceAfter=8
+    ))
+    
+    elements = []
+    
+    # Title
+    elements.append(Paragraph("THREAT INTELLIGENCE REPORT", styles['TitleStyle']))
+    elements.append(Paragraph(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", styles['BodyText']))
+    elements.append(Spacer(1, 20))
+    
+    # Executive Summary
+    elements.append(Paragraph("EXECUTIVE SUMMARY", styles['SectionTitle']))
+    summary_data = [
+        ['Metric', 'Value'],
+        ['Total Threats', str(stats.get('total_threats', 0))],
+        ['Active Threats', str(stats.get('active_threats', 0))],
+        ['Contained Threats', str(stats.get('contained_threats', 0))],
+        ['Resolved Threats', str(stats.get('resolved_threats', 0))],
+        ['Critical Alerts', str(stats.get('critical_alerts', 0))],
+        ['System Health', f"{stats.get('system_health', 100):.1f}%"]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[200, 150])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3B82F6')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 11),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8FAFC')),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor('#1E293B')),
+        ('FONTSIZE', (0, 1), (-1, -1), 10),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E2E8F0')),
+        ('ROWHEIGHT', (0, 0), (-1, -1), 25)
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 20))
+    
+    # Active Threats Section
+    elements.append(Paragraph("ACTIVE THREATS", styles['SectionTitle']))
+    active_threats = [t for t in threats if t.get('status') == 'active']
+    
+    if active_threats:
+        threat_data = [['Name', 'Type', 'Severity', 'Source IP']]
+        for threat in active_threats[:10]:
+            threat_data.append([
+                threat.get('name', 'Unknown')[:30],
+                threat.get('type', 'Unknown'),
+                threat.get('severity', 'Unknown').upper(),
+                threat.get('source_ip', 'N/A')
+            ])
+        
+        threat_table = Table(threat_data, colWidths=[150, 80, 80, 100])
+        threat_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EF4444')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E2E8F0')),
+            ('ROWHEIGHT', (0, 0), (-1, -1), 22)
+        ]))
+        elements.append(threat_table)
+    else:
+        elements.append(Paragraph("No active threats at this time.", styles['BodyText']))
+    
+    elements.append(Spacer(1, 20))
+    
+    # Recent Alerts Section
+    elements.append(Paragraph("RECENT ALERTS", styles['SectionTitle']))
+    if alerts:
+        alert_data = [['Title', 'Type', 'Severity', 'Status']]
+        for alert in alerts[:10]:
+            alert_data.append([
+                alert.get('title', 'Unknown')[:35],
+                alert.get('type', 'Unknown'),
+                alert.get('severity', 'Unknown').upper(),
+                alert.get('status', 'Unknown')
+            ])
+        
+        alert_table = Table(alert_data, colWidths=[170, 80, 80, 80])
+        alert_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F59E0B')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E2E8F0')),
+            ('ROWHEIGHT', (0, 0), (-1, -1), 22)
+        ]))
+        elements.append(alert_table)
+    else:
+        elements.append(Paragraph("No recent alerts.", styles['BodyText']))
+    
+    elements.append(Spacer(1, 30))
+    
+    # Footer
+    elements.append(Paragraph("--- End of Report ---", styles['BodyText']))
+    elements.append(Paragraph("Generated by Anti-AI Defense System", styles['BodyText']))
+    
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+@api_router.get("/reports/threat-intelligence")
+async def generate_threat_report(current_user: dict = Depends(check_permission("export_reports"))):
+    """Generate PDF threat intelligence report"""
+    # Gather data
+    threats = await db.threats.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    alerts = await db.alerts.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    
+    # Calculate stats
+    total_threats = len(threats)
+    active_threats = len([t for t in threats if t.get('status') == 'active'])
+    contained_threats = len([t for t in threats if t.get('status') == 'contained'])
+    resolved_threats = len([t for t in threats if t.get('status') == 'resolved'])
+    critical_alerts = len([a for a in alerts if a.get('severity') == 'critical' and a.get('status') != 'resolved'])
+    
+    system_health = 100.0
+    if total_threats > 0:
+        system_health = ((contained_threats + resolved_threats) / total_threats) * 100
+    
+    stats = {
+        'total_threats': total_threats,
+        'active_threats': active_threats,
+        'contained_threats': contained_threats,
+        'resolved_threats': resolved_threats,
+        'critical_alerts': critical_alerts,
+        'system_health': system_health
+    }
+    
+    # Generate PDF
+    pdf_buffer = generate_threat_report_pdf(threats, alerts, stats)
+    
+    filename = f"threat_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.pdf"
+    
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@api_router.post("/reports/ai-summary")
+async def generate_ai_summary_report(current_user: dict = Depends(check_permission("export_reports"))):
+    """Generate AI-powered threat summary"""
+    threats = await db.threats.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    alerts = await db.alerts.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    
+    context = f"""
+Threats Summary:
+- Total: {len(threats)}
+- Active: {len([t for t in threats if t.get('status') == 'active'])}
+- Types: {', '.join(set(t.get('type', 'unknown') for t in threats))}
+
+Alerts Summary:
+- Total: {len(alerts)}
+- Critical: {len([a for a in alerts if a.get('severity') == 'critical'])}
+
+Recent Threat Names:
+{chr(10).join(['- ' + t.get('name', 'Unknown') for t in threats[:5]])}
+"""
+    
+    system_message = """You are a cybersecurity analyst. Provide a concise executive summary of the current threat landscape based on the data provided. Include:
+1. Overall risk assessment (Critical/High/Medium/Low)
+2. Key findings (3-5 bullet points)
+3. Recommended immediate actions (2-3 points)
+4. Trend analysis
+
+Keep the summary professional and actionable."""
+
+    try:
+        summary = await call_openai(system_message, f"Analyze this security data and provide an executive summary:\n{context}")
+        return {
+            "summary": summary,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "data_points": {
+                "threats_analyzed": len(threats),
+                "alerts_analyzed": len(alerts)
+            }
+        }
+    except Exception as e:
+        logger.error(f"AI summary generation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate summary: {str(e)}")
+
 # ============ ROOT ENDPOINT ============
 
 @api_router.get("/")
