@@ -58,6 +58,8 @@ const Layout = () => {
     { path: '/vpn', icon: Lock, label: 'VPN' },
     { path: '/edr', icon: Brain, label: 'EDR' },
     { path: '/soar', icon: Workflow, label: 'SOAR' },
+    { path: '/honey-tokens', icon: Key, label: 'Honey Tokens' },
+    { path: '/zero-trust', icon: ShieldCheck, label: 'Zero Trust' },
     { path: '/reports', icon: FileText, label: 'Reports' },
     { path: '/audit', icon: ScrollText, label: 'Audit Logs' },
     { path: '/settings', icon: Settings, label: 'Settings' },
