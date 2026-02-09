@@ -114,6 +114,7 @@ async def test_notifications(channel: str, current_user: dict = Depends(get_curr
                 "Test Notification",
                 "This is a test message from Anti-AI Defense System",
                 "info",
+                None,  # fields
                 webhook_url
             )
             return {"success": True, "message": "Slack test sent"}
