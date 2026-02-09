@@ -25,6 +25,10 @@ import EDRPage from "./pages/EDRPage";
 import SOARPage from "./pages/SOARPage";
 import HoneyTokensPage from "./pages/HoneyTokensPage";
 import ZeroTrustPage from "./pages/ZeroTrustPage";
+import MLPredictionPage from "./pages/MLPredictionPage";
+import SandboxPage from "./pages/SandboxPage";
+import BrowserIsolationPage from "./pages/BrowserIsolationPage";
+import KibanaDashboardsPage from "./pages/KibanaDashboardsPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
