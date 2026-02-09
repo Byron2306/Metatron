@@ -371,6 +371,139 @@ async def log_to_elasticsearch(
         logger.warning(f"Elasticsearch error: {e}")
         return False
 
+async def create_elasticsearch_index_template(template_name: str = "security-events") -> Dict:
+    """
+    Create index template for security events (for Kibana dashboards)
+    
+    Args:
+        template_name: Name for the index template
+    
+    Returns:
+        dict: Result of the operation
+    """
+    if not config.elasticsearch_enabled:
+        return {"success": False, "error": "Elasticsearch not configured"}
+    
+    # Index template for security events
+    template = {
+        "index_patterns": ["security-events-*"],
+        "template": {
+            "settings": {
+                "number_of_shards": 1,
+                "number_of_replicas": 0,
+                "index.lifecycle.name": "security-events-policy",
+                "index.lifecycle.rollover_alias": "security-events"
+            },
+            "mappings": {
+                "properties": {
+                    "@timestamp": {"type": "date"},
+                    "event_type": {"type": "keyword"},
+                    "severity": {"type": "keyword"},
+                    "source_ip": {"type": "ip"},
+                    "destination_ip": {"type": "ip"},
+                    "user": {"type": "keyword"},
+                    "device_id": {"type": "keyword"},
+                    "threat_name": {"type": "keyword"},
+                    "threat_type": {"type": "keyword"},
+                    "action_taken": {"type": "keyword"},
+                    "playbook_id": {"type": "keyword"},
+                    "playbook_name": {"type": "keyword"},
+                    "alert_id": {"type": "keyword"},
+                    "agent_id": {"type": "keyword"},
+                    "file_path": {"type": "text"},
+                    "file_hash": {"type": "keyword"},
+                    "process_name": {"type": "keyword"},
+                    "process_id": {"type": "long"},
+                    "command_line": {"type": "text"},
+                    "description": {"type": "text"},
+                    "raw_log": {"type": "text"},
+                    "tags": {"type": "keyword"},
+                    "geo": {
+                        "properties": {
+                            "country": {"type": "keyword"},
+                            "city": {"type": "keyword"},
+                            "location": {"type": "geo_point"}
+                        }
+                    },
+                    "mitre": {
+                        "properties": {
+                            "tactic": {"type": "keyword"},
+                            "technique": {"type": "keyword"},
+                            "subtechnique": {"type": "keyword"}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    url = f"{config.elasticsearch_url}/_index_template/{template_name}"
+    headers = {"Content-Type": "application/json"}
+    if config.elasticsearch_api_key:
+        headers["Authorization"] = f"ApiKey {config.elasticsearch_api_key}"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.put(url, json=template, headers=headers, timeout=30)
+            if response.status_code in [200, 201]:
+                logger.info(f"Created Elasticsearch index template: {template_name}")
+                return {"success": True, "template_name": template_name}
+            else:
+                return {"success": False, "error": response.text}
+    except Exception as e:
+        logger.error(f"Failed to create index template: {e}")
+        return {"success": False, "error": str(e)}
+
+async def log_security_event(
+    event_type: str,
+    severity: str,
+    description: str,
+    source_ip: Optional[str] = None,
+    user: Optional[str] = None,
+    threat_name: Optional[str] = None,
+    action_taken: Optional[str] = None,
+    extra_fields: Optional[Dict] = None
+) -> bool:
+    """
+    Log a security event to Elasticsearch with proper structure
+    
+    Args:
+        event_type: Type of event (threat_detected, alert, playbook_executed, etc.)
+        severity: Event severity (critical, high, medium, low, info)
+        description: Human-readable description
+        source_ip: Source IP address
+        user: User associated with event
+        threat_name: Name of detected threat
+        action_taken: Action taken in response
+        extra_fields: Additional fields to include
+    
+    Returns:
+        bool: True if logged successfully
+    """
+    # Create index name with date for easy rollover
+    today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
+    index = f"security-events-{today}"
+    
+    document = {
+        "@timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_type": event_type,
+        "severity": severity,
+        "description": description
+    }
+    
+    if source_ip:
+        document["source_ip"] = source_ip
+    if user:
+        document["user"] = user
+    if threat_name:
+        document["threat_name"] = threat_name
+    if action_taken:
+        document["action_taken"] = action_taken
+    if extra_fields:
+        document.update(extra_fields)
+    
+    return await log_to_elasticsearch(index, document)
+
 # =============================================================================
 # UNIFIED NOTIFICATION DISPATCHER
 # =============================================================================
