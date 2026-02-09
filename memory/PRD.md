@@ -31,9 +31,34 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **Volatility 3 Installation**: Memory forensics framework
 - **Improved UX**: Automatic browser opening for manual downloads
 
-## Architecture (v3.0)
+## Architecture (v3.1)
 
-### Backend Structure (21 Router Modules)
+### Frontend Structure (20 Pages)
+```
+/app/frontend/src/pages/
+├── DashboardPage.jsx          # Main dashboard
+├── AIDetectionPage.jsx        # AI threat detection
+├── AlertsPage.jsx             # Alert management
+├── ThreatsPage.jsx            # Threat listing
+├── NetworkTopologyPage.jsx    # Network visualization
+├── ThreatHuntingPage.jsx      # Threat hunting
+├── HoneypotsPage.jsx          # Honeypot management
+├── ReportsPage.jsx            # PDF reports
+├── AgentsPage.jsx             # Local agent management
+├── QuarantinePage.jsx         # File quarantine
+├── SettingsPage.jsx           # Configuration
+├── ThreatResponsePage.jsx     # Auto-response rules
+├── TimelinePage.jsx           # Threat timeline
+├── AuditLogPage.jsx           # Audit logs
+├── ThreatIntelPage.jsx        # NEW: Threat intelligence
+├── RansomwarePage.jsx         # NEW: Ransomware protection
+├── ContainerSecurityPage.jsx  # NEW: Container security
+├── VPNPage.jsx                # NEW: VPN management
+├── CorrelationPage.jsx        # NEW: Threat correlation
+└── EDRPage.jsx                # NEW: EDR & Memory Forensics
+```
+
+### Backend Structure (23 Router Modules)
 ```
 /app/backend/
 ├── server.py                    # Main FastAPI app (200 lines)
