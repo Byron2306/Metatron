@@ -152,7 +152,7 @@ async def root():
     """API root endpoint"""
     return {
         "name": "Anti-AI Defense System API",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "status": "operational",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "features": [
@@ -165,7 +165,11 @@ async def root():
             "auto_response",
             "audit_logging",
             "timeline_reconstruction",
-            "openclaw_integration"
+            "openclaw_integration",
+            "threat_intelligence_feeds",
+            "ransomware_protection",
+            "container_security",
+            "vpn_integration"
         ]
     }
 
