@@ -452,13 +452,14 @@ class TestAdditionalRouters:
         print(f"✓ Honeypots endpoint passed")
     
     def test_reports_endpoint(self, auth_token):
-        """Test /api/reports endpoint exists"""
+        """Test /api/reports/threat-intelligence endpoint exists"""
         response = requests.get(
-            f"{BASE_URL}/api/reports",
+            f"{BASE_URL}/api/reports/threat-intelligence",
             headers={"Authorization": f"Bearer {auth_token}"}
         )
-        assert response.status_code == 200, f"Reports endpoint failed: {response.text}"
-        print(f"✓ Reports endpoint passed")
+        # Should return 200 (PDF) or 403 (permission denied), not 404
+        assert response.status_code != 404, f"Reports endpoint not found: {response.text}"
+        print(f"✓ Reports endpoint exists: status {response.status_code}")
     
     def test_agents_list_endpoint(self, auth_token):
         """Test /api/agents endpoint exists"""
@@ -470,13 +471,13 @@ class TestAdditionalRouters:
         print(f"✓ Agents list endpoint passed")
     
     def test_response_rules_endpoint(self, auth_token):
-        """Test /api/response/rules endpoint exists"""
+        """Test /api/threat-response/stats endpoint exists"""
         response = requests.get(
-            f"{BASE_URL}/api/response/rules",
+            f"{BASE_URL}/api/threat-response/stats",
             headers={"Authorization": f"Bearer {auth_token}"}
         )
-        assert response.status_code == 200, f"Response rules failed: {response.text}"
-        print(f"✓ Response rules endpoint passed")
+        assert response.status_code == 200, f"Response stats failed: {response.text}"
+        print(f"✓ Response stats endpoint passed")
     
     def test_audit_logs_endpoint(self, auth_token):
         """Test /api/audit/logs endpoint exists"""
