@@ -13,6 +13,32 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v4.0.0**: ML Threat Prediction + Sandbox Analysis + Browser Isolation + Kibana Dashboards
 - **v4.1.0**: Real Tool Integrations - WireGuard, Trivy, Volatility 3 (CURRENT - Feb 2026)
 
+## v4.1 Real Tool Integrations (Feb 2026)
+
+### Installed & Configured
+| Tool | Version | Path | Status |
+|------|---------|------|--------|
+| **WireGuard** | v1.0.20210914 | `wg` / `wg-quick` | ✅ Installed |
+| **Trivy** | v0.49.1 | `/usr/local/bin/trivy` | ✅ Installed |
+| **Volatility 3** | v2.27.0 | `/root/.venv/bin/vol` | ✅ Installed |
+
+### WireGuard VPN
+- Key generation working (`wg genkey`, `wg pubkey`, `wg genpsk`)
+- Server config generation at `/var/lib/anti-ai-defense/vpn/wg0.conf`
+- Peer management (add, remove, get config)
+- Kill switch support with iptables
+
+### Trivy Container Security
+- Image vulnerability scanning
+- JSON output parsing
+- Severity categorization (CRITICAL, HIGH, MEDIUM, LOW)
+- Cache support for repeated scans
+
+### Volatility 3 Memory Forensics
+- Memory dump analysis
+- Plugin support: pslist, pstree, malfind, netscan, cmdline
+- Windows/Linux/macOS memory image support
+
 ## v4.0 New Features (Feb 2026)
 
 ### 1. ML Threat Prediction ✅
