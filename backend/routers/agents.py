@@ -186,23 +186,41 @@ async def receive_agent_event(event: AgentEvent):
     # Default response for unknown event types
     return {"status": "ok", "message": f"Event {event.event_type} received"}
 
-@router.get("/download")
-async def download_agent():
-    """Download the local security agent installer"""
-    installer_path = "/app/scripts/defender_installer.py"
+@router.get("/download/installer")
+async def download_installer():
+    """Download the defender installer script"""
     try:
-        with open(installer_path, 'r') as f:
+        script_path = Path(__file__).parent.parent.parent / "scripts" / "defender_installer.py"
+        with open(script_path, 'r') as f:
             content = f.read()
         
         return StreamingResponse(
-            io.BytesIO(content.encode()),
-            media_type="application/x-python",
+            io.StringIO(content),
+            media_type="text/x-python",
             headers={
                 "Content-Disposition": "attachment; filename=defender_installer.py"
             }
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Installer not found")
+
+@router.get("/download/advanced-agent")
+async def download_advanced_agent():
+    """Download the advanced security agent with enhanced monitoring"""
+    try:
+        script_path = Path(__file__).parent.parent.parent / "scripts" / "advanced_agent.py"
+        with open(script_path, 'r') as f:
+            content = f.read()
+        
+        return StreamingResponse(
+            io.StringIO(content),
+            media_type="text/x-python",
+            headers={
+                "Content-Disposition": "attachment; filename=advanced_agent.py"
+            }
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Advanced agent not found")
 
 # Agents list endpoint
 agents_router = APIRouter(prefix="/agents", tags=["Agents"])
