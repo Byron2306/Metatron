@@ -124,6 +124,8 @@ app.include_router(threat_intel_router, prefix="/api")
 app.include_router(ransomware_router, prefix="/api")
 app.include_router(containers_router, prefix="/api")
 app.include_router(vpn_router, prefix="/api")
+app.include_router(correlation_router, prefix="/api")
+app.include_router(edr_router, prefix="/api")
 
 # ============ WEBSOCKET ENDPOINTS ============
 
