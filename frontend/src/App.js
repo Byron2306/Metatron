@@ -11,6 +11,8 @@ import ThreatHuntingPage from "./pages/ThreatHuntingPage";
 import HoneypotsPage from "./pages/HoneypotsPage";
 import ReportsPage from "./pages/ReportsPage";
 import AgentsPage from "./pages/AgentsPage";
+import QuarantinePage from "./pages/QuarantinePage";
+import SettingsPage from "./pages/SettingsPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -59,6 +61,8 @@ function App() {
               <Route path="honeypots" element={<HoneypotsPage />} />
               <Route path="reports" element={<ReportsPage />} />
               <Route path="agents" element={<AgentsPage />} />
+              <Route path="quarantine" element={<QuarantinePage />} />
+              <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
