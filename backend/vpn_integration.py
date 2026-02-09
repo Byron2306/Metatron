@@ -304,7 +304,7 @@ AllowedIPs = {peer.allowed_ips}
         self._save_config()
         
         # Store in database
-        if self._db:
+        if self._db is not None:
             await self._db.vpn_peers.insert_one(asdict(peer))
         
         logger.info(f"Added VPN peer: {name} ({allowed_ips})")
