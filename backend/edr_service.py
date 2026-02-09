@@ -178,6 +178,17 @@ class ProcessTreeBuilder:
                 # Check for suspicious patterns
                 is_suspicious, reasons = self._check_suspicious(info)
                 
+                # Get connections and open files safely
+                try:
+                    conn_count = len(proc.connections())
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    conn_count = 0
+                
+                try:
+                    files_count = len(proc.open_files())
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    files_count = 0
+                
                 processes[info['pid']] = ProcessInfo(
                     pid=info['pid'],
                     ppid=info['ppid'] or 0,
@@ -190,8 +201,8 @@ class ProcessTreeBuilder:
                     memory_percent=info.get('memory_percent', 0) or 0,
                     status=info.get('status', 'unknown'),
                     threads=info.get('num_threads', 0) or 0,
-                    connections=len(info.get('connections') or []),
-                    open_files=len(info.get('open_files') or []),
+                    connections=conn_count,
+                    open_files=files_count,
                     is_suspicious=is_suspicious,
                     suspicion_reasons=reasons
                 )
