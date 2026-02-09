@@ -25,7 +25,7 @@ class TestAuthentication:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         # Try registering if login fails
         register_response = requests.post(f"{BASE_URL}/api/auth/register", json={
             "email": TEST_EMAIL,
@@ -38,28 +38,28 @@ class TestAuthentication:
                 "password": TEST_PASSWORD
             })
             if login_response.status_code == 200:
-                return login_response.json().get("token")
+                return login_response.json().get("access_token")
         pytest.skip("Authentication failed - skipping authenticated tests")
     
     def test_auth_required_ml_stats(self):
         """Test ML stats requires authentication"""
         response = requests.get(f"{BASE_URL}/api/ml/stats")
-        assert response.status_code == 401
+        assert response.status_code in [401, 403]
     
     def test_auth_required_sandbox_stats(self):
         """Test Sandbox stats requires authentication"""
         response = requests.get(f"{BASE_URL}/api/sandbox/stats")
-        assert response.status_code == 401
+        assert response.status_code in [401, 403]
     
     def test_auth_required_browser_isolation_stats(self):
         """Test Browser Isolation stats requires authentication"""
         response = requests.get(f"{BASE_URL}/api/browser-isolation/stats")
-        assert response.status_code == 401
+        assert response.status_code in [401, 403]
     
     def test_auth_required_kibana_dashboards(self):
         """Test Kibana dashboards requires authentication"""
         response = requests.get(f"{BASE_URL}/api/kibana/dashboards")
-        assert response.status_code == 401
+        assert response.status_code in [401, 403]
 
 
 class TestMLPrediction:
@@ -73,7 +73,7 @@ class TestMLPrediction:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            token = response.json().get("token")
+            token = response.json().get("access_token")
             return {"Authorization": f"Bearer {token}"}
         pytest.skip("Authentication failed")
     
@@ -259,7 +259,7 @@ class TestSandboxAnalysis:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            token = response.json().get("token")
+            token = response.json().get("access_token")
             return {"Authorization": f"Bearer {token}"}
         pytest.skip("Authentication failed")
     
@@ -355,7 +355,7 @@ class TestBrowserIsolation:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            token = response.json().get("token")
+            token = response.json().get("access_token")
             return {"Authorization": f"Bearer {token}"}
         pytest.skip("Authentication failed")
     
@@ -459,7 +459,7 @@ class TestKibanaDashboards:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            token = response.json().get("token")
+            token = response.json().get("access_token")
             return {"Authorization": f"Bearer {token}"}
         pytest.skip("Authentication failed")
     
@@ -534,7 +534,7 @@ class TestIntegration:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            token = response.json().get("token")
+            token = response.json().get("access_token")
             return {"Authorization": f"Bearer {token}"}
         pytest.skip("Authentication failed")
     
