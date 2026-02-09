@@ -2474,22 +2474,27 @@ class AdvancedSecurityAgent:
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Anti-AI Defense Advanced Security Agent")
+    parser = argparse.ArgumentParser(description="Anti-AI Defense Advanced Security Agent v4.0")
     parser.add_argument("--full-scan", action="store_true", help="Run full security scan")
     parser.add_argument("--process-scan", action="store_true", help="Scan processes only")
     parser.add_argument("--browser-scan", action="store_true", help="Scan browser extensions")
     parser.add_argument("--folder-scan", type=str, help="Scan specific folder")
     parser.add_argument("--user-scan", action="store_true", help="Scan user privileges")
+    parser.add_argument("--task-scan", action="store_true", help="Scan scheduled tasks/cron")
+    parser.add_argument("--usb-scan", action="store_true", help="Scan USB devices")
+    parser.add_argument("--memory-scan", action="store_true", help="Quick memory scan")
+    parser.add_argument("--memory-dump", type=str, help="Analyze memory dump file")
     parser.add_argument("--monitor", action="store_true", help="Start continuous monitoring")
     parser.add_argument("--auto-kill", action="store_true", help="Auto-kill malicious processes")
+    parser.add_argument("--api-url", type=str, help="Cloud API URL for sync")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     
     args = parser.parse_args()
     
-    agent = AdvancedSecurityAgent()
+    agent = AdvancedSecurityAgent(api_url=args.api_url)
     
     if args.full_scan:
-        results = agent.run_full_scan()
+        results = agent.run_full_scan(sync_to_cloud=bool(args.api_url))
         if args.json:
             print(json.dumps(results, indent=2, default=str))
     
