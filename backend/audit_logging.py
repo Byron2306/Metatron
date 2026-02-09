@@ -277,7 +277,7 @@ class AuditLogger:
         deleted = 0
         
         # Clean database
-        if cls._db:
+        if cls._db is not None:
             try:
                 result = await cls._db.audit_logs.delete_many({
                     "timestamp": {"$lt": cutoff_str}
