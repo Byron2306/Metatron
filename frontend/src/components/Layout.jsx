@@ -8,7 +8,9 @@ import {
   LogOut, 
   ChevronRight,
   Cpu,
-  Activity
+  Activity,
+  Network,
+  Crosshair
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -26,6 +28,8 @@ const Layout = () => {
     { path: '/ai-detection', icon: Cpu, label: 'AI Detection' },
     { path: '/threats', icon: AlertTriangle, label: 'Threats' },
     { path: '/alerts', icon: Bell, label: 'Alerts' },
+    { path: '/network', icon: Network, label: 'Network Map' },
+    { path: '/hunting', icon: Crosshair, label: 'Threat Hunting' },
   ];
 
   return (
