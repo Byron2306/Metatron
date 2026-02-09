@@ -85,7 +85,7 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 └── SOARPage.jsx               # NEW: SOAR Playbooks
 ```
 
-### Backend Structure (23 Router Modules)
+### Backend Structure (24 Router Modules)
 ```
 /app/backend/
 ├── server.py                    # Main FastAPI app (200 lines)
@@ -112,7 +112,9 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 │   ├── containers.py            # NEW: Container security
 │   ├── vpn.py                   # NEW: VPN integration
 │   ├── correlation.py           # NEW: Threat correlation
-│   └── edr.py                   # NEW: EDR & Memory Forensics
+│   ├── edr.py                   # NEW: EDR & Memory Forensics
+│   └── soar.py                  # NEW: SOAR Playbooks
+├── soar_engine.py               # NEW: SOAR service
 ├── threat_intel.py              # Threat feed service
 ├── ransomware_protection.py     # Ransomware service
 ├── container_security.py        # Container/Trivy service
