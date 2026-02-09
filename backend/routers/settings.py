@@ -158,6 +158,29 @@ async def test_notifications(channel: str, current_user: dict = Depends(get_curr
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Email test failed: {str(e)}")
     
+    elif channel == "sms":
+        account_sid = settings.get("twilio_account_sid")
+        auth_token = settings.get("twilio_auth_token")
+        from_number = settings.get("twilio_from_number")
+        sms_recipients = settings.get("sms_recipients", "")
+        
+        if not all([account_sid, auth_token, from_number, sms_recipients]):
+            raise HTTPException(status_code=400, detail="Twilio settings incomplete")
+        
+        try:
+            recipients = [r.strip() for r in sms_recipients.split(",") if r.strip()]
+            result = await send_sms_notification(
+                "Test: Anti-AI Defense System is configured correctly.",
+                "info",
+                recipients,
+                account_sid,
+                auth_token,
+                from_number
+            )
+            return {"success": result, "message": "SMS test sent" if result else "SMS test failed"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"SMS test failed: {str(e)}")
+    
     raise HTTPException(status_code=400, detail=f"Unknown channel: {channel}")
 
 # Elasticsearch Settings
