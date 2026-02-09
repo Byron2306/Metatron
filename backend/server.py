@@ -345,17 +345,36 @@ async def update_alert_status(alert_id: str, status: str, current_user: dict = D
 # ============ AI ANALYSIS ENDPOINTS ============
 
 async def call_openai(system_message: str, user_message: str) -> str:
-    """Helper function to call OpenAI API"""
-    response = await openai_client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": user_message}
-        ],
-        max_tokens=2000,
-        temperature=0.7
-    )
-    return response.choices[0].message.content
+    """Helper function to call AI API - tries OpenAI first, falls back to Emergent"""
+    # Try OpenAI first if available
+    if openai_client and OPENAI_API_KEY:
+        try:
+            response = await openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=2000,
+                temperature=0.7
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"OpenAI call failed, falling back to Emergent: {str(e)}")
+    
+    # Fallback to Emergent LLM
+    if EMERGENT_LLM_KEY:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"analysis-{str(uuid.uuid4())[:8]}",
+            system_message=system_message
+        ).with_model("openai", "gpt-4o")
+        
+        msg = UserMessage(text=user_message)
+        response = await chat.send_message(msg)
+        return response
+    
+    raise Exception("No AI API available")
 
 @api_router.post("/ai/analyze", response_model=AIAnalysisResponse)
 async def ai_analyze(request: AIAnalysisRequest, current_user: dict = Depends(get_current_user)):
