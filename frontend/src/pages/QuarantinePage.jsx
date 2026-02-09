@@ -30,12 +30,19 @@ const QuarantinePage = () => {
       
       if (entriesRes.ok) {
         const data = await entriesRes.json();
-        setEntries(data.entries || []);
+        // Backend returns array directly, not wrapped in { entries: [] }
+        setEntries(Array.isArray(data) ? data : (data.entries || []));
       }
       
       if (summaryRes.ok) {
         const data = await summaryRes.json();
-        setSummary(data);
+        // Map backend response to expected format
+        setSummary({
+          total_entries: data.total_files || 0,
+          by_status: data.by_status || {},
+          by_threat_type: data.by_threat_type || {},
+          storage: data.storage || {}
+        });
       }
     } catch (err) {
       console.error('Failed to fetch quarantine data:', err);
