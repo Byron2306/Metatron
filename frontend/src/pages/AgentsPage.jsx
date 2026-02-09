@@ -256,18 +256,24 @@ const AgentsPage = () => {
             <div>
               <h3 className="font-semibold text-white mb-2">No Agents Connected</h3>
               <p className="text-slate-400 text-sm mb-4">
-                To scan your local network, you need to run the security agent on your PC:
+                To protect your network, download and run the Defender Security Suite:
               </p>
               <ol className="list-decimal list-inside space-y-2 text-sm text-slate-300">
-                <li>Click "Download Agent" above to get the Python script</li>
-                <li>Install dependencies: <code className="bg-slate-800 px-2 py-0.5 rounded">pip install requests psutil scapy yara-python python-nmap</code></li>
-                <li>Run with admin privileges: <code className="bg-slate-800 px-2 py-0.5 rounded">sudo python local_agent.py</code></li>
-                <li>The agent will connect and start sending security data</li>
+                <li>Click <span className="text-cyan-400 font-semibold">"Download Agent"</span> above to get the installer</li>
+                <li>Run the installer: <code className="bg-slate-800 px-2 py-0.5 rounded">python defender_installer.py</code></li>
+                <li>The installer will set up all security tools automatically</li>
+                <li>Start the agent: <code className="bg-slate-800 px-2 py-0.5 rounded">sudo ~/.anti-ai-defense/start_defender.sh</code></li>
               </ol>
-              <div className="mt-4">
-                <p className="text-xs text-slate-500">
-                  Optional: Install Suricata for IDS capabilities, and nmap for network scanning.
-                </p>
+              <div className="mt-4 p-3 bg-slate-800/50 rounded border border-slate-700">
+                <p className="text-xs text-slate-400 font-semibold mb-2">Included Security Tools:</p>
+                <div className="flex flex-wrap gap-2">
+                  <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs">Nmap</span>
+                  <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">Suricata IDS</span>
+                  <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">Falco</span>
+                  <span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs">ClamAV</span>
+                  <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded text-xs">YARA</span>
+                  <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-xs">Packet Capture</span>
+                </div>
               </div>
             </div>
           </div>
