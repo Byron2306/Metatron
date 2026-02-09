@@ -101,6 +101,14 @@ from routers.edr import router as edr_router
 from routers.soar import router as soar_router
 from routers.honey_tokens import router as honey_tokens_router
 from routers.zero_trust import router as zero_trust_router
+from routers.ml_prediction import router as ml_router
+from routers.sandbox import router as sandbox_router
+from routers.browser_isolation import router as browser_isolation_router
+from routers.kibana import router as kibana_router
+
+# Initialize ML service with database
+from ml_threat_prediction import ml_predictor
+ml_predictor.set_database(db)
 
 # Register all routers with /api prefix
 app.include_router(auth_router, prefix="/api")
