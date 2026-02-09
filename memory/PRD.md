@@ -27,13 +27,13 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 
 ## Credentials Required for Full Functionality
 
-| Service | Credential | How to Get |
-|---------|-----------|------------|
-| **Slack** | Webhook URL | api.slack.com/apps → Create App → Incoming Webhooks → Add to Workspace |
-| **SendGrid** | API Key | sendgrid.com → Settings → API Keys → Create (starts with `SG.`) |
-| **Twilio** | Account SID, Auth Token, Phone | twilio.com → Console Dashboard |
-| **Elasticsearch** | URL + API Key | elastic.co/cloud → Create Deployment → Security → API Key |
-| **OpenClaw** | API Key + Gateway URL | From your OpenClaw provider |
+| Service | Credential | Status |
+|---------|-----------|--------|
+| **Slack** | Webhook URL | ✅ **CONFIGURED & ACTIVE** |
+| **SendGrid** | API Key | ✅ **CONFIGURED & ACTIVE** |
+| **Elasticsearch** | URL + API Key | ✅ **CONFIGURED & CONNECTED** (v9.3.0) |
+| **Twilio SMS** | Account SID, Auth Token, Phone | ⚠️ Needs Twilio-owned phone number |
+| **OpenClaw** | API Key + Gateway | ❌ Not configured (uses Emergent LLM key for AI) |
 
 ## v3.1 Features (Completed)
 
