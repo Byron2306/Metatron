@@ -393,6 +393,93 @@ def install_suricata(os_type, auto=False):
         run_cmd("sudo suricata-update", check=False)
     return result
 
+def install_wireguard(os_type, auto=False):
+    """Install WireGuard VPN"""
+    if not auto:
+        resp = input("Install WireGuard VPN? [Y/n]: ").strip().lower()
+        if resp == 'n':
+            return False
+    
+    log("info", "Installing WireGuard VPN...")
+    
+    if os_type == "windows":
+        log("info", "For Windows, download WireGuard from: https://www.wireguard.com/install/")
+        return False
+    elif os_type == "darwin":
+        result = run_cmd("brew install wireguard-tools", check=False)
+    elif os_type == "linux_apt":
+        result = run_cmd("sudo apt-get install -y wireguard wireguard-tools", check=False)
+    elif os_type == "linux_dnf":
+        result = run_cmd("sudo dnf install -y wireguard-tools", check=False)
+    elif os_type == "linux_pacman":
+        result = run_cmd("sudo pacman -S --noconfirm wireguard-tools", check=False)
+    else:
+        log("warn", "WireGuard installation not supported for this OS")
+        return False
+    
+    if result:
+        log("ok", "WireGuard installed")
+    return result
+
+def install_trivy(os_type, auto=False):
+    """Install Trivy container scanner"""
+    if not auto:
+        resp = input("Install Trivy (container vulnerability scanner)? [Y/n]: ").strip().lower()
+        if resp == 'n':
+            return False
+    
+    log("info", "Installing Trivy container scanner...")
+    
+    if os_type == "windows":
+        # Check for winget or chocolatey
+        if shutil.which("winget"):
+            result = run_cmd("winget install AquaSecurity.Trivy --accept-source-agreements --accept-package-agreements", check=False)
+        elif shutil.which("choco"):
+            result = run_cmd("choco install trivy -y", check=False)
+        else:
+            log("info", "For Windows, download Trivy from: https://github.com/aquasecurity/trivy/releases")
+            return False
+    elif os_type == "darwin":
+        result = run_cmd("brew install trivy", check=False)
+    elif os_type in ["linux_apt", "linux_dnf"]:
+        # Install via official script
+        log("info", "Installing Trivy via official installer...")
+        result = run_cmd('curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin', check=False, timeout=300)
+    elif os_type == "linux_pacman":
+        result = run_cmd("sudo pacman -S --noconfirm trivy", check=False)
+    else:
+        log("warn", "Trivy installation not supported for this OS")
+        return False
+    
+    if result:
+        log("ok", "Trivy installed")
+    return result
+
+def install_volatility(os_type, auto=False):
+    """Install Volatility 3 memory forensics framework"""
+    if not auto:
+        resp = input("Install Volatility 3 (memory forensics)? [Y/n]: ").strip().lower()
+        if resp == 'n':
+            return False
+    
+    log("info", "Installing Volatility 3 memory forensics...")
+    
+    pip = get_pip()
+    
+    # Install volatility3 via pip
+    result = run_cmd(f"{pip} install volatility3", check=False)
+    
+    if result:
+        log("ok", "Volatility 3 installed")
+        # Download symbol tables (optional but recommended)
+        log("info", "Note: For full functionality, download symbol tables from:")
+        print("  https://downloads.volatilityfoundation.org/volatility3/symbols/")
+    else:
+        log("warn", "Volatility 3 installation failed - you can install manually with:")
+        print("  pip install volatility3")
+    
+    return result
+
 def install_falco(os_type, auto=False):
     """Install Falco runtime security"""
     config = SYSTEM_PACKAGES.get(os_type, {})
