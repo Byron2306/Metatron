@@ -45,6 +45,13 @@ from threat_response import (
     respond_to_intrusion, respond_to_malware, respond_to_port_scan,
     manual_block_ip, manual_unblock_ip, config as response_config
 )
+from audit_logging import (
+    audit, AuditCategory, AuditSeverity,
+    log_auth_event, log_user_action, log_threat_response,
+    log_security_event, log_config_change, log_agent_event
+)
+from threat_timeline import timeline_builder, ThreatTimeline
+from websocket_service import realtime_ws, WSMessageType, WSMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -53,6 +60,10 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Set database for services
+audit.set_database(db)
+timeline_builder.set_database(db)
 
 # JWT Configuration
 JWT_SECRET = os.environ.get('JWT_SECRET', 'anti-ai-defense-secret')
