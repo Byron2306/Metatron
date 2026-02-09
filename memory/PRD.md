@@ -1,183 +1,175 @@
-# Anti-AI Defense System - PRD
+# Anti-AI Defense System - Product Requirements Document
 
 ## Overview
-The Ultimate Agentic Anti-AI Agent Defense System is a comprehensive, fully autonomous cybersecurity platform designed to counter malicious AI agents and advanced malware threats. The system can autonomously detect, analyze, respond to threats, and maintain complete audit trails without human intervention.
+The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurity platform designed to counter malicious AI agents and advanced malware.
 
-## Original Problem Statement
-Build a defensive AI system with:
-- Multi-Layer Cognitive Defense Framework
-- Adversarial AI Detection Engine
-- Real-time threat detection and behavioral analysis
-- AI-powered threat intelligence
-- Local network scanning capabilities
-- Integration with tools like Suricata, Falco, YARA, Kibana
-- Automated threat response with IP blocking
-- OpenClaw CLI integration for agentic AI automation
-- SMS emergency alerts
-- Audit logging and threat timeline reconstruction
+## Version History
+- **v1.0.0**: Initial dashboard with simulated threats
+- **v2.0.0**: Real network scanning, local agent, notifications
+- **v3.0.0**: Backend refactoring, advanced security monitoring (CURRENT)
 
-## What's Been Implemented (Feb 2026)
+## Core Features (Implemented)
 
-### Core Features (14 Pages)
-1. **Dashboard** - Real-time threat statistics and system status
-2. **Agents** - Local agent management and download
-3. **AI Detection** - GPT-4o powered analysis
-4. **Threats** - Threat management with AI analysis
-5. **Alerts** - Alert management system
-6. **Quarantine** - Isolated malware management
-7. **Auto Response** - Autonomous threat mitigation
-8. **Timeline** - Threat incident reconstruction
-9. **Network Map** - Topology visualization
-10. **Threat Hunting** - AI hypothesis generation
-11. **Honeypots** - Decoy system management
-12. **Reports** - PDF generation
-13. **Audit Logs** - Complete activity audit trail
-14. **Settings** - Notification and integration configuration
+### Authentication & Authorization
+- [x] JWT-based authentication
+- [x] Role-Based Access Control (admin, analyst, viewer)
+- [x] User registration and login
 
-### Agentic Threat Response Engine
-- **Automated IP Blocking**: Auto-detects iptables/firewalld/ufw/Windows
-- **Twilio SMS Alerts**: Emergency notifications for critical threats
-- **OpenClaw AI Integration**: Autonomous threat analysis
-- **Forensics Collection**: Auto-collects evidence
-- **Threat Intelligence Sharing**: Community indicator sharing
+### Dashboard & Visualization
+- [x] Real-time threat dashboard with statistics
+- [x] Network topology graph visualization
+- [x] Threat severity and type breakdown
+- [x] System health monitoring
 
-### Audit Logging System
-- Multi-backend logging (file + DB + Elasticsearch)
-- 8 audit categories: auth, authorization, user_action, system_event, security_event, threat_response, configuration, agent_event
-- Severity levels: info, warning, critical
-- Retention policies and cleanup
-- Export to CSV
+### Threat Management
+- [x] Threat detection and classification
+- [x] AI-powered threat analysis (GPT-5.2/Emergent LLM)
+- [x] Threat hunting with hypothesis generation
+- [x] Honeypot management and monitoring
 
-### Threat Timeline Reconstruction
-- Complete incident timeline building
-- Event aggregation from multiple sources
-- Impact assessment calculation
-- Response time metrics
-- Recommendations generation
-- Export to JSON and Markdown
+### Local Security Agent (v3.0)
+- [x] Comprehensive installer script (defender_installer.py)
+- [x] Network scanning (nmap)
+- [x] Intrusion detection (Suricata, Falco)
+- [x] Malware detection (YARA, ClamAV)
+- [x] **NEW: Live task manager monitoring**
+- [x] **NEW: Suspicious process detection & auto-kill**
+- [x] **NEW: PUP (Potentially Unwanted Programs) detection**
+- [x] **NEW: Privilege escalation monitoring**
+- [x] **NEW: Hidden file/folder scanner**
+- [x] **NEW: Rootkit detection & repair**
+- [x] **NEW: Advanced scan functions (full/quick)**
 
-### Real-Time WebSocket Service
-- Bidirectional agent-server communication
-- Event streaming from local agents
-- Command dispatch to agents
-- Connection management
-- Dashboard real-time updates
+### Automated Response
+- [x] Automatic IP blocking
+- [x] File quarantine system
+- [x] SMS alerts via Twilio
+- [x] Slack notifications
+- [x] Email alerts via SendGrid
 
-### Notification Service
-- Slack webhooks with severity colors
-- SendGrid email alerts
-- Elasticsearch logging
-- Configurable thresholds per channel
+### Auditing & Forensics
+- [x] Comprehensive audit logging
+- [x] Threat timeline reconstruction
+- [x] PDF report generation
 
-### Auto-Quarantine System
-- Automatic file isolation on detection
-- SHA-256 file hashing
-- Restore and delete operations
-- Storage tracking
+### Integrations
+- [x] OpenClaw AI gateway (configuration ready)
+- [x] Elasticsearch (configuration ready)
+- [x] Slack, SendGrid, Twilio (require API keys)
 
-### Local Security Agent v2.0
-- Nmap network scanning
-- Suricata IDS and Falco
-- ClamAV and YARA rules
-- Scapy packet capture
-- Process monitoring
-- Data recovery
-- Local web dashboard at localhost:5000
+## Architecture (v3.0 - Refactored)
 
-## Technology Stack
-- **Frontend**: React 19, Tailwind CSS, Recharts, Framer Motion
-- **Backend**: FastAPI, Motor (MongoDB async)
-- **AI**: OpenAI GPT-4o (Emergent LLM key), OpenClaw AI
-- **Auth**: JWT (PyJWT, bcrypt)
-- **Security Tools**: Nmap, Suricata, Falco, YARA, ClamAV, Scapy
-- **Notifications**: Slack webhooks, SendGrid, Twilio SMS
-- **Logging**: Elasticsearch
-- **Response**: iptables/firewalld/ufw
+### Backend Structure
+```
+/app/backend/
+├── server.py              # Main FastAPI app (171 lines - refactored!)
+├── routers/               # Modular API routers
+│   ├── __init__.py
+│   ├── dependencies.py    # Shared auth, models, utilities
+│   ├── auth.py           # Authentication endpoints
+│   ├── threats.py        # Threat CRUD
+│   ├── alerts.py         # Alert CRUD
+│   ├── ai_analysis.py    # AI-powered analysis
+│   ├── dashboard.py      # Dashboard stats
+│   ├── network.py        # Network topology
+│   ├── hunting.py        # Threat hunting
+│   ├── honeypots.py      # Honeypot management
+│   ├── reports.py        # Report generation
+│   ├── agents.py         # Local agent management
+│   ├── quarantine.py     # File quarantine
+│   ├── settings.py       # Notification settings
+│   ├── response.py       # Threat response
+│   ├── audit.py          # Audit logging
+│   ├── timeline.py       # Threat timeline
+│   ├── websocket.py      # WebSocket management
+│   └── openclaw.py       # OpenClaw AI config
+├── audit_logging.py
+├── threat_timeline.py
+├── threat_response.py
+├── quarantine.py
+├── notifications.py
+└── websocket_service.py
+```
 
-## Key API Endpoints
+### Local Agent (v3.0)
+```
+/app/scripts/
+├── defender_installer.py  # Main installer (v3.0)
+└── advanced_security.py   # Advanced security module
+```
 
-### Audit Logging
-- `GET /api/audit/logs` - Get logs with filtering
-- `GET /api/audit/stats` - Get audit statistics
-- `GET /api/audit/recent` - Get recent entries
-- `POST /api/audit/cleanup` - Clean old entries
+## API Endpoints
 
-### Threat Timeline
-- `GET /api/timeline/{id}` - Get complete timeline
-- `GET /api/timeline/{id}/export` - Export timeline
-- `GET /api/timelines/recent` - Get recent timelines
+### Core
+- `GET /api/health` - Health check
+- `GET /api/` - API info
 
-### WebSocket
-- `GET /api/websocket/stats` - Connection stats
-- `GET /api/websocket/agents` - Connected agents
-- `POST /api/websocket/command/{id}` - Send command
-- `POST /api/websocket/scan/{id}` - Request scan
+### Authentication
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/login` - User login
+- `GET /api/auth/me` - Current user info
 
-### OpenClaw
-- `GET /api/openclaw/config` - Get configuration
-- `POST /api/openclaw/config` - Update configuration
-- `POST /api/openclaw/test` - Test connection
+### Threats & Alerts
+- `GET/POST /api/threats` - Threat management
+- `GET/POST /api/alerts` - Alert management
+- `GET /api/dashboard/stats` - Dashboard statistics
 
-### Threat Response
-- `GET /api/threat-response/stats` - Response stats
-- `POST /api/threat-response/block-ip` - Block IP
-- `GET /api/threat-response/blocked-ips` - List blocked
+### Security Features
+- `GET /api/network/topology` - Network graph
+- `POST /api/hunting/generate` - Generate hunt hypotheses
+- `GET/POST /api/honeypots` - Honeypot management
+- `GET /api/quarantine/summary` - Quarantine stats
+- `GET /api/threat-response/stats` - Response statistics
+- `GET /api/audit/logs` - Audit logs
+- `GET /api/timeline/{threat_id}` - Threat timeline
+
+### Configuration
+- `GET/POST /api/settings/notifications` - Notification config
+- `GET/POST /api/openclaw/config` - OpenClaw AI config
+- `GET /api/agent/download` - Download local agent
 
 ## Configuration Required
 
-### Environment Variables
-```bash
-# Twilio SMS
-TWILIO_ACCOUNT_SID=ACxxxxx
-TWILIO_AUTH_TOKEN=xxxxx
-TWILIO_PHONE_NUMBER=+1234567890
-EMERGENCY_SMS_CONTACTS=+1111111111,+2222222222
+### Third-Party API Keys (via Settings page)
+- **Twilio**: SMS alerts (account_sid, auth_token, phone_number)
+- **Slack**: Webhook URL for notifications
+- **SendGrid**: Email alerts (api_key)
+- **Elasticsearch**: Log analysis (url, api_key)
+- **OpenClaw**: AI gateway (url, api_key)
 
-# OpenClaw AI
-OPENCLAW_ENABLED=true
-OPENCLAW_GATEWAY_URL=http://localhost:3030
-OPENCLAW_API_KEY=xxxxx
+## What's Working
+- ✅ All 17 API router modules
+- ✅ Authentication & authorization
+- ✅ Dashboard with real-time stats
+- ✅ Network topology visualization
+- ✅ Threat and alert management
+- ✅ AI-powered analysis
+- ✅ Local agent installer (v3.0 with advanced features)
+- ✅ Audit logging and timeline
+- ✅ PDF report generation
 
-# Notifications (via Settings page)
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx
-SENDGRID_API_KEY=SG.xxxxx
-ELASTICSEARCH_URL=https://cluster.es.region.aws.found.io:9243
+## What Requires User Configuration
+- ⚠️ Twilio SMS alerts (need API keys)
+- ⚠️ Slack notifications (need webhook URL)
+- ⚠️ SendGrid emails (need API key)
+- ⚠️ Elasticsearch logging (need cluster URL)
+- ⚠️ OpenClaw AI (need gateway URL)
 
-# Auto-Response
-AUTO_BLOCK_ENABLED=true
-BLOCK_DURATION_HOURS=24
+## Backlog / Future Features
 
-# Audit
-AUDIT_RETENTION_DAYS=90
-```
+### P1 - High Priority
+- [ ] Embed Kibana dashboard in web UI
+- [ ] Full end-to-end system validation
+- [ ] Agent auto-update mechanism
 
-## Test Credentials
-- Email: admin@defender.io
-- Password: defender123
-- Role: admin
+### P2 - Medium Priority
+- [ ] Meta-Learning capability
+- [ ] Polymorphic Malware Intelligence
+- [ ] Advanced data recovery tools
+- [ ] Self-healing mechanisms
 
-## Code Architecture
-```
-/app
-├── backend/
-│   ├── server.py           # Main FastAPI app
-│   ├── notifications.py    # Slack/Email service
-│   ├── quarantine.py       # Auto-quarantine
-│   ├── threat_response.py  # Agentic response engine
-│   ├── audit_logging.py    # Audit logging service
-│   ├── threat_timeline.py  # Timeline reconstruction
-│   ├── websocket_service.py # Real-time WebSocket
-│   └── tests/
-├── frontend/src/pages/     # 14 pages
-├── scripts/
-│   └── defender_installer.py
-└── memory/PRD.md
-```
-
-## Test Results
-- **Backend**: 33/33 tests passed (100%)
-- **Frontend**: All 14 pages working correctly
-- **Integration**: All APIs functioning
-
-## Last Updated
-February 9, 2026 - Added Audit Logging, Threat Timeline Reconstruction, Real-Time WebSocket Service, and OpenClaw Gateway Configuration. Fixed MongoDB database object truth testing bug.
+### P3 - Future Enhancements
+- [ ] Quantum-Enhanced Security
+- [ ] Distributed agent mesh
+- [ ] Machine learning threat prediction
+- [ ] Advanced forensic analysis
