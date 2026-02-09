@@ -79,7 +79,7 @@ def _get_quarantine_stats() -> Dict[str, Any]:
                     try:
                         total_size += os.path.getsize(filepath)
                         file_count += 1
-                    except:
+                    except OSError:
                         pass
     
     return {
