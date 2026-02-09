@@ -16,6 +16,12 @@ import SettingsPage from "./pages/SettingsPage";
 import ThreatResponsePage from "./pages/ThreatResponsePage";
 import TimelinePage from "./pages/TimelinePage";
 import AuditLogPage from "./pages/AuditLogPage";
+import ThreatIntelPage from "./pages/ThreatIntelPage";
+import RansomwarePage from "./pages/RansomwarePage";
+import ContainerSecurityPage from "./pages/ContainerSecurityPage";
+import VPNPage from "./pages/VPNPage";
+import CorrelationPage from "./pages/CorrelationPage";
+import EDRPage from "./pages/EDRPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
