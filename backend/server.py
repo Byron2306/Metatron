@@ -338,6 +338,19 @@ async def update_alert_status(alert_id: str, status: str, current_user: dict = D
 
 # ============ AI ANALYSIS ENDPOINTS ============
 
+async def call_openai(system_message: str, user_message: str) -> str:
+    """Helper function to call OpenAI API"""
+    response = await openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message}
+        ],
+        max_tokens=2000,
+        temperature=0.7
+    )
+    return response.choices[0].message.content
+
 @api_router.post("/ai/analyze", response_model=AIAnalysisResponse)
 async def ai_analyze(request: AIAnalysisRequest, current_user: dict = Depends(get_current_user)):
     analysis_id = str(uuid.uuid4())
@@ -348,55 +361,120 @@ async def ai_analyze(request: AIAnalysisRequest, current_user: dict = Depends(ge
 - AI-generated attack signatures
 - Behavioral anomalies
 - Known attack vectors
-Provide a detailed threat assessment with specific indicators, risk score (0-100), and actionable recommendations.""",
+Provide a detailed threat assessment with specific indicators, risk score (0-100), and actionable recommendations.
+
+Format your response with clear sections:
+RISK SCORE: [0-100]
+THREAT INDICATORS:
+- [indicator 1]
+- [indicator 2]
+ANALYSIS:
+[detailed analysis]
+RECOMMENDATIONS:
+- [recommendation 1]
+- [recommendation 2]""",
         
         "behavior_analysis": """You are an advanced behavioral analysis AI. Examine the provided data for:
 - Non-human interaction patterns (Turing test inversion)
 - Algorithmic decision-making signatures
 - Superhuman speed or consistency indicators
 - Automated bot behaviors
-Provide behavioral assessment with confidence scores and detection methods.""",
+Provide behavioral assessment with confidence scores and detection methods.
+
+Format your response with:
+RISK SCORE: [0-100]
+BEHAVIOR TYPE: [human/bot/ai_agent/unknown]
+CONFIDENCE: [percentage]
+INDICATORS:
+- [indicator]
+ANALYSIS:
+[detailed analysis]""",
         
         "malware_scan": """You are a polymorphic malware detection AI. Analyze for:
 - Obfuscated code patterns
 - Self-modifying code signatures
 - Zero-day exploit indicators
 - AI-generated malicious code
-Provide malware classification, family identification if possible, and containment recommendations.""",
+Provide malware classification, family identification if possible, and containment recommendations.
+
+Format your response with:
+RISK SCORE: [0-100]
+MALWARE FAMILY: [family name or Unknown]
+CLASSIFICATION: [trojan/ransomware/worm/etc]
+INDICATORS:
+- [indicator]
+CONTAINMENT:
+- [action]""",
         
         "pattern_recognition": """You are a pattern recognition AI for cyber threat intelligence. Identify:
 - Attack campaign patterns
 - Threat actor signatures
 - Temporal patterns in attack data
 - Correlations with known threat groups
-Provide pattern analysis with attribution confidence and predicted next moves."""
+Provide pattern analysis with attribution confidence and predicted next moves.
+
+Format your response with:
+RISK SCORE: [0-100]
+THREAT ACTOR: [name or Unknown]
+CAMPAIGN: [campaign name or Unknown]
+PATTERNS:
+- [pattern]
+PREDICTED ACTIONS:
+- [action]"""
     }
     
     system_message = system_prompts.get(request.analysis_type, system_prompts["threat_detection"])
     
     try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"analysis-{analysis_id}",
-            system_message=system_message
-        ).with_model("openai", "gpt-5.2")
-        
-        user_message = UserMessage(text=f"Analyze the following content:\n\n{request.content}\n\nProvide a structured analysis with threat indicators, risk score (0-100), and recommendations.")
-        response = await chat.send_message(user_message)
+        user_prompt = f"Analyze the following content:\n\n{request.content}\n\nProvide a structured analysis."
+        response = await call_openai(system_message, user_prompt)
         
         # Parse response for structured data
         risk_score = 65.0  # Default moderate risk
-        if "critical" in response.lower() or "high risk" in response.lower():
+        response_lower = response.lower()
+        
+        # Extract risk score from response
+        if "risk score:" in response_lower:
+            try:
+                score_part = response_lower.split("risk score:")[1].split("\n")[0]
+                score_num = ''.join(filter(str.isdigit, score_part[:10]))
+                if score_num:
+                    risk_score = min(100, max(0, float(score_num)))
+            except:
+                pass
+        elif "critical" in response_lower or "high risk" in response_lower or "malicious" in response_lower:
             risk_score = 85.0
-        elif "low risk" in response.lower() or "benign" in response.lower():
+        elif "low risk" in response_lower or "benign" in response_lower or "safe" in response_lower:
             risk_score = 25.0
         
-        # Extract indicators (simplified extraction)
+        # Extract indicators from response
         indicators = []
-        if "indicator" in response.lower() or "ioc" in response.lower():
-            indicators = ["Suspicious pattern detected", "Behavioral anomaly flagged"]
+        if "indicators:" in response_lower or "indicator" in response_lower:
+            lines = response.split("\n")
+            for line in lines:
+                if line.strip().startswith("-") and len(line.strip()) > 5:
+                    indicator = line.strip()[1:].strip()
+                    if len(indicator) > 3 and len(indicator) < 100:
+                        indicators.append(indicator)
+            indicators = indicators[:5]  # Limit to 5
         
-        recommendations = ["Continue monitoring", "Update threat signatures", "Review access logs"]
+        if not indicators:
+            indicators = ["Pattern analysis completed", "Behavioral signature extracted"]
+        
+        # Extract recommendations
+        recommendations = []
+        if "recommend" in response_lower:
+            in_recommendations = False
+            for line in response.split("\n"):
+                if "recommend" in line.lower():
+                    in_recommendations = True
+                if in_recommendations and line.strip().startswith("-"):
+                    rec = line.strip()[1:].strip()
+                    if len(rec) > 3:
+                        recommendations.append(rec)
+        
+        if not recommendations:
+            recommendations = ["Continue monitoring", "Update threat signatures", "Review access logs"]
         
         # Store analysis
         analysis_doc = {
@@ -406,7 +484,7 @@ Provide pattern analysis with attribution confidence and predicted next moves.""
             "result": response,
             "risk_score": risk_score,
             "indicators": indicators,
-            "recommendations": recommendations,
+            "recommendations": recommendations[:5],
             "created_at": datetime.now(timezone.utc).isoformat(),
             "created_by": current_user["id"]
         }
