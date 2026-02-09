@@ -18,6 +18,10 @@ from .audit import router as audit_router
 from .timeline import router as timeline_router
 from .websocket import router as websocket_router
 from .openclaw import router as openclaw_router
+from .threat_intel import router as threat_intel_router
+from .ransomware import router as ransomware_router
+from .containers import router as containers_router
+from .vpn import router as vpn_router
 
 __all__ = [
     'auth_router',
@@ -36,5 +40,9 @@ __all__ = [
     'audit_router',
     'timeline_router',
     'websocket_router',
-    'openclaw_router'
+    'openclaw_router',
+    'threat_intel_router',
+    'ransomware_router',
+    'containers_router',
+    'vpn_router'
 ]
