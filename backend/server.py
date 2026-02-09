@@ -5,6 +5,12 @@ Modular FastAPI application with comprehensive security features.
 
 This server has been refactored from a monolithic 2700+ line file into
 clean, modular routers for better maintainability.
+
+v3.0 Features:
+- Threat Intelligence Feeds
+- Ransomware Protection
+- Container Security (Trivy)
+- VPN Integration (WireGuard)
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from dotenv import load_dotenv
@@ -35,15 +41,23 @@ set_database(db)
 # Initialize services with database
 from audit_logging import audit
 from threat_timeline import timeline_builder
+from threat_intel import threat_intel
+from ransomware_protection import ransomware_protection
+from container_security import container_security
+from vpn_integration import vpn_manager
 
 audit.set_database(db)
 timeline_builder.set_database(db)
+threat_intel.set_database(db)
+ransomware_protection.set_database(db)
+container_security.set_database(db)
+vpn_manager.set_database(db)
 
 # Create FastAPI app
 app = FastAPI(
     title="Anti-AI Defense System API",
     description="Comprehensive agentic cybersecurity platform for detecting and responding to AI-powered threats",
-    version="2.0.0"
+    version="3.0.0"
 )
 
 # Configure CORS
@@ -73,6 +87,10 @@ from routers.audit import router as audit_router
 from routers.timeline import router as timeline_router, timelines_router
 from routers.websocket import router as websocket_router
 from routers.openclaw import router as openclaw_router
+from routers.threat_intel import router as threat_intel_router
+from routers.ransomware import router as ransomware_router
+from routers.containers import router as containers_router
+from routers.vpn import router as vpn_router
 
 # Register all routers with /api prefix
 app.include_router(auth_router, prefix="/api")
@@ -95,6 +113,10 @@ app.include_router(timeline_router, prefix="/api")
 app.include_router(timelines_router, prefix="/api")
 app.include_router(websocket_router, prefix="/api")
 app.include_router(openclaw_router, prefix="/api")
+app.include_router(threat_intel_router, prefix="/api")
+app.include_router(ransomware_router, prefix="/api")
+app.include_router(containers_router, prefix="/api")
+app.include_router(vpn_router, prefix="/api")
 
 # ============ WEBSOCKET ENDPOINTS ============
 
