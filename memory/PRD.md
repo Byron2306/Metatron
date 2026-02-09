@@ -70,11 +70,10 @@ Build a defensive AI system with:
 - [x] AI Detection Engine
 - [x] Threat/Alert management
 
-### P1 (High Priority) - Future
-- [ ] Network topology visualization
-- [ ] Real-time WebSocket updates
-- [ ] Threat hunting automation
-- [ ] Honeypot integration
+### P1 (High Priority) - Done
+- [x] Network topology visualization
+- [x] Real-time WebSocket infrastructure
+- [x] Threat hunting automation with AI
 
 ### P2 (Medium Priority) - Future
 - [ ] Role-based access control
@@ -89,7 +88,7 @@ Build a defensive AI system with:
 - [ ] Multi-tenant support
 
 ## Next Tasks
-1. Add WebSocket for real-time threat updates
-2. Implement threat hunting hypotheses generator
-3. Add export/import for threat intelligence
-4. Create detailed threat investigation view
+1. Implement honeypot integration
+2. Add role-based access control
+3. Create threat investigation deep-dive view
+4. Add PDF report generation for threat intelligence
