@@ -258,7 +258,7 @@ class TrivyScanner:
             self.scan_cache[cache_key] = scan_result
             
             # Store in database
-            if self._db:
+            if self._db is not None:
                 await self._db.container_scans.insert_one(asdict(scan_result))
             
             logger.info(f"Scanned {image_name}: {len(vulnerabilities)} vulnerabilities found")
