@@ -593,9 +593,25 @@ class MemoryForensics:
     
     def _find_volatility(self) -> Optional[str]:
         """Find Volatility 3 installation"""
+        import shutil
+        
         # Try the 'vol' command first (installed via pip)
-        paths = ["vol", "vol3", "volatility3", "vol.py", "/usr/local/bin/vol3", "/usr/local/bin/vol"]
+        paths = ["vol", "vol3", "volatility3", "vol.py", "/usr/local/bin/vol3", "/usr/local/bin/vol", "/root/.venv/bin/vol"]
+        
         for path in paths:
+            # Try which command first
+            full_path = shutil.which(path)
+            if full_path:
+                try:
+                    result = subprocess.run([full_path, "-h"], capture_output=True, timeout=10)
+                    if result.returncode == 0 and b"volatility" in result.stdout.lower():
+                        logger.info(f"Found Volatility 3 at: {full_path}")
+                        return full_path
+                except Exception as e:
+                    logger.debug(f"Error checking {full_path}: {e}")
+                    continue
+            
+            # Also try the path directly
             try:
                 result = subprocess.run([path, "-h"], capture_output=True, timeout=10)
                 if result.returncode == 0 and b"volatility" in result.stdout.lower():
@@ -603,6 +619,7 @@ class MemoryForensics:
                     return path
             except Exception:
                 continue
+        
         logger.warning("Volatility 3 not found - install with: pip install volatility3")
         return None
     
