@@ -15,6 +15,52 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v4.2.0**: Production Infrastructure - Elasticsearch 8.19.11, Kibana 8.19.11, VPN Tunnel, Production Sandbox
 - **v4.3.0**: Advanced Local Agent - Process Monitor, User Privileges, Browser Extensions, Folder Indexer (CURRENT - Feb 2026)
 
+## v4.3 Advanced Local Agent (Feb 2026)
+
+### New Agent Features (advanced_agent.py)
+| Feature | Description |
+|---------|-------------|
+| **Process Monitor** | Real-time Task Manager with threat detection |
+| **User Privilege Monitor** | Track sudo/admin access, shell aliases |
+| **Browser Extension Scanner** | Chrome, Firefox, Edge, Brave analysis |
+| **Folder Indexer** | Deep scanning, hidden file detection |
+
+### Process Monitor Capabilities
+- 50+ suspicious process name patterns (mimikatz, xmrig, etc.)
+- 25+ suspicious command line patterns (encoded PowerShell, etc.)
+- High-risk port detection (4444, 31337, etc.)
+- Parent-child process relationship analysis
+- Auto-kill malicious processes (score >= 70)
+- Real-time CPU/memory monitoring
+
+### Browser Extension Analysis
+- Permission risk scoring (webRequest, cookies, <all_urls>)
+- Known malicious extension detection
+- Manifest parsing for all Chromium browsers + Firefox
+- Suspicious keyword detection in names/descriptions
+
+### Folder Indexer
+- Hidden file detection (Unix dot files, Windows attributes)
+- Sensitive filename patterns (password, .env, id_rsa)
+- Double extension detection (file.pdf.exe)
+- Executable in temp/downloads detection
+- MD5 hash calculation
+
+### Download Endpoints
+- `GET /api/agent/download/installer` - Full installer (defender_installer.py)
+- `GET /api/agent/download/advanced-agent` - Advanced monitoring agent
+
+### CLI Commands
+```bash
+python advanced_agent.py --full-scan       # Complete security scan
+python advanced_agent.py --process-scan    # Process monitoring
+python advanced_agent.py --browser-scan    # Browser extension scan
+python advanced_agent.py --folder-scan /path  # Folder indexing
+python advanced_agent.py --user-scan       # User privilege scan
+python advanced_agent.py --auto-kill       # Kill malicious processes
+python advanced_agent.py --json            # JSON output
+```
+
 ## v4.2 Production Infrastructure (Feb 2026)
 
 ### Deployed Services
