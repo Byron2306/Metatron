@@ -2,6 +2,7 @@
 Quarantine Router
 """
 from fastapi import APIRouter, HTTPException, Depends
+from dataclasses import asdict
 
 from .dependencies import get_current_user, get_db
 
@@ -16,33 +17,47 @@ router = APIRouter(prefix="/quarantine", tags=["Quarantine"])
 @router.get("")
 async def get_quarantine_list(current_user: dict = Depends(get_current_user)):
     """Get all quarantined files"""
-    return await list_quarantined()
+    # list_quarantined is sync, not async
+    entries = list_quarantined()
+    # Convert dataclass entries to dicts
+    return [asdict(e) for e in entries]
 
 @router.get("/summary")
 async def get_summary(current_user: dict = Depends(get_current_user)):
     """Get quarantine summary stats"""
-    return await get_quarantine_summary()
+    # get_quarantine_summary is sync, not async
+    summary = get_quarantine_summary()
+    return {
+        "total_files": summary.get("total_entries", 0),
+        "total_size": summary.get("storage", {}).get("total_size_bytes", 0),
+        "by_status": summary.get("by_status", {}),
+        "by_threat_type": summary.get("by_threat_type", {}),
+        "storage": summary.get("storage", {})
+    }
 
 @router.get("/{entry_id}")
 async def get_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
     """Get specific quarantine entry"""
-    entry = await get_quarantine_entry(entry_id)
+    # get_quarantine_entry is sync, not async
+    entry = get_quarantine_entry(entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
-    return entry
+    return asdict(entry)
 
 @router.post("/{entry_id}/restore")
 async def restore_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
     """Restore a quarantined file"""
-    result = await restore_file(entry_id)
-    if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Restore failed"))
-    return result
+    # restore_file is sync, returns bool
+    result = restore_file(entry_id)
+    if not result:
+        raise HTTPException(status_code=400, detail="Restore failed - entry not found or already restored")
+    return {"success": True, "message": "File restored successfully"}
 
 @router.delete("/{entry_id}")
 async def delete_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
     """Permanently delete a quarantined file"""
-    result = await delete_quarantined(entry_id)
-    if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Delete failed"))
-    return result
+    # delete_quarantined is sync, returns bool
+    result = delete_quarantined(entry_id)
+    if not result:
+        raise HTTPException(status_code=400, detail="Delete failed - entry not found")
+    return {"success": True, "message": "File deleted successfully"}
