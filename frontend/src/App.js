@@ -75,6 +75,12 @@ function App() {
               <Route path="timeline" element={<TimelinePage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="threat-intel" element={<ThreatIntelPage />} />
+              <Route path="ransomware" element={<RansomwarePage />} />
+              <Route path="containers" element={<ContainerSecurityPage />} />
+              <Route path="vpn" element={<VPNPage />} />
+              <Route path="correlation" element={<CorrelationPage />} />
+              <Route path="edr" element={<EDRPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
