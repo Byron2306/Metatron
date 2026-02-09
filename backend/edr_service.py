@@ -793,6 +793,18 @@ class EDRManager:
             for root in tree:
                 find_suspicious(root)
             
+            # Get network connections safely (may require root)
+            try:
+                net_conns = len(psutil.net_connections())
+            except (psutil.AccessDenied, PermissionError):
+                net_conns = 0
+            
+            # Get open files count safely
+            try:
+                open_files_count = sum(len(p.open_files()) for p in psutil.process_iter(['open_files']) if p.info.get('open_files'))
+            except (psutil.AccessDenied, PermissionError):
+                open_files_count = 0
+            
             telemetry = EDRTelemetry(
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 hostname=platform.node(),
@@ -802,8 +814,8 @@ class EDRManager:
                     "version": platform.version()
                 },
                 process_count=len(psutil.pids()),
-                network_connections=len(psutil.net_connections()),
-                open_files=sum(len(p.open_files()) for p in psutil.process_iter(['open_files']) if p.info.get('open_files')),
+                network_connections=net_conns,
+                open_files=open_files_count,
                 cpu_usage=psutil.cpu_percent(),
                 memory_usage=psutil.virtual_memory().percent,
                 disk_usage=psutil.disk_usage('/').percent,
