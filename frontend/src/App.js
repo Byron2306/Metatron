@@ -14,6 +14,8 @@ import AgentsPage from "./pages/AgentsPage";
 import QuarantinePage from "./pages/QuarantinePage";
 import SettingsPage from "./pages/SettingsPage";
 import ThreatResponsePage from "./pages/ThreatResponsePage";
+import TimelinePage from "./pages/TimelinePage";
+import AuditLogPage from "./pages/AuditLogPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
