@@ -45,6 +45,8 @@ from threat_intel import threat_intel
 from ransomware_protection import ransomware_protection
 from container_security import container_security
 from vpn_integration import vpn_manager
+from threat_correlation import correlation_engine
+from edr_service import edr_manager
 
 audit.set_database(db)
 timeline_builder.set_database(db)
@@ -52,6 +54,9 @@ threat_intel.set_database(db)
 ransomware_protection.set_database(db)
 container_security.set_database(db)
 vpn_manager.set_database(db)
+correlation_engine.set_database(db)
+correlation_engine.set_threat_intel(threat_intel)
+edr_manager.set_database(db)
 
 # Create FastAPI app
 app = FastAPI(
