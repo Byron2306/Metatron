@@ -2327,12 +2327,49 @@ class AdvancedSecurityAgent:
         }
         print(f"    Indexed {len(files)} files, {len(suspicious_files)} suspicious")
         
+        # Scheduled tasks scan
+        print("[*] Scanning scheduled tasks/cron jobs...")
+        tasks = self.task_monitor.get_all_tasks()
+        suspicious_tasks = [t for t in tasks if t.risk_score >= 30]
+        results["scheduled_tasks"] = {
+            "total": len(tasks),
+            "suspicious": len(suspicious_tasks),
+            "details": [asdict(t) for t in suspicious_tasks[:10]]
+        }
+        print(f"    Found {len(tasks)} tasks, {len(suspicious_tasks)} suspicious")
+        
+        # USB devices scan
+        print("[*] Scanning USB devices...")
+        usb_devices = self.usb_monitor.get_all_devices()
+        suspicious_usb = [d for d in usb_devices if d.risk_score >= 30]
+        results["usb_devices"] = {
+            "total": len(usb_devices),
+            "suspicious": len(suspicious_usb),
+            "storage_devices": len([d for d in usb_devices if d.is_storage]),
+            "details": [asdict(d) for d in usb_devices]
+        }
+        print(f"    Found {len(usb_devices)} USB devices, {len(suspicious_usb)} suspicious")
+        
+        # Quick memory scan
+        print("[*] Scanning memory for injections...")
+        memory_results = self.memory_forensics.quick_memory_scan()
+        results["memory"] = {
+            "volatility_available": self.memory_forensics.volatility_path is not None,
+            "suspicious_regions": len(memory_results.get("suspicious_memory", [])),
+            "risk_score": memory_results.get("risk_score", 0),
+            "details": memory_results
+        }
+        print(f"    Memory scan complete, risk score: {memory_results.get('risk_score', 0)}")
+        
         # Collect all alerts
         results["alerts"] = (
             list(self.process_monitor.alerts) +
             self.user_monitor.alerts +
             self.browser_monitor.alerts +
-            self.folder_indexer.alerts
+            self.folder_indexer.alerts +
+            self.task_monitor.alerts +
+            self.usb_monitor.alerts +
+            self.memory_forensics.alerts
         )
         
         # Save report
@@ -2345,22 +2382,70 @@ class AdvancedSecurityAgent:
         print(f"Total alerts: {len(results['alerts'])}")
         print(f"{'='*60}\n")
         
+        # Sync to cloud if enabled
+        if sync_to_cloud and self.cloud_sync.api_url:
+            print("[*] Syncing results to cloud...")
+            if self.cloud_sync.send_full_scan_report(results):
+                print("    Sync successful!")
+            else:
+                print("    Sync failed - check API URL")
+        
         return results
     
-    def start_monitoring(self):
-        """Start continuous monitoring"""
+    def start_monitoring(self, sync_interval: int = 60):
+        """Start continuous monitoring with cloud sync"""
         self.running = True
         
         def process_monitor_loop():
             while self.running:
-                self.process_monitor.get_suspicious_processes()
+                suspicious = self.process_monitor.get_suspicious_processes()
+                # Send alerts to cloud
+                for proc in suspicious:
+                    if proc.risk_score >= 50:
+                        self.cloud_sync.send_process_alert(asdict(proc))
                 time.sleep(5)
         
-        t = threading.Thread(target=process_monitor_loop, daemon=True)
-        t.start()
-        self.threads.append(t)
+        def usb_monitor_loop():
+            last_devices = set()
+            while self.running:
+                devices = self.usb_monitor.get_all_devices()
+                current_devices = {d.device_id for d in devices}
+                
+                # Check for new devices
+                new_devices = current_devices - last_devices
+                for dev_id in new_devices:
+                    dev = self.usb_monitor.devices.get(dev_id)
+                    if dev:
+                        self.cloud_sync.send_usb_event(asdict(dev))
+                
+                last_devices = current_devices
+                time.sleep(10)
         
-        print("[*] Monitoring started...")
+        def heartbeat_loop():
+            while self.running:
+                system_info = {
+                    "hostname": platform.node(),
+                    "os": platform.system(),
+                    "os_version": platform.version(),
+                    "cpu_percent": psutil.cpu_percent(),
+                    "memory_percent": psutil.virtual_memory().percent,
+                    "disk_percent": psutil.disk_usage('/').percent
+                }
+                self.cloud_sync.send_heartbeat(system_info)
+                time.sleep(sync_interval)
+        
+        # Start monitoring threads
+        threads = [
+            threading.Thread(target=process_monitor_loop, daemon=True),
+            threading.Thread(target=usb_monitor_loop, daemon=True),
+            threading.Thread(target=heartbeat_loop, daemon=True)
+        ]
+        
+        for t in threads:
+            t.start()
+            self.threads.append(t)
+        
+        print("[*] Monitoring started (processes, USB, heartbeat)...")
     
     def stop_monitoring(self):
         """Stop all monitoring"""
@@ -2376,6 +2461,10 @@ class AdvancedSecurityAgent:
             "user_stats": self.user_monitor.get_stats(),
             "browser_stats": self.browser_monitor.get_stats(),
             "file_stats": self.folder_indexer.get_stats(),
+            "task_stats": self.task_monitor.get_stats(),
+            "usb_stats": self.usb_monitor.get_stats(),
+            "memory_stats": self.memory_forensics.get_stats(),
+            "cloud_status": self.cloud_sync.get_status(),
             "recent_alerts": list(self.process_monitor.alerts)[-20:]
         }
 
