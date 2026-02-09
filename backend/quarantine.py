@@ -360,7 +360,7 @@ def cleanup_old_entries(days: int = 30) -> int:
             if entry_date < cutoff and entry.status == "quarantined":
                 if delete_quarantined(entry_id):
                     cleaned += 1
-        except:
+        except (ValueError, KeyError):
             pass
     
     logger.info(f"Cleaned up {cleaned} old quarantine entries")
