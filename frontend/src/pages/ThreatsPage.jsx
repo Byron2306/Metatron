@@ -35,6 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
 
@@ -276,6 +277,9 @@ const ThreatsPage = () => {
           <DialogContent className="bg-slate-900 border-slate-800 max-w-md">
             <DialogHeader>
               <DialogTitle className="text-white font-mono">Log New Threat</DialogTitle>
+              <DialogDescription className="text-slate-400">
+                Enter details about the detected threat
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div>
