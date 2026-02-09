@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
@@ -25,6 +25,20 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+# Import notification and quarantine services
+from notifications import (
+    dispatcher, config as notification_config,
+    notify_critical_threat, notify_malware_detected, 
+    notify_quarantine_action, notify_intrusion_attempt,
+    notify_new_host_discovered, send_slack_notification, 
+    send_email_notification, log_to_elasticsearch
+)
+from quarantine import (
+    quarantine_file, restore_file, delete_quarantined,
+    list_quarantined, get_quarantine_entry, get_quarantine_summary,
+    handle_malware_detection, QuarantineEntry
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
