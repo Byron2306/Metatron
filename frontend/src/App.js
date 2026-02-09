@@ -63,6 +63,7 @@ function App() {
               <Route path="reports" element={<ReportsPage />} />
               <Route path="agents" element={<AgentsPage />} />
               <Route path="quarantine" element={<QuarantinePage />} />
+              <Route path="response" element={<ThreatResponsePage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>
