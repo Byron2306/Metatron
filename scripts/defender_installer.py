@@ -216,7 +216,7 @@ def get_python():
 def create_directories():
     """Create all required directories"""
     log("info", "Creating directory structure...")
-    for d in [INSTALL_DIR, VENV_DIR, RULES_DIR, LOGS_DIR, DATA_DIR, QUARANTINE_DIR, RECOVERY_DIR]:
+    for d in [INSTALL_DIR, VENV_DIR, RULES_DIR, LOGS_DIR, DATA_DIR, QUARANTINE_DIR, RECOVERY_DIR, MODULES_DIR]:
         d.mkdir(parents=True, exist_ok=True)
     log("ok", "Directories created")
 
