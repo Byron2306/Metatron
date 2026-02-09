@@ -18,7 +18,12 @@ import {
   Settings,
   Zap,
   Clock,
-  ScrollText
+  ScrollText,
+  Database,
+  Container,
+  Lock,
+  GitBranch,
+  Brain
 } from 'lucide-react';
 import { Button } from './ui/button';
 
