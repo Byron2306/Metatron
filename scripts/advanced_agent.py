@@ -2092,23 +2092,28 @@ class MemoryForensics:
         }
         
         # Check for common injection indicators via psutil
-        for proc in psutil.process_iter(['pid', 'name', 'exe', 'memory_maps']):
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
             try:
                 # Check memory regions for suspicious patterns
                 maps = proc.memory_maps()
                 
                 for mmap in maps:
                     # Executable anonymous memory is suspicious
-                    if 'anon' in mmap.path.lower() and 'x' in str(mmap.perms):
-                        results["suspicious_memory"].append({
-                            "pid": proc.pid,
-                            "name": proc.name(),
-                            "region": mmap.path,
-                            "size": mmap.rss
-                        })
-                        results["risk_score"] += 15
+                    path_str = str(mmap.path).lower() if hasattr(mmap, 'path') else ""
+                    
+                    # Check for anonymous executable regions
+                    if 'anon' in path_str or '[heap]' in path_str or path_str == '':
+                        # This could indicate injected code
+                        if mmap.rss > 1024 * 1024:  # > 1MB anonymous region
+                            results["suspicious_memory"].append({
+                                "pid": proc.pid,
+                                "name": proc.name(),
+                                "region": path_str or "[anonymous]",
+                                "size": mmap.rss
+                            })
+                            results["risk_score"] += 5
                 
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
                 pass
         
         results["risk_score"] = min(results["risk_score"], 100)
