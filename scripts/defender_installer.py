@@ -47,7 +47,7 @@ from collections import deque
 # CONFIGURATION
 # =============================================================================
 
-VERSION = "2.0.0"
+VERSION = "3.0.0"
 INSTALL_DIR = Path.home() / ".anti-ai-defense"
 VENV_DIR = INSTALL_DIR / "venv"
 RULES_DIR = INSTALL_DIR / "yara_rules"
@@ -55,6 +55,7 @@ LOGS_DIR = INSTALL_DIR / "logs"
 DATA_DIR = INSTALL_DIR / "data"
 QUARANTINE_DIR = INSTALL_DIR / "quarantine"
 RECOVERY_DIR = INSTALL_DIR / "recovery"
+MODULES_DIR = INSTALL_DIR / "modules"
 CONFIG_FILE = INSTALL_DIR / "config.json"
 
 # Cloud API endpoint - UPDATE THIS TO YOUR DEPLOYMENT
