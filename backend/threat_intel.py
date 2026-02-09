@@ -401,7 +401,7 @@ class ThreatIntelManager:
         await asyncio.gather(*tasks, return_exceptions=True)
         
         # Store update event
-        if self._db:
+        if self._db is not None:
             await self._db.threat_intel_updates.insert_one({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "feeds_updated": list(self.feeds.keys()),
