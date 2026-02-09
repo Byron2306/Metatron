@@ -203,7 +203,7 @@ class AuditLogger:
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """Search audit logs with filters"""
-        if not cls._db:
+        if cls._db is None:
             return []
         
         query = {}
@@ -234,7 +234,7 @@ class AuditLogger:
     @classmethod
     async def get_stats(cls) -> Dict[str, Any]:
         """Get audit log statistics"""
-        if not cls._db:
+        if cls._db is None:
             return {"total": len(cls._buffer), "by_category": {}, "by_severity": {}}
         
         try:
