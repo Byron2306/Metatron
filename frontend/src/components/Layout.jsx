@@ -26,7 +26,10 @@ import {
   Brain,
   Workflow,
   Key,
-  ShieldCheck
+  ShieldCheck,
+  Box,
+  Globe,
+  BarChart3
 } from 'lucide-react';
 import { Button } from './ui/button';
 
