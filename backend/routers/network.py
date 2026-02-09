@@ -91,16 +91,6 @@ async def get_network_topology(current_user: dict = Depends(get_current_user)):
     for threat in threats:
         if threat.get("source_ip"):
             attacker_id = f"attacker-{threat['source_ip'].replace('.', '-')}"
-            target = threat.get("target_system", "").lower()
-            target_id = "server-api"  # default
-            if "web" in target:
-                target_id = "server-web"
-            elif "ml" in target or "pipeline" in target:
-                target_id = "server-ml"
-            elif "file" in target:
-                target_id = "server-file"
-            elif "database" in target or "db" in target:
-                target_id = "server-db"
             
             links.append(NetworkLink(
                 source=attacker_id,
