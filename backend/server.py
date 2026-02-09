@@ -178,7 +178,10 @@ async def root():
             "threat_intelligence_feeds",
             "ransomware_protection",
             "container_security",
-            "vpn_integration"
+            "vpn_integration",
+            "threat_correlation",
+            "edr_capabilities",
+            "memory_forensics"
         ]
     }
 
