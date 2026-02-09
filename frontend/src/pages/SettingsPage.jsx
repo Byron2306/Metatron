@@ -200,8 +200,8 @@ const SettingsPage = () => {
                 <p className="text-xs text-slate-400">Send alerts to Slack channels</p>
               </div>
             </div>
-            <div className={`px-2 py-1 rounded text-xs ${settings.slack.enabled ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
-              {settings.slack.enabled ? 'Active' : 'Inactive'}
+            <div className={`px-2 py-1 rounded text-xs ${settings.slack_enabled ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+              {settings.slack_enabled ? 'Active' : 'Inactive'}
             </div>
           </div>
           
@@ -210,7 +210,7 @@ const SettingsPage = () => {
               <label className="text-sm text-slate-400 mb-1 block">Webhook URL</label>
               <input
                 type="password"
-                placeholder={settings.slack.webhook_configured ? '••••••••••••••••' : 'https://hooks.slack.com/services/...'}
+                placeholder={settings.slack_webhook_url ? '••••••••••••••••' : 'https://hooks.slack.com/services/...'}
                 value={formData.slack_webhook_url}
                 onChange={(e) => setFormData({...formData, slack_webhook_url: e.target.value})}
                 className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded focus:border-cyan-500 outline-none text-sm"
@@ -222,7 +222,7 @@ const SettingsPage = () => {
             
             <button
               onClick={() => handleTest('slack')}
-              disabled={testing || !settings.slack.enabled}
+              disabled={testing || !settings.slack_enabled}
               className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <TestTube className="w-4 h-4" />
