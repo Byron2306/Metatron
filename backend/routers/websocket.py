@@ -14,12 +14,12 @@ router = APIRouter(prefix="/websocket", tags=["WebSocket"])
 @router.get("/stats")
 async def get_websocket_stats(current_user: dict = Depends(get_current_user)):
     """Get WebSocket connection statistics"""
-    return await realtime_ws.get_stats()
+    return realtime_ws.get_stats()
 
 @router.get("/agents")
 async def get_connected_agents(current_user: dict = Depends(get_current_user)):
     """Get list of connected agents"""
-    return await realtime_ws.get_connected_agents()
+    return realtime_ws.get_connected_agents()
 
 @router.post("/command/{agent_id}")
 async def send_command_to_agent(agent_id: str, command: Dict[str, Any], current_user: dict = Depends(get_current_user)):

@@ -21,9 +21,13 @@ async def get_threat_timeline(threat_id: str, current_user: dict = Depends(get_c
     if not threat:
         raise HTTPException(status_code=404, detail="Threat not found")
     
-    # Build timeline
-    timeline = await timeline_builder.build_timeline(threat_id, threat)
-    return timeline.to_dict()
+    # Build timeline (only takes threat_id)
+    timeline = await timeline_builder.build_timeline(threat_id)
+    if not timeline:
+        raise HTTPException(status_code=404, detail="Could not build timeline")
+    
+    from dataclasses import asdict
+    return asdict(timeline)
 
 @router.get("/{threat_id}/export")
 async def export_threat_timeline(threat_id: str, format: str = "json", current_user: dict = Depends(get_current_user)):
@@ -34,12 +38,15 @@ async def export_threat_timeline(threat_id: str, format: str = "json", current_u
     if not threat:
         raise HTTPException(status_code=404, detail="Threat not found")
     
-    timeline = await timeline_builder.build_timeline(threat_id, threat)
+    timeline = await timeline_builder.build_timeline(threat_id)
+    if not timeline:
+        raise HTTPException(status_code=404, detail="Could not build timeline")
     
+    from dataclasses import asdict
     if format == "json":
-        return timeline.to_dict()
+        return asdict(timeline)
     elif format == "markdown":
-        return {"content": timeline.to_markdown()}
+        return {"content": timeline_builder._to_markdown(timeline)}
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
 
@@ -49,19 +56,5 @@ timelines_router = APIRouter(prefix="/timelines", tags=["Timeline"])
 @timelines_router.get("/recent")
 async def get_recent_timelines(limit: int = 10, current_user: dict = Depends(get_current_user)):
     """Get recent threat timelines"""
-    db = get_db()
-    threats = await db.threats.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
-    
-    timelines = []
-    for threat in threats:
-        timeline = await timeline_builder.build_timeline(threat["id"], threat)
-        timelines.append({
-            "threat_id": threat["id"],
-            "threat_name": threat["name"],
-            "severity": threat["severity"],
-            "status": threat["status"],
-            "event_count": len(timeline.events),
-            "created_at": threat["created_at"]
-        })
-    
-    return timelines
+    # Use the class method that handles this properly
+    return await timeline_builder.get_recent_timelines(limit)
