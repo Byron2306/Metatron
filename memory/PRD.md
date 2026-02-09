@@ -24,6 +24,10 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 | **User Privilege Monitor** | Track sudo/admin access, shell aliases |
 | **Browser Extension Scanner** | Chrome, Firefox, Edge, Brave analysis |
 | **Folder Indexer** | Deep scanning, hidden file detection |
+| **Scheduled Task Monitor** | Cron jobs, systemd timers, Windows Task Scheduler |
+| **USB Device Monitor** | BadUSB detection, device whitelisting |
+| **Memory Forensics** | Volatility 3 integration, quick memory scans |
+| **Cloud Sync Client** | Real-time event sync to dashboard |
 
 ### Process Monitor Capabilities
 - 50+ suspicious process name patterns (mimikatz, xmrig, etc.)
@@ -33,32 +37,53 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - Auto-kill malicious processes (score >= 70)
 - Real-time CPU/memory monitoring
 
-### Browser Extension Analysis
-- Permission risk scoring (webRequest, cookies, <all_urls>)
-- Known malicious extension detection
-- Manifest parsing for all Chromium browsers + Firefox
-- Suspicious keyword detection in names/descriptions
+### Scheduled Task/Cron Monitoring
+- Windows Task Scheduler (schtasks)
+- Linux crontab (system + user)
+- systemd timers
+- macOS launchd jobs
+- Detects persistence mechanisms, reverse shells
 
-### Folder Indexer
-- Hidden file detection (Unix dot files, Windows attributes)
-- Sensitive filename patterns (password, .env, id_rsa)
-- Double extension detection (file.pdf.exe)
-- Executable in temp/downloads detection
-- MD5 hash calculation
+### USB Device Monitoring
+- BadUSB detection (Teensy, Digispark, Arduino)
+- Device whitelisting
+- Storage device tracking
+- HID attack detection
 
-### Download Endpoints
-- `GET /api/agent/download/installer` - Full installer (defender_installer.py)
-- `GET /api/agent/download/advanced-agent` - Advanced monitoring agent
+### Memory Forensics (Volatility 3)
+- Quick live memory scan
+- Full dump analysis with plugins:
+  - pslist, psscan (hidden process detection)
+  - malfind (code injection)
+  - netscan (network connections)
+  - dlllist (suspicious DLLs)
+
+### Cloud Sync Events
+| Event Type | Description |
+|------------|-------------|
+| heartbeat | System health + resource usage |
+| suspicious_process | Process alerts |
+| usb_device | USB connect/disconnect |
+| suspicious_task | Scheduled task alerts |
+| suspicious_extension | Browser extension alerts |
+| memory_forensics | Memory analysis findings |
+| full_scan_report | Complete scan results |
 
 ### CLI Commands
 ```bash
-python advanced_agent.py --full-scan       # Complete security scan
-python advanced_agent.py --process-scan    # Process monitoring
-python advanced_agent.py --browser-scan    # Browser extension scan
+python advanced_agent.py --full-scan          # Complete security scan
+python advanced_agent.py --process-scan       # Process monitoring
+python advanced_agent.py --browser-scan       # Browser extension scan
 python advanced_agent.py --folder-scan /path  # Folder indexing
-python advanced_agent.py --user-scan       # User privilege scan
-python advanced_agent.py --auto-kill       # Kill malicious processes
-python advanced_agent.py --json            # JSON output
+python advanced_agent.py --user-scan          # User privilege scan
+python advanced_agent.py --task-scan          # Scheduled tasks/cron
+python advanced_agent.py --usb-scan           # USB devices
+python advanced_agent.py --memory-scan        # Quick memory scan
+python advanced_agent.py --memory-dump /path  # Analyze memory dump
+python advanced_agent.py --monitor            # Continuous monitoring
+python advanced_agent.py --auto-kill          # Kill malicious processes
+python advanced_agent.py --api-url URL        # Enable cloud sync
+python advanced_agent.py --json               # JSON output
 ```
 
 ## v4.2 Production Infrastructure (Feb 2026)
