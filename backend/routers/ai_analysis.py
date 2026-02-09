@@ -146,7 +146,7 @@ async def ai_analyze(request: AIAnalysisRequest, current_user: dict = Depends(ge
                 score_num = ''.join(filter(str.isdigit, score_part[:10]))
                 if score_num:
                     risk_score = min(100, max(0, float(score_num)))
-            except:
+            except (ValueError, IndexError):
                 pass
         elif "critical" in response_lower or "high risk" in response_lower or "malicious" in response_lower:
             risk_score = 85.0
