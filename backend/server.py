@@ -880,10 +880,7 @@ Focus Area: {request.focus_area or 'all'}
 Time Range: Last {request.time_range_hours} hours"""
 
     try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"hunting-{str(uuid.uuid4())[:8]}",
-            system_message="""You are an elite threat hunting AI. Generate threat hunting hypotheses based on the security context provided.
+        system_message = """You are an elite threat hunting AI. Generate threat hunting hypotheses based on the security context provided.
 For each hypothesis, provide:
 1. A clear title
 2. Detailed description of what to look for
@@ -893,18 +890,18 @@ For each hypothesis, provide:
 6. Recommended investigation actions
 
 Return exactly 3-5 hypotheses in a structured format. Be specific and actionable."""
-        ).with_model("openai", "gpt-5.2")
-        
-        user_message = UserMessage(text=f"""Based on this security context, generate threat hunting hypotheses:
+
+        user_prompt = f"""Based on this security context, generate threat hunting hypotheses:
 
 {context}
 
 Threat Details:
 {json.dumps([{'name': t.get('name'), 'type': t.get('type'), 'severity': t.get('severity'), 'indicators': t.get('indicators', [])} for t in threats[:5]], indent=2)}
 
-Generate hunting hypotheses that would help discover hidden threats or validate existing detections.""")
+Generate hunting hypotheses that would help discover hidden threats or validate existing detections."""
         
-        response = await chat.send_message(user_message)
+        ai_response = await call_openai(system_message, user_prompt)
+        logger.info(f"AI generated hunting response: {ai_response[:200]}...")
         
         # Generate structured hypotheses based on context and AI response
         hypotheses = []
