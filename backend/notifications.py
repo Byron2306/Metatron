@@ -1,0 +1,502 @@
+"""
+Notification Service - Handles Email and Slack notifications for security alerts
+"""
+import os
+import logging
+import asyncio
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any, List
+import httpx
+
+logger = logging.getLogger(__name__)
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+class NotificationConfig:
+    """Configuration for notification services"""
+    def __init__(self):
+        self.slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+        self.sendgrid_api_key = os.environ.get("SENDGRID_API_KEY", "")
+        self.sender_email = os.environ.get("SENDER_EMAIL", "alerts@anti-ai-defense.io")
+        self.alert_recipients = os.environ.get("ALERT_RECIPIENTS", "").split(",")
+        self.elasticsearch_url = os.environ.get("ELASTICSEARCH_URL", "")
+        self.elasticsearch_api_key = os.environ.get("ELASTICSEARCH_API_KEY", "")
+        
+    @property
+    def slack_enabled(self) -> bool:
+        return bool(self.slack_webhook_url)
+    
+    @property
+    def email_enabled(self) -> bool:
+        return bool(self.sendgrid_api_key and self.alert_recipients[0])
+    
+    @property
+    def elasticsearch_enabled(self) -> bool:
+        return bool(self.elasticsearch_url)
+
+config = NotificationConfig()
+
+# =============================================================================
+# SLACK NOTIFICATIONS
+# =============================================================================
+
+async def send_slack_notification(
+    title: str,
+    message: str,
+    severity: str = "medium",
+    fields: Optional[Dict[str, str]] = None,
+    webhook_url: Optional[str] = None
+) -> bool:
+    """
+    Send a notification to Slack via webhook
+    
+    Args:
+        title: Alert title
+        message: Alert message
+        severity: Alert severity (critical, high, medium, low)
+        fields: Additional fields to display
+        webhook_url: Optional override for webhook URL
+    
+    Returns:
+        bool: True if successful
+    """
+    url = webhook_url or config.slack_webhook_url
+    if not url:
+        logger.warning("Slack webhook URL not configured")
+        return False
+    
+    # Severity colors
+    colors = {
+        "critical": "#FF0000",  # Red
+        "high": "#FF6600",      # Orange
+        "medium": "#FFCC00",    # Yellow
+        "low": "#00CC00"        # Green
+    }
+    
+    color = colors.get(severity.lower(), colors["medium"])
+    
+    # Build Slack message payload
+    payload = {
+        "attachments": [{
+            "color": color,
+            "blocks": [
+                {
+                    "type": "header",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"🚨 {title}",
+                        "emoji": True
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": message
+                    }
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Severity:* {severity.upper()} | *Time:* {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                        }
+                    ]
+                }
+            ]
+        }]
+    }
+    
+    # Add additional fields if provided
+    if fields:
+        field_blocks = []
+        for key, value in fields.items():
+            field_blocks.append({
+                "type": "mrkdwn",
+                "text": f"*{key}:*\n{value}"
+            })
+        
+        if field_blocks:
+            payload["attachments"][0]["blocks"].insert(2, {
+                "type": "section",
+                "fields": field_blocks[:10]  # Slack limits to 10 fields
+            })
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
+                logger.info(f"Slack notification sent: {title}")
+                return True
+            else:
+                logger.error(f"Slack notification failed: {response.status_code} - {response.text}")
+                return False
+    except Exception as e:
+        logger.error(f"Slack notification error: {e}")
+        return False
+
+# =============================================================================
+# EMAIL NOTIFICATIONS
+# =============================================================================
+
+async def send_email_notification(
+    subject: str,
+    body: str,
+    severity: str = "medium",
+    recipients: Optional[List[str]] = None,
+    html_body: Optional[str] = None
+) -> bool:
+    """
+    Send email notification via SendGrid
+    
+    Args:
+        subject: Email subject
+        body: Plain text body
+        severity: Alert severity
+        recipients: List of email recipients (uses config if not provided)
+        html_body: Optional HTML body
+    
+    Returns:
+        bool: True if successful
+    """
+    if not config.sendgrid_api_key:
+        logger.warning("SendGrid API key not configured")
+        return False
+    
+    to_emails = recipients or [r for r in config.alert_recipients if r]
+    if not to_emails:
+        logger.warning("No email recipients configured")
+        return False
+    
+    # Severity colors for HTML
+    colors = {
+        "critical": "#dc2626",
+        "high": "#ea580c",
+        "medium": "#ca8a04",
+        "low": "#16a34a"
+    }
+    color = colors.get(severity.lower(), colors["medium"])
+    
+    # Build HTML email if not provided
+    if not html_body:
+        html_body = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }}
+                .container {{ max-width: 600px; margin: 0 auto; background: #1e293b; border-radius: 8px; overflow: hidden; }}
+                .header {{ background: {color}; padding: 20px; }}
+                .header h1 {{ margin: 0; font-size: 20px; }}
+                .content {{ padding: 20px; }}
+                .severity {{ display: inline-block; padding: 4px 12px; border-radius: 4px; background: {color}; font-weight: bold; font-size: 12px; }}
+                .footer {{ padding: 20px; border-top: 1px solid #334155; font-size: 12px; color: #94a3b8; }}
+                pre {{ background: #0f172a; padding: 12px; border-radius: 4px; overflow-x: auto; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🚨 Security Alert: {subject}</h1>
+                </div>
+                <div class="content">
+                    <p><span class="severity">{severity.upper()}</span></p>
+                    <div>{body.replace(chr(10), '<br>')}</div>
+                </div>
+                <div class="footer">
+                    <p>Anti-AI Defense System | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+                    <p>This is an automated security alert. Do not reply to this email.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+    
+    # SendGrid API payload
+    payload = {
+        "personalizations": [{"to": [{"email": email} for email in to_emails]}],
+        "from": {"email": config.sender_email, "name": "Anti-AI Defense System"},
+        "subject": f"[{severity.upper()}] {subject}",
+        "content": [
+            {"type": "text/plain", "value": body},
+            {"type": "text/html", "value": html_body}
+        ]
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {config.sendgrid_api_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10
+            )
+            if response.status_code in [200, 202]:
+                logger.info(f"Email notification sent: {subject} to {to_emails}")
+                return True
+            else:
+                logger.error(f"Email notification failed: {response.status_code} - {response.text}")
+                return False
+    except Exception as e:
+        logger.error(f"Email notification error: {e}")
+        return False
+
+# =============================================================================
+# ELASTICSEARCH LOGGING
+# =============================================================================
+
+async def log_to_elasticsearch(
+    index: str,
+    document: Dict[str, Any],
+    doc_id: Optional[str] = None
+) -> bool:
+    """
+    Log a document to Elasticsearch
+    
+    Args:
+        index: Elasticsearch index name
+        document: Document to index
+        doc_id: Optional document ID
+    
+    Returns:
+        bool: True if successful
+    """
+    if not config.elasticsearch_enabled:
+        return False
+    
+    # Add timestamp if not present
+    if "@timestamp" not in document:
+        document["@timestamp"] = datetime.now(timezone.utc).isoformat()
+    
+    url = f"{config.elasticsearch_url}/{index}/_doc"
+    if doc_id:
+        url += f"/{doc_id}"
+    
+    headers = {"Content-Type": "application/json"}
+    if config.elasticsearch_api_key:
+        headers["Authorization"] = f"ApiKey {config.elasticsearch_api_key}"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=document, headers=headers, timeout=10)
+            if response.status_code in [200, 201]:
+                logger.debug(f"Elasticsearch document indexed: {index}")
+                return True
+            else:
+                logger.warning(f"Elasticsearch indexing failed: {response.status_code}")
+                return False
+    except Exception as e:
+        logger.warning(f"Elasticsearch error: {e}")
+        return False
+
+# =============================================================================
+# UNIFIED NOTIFICATION DISPATCHER
+# =============================================================================
+
+class NotificationDispatcher:
+    """
+    Dispatches notifications to all configured channels based on severity
+    """
+    
+    # Minimum severity for each channel (lower number = higher severity)
+    SEVERITY_LEVELS = {"critical": 1, "high": 2, "medium": 3, "low": 4}
+    
+    # Which channels receive which minimum severity
+    CHANNEL_THRESHOLDS = {
+        "slack": 3,      # medium and above
+        "email": 2,      # high and above
+        "elasticsearch": 4  # all severities
+    }
+    
+    def __init__(self):
+        self.pending_notifications = []
+    
+    def _should_notify(self, channel: str, severity: str) -> bool:
+        """Check if channel should receive notification at this severity"""
+        severity_level = self.SEVERITY_LEVELS.get(severity.lower(), 3)
+        threshold = self.CHANNEL_THRESHOLDS.get(channel, 3)
+        return severity_level <= threshold
+    
+    async def dispatch(
+        self,
+        event_type: str,
+        title: str,
+        message: str,
+        severity: str = "medium",
+        source: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        force_all: bool = False
+    ) -> Dict[str, bool]:
+        """
+        Dispatch notification to all appropriate channels
+        
+        Args:
+            event_type: Type of event (threat, alert, scan, etc.)
+            title: Notification title
+            message: Notification message
+            severity: Event severity
+            source: Source of the event (agent name, system, etc.)
+            details: Additional details
+            force_all: Force send to all channels regardless of threshold
+        
+        Returns:
+            Dict with success status for each channel
+        """
+        results = {"slack": False, "email": False, "elasticsearch": False}
+        
+        # Prepare common data
+        fields = {"Source": source or "System", "Event Type": event_type}
+        if details:
+            for k, v in list(details.items())[:5]:
+                fields[k] = str(v)[:100]
+        
+        # Slack notification
+        if config.slack_enabled and (force_all or self._should_notify("slack", severity)):
+            results["slack"] = await send_slack_notification(
+                title=title,
+                message=message,
+                severity=severity,
+                fields=fields
+            )
+        
+        # Email notification
+        if config.email_enabled and (force_all or self._should_notify("email", severity)):
+            results["email"] = await send_email_notification(
+                subject=title,
+                body=f"{message}\n\nSource: {source or 'System'}\nEvent Type: {event_type}\n\nDetails:\n{details}",
+                severity=severity
+            )
+        
+        # Elasticsearch logging (always log if configured)
+        if config.elasticsearch_enabled:
+            doc = {
+                "event_type": event_type,
+                "title": title,
+                "message": message,
+                "severity": severity,
+                "source": source,
+                "details": details,
+                "notifications_sent": results
+            }
+            results["elasticsearch"] = await log_to_elasticsearch(
+                index=f"security-events-{datetime.now().strftime('%Y.%m')}",
+                document=doc
+            )
+        
+        logger.info(f"Notification dispatched: {title} - Results: {results}")
+        return results
+
+# Global dispatcher instance
+dispatcher = NotificationDispatcher()
+
+# =============================================================================
+# CONVENIENCE FUNCTIONS
+# =============================================================================
+
+async def notify_critical_threat(
+    threat_name: str,
+    description: str,
+    source_ip: Optional[str] = None,
+    target_system: Optional[str] = None,
+    agent_name: Optional[str] = None
+) -> Dict[str, bool]:
+    """Send critical threat notification"""
+    return await dispatcher.dispatch(
+        event_type="threat",
+        title=f"Critical Threat Detected: {threat_name}",
+        message=description,
+        severity="critical",
+        source=agent_name,
+        details={
+            "Source IP": source_ip or "Unknown",
+            "Target": target_system or "Unknown"
+        }
+    )
+
+async def notify_malware_detected(
+    filepath: str,
+    malware_type: str,
+    action_taken: str,
+    agent_name: Optional[str] = None
+) -> Dict[str, bool]:
+    """Send malware detection notification"""
+    return await dispatcher.dispatch(
+        event_type="malware",
+        title=f"Malware Detected: {malware_type}",
+        message=f"Malware found in: {filepath}\nAction: {action_taken}",
+        severity="critical",
+        source=agent_name,
+        details={
+            "File Path": filepath,
+            "Malware Type": malware_type,
+            "Action Taken": action_taken
+        }
+    )
+
+async def notify_quarantine_action(
+    filepath: str,
+    threat_name: str,
+    quarantine_path: str,
+    agent_name: Optional[str] = None
+) -> Dict[str, bool]:
+    """Send quarantine action notification"""
+    return await dispatcher.dispatch(
+        event_type="quarantine",
+        title=f"File Quarantined: {threat_name}",
+        message=f"Infected file has been automatically quarantined.\nOriginal: {filepath}\nQuarantined to: {quarantine_path}",
+        severity="high",
+        source=agent_name,
+        details={
+            "Original Path": filepath,
+            "Quarantine Path": quarantine_path,
+            "Threat": threat_name
+        }
+    )
+
+async def notify_new_host_discovered(
+    ip_address: str,
+    hostname: Optional[str] = None,
+    mac_address: Optional[str] = None,
+    agent_name: Optional[str] = None
+) -> Dict[str, bool]:
+    """Send new host discovery notification"""
+    return await dispatcher.dispatch(
+        event_type="discovery",
+        title=f"New Host Discovered: {ip_address}",
+        message=f"A new device has been detected on the network.",
+        severity="low",
+        source=agent_name,
+        details={
+            "IP Address": ip_address,
+            "Hostname": hostname or "Unknown",
+            "MAC Address": mac_address or "Unknown"
+        }
+    )
+
+async def notify_intrusion_attempt(
+    signature: str,
+    source_ip: str,
+    dest_ip: str,
+    category: Optional[str] = None,
+    agent_name: Optional[str] = None
+) -> Dict[str, bool]:
+    """Send intrusion detection notification"""
+    return await dispatcher.dispatch(
+        event_type="intrusion",
+        title=f"Intrusion Attempt: {signature}",
+        message=f"IDS alert triggered. Potential intrusion attempt detected.",
+        severity="high",
+        source=agent_name,
+        details={
+            "Signature": signature,
+            "Source IP": source_ip,
+            "Destination IP": dest_ip,
+            "Category": category or "Unknown"
+        }
+    )
