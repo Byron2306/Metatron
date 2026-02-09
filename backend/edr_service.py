@@ -593,16 +593,17 @@ class MemoryForensics:
     
     def _find_volatility(self) -> Optional[str]:
         """Find Volatility 3 installation"""
-        paths = ["vol3", "volatility3", "vol.py", "/usr/local/bin/vol3"]
+        # Try the 'vol' command first (installed via pip)
+        paths = ["vol", "vol3", "volatility3", "vol.py", "/usr/local/bin/vol3", "/usr/local/bin/vol"]
         for path in paths:
             try:
-                result = subprocess.run([path, "--help"], capture_output=True, timeout=5)
-                if result.returncode == 0:
-                    logger.info(f"Found Volatility at: {path}")
+                result = subprocess.run([path, "-h"], capture_output=True, timeout=10)
+                if result.returncode == 0 and b"volatility" in result.stdout.lower():
+                    logger.info(f"Found Volatility 3 at: {path}")
                     return path
             except Exception:
                 continue
-        logger.warning("Volatility 3 not found")
+        logger.warning("Volatility 3 not found - install with: pip install volatility3")
         return None
     
     async def analyze_memory_dump(self, dump_path: str) -> MemoryAnalysisResult:
