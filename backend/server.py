@@ -39,6 +39,12 @@ from quarantine import (
     list_quarantined, get_quarantine_entry, get_quarantine_summary,
     handle_malware_detection, QuarantineEntry
 )
+from threat_response import (
+    response_engine, firewall, sms_service, openclaw, forensics,
+    ThreatContext, ResponseAction, ResponseStatus,
+    respond_to_intrusion, respond_to_malware, respond_to_port_scan,
+    manual_block_ip, manual_unblock_ip, config as response_config
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
