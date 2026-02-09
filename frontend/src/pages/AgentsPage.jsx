@@ -173,8 +173,10 @@ const AgentsPage = () => {
   }, []);
 
   const downloadAgent = () => {
-    window.open(`${API.replace('/api', '')}/scripts/local_agent.py`, '_blank');
-    toast.info('Download the agent script and run it on your local machine with: sudo python local_agent.py');
+    window.open(`${API}/agent/download`, '_blank');
+    toast.success('Downloading Defender Security Suite installer...', {
+      description: 'Run with: python defender_installer.py'
+    });
   };
 
   const stats = {
