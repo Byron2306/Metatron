@@ -2587,14 +2587,91 @@ def main():
                 for r in risks:
                     print(f"    [{r['severity']}] {r['username']}: {r['alias']} -> {r['command'][:50]}")
     
+    elif args.task_scan:
+        tasks = agent.task_monitor.get_all_tasks()
+        suspicious = [t for t in tasks if t.risk_score >= 30]
+        
+        if args.json:
+            print(json.dumps([asdict(t) for t in tasks], indent=2))
+        else:
+            print(f"\n{'='*60}")
+            print("SCHEDULED TASK/CRON SCAN")
+            print(f"{'='*60}")
+            print(f"Total tasks: {len(tasks)}")
+            print(f"Suspicious: {len(suspicious)}\n")
+            
+            for t in suspicious[:20]:
+                print(f"[{t.risk_score}] {t.name}")
+                print(f"    Command: {t.command[:60]}...")
+                print(f"    Schedule: {t.schedule} | User: {t.user}")
+                for factor in t.risk_factors:
+                    print(f"    - {factor}")
+                print()
+    
+    elif args.usb_scan:
+        devices = agent.usb_monitor.get_all_devices()
+        
+        if args.json:
+            print(json.dumps([asdict(d) for d in devices], indent=2))
+        else:
+            print(f"\n{'='*60}")
+            print("USB DEVICE SCAN")
+            print(f"{'='*60}")
+            print(f"Total devices: {len(devices)}\n")
+            
+            for d in devices:
+                risk_indicator = f"[{d.risk_score}]" if d.risk_score > 0 else ""
+                storage_tag = "[STORAGE]" if d.is_storage else ""
+                print(f"{risk_indicator} {d.name} {storage_tag}")
+                print(f"    ID: {d.device_id}")
+                for factor in d.risk_factors:
+                    print(f"    - {factor}")
+                print()
+    
+    elif args.memory_scan:
+        results = agent.memory_forensics.quick_memory_scan()
+        
+        if args.json:
+            print(json.dumps(results, indent=2))
+        else:
+            print(f"\n{'='*60}")
+            print("QUICK MEMORY SCAN")
+            print(f"{'='*60}")
+            print(f"Volatility available: {agent.memory_forensics.volatility_path is not None}")
+            print(f"Suspicious memory regions: {len(results.get('suspicious_memory', []))}")
+            print(f"Risk score: {results.get('risk_score', 0)}\n")
+            
+            for mem in results.get('suspicious_memory', [])[:10]:
+                print(f"    PID {mem['pid']}: {mem['name']} - {mem['region']}")
+    
+    elif args.memory_dump:
+        result = agent.memory_forensics.analyze_dump(args.memory_dump)
+        
+        if args.json:
+            print(json.dumps(asdict(result), indent=2))
+        else:
+            print(f"\n{'='*60}")
+            print("MEMORY DUMP ANALYSIS")
+            print(f"{'='*60}")
+            print(f"Analysis ID: {result.analysis_id}")
+            print(f"Dump: {result.dump_path}")
+            print(f"Risk Score: {result.risk_score}\n")
+            
+            print("Findings:")
+            for finding in result.findings:
+                print(f"    - {finding}")
+    
     elif args.monitor:
         agent.start_monitoring()
         try:
             while True:
                 time.sleep(10)
                 stats = agent.process_monitor.get_stats()
+                usb_stats = agent.usb_monitor.get_stats()
+                cloud_status = agent.cloud_sync.get_status()
                 print(f"\r[Monitoring] Processes: {stats['total_processes']} | "
-                      f"Suspicious: {stats['by_risk_level'].get('suspicious', 0)} | "
+                      f"USB: {usb_stats['total_devices']} | "
+                      f"Cloud: {'Connected' if cloud_status['connected'] else 'Offline'} | "
                       f"Alerts: {stats['alerts_count']}", end="")
         except KeyboardInterrupt:
             agent.stop_monitoring()
