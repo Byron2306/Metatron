@@ -1583,6 +1583,18 @@ async def receive_agent_event(event: AgentEvent):
         }
         await db.threats.insert_one(threat_doc)
         
+        # Send intrusion notification
+        try:
+            await notify_intrusion_attempt(
+                signature=suricata_data.get('signature', 'Unknown'),
+                source_ip=suricata_data.get('src_ip', 'Unknown'),
+                dest_ip=suricata_data.get('dest_ip', 'Unknown'),
+                category=suricata_data.get('category'),
+                agent_name=event.agent_name
+            )
+        except Exception as e:
+            logger.error(f"Failed to send intrusion notification: {e}")
+        
         # Broadcast to WebSocket
         await ws_manager.broadcast({
             "type": "new_threat",
