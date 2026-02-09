@@ -23,6 +23,11 @@ class NotificationConfig:
         self.alert_recipients = os.environ.get("ALERT_RECIPIENTS", "").split(",")
         self.elasticsearch_url = os.environ.get("ELASTICSEARCH_URL", "")
         self.elasticsearch_api_key = os.environ.get("ELASTICSEARCH_API_KEY", "")
+        # Twilio settings
+        self.twilio_account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+        self.twilio_auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+        self.twilio_from_number = os.environ.get("TWILIO_FROM_NUMBER", "")
+        self.sms_recipients = os.environ.get("SMS_RECIPIENTS", "").split(",")
         
     @property
     def slack_enabled(self) -> bool:
@@ -35,6 +40,10 @@ class NotificationConfig:
     @property
     def elasticsearch_enabled(self) -> bool:
         return bool(self.elasticsearch_url)
+    
+    @property
+    def sms_enabled(self) -> bool:
+        return bool(self.twilio_account_sid and self.twilio_auth_token and self.twilio_from_number)
 
 config = NotificationConfig()
 
