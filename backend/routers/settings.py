@@ -130,14 +130,18 @@ async def test_notifications(channel: str, current_user: dict = Depends(get_curr
             raise HTTPException(status_code=400, detail="Email settings incomplete")
         
         try:
+            # Temporarily update config for the test
+            notification_config.sendgrid_api_key = api_key
+            notification_config.sender_email = from_email
+            notification_config.alert_recipients = [to_email]
+            
             result = await send_email_notification(
-                to_email,
                 "Test: Anti-AI Defense System",
-                "<h1>Test Notification</h1><p>This is a test email from Anti-AI Defense System.</p>",
-                api_key,
-                from_email
+                "This is a test email from Anti-AI Defense System.\n\nIf you received this email, your email notifications are configured correctly.",
+                "info",
+                [to_email]
             )
-            return {"success": True, "message": "Email test sent"}
+            return {"success": result, "message": "Email test sent" if result else "Email test failed"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Email test failed: {str(e)}")
     
