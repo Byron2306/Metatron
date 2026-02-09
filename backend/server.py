@@ -99,6 +99,8 @@ from routers.vpn import router as vpn_router
 from routers.correlation import router as correlation_router
 from routers.edr import router as edr_router
 from routers.soar import router as soar_router
+from routers.honey_tokens import router as honey_tokens_router
+from routers.zero_trust import router as zero_trust_router
 
 # Register all routers with /api prefix
 app.include_router(auth_router, prefix="/api")
@@ -128,6 +130,8 @@ app.include_router(vpn_router, prefix="/api")
 app.include_router(correlation_router, prefix="/api")
 app.include_router(edr_router, prefix="/api")
 app.include_router(soar_router, prefix="/api")
+app.include_router(honey_tokens_router, prefix="/api")
+app.include_router(zero_trust_router, prefix="/api")
 
 # ============ WEBSOCKET ENDPOINTS ============
 
