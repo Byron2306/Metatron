@@ -83,15 +83,39 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 │   ├── threat_intel.py          # NEW: Threat intelligence
 │   ├── ransomware.py            # NEW: Ransomware protection
 │   ├── containers.py            # NEW: Container security
-│   └── vpn.py                   # NEW: VPN integration
+│   ├── vpn.py                   # NEW: VPN integration
+│   ├── correlation.py           # NEW: Threat correlation
+│   └── edr.py                   # NEW: EDR & Memory Forensics
 ├── threat_intel.py              # Threat feed service
 ├── ransomware_protection.py     # Ransomware service
 ├── container_security.py        # Container/Trivy service
 ├── vpn_integration.py           # WireGuard service
+├── threat_correlation.py        # Threat correlation service
+├── edr_service.py               # EDR service
 └── ... (existing services)
 ```
 
-## API Endpoints (v3.0 Additions)
+## API Endpoints (v3.1 Additions)
+
+### Threat Correlation
+- `GET /api/correlation/stats` - Correlation statistics
+- `GET /api/correlation/history` - Correlation history
+- `POST /api/correlation/all-active` - Correlate all active threats
+- `POST /api/correlation/settings` - Update correlation settings
+- `GET /api/correlation/auto-actions` - List automated actions
+
+### EDR & Memory Forensics
+- `GET /api/edr/status` - EDR system status
+- `GET /api/edr/telemetry` - System telemetry
+- `GET /api/edr/process-tree` - Process hierarchy
+- `POST /api/edr/fim/baseline` - Create file baseline
+- `POST /api/edr/fim/check` - Check file integrity
+- `POST /api/edr/fim/monitor` - Add path to monitoring
+- `GET /api/edr/usb/devices` - List USB devices
+- `POST /api/edr/usb/allow` - Allow USB device
+- `POST /api/edr/usb/block` - Block USB device
+
+## v3.0 API Endpoints
 
 ### Threat Intelligence
 - `GET /api/threat-intel/stats` - Get feed statistics
