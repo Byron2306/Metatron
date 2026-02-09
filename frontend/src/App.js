@@ -23,6 +23,8 @@ import VPNPage from "./pages/VPNPage";
 import CorrelationPage from "./pages/CorrelationPage";
 import EDRPage from "./pages/EDRPage";
 import SOARPage from "./pages/SOARPage";
+import HoneyTokensPage from "./pages/HoneyTokensPage";
+import ZeroTrustPage from "./pages/ZeroTrustPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
