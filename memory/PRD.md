@@ -9,47 +9,94 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v3.0.0**: Backend refactoring + 4 enterprise security features
 - **v3.1.0**: Frontend pages for all 6 enterprise features + Enhanced installer
 - **v3.2.0**: SOAR Playbook Engine + Bug fixes
-- **v3.3.0**: Kibana + Honey Tokens + Zero Trust + Custom Templates (CURRENT - Feb 2026)
+- **v3.3.0**: Kibana + Honey Tokens + Zero Trust + Custom Templates
+- **v4.0.0**: ML Threat Prediction + Sandbox Analysis + Browser Isolation + Kibana Dashboards (CURRENT - Feb 2026)
 
-## v3.3 New Features (Feb 2026)
+## v4.0 New Features (Feb 2026)
 
-### 1. Kibana/Elasticsearch Integration ✅
-- **Index Template Created**: `security-events-*` with proper mappings
-- **Structured Event Logging**: All security events can be logged to Elasticsearch
-- **Kibana-Ready Fields**: @timestamp, event_type, severity, source_ip, user, threat_name, MITRE mappings
-- **Setup Endpoint**: `/api/settings/elasticsearch/setup-kibana`
+### 1. ML Threat Prediction ✅
+- **4 ML Models**: Isolation Forest, Naive Bayes, Neural Network (12-24-5)
+- **4 Prediction Types**: Network traffic, Process behavior, File analysis, User behavior (UEBA)
+- **10 Threat Categories**: malware, ransomware, apt, insider_threat, data_exfiltration, cryptominer, botnet, phishing, lateral_movement, privilege_escalation
+- **5 Risk Levels**: critical (≥80), high (≥60), medium (≥40), low (≥20), info (<20)
+- **MITRE ATT&CK Mappings**: Automatic technique mapping for predictions
+- **Recommended Actions**: AI-generated response recommendations
 
-### 2. Honey Tokens & Credentials ✅
-- **4 Pre-deployed Tokens**: AWS Key, Database Cred, API Key, JWT Token
-- **8 Token Types**: api_key, password, aws_key, database_cred, ssh_key, jwt_token, oauth_token, webhook_url
-- **Real-Time Detection**: Any use of honey tokens triggers CRITICAL alerts
-- **Access Logging**: Full audit trail of all token accesses with IP, user-agent, headers
+### 2. Sandbox Analysis ✅
+- **Dynamic Malware Analysis**: Simulated execution environment
+- **4 VM Pool**: Windows10-VM1, Windows10-VM2, Windows11-VM1, Linux-VM1
+- **10 Malware Signatures**: Persistence, process injection, anti-VM, crypto API, C2, file encryption, credential access, screen capture, keylogger, data exfil
+- **7 Sample Types**: executable, document, script, archive, url, email, unknown
+- **4 Verdicts**: clean, suspicious, malicious, unknown
+- **Detailed Reports**: Process activity, network activity, file activity, registry activity, MITRE mappings
 
-### 3. Zero Trust Architecture ✅
-- **5 Trust Levels**: Untrusted (0-20), Low (21-40), Medium (41-60), High (61-80), Trusted (81-100)
-- **Dynamic Trust Scoring**: Based on device, auth method, network, time, behavior anomaly, incidents
-- **5 Pre-configured Policies**: Admin Console, Settings, Dashboard, Threat Response, Quarantine
-- **Device Registration**: Track compliance (antivirus, firewall, encryption, OS updates)
-- **Access Evaluation**: Real-time allow/deny/challenge decisions
+### 3. Browser Isolation ✅
+- **4 Isolation Modes**: Full (remote render), CDR (content disarm), Read-only, Pixel push
+- **URL Threat Analysis**: Real-time URL threat scoring
+- **6 Pre-blocked Domains**: Known malicious domains
+- **Content Sanitization**: Script removal, event handler removal, iframe blocking
+- **Session Management**: Create, end, and monitor isolated browsing sessions
+- **Category Detection**: Social media, email, banking, shopping, news, developer sites
 
-### 4. Custom Playbook Templates ✅
-- **6 Official Templates**: Data Breach, Credential Theft, DDoS, Insider Threat, Compliance, Cryptomining
-- **Template Categories**: incident_response, identity, network, insider, compliance, malware
-- **Clone to Playbook**: One-click creation of playbooks from templates
-- **Custom Templates**: Users can create and share their own templates
+### 4. Kibana Dashboards ✅
+- **6 Pre-built Dashboards**:
+  - Security Overview Dashboard (6 panels)
+  - Threat Intelligence Dashboard (4 panels)
+  - Geographic Threat Map (4 panels)
+  - MITRE ATT&CK Dashboard (4 panels)
+  - Endpoint Security Dashboard (5 panels)
+  - SOAR Playbook Analytics (5 panels)
+- **NDJSON Export**: Import directly into Kibana
+- **Index Pattern Setup**: Automatic security-events-* index creation
+- **Visualization Types**: metric, pie, bar, line, table, map, heatmap
 
-## Credentials Status
+## v4.0 API Endpoints
 
-| Service | Status | Notes |
-|---------|--------|-------|
-| **Slack** | ✅ ACTIVE | Webhook configured, notifications working |
-| **SendGrid** | ✅ ACTIVE | API key configured |
-| **Elasticsearch** | ✅ CONNECTED | v9.3.0, index template created |
-| **Twilio SMS** | ⚠️ Pending | Needs Twilio-purchased FROM number |
+### ML Prediction
+- `GET /api/ml/stats` - ML service statistics
+- `GET /api/ml/predictions` - Recent predictions
+- `GET /api/ml/predictions/{id}` - Prediction details
+- `POST /api/ml/predict/network` - Network threat prediction
+- `POST /api/ml/predict/process` - Process behavior prediction
+- `POST /api/ml/predict/file` - File threat prediction
+- `POST /api/ml/predict/user` - User behavior prediction (UEBA)
 
-## Architecture (v3.3)
+### Sandbox Analysis
+- `GET /api/sandbox/stats` - Sandbox statistics
+- `GET /api/sandbox/analyses` - List analyses
+- `GET /api/sandbox/analyses/{id}` - Analysis details
+- `POST /api/sandbox/submit/file` - Submit file for analysis
+- `POST /api/sandbox/submit/url` - Submit URL for analysis
+- `POST /api/sandbox/analyses/{id}/rerun` - Re-run analysis
+- `GET /api/sandbox/signatures` - Available malware signatures
+- `GET /api/sandbox/queue` - Queue status
 
-### Frontend Structure (23 Pages)
+### Browser Isolation
+- `GET /api/browser-isolation/stats` - Isolation statistics
+- `GET /api/browser-isolation/sessions` - Active sessions
+- `GET /api/browser-isolation/sessions/{id}` - Session details
+- `POST /api/browser-isolation/sessions` - Create session
+- `DELETE /api/browser-isolation/sessions/{id}` - End session
+- `POST /api/browser-isolation/analyze-url` - Analyze URL
+- `POST /api/browser-isolation/sanitize` - Sanitize HTML (CDR)
+- `GET /api/browser-isolation/blocked-domains` - Blocked domains
+- `POST /api/browser-isolation/blocked-domains` - Add blocked domain
+- `DELETE /api/browser-isolation/blocked-domains/{domain}` - Remove blocked domain
+- `GET /api/browser-isolation/modes` - Available isolation modes
+
+### Kibana Dashboards
+- `GET /api/kibana/dashboards` - List dashboards
+- `GET /api/kibana/dashboards/{id}` - Dashboard details
+- `GET /api/kibana/dashboards/{id}/export` - Export dashboard NDJSON
+- `GET /api/kibana/dashboards/{id}/queries` - Dashboard ES queries
+- `GET /api/kibana/export-all` - Export all dashboards
+- `POST /api/kibana/configure` - Configure Kibana connection
+- `POST /api/kibana/setup-index` - Setup index pattern
+- `GET /api/kibana/status` - Kibana integration status
+
+## Architecture (v4.0)
+
+### Frontend Structure (27 Pages)
 ```
 /app/frontend/src/pages/
 ├── DashboardPage.jsx          # Main dashboard
@@ -73,138 +120,87 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 ├── CorrelationPage.jsx        # Threat correlation
 ├── EDRPage.jsx                # EDR & Memory Forensics
 ├── SOARPage.jsx               # SOAR Playbooks
-├── HoneyTokensPage.jsx        # NEW: Honey token management
-└── ZeroTrustPage.jsx          # NEW: Zero Trust security
+├── HoneyTokensPage.jsx        # Honey token management
+├── ZeroTrustPage.jsx          # Zero Trust security
+├── MLPredictionPage.jsx       # NEW: ML threat prediction
+├── SandboxPage.jsx            # NEW: Sandbox analysis
+├── BrowserIsolationPage.jsx   # NEW: Browser isolation
+└── KibanaDashboardsPage.jsx   # NEW: Kibana dashboards
 ```
 
-### Backend Structure (26 Router Modules)
+### Backend Structure (30 Router Modules)
 ```
 /app/backend/
 ├── server.py                    # Main FastAPI app
+├── ml_threat_prediction.py      # NEW: ML prediction service
+├── sandbox_analysis.py          # NEW: Sandbox analysis service
+├── browser_isolation.py         # NEW: Browser isolation service
+├── kibana_dashboards.py         # NEW: Kibana dashboard service
 ├── routers/
-│   ├── auth.py                  # Authentication
-│   ├── threats.py               # Threat management
-│   ├── alerts.py                # Alert management
-│   ├── ai_analysis.py           # AI-powered analysis
-│   ├── dashboard.py             # Dashboard stats
-│   ├── network.py               # Network topology
-│   ├── hunting.py               # Threat hunting
-│   ├── honeypots.py             # Honeypot management
-│   ├── reports.py               # PDF reports
-│   ├── agents.py                # Local agent management
-│   ├── quarantine.py            # File quarantine
-│   ├── settings.py              # Notification settings + Kibana setup
-│   ├── response.py              # Threat response
-│   ├── audit.py                 # Audit logging
-│   ├── timeline.py              # Threat timeline
-│   ├── websocket.py             # WebSocket management
-│   ├── openclaw.py              # OpenClaw AI config
-│   ├── threat_intel.py          # Threat intelligence
-│   ├── ransomware.py            # Ransomware protection
-│   ├── containers.py            # Container security
-│   ├── vpn.py                   # VPN integration
-│   ├── correlation.py           # Threat correlation
-│   ├── edr.py                   # EDR & Memory Forensics
-│   ├── soar.py                  # SOAR Playbooks + Templates
-│   ├── honey_tokens.py          # NEW: Honey token management
-│   └── zero_trust.py            # NEW: Zero Trust architecture
-├── soar_engine.py               # SOAR service + Templates
-├── honey_tokens.py              # NEW: Honey token service
-├── zero_trust.py                # NEW: Zero Trust service
-├── notifications.py             # Updated: Kibana integration
-└── ... (existing services)
+│   ├── ml_prediction.py         # NEW: ML prediction API
+│   ├── sandbox.py               # NEW: Sandbox API
+│   ├── browser_isolation.py     # NEW: Browser isolation API
+│   ├── kibana.py                # NEW: Kibana API
+│   └── ... (26 existing routers)
 ```
 
-## API Endpoints (v3.1 Additions)
+## What's Working (v4.0)
 
-### Threat Correlation
-- `GET /api/correlation/stats` - Correlation statistics
-- `GET /api/correlation/history` - Correlation history
-- `POST /api/correlation/all-active` - Correlate all active threats
-- `POST /api/correlation/settings` - Update correlation settings
-- `GET /api/correlation/auto-actions` - List automated actions
+### Fully Functional
+- ✅ ML Threat Prediction with 4 real ML models
+- ✅ Sandbox Analysis with 10 malware signatures
+- ✅ Browser Isolation with URL threat analysis
+- ✅ Kibana Dashboards (6 pre-built, NDJSON export)
+- ✅ All 27 frontend pages
+- ✅ All 30 API router modules
+- ✅ SOAR Playbook Engine with templates
+- ✅ Honey Tokens & Credentials
+- ✅ Zero Trust Architecture
+- ✅ Threat Intelligence (20.5k+ indicators)
+- ✅ Ransomware Protection
+- ✅ Threat Correlation Engine
+- ✅ EDR capabilities
 
-### EDR & Memory Forensics
-- `GET /api/edr/status` - EDR system status
-- `GET /api/edr/telemetry` - System telemetry
-- `GET /api/edr/process-tree` - Process hierarchy
-- `POST /api/edr/fim/baseline` - Create file baseline
-- `POST /api/edr/fim/check` - Check file integrity
-- `POST /api/edr/fim/monitor` - Add path to monitoring
-- `GET /api/edr/usb/devices` - List USB devices
-- `POST /api/edr/usb/allow` - Allow USB device
-- `POST /api/edr/usb/block` - Block USB device
+### Simulated/Mock (Requires External Setup)
+- ⚠️ Sandbox Analysis: Simulated VM execution (real Cuckoo requires setup)
+- ⚠️ VPN Integration: WireGuard not installed in container
+- ⚠️ Container Security: Trivy not installed in container
+- ⚠️ Kibana: Requires Elasticsearch/Kibana deployment for full functionality
+- ⚠️ Twilio SMS: Needs valid FROM number
 
-## v3.0 API Endpoints
+## Credentials Status
 
-### Threat Intelligence
-- `GET /api/threat-intel/stats` - Get feed statistics
-- `POST /api/threat-intel/check` - Check single IOC
-- `POST /api/threat-intel/check-bulk` - Check multiple IOCs
-- `POST /api/threat-intel/update` - Refresh feeds
-- `GET /api/threat-intel/feeds` - Get feed status
-- `GET /api/threat-intel/matches/recent` - Recent matches
+| Service | Status | Notes |
+|---------|--------|-------|
+| **Slack** | ✅ ACTIVE | Webhook configured, notifications working |
+| **SendGrid** | ✅ ACTIVE | API key configured |
+| **Elasticsearch** | ✅ CONNECTED | v9.3.0, index template created |
+| **Twilio SMS** | ⚠️ Pending | Needs Twilio-purchased FROM number |
 
-### Ransomware Protection
-- `GET /api/ransomware/status` - Protection status
-- `POST /api/ransomware/start` - Start protection
-- `POST /api/ransomware/stop` - Stop protection
-- `POST /api/ransomware/canaries/deploy` - Deploy canary files
-- `GET /api/ransomware/canaries` - List canaries
-- `POST /api/ransomware/canaries/check` - Check canary integrity
-- `GET /api/ransomware/protected-folders` - List protected folders
-- `POST /api/ransomware/protected-folders` - Add protected folder
+## Test Credentials
+- **Email**: mltest@test.com / test@defender.io
+- **Password**: test123
 
-### Container Security
-- `GET /api/containers/stats` - Container security stats
-- `GET /api/containers` - Running containers
-- `GET /api/containers/{id}/security` - Container security check
-- `POST /api/containers/scan` - Scan image
-- `POST /api/containers/scan-all` - Scan all images
-- `GET /api/containers/scans/history` - Scan history
+## Backlog / Future Features
 
-### VPN Integration
-- `GET /api/vpn/status` - VPN server status
-- `POST /api/vpn/initialize` - Initialize WireGuard
-- `POST /api/vpn/start` - Start VPN server
-- `POST /api/vpn/stop` - Stop VPN server
-- `GET /api/vpn/peers` - List VPN peers
-- `POST /api/vpn/peers` - Add peer
-- `GET /api/vpn/peers/{id}/config` - Get peer config file
-- `DELETE /api/vpn/peers/{id}` - Remove peer
-- `GET /api/vpn/kill-switch` - Kill switch status
-- `POST /api/vpn/kill-switch/enable` - Enable kill switch
-- `POST /api/vpn/kill-switch/disable` - Disable kill switch
+### P1 - Completed ✅
+- [x] ML-based threat prediction ✅
+- [x] Sandbox/VM-based analysis ✅
+- [x] Browser isolation ✅
+- [x] Kibana dashboard integration ✅
+- [x] Zero Trust architecture ✅
 
-## What's Working
-- ✅ All 23 API router modules
-- ✅ All 20 frontend pages
-- ✅ Threat Intelligence with ~20.5k indicators
-- ✅ Ransomware canary deployment
-- ✅ Container security endpoints (Trivy integration ready)
-- ✅ VPN endpoints (WireGuard integration ready)
-- ✅ Threat Correlation engine with auto-actions
-- ✅ EDR with process tree, FIM, USB control
-- ✅ Enhanced local agent installer
-- ✅ All previous v2.0 features
+### P2 - Medium Priority
+- [ ] Real VM sandbox execution (Cuckoo integration)
+- [ ] Memory forensics with Volatility 3
+- [ ] OpenClaw agentic framework integration
 
-## Configuration Notes
+### P3 - Future
+- [ ] Quantum-enhanced security
+- [ ] Full SIEM integration
+- [ ] Threat hunting automation
 
-### Threat Intelligence
-- Feeds auto-update every 6 hours
-- AlienVault OTX requires API key (optional)
-- Set `OTX_API_KEY` for OTX integration
-
-### Container Security
-- Requires Trivy installed on agent
-- Install: `apt install trivy` or `brew install trivy`
-
-### VPN Integration
-- Requires WireGuard installed on server
-- Install: `apt install wireguard`
-- Server endpoint configured via `VPN_SERVER_ENDPOINT`
-
-## Comparison: Standard AV vs This System
+## System Comparison
 
 | Feature | Standard AV | This System |
 |---------|------------|-------------|
@@ -217,22 +213,9 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 | AI-powered analysis | ❌ | ✅ (GPT) |
 | VPN integration | ❌ | ✅ (WireGuard) |
 | Agentic response | ❌ | ✅ (Auto-block, auto-kill) |
+| ML threat prediction | ❌ | ✅ (4 models) |
+| Sandbox analysis | ⚠️ Limited | ✅ (10 signatures) |
+| Browser isolation | ❌ | ✅ (4 modes) |
+| Kibana dashboards | ❌ | ✅ (6 dashboards) |
+| Zero Trust | ❌ | ✅ (Dynamic trust scoring) |
 | Centralized dashboard | ⚠️ Basic | ✅ (Full SOC) |
-
-## Backlog / Future Features
-
-### P1 - High Priority
-- [x] Frontend pages for new v3.0 features ✅
-- [x] Memory forensics (Volatility integration) ✅ (installer ready)
-- [x] EDR capabilities (process trees, FIM) ✅
-
-### P2 - Medium Priority
-- [ ] SOAR playbook engine
-- [ ] Honey tokens and honey credentials
-- [ ] Browser isolation
-- [ ] Kibana dashboard integration
-
-### P3 - Future
-- [ ] Zero Trust architecture
-- [ ] ML-based threat prediction
-- [ ] Sandbox/VM-based analysis (Cuckoo)
