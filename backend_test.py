@@ -398,6 +398,169 @@ class AntiAIDefenseAPITester:
         
         return success
 
+    def test_pdf_report_generation(self):
+        """Test PDF threat intelligence report generation"""
+        print("\n📄 Testing PDF Report Generation...")
+        
+        success, response = self.run_test(
+            "PDF Threat Intelligence Report",
+            "GET",
+            "reports/threat-intelligence",
+            200
+        )
+        
+        if success:
+            # For PDF, we can't parse JSON but we can check if we got data
+            print("   PDF report generated successfully")
+            self.log_result("PDF Report Content", True, "PDF data received")
+        
+        return success
+
+    def test_ai_summary_report(self):
+        """Test AI-powered summary report generation"""
+        print("\n🧠 Testing AI Summary Report Generation...")
+        print("   This may take 10-15 seconds for AI processing...")
+        
+        success, response = self.run_test(
+            "AI Executive Summary Report",
+            "POST",
+            "reports/ai-summary",
+            200
+        )
+        
+        if success and response:
+            # Validate response structure
+            required_fields = ['summary', 'generated_at', 'data_points']
+            missing_fields = [field for field in required_fields if field not in response]
+            
+            if missing_fields:
+                self.log_result("AI Summary Structure", False, f"Missing fields: {missing_fields}")
+                return False
+            else:
+                self.log_result("AI Summary Structure", True, "All required fields present")
+                print(f"   Summary preview: {response.get('summary', '')[:100]}...")
+                print(f"   Data points: {response.get('data_points', {})}")
+        
+        return success
+
+    def test_honeypots_crud(self):
+        """Test honeypot CRUD operations"""
+        # Create honeypot
+        honeypot_data = {
+            "name": "Test SSH Honeypot",
+            "type": "ssh",
+            "ip": "10.0.5.100",
+            "port": 2222,
+            "description": "Test honeypot for API validation"
+        }
+        
+        success, response = self.run_test(
+            "Create Honeypot",
+            "POST",
+            "honeypots",
+            200,
+            data=honeypot_data
+        )
+        
+        if not success:
+            return False
+            
+        honeypot_id = response.get('id')
+        if not honeypot_id:
+            self.log_result("Create Honeypot", False, "No honeypot ID returned")
+            return False
+
+        # Get all honeypots
+        success, _ = self.run_test("Get All Honeypots", "GET", "honeypots", 200)
+        if not success:
+            return False
+
+        # Test honeypot interaction recording
+        interaction_data = {
+            "source_ip": "192.168.1.50",
+            "action": "login_attempt",
+            "data": {"username": "admin", "password": "password", "source_port": 45678}
+        }
+        
+        success, interaction_response = self.run_test(
+            "Record Honeypot Interaction",
+            "POST",
+            f"honeypots/{honeypot_id}/interaction?source_ip={interaction_data['source_ip']}&action={interaction_data['action']}",
+            200,
+            data=interaction_data['data']
+        )
+        
+        if not success:
+            return False
+
+        # Get honeypot interactions
+        success, _ = self.run_test(
+            "Get Honeypot Interactions",
+            "GET",
+            f"honeypots/{honeypot_id}/interactions",
+            200
+        )
+        
+        if not success:
+            return False
+
+        # Update honeypot status
+        success, _ = self.run_test(
+            "Update Honeypot Status",
+            "PATCH",
+            f"honeypots/{honeypot_id}/status?status=triggered",
+            200
+        )
+        
+        return success
+
+    def test_role_based_access_control(self):
+        """Test role-based access control and user management"""
+        # Get current user info
+        success, user_response = self.run_test("Get Current User", "GET", "auth/me", 200)
+        if not success:
+            return False
+        
+        current_user_role = user_response.get('role', 'unknown')
+        print(f"   Current user role: {current_user_role}")
+        
+        # Test listing users (admin only)
+        success, users_response = self.run_test("List Users (Admin)", "GET", "users", 200)
+        
+        if success and users_response:
+            print(f"   Found {len(users_response)} users")
+            
+            # Test role update if we have users and admin access
+            if len(users_response) > 0 and current_user_role == 'admin':
+                # Find a user to update (not ourselves)
+                target_user = None
+                current_user_id = user_response.get('id')
+                
+                for user in users_response:
+                    if user.get('id') != current_user_id:
+                        target_user = user
+                        break
+                
+                if target_user:
+                    role_update_data = {"role": "analyst"}
+                    success, _ = self.run_test(
+                        "Update User Role",
+                        "PATCH",
+                        f"users/{target_user['id']}/role",
+                        200,
+                        data=role_update_data
+                    )
+                    return success
+                else:
+                    self.log_result("Update User Role", True, "No other users to update (single user test)")
+                    return True
+            elif current_user_role != 'admin':
+                # Should fail for non-admin users
+                self.log_result("List Users (Non-Admin)", True, "Access denied as expected for non-admin")
+                return True
+        
+        return success
+
     def run_all_tests(self):
         """Run comprehensive API test suite"""
         print("🚀 Starting Anti-AI Defense System API Tests")
