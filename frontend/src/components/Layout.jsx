@@ -23,7 +23,8 @@ import {
   Container,
   Lock,
   GitBranch,
-  Brain
+  Brain,
+  Workflow
 } from 'lucide-react';
 import { Button } from './ui/button';
 
