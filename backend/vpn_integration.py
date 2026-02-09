@@ -355,7 +355,7 @@ PersistentKeepalive = 25
         await self._write_server_config()
         self._save_config()
         
-        if self._db:
+        if self._db is not None:
             await self._db.vpn_peers.delete_one({"peer_id": peer_id})
         
         return True
