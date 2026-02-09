@@ -472,7 +472,7 @@ class ThreatIntelManager:
         """Check indicator and log to database if matched"""
         match = self.check_indicator(value, ioc_type)
         
-        if match.matched and self._db:
+        if match.matched and self._db is not None:
             await self._db.threat_intel_matches.insert_one({
                 "timestamp": match.matched_at,
                 "indicator": asdict(match.indicator) if match.indicator else None,
