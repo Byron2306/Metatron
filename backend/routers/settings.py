@@ -11,7 +11,7 @@ from .dependencies import get_current_user, get_db, check_permission, logger
 # Import notification services
 from notifications import (
     config as notification_config,
-    send_slack_notification, send_email_notification
+    send_slack_notification, send_email_notification, send_sms_notification
 )
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
