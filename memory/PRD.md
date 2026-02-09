@@ -45,6 +45,24 @@ Build a defensive AI system with:
 - **YARA malware detection** - receives malware scan results
 - **Network discovery** - tracks discovered hosts from nmap scans
 - **Agent Download Endpoint** - serves comprehensive security installer
+- **Auto-Quarantine System** - automatic isolation of infected files
+- **Notification Service** - Slack webhooks and SendGrid email alerts
+- **Elasticsearch/Kibana Integration** - log aggregation and search
+
+### Notification Service (NEW)
+- Slack webhook notifications for security alerts
+- SendGrid email notifications for critical events
+- Elasticsearch logging for all security events
+- Configurable severity thresholds per channel
+- Test notification functionality
+
+### Auto-Quarantine System (NEW)
+- Automatic file quarantine on YARA/ClamAV detection
+- SHA-256 file hashing for integrity
+- Quarantine index management
+- File restore and delete operations
+- Storage usage tracking and limits
+- Cleanup of old entries
 
 ### Local Security Agent v2.0 (Python)
 Comprehensive single-file installer (`defender_installer.py`) with:
@@ -57,24 +75,13 @@ Comprehensive single-file installer (`defender_installer.py`) with:
 - **Local Web Dashboard** - real-time monitoring at localhost:5000
 - **Cloud Sync** - heartbeats and alerts to cloud dashboard
 
-Features:
-- System monitoring (CPU, memory, network interfaces)
-- Process monitoring for suspicious activity
-- Network scanning using nmap
-- Packet capture using scapy
-- YARA malware scanning with comprehensive rules
-- ClamAV virus scanning
-- Suricata log monitoring
-- Falco runtime security monitoring
-- Data recovery tools
-- Local web dashboard
-- Real-time event reporting to cloud dashboard
-
 ### Frontend (React + Tailwind)
-- 9 pages: Dashboard, Agents, AI Detection, Threats, Alerts, Network Map, Threat Hunting, Honeypots, Reports
+- 11 pages: Dashboard, Agents, AI Detection, Threats, Alerts, Quarantine, Network Map, Threat Hunting, Honeypots, Reports, Settings
 - Real-time agent status monitoring
 - Discovered network hosts display
 - Agent download functionality with comprehensive instructions
+- **Quarantine Management Page** - view/restore/delete quarantined files
+- **Settings Page** - configure Slack, Email, Elasticsearch integrations
 - Cyberpunk aesthetic design
 
 ## Technology Stack
@@ -83,17 +90,19 @@ Features:
 - AI: OpenAI GPT-4o via Emergent LLM key
 - Auth: JWT (PyJWT, bcrypt)
 - Security Tools: Nmap, Suricata, Falco, YARA, ClamAV, Scapy
+- Notifications: Slack webhooks, SendGrid
+- Logging: Elasticsearch
 
 ## Prioritized Backlog
 
-### P0 (Critical) - Done
+### P0 (Critical) - DONE
 - [x] Core authentication
 - [x] Dashboard with real-time stats
 - [x] AI Detection Engine
 - [x] Threat/Alert management
 - [x] Comprehensive local agent installer
 
-### P1 (High Priority) - Done
+### P1 (High Priority) - DONE
 - [x] Network topology visualization
 - [x] Real-time WebSocket infrastructure
 - [x] Threat hunting automation with AI
@@ -102,12 +111,13 @@ Features:
 - [x] PDF report generation
 - [x] AI-powered executive summaries
 - [x] Local agent with all security tools integrated
+- [x] Auto-quarantine for malware detections
+- [x] Slack/Email notification integration
+- [x] Elasticsearch/Kibana integration
 
 ### P2 (Medium Priority) - Future
-- [ ] Real-time WebSocket updates from local agent
-- [ ] Elastic/Kibana integration
+- [ ] Real-time WebSocket push from local agent
 - [ ] Audit logging
-- [ ] Email notifications for critical alerts
 - [ ] Custom dashboard widgets
 - [ ] Multi-tenant support
 
@@ -126,6 +136,8 @@ Features:
 │   ├── .env
 │   ├── requirements.txt
 │   ├── server.py
+│   ├── notifications.py    # Slack/Email notification service
+│   ├── quarantine.py       # Auto-quarantine service
 │   └── tests/
 ├── frontend/
 │   ├── public/
@@ -133,13 +145,13 @@ Features:
 │       ├── components/
 │       ├── context/
 │       ├── pages/
+│       │   ├── QuarantinePage.jsx   # NEW
+│       │   ├── SettingsPage.jsx     # NEW
+│       │   └── ...
 │       ├── App.js
 │       └── index.css
 ├── scripts/
-│   ├── defender_installer.py  # Main installer (v2.0)
-│   ├── agent.py               # Legacy agent
-│   ├── install.py             # Legacy installer
-│   └── local_agent.py         # Legacy simple agent
+│   └── defender_installer.py  # Main installer (v2.0)
 ├── memory/
 │   └── PRD.md
 └── test_reports/
@@ -154,11 +166,22 @@ Features:
 - `/api/reports/generate`: PDF reports
 - `/api/agent/event`: Receive agent data
 - `/api/agent/download`: Download security agent installer
+- `/api/quarantine`: Quarantine management (list, restore, delete)
+- `/api/quarantine/summary`: Quarantine statistics
+- `/api/settings/notifications`: Notification configuration
+- `/api/elasticsearch/status`: Elasticsearch status check
 - `/ws/threats`: WebSocket for real-time updates
 
 ## Test Credentials
 - Email: admin@defender.io
 - Password: defender123
+- Role: admin
+
+## Configuration Required for Notifications
+To enable notifications, configure in Settings page:
+- **Slack**: Webhook URL from Slack App → Incoming Webhooks
+- **Email**: SendGrid API key + verified sender email + recipient list
+- **Elasticsearch**: Cluster URL + API key (optional)
 
 ## Last Updated
-February 9, 2026 - Added comprehensive security agent installer v2.0 with Nmap, Suricata, Falco, YARA, ClamAV, packet capture, and data recovery.
+February 9, 2026 - Added auto-quarantine, Slack/Email notifications, Elasticsearch integration, and corresponding frontend pages.
