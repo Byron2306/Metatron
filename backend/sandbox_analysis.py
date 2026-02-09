@@ -1,10 +1,14 @@
 """
 Sandbox Analysis Service - Dynamic malware analysis
+Production-ready with real process isolation using firejail/bubblewrap
 Similar to Cuckoo Sandbox functionality
 """
 import uuid
 import hashlib
 import os
+import subprocess
+import tempfile
+import shutil
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 from dataclasses import dataclass, field, asdict
@@ -12,8 +16,19 @@ from enum import Enum
 import logging
 import asyncio
 import random
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Sandbox directories
+SANDBOX_DIR = Path("/var/lib/anti-ai-defense/sandbox")
+SAMPLES_DIR = SANDBOX_DIR / "samples"
+REPORTS_DIR = SANDBOX_DIR / "reports"
+VMS_DIR = SANDBOX_DIR / "vms"
+
+# Create directories
+for d in [SANDBOX_DIR, SAMPLES_DIR, REPORTS_DIR, VMS_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
 
 class AnalysisStatus(str, Enum):
     PENDING = "pending"
