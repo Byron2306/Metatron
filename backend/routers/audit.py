@@ -21,18 +21,19 @@ async def get_audit_logs(
     current_user: dict = Depends(get_current_user)
 ):
     """Get audit logs with filtering"""
-    category_enum = AuditCategory(category) if category else None
-    severity_enum = AuditSeverity(severity) if severity else None
+    # Convert string to enum value if provided
+    category_val = category if category else None
+    severity_val = severity if severity else None
     
-    # Use search method which exists in AuditLogger
+    # Use search method which returns List[Dict]
     logs = await audit.search(
-        category=category_enum,
-        severity=severity_enum,
+        category=category_val,
+        severity=severity_val,
         actor=actor,
         limit=limit
     )
-    # Convert AuditEntry dataclasses to dicts
-    return [asdict(log) for log in logs]
+    # search already returns dicts, no conversion needed
+    return logs
 
 @router.get("/stats")
 async def get_audit_stats(current_user: dict = Depends(get_current_user)):
