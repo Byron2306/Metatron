@@ -82,6 +82,7 @@ function App() {
               <Route path="vpn" element={<VPNPage />} />
               <Route path="correlation" element={<CorrelationPage />} />
               <Route path="edr" element={<EDRPage />} />
+              <Route path="soar" element={<SOARPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
