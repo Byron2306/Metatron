@@ -170,7 +170,7 @@ class ProcessTreeBuilder:
         for proc in psutil.process_iter([
             'pid', 'ppid', 'name', 'cmdline', 'exe', 'username',
             'create_time', 'cpu_percent', 'memory_percent', 'status',
-            'num_threads', 'connections', 'open_files'
+            'num_threads'
         ]):
             try:
                 info = proc.info
