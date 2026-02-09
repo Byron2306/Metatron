@@ -2422,6 +2422,269 @@ async def get_forensics_data(
         "threat_context": context
     }
 
+# ============ AUDIT LOG ENDPOINTS ============
+
+@api_router.get("/audit/logs")
+async def get_audit_logs(
+    category: Optional[str] = None,
+    actor: Optional[str] = None,
+    target_type: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get audit log entries with optional filtering"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    logs = await audit.search(
+        category=category,
+        actor=actor,
+        target_type=target_type,
+        severity=severity,
+        limit=min(limit, 500)
+    )
+    return {"logs": logs, "count": len(logs)}
+
+@api_router.get("/audit/stats")
+async def get_audit_stats(current_user: dict = Depends(get_current_user)):
+    """Get audit log statistics"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    stats = await audit.get_stats()
+    return stats
+
+@api_router.get("/audit/recent")
+async def get_recent_audit(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get recent audit entries from memory buffer"""
+    entries = await audit.get_recent(limit=min(limit, 200))
+    return {"entries": [vars(e) if hasattr(e, '__dict__') else e.__dict__ for e in entries]}
+
+@api_router.post("/audit/cleanup")
+async def cleanup_audit_logs(
+    days: int = 90,
+    current_user: dict = Depends(get_current_user)
+):
+    """Clean up old audit logs"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    deleted = await audit.cleanup_old_entries(days)
+    return {"status": "ok", "deleted_count": deleted}
+
+# ============ THREAT TIMELINE ENDPOINTS ============
+
+@api_router.get("/timeline/{threat_id}")
+async def get_threat_timeline(
+    threat_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get complete timeline for a threat incident"""
+    timeline = await timeline_builder.build_timeline(threat_id)
+    if not timeline:
+        raise HTTPException(status_code=404, detail="Threat not found")
+    
+    # Log the access
+    await log_user_action(
+        action="view_timeline",
+        actor=current_user.get("email"),
+        target_type="threat",
+        target_id=threat_id,
+        description=f"Viewed timeline for threat {threat_id}"
+    )
+    
+    return {
+        "threat_id": timeline.threat_id,
+        "threat_name": timeline.threat_name,
+        "threat_type": timeline.threat_type,
+        "severity": timeline.severity,
+        "status": timeline.status,
+        "first_seen": timeline.first_seen,
+        "last_updated": timeline.last_updated,
+        "events": [vars(e) if hasattr(e, '__dict__') else e.__dict__ for e in timeline.events],
+        "summary": timeline.summary,
+        "impact_assessment": timeline.impact_assessment,
+        "recommendations": timeline.recommendations
+    }
+
+@api_router.get("/timeline/{threat_id}/export")
+async def export_threat_timeline(
+    threat_id: str,
+    format: str = "json",
+    current_user: dict = Depends(get_current_user)
+):
+    """Export timeline in specified format"""
+    if format not in ["json", "markdown"]:
+        raise HTTPException(status_code=400, detail="Format must be 'json' or 'markdown'")
+    
+    content = await timeline_builder.export_timeline(threat_id, format)
+    if not content:
+        raise HTTPException(status_code=404, detail="Threat not found")
+    
+    if format == "json":
+        return json.loads(content)
+    else:
+        return {"markdown": content}
+
+@api_router.get("/timelines/recent")
+async def get_recent_timelines(
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get summaries of recent threat timelines"""
+    summaries = await timeline_builder.get_recent_timelines(limit=min(limit, 50))
+    return {"timelines": summaries}
+
+# ============ ENHANCED WEBSOCKET ENDPOINTS ============
+
+@api_router.get("/websocket/stats")
+async def get_websocket_stats(current_user: dict = Depends(get_current_user)):
+    """Get WebSocket connection statistics"""
+    return realtime_ws.get_stats()
+
+@api_router.get("/websocket/agents")
+async def get_connected_agents_ws(current_user: dict = Depends(get_current_user)):
+    """Get list of WebSocket-connected agents"""
+    return {"agents": realtime_ws.get_connected_agents()}
+
+@api_router.post("/websocket/command/{agent_id}")
+async def send_command_to_agent(
+    agent_id: str,
+    command: str,
+    parameters: Optional[Dict[str, Any]] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Send a command to a specific agent via WebSocket"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    success = await realtime_ws.send_command(agent_id, command, parameters)
+    
+    # Log the command
+    await log_user_action(
+        action="send_command",
+        actor=current_user.get("email"),
+        target_type="agent",
+        target_id=agent_id,
+        description=f"Sent command '{command}' to agent {agent_id}",
+        details={"command": command, "parameters": parameters}
+    )
+    
+    if success:
+        return {"status": "ok", "message": f"Command sent to agent {agent_id}"}
+    else:
+        return {"status": "queued", "message": f"Agent {agent_id} offline. Command queued."}
+
+@api_router.post("/websocket/scan/{agent_id}")
+async def request_agent_scan(
+    agent_id: str,
+    scan_type: str,
+    target: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Request a scan from a specific agent"""
+    if scan_type not in ["network", "yara", "clamav", "process"]:
+        raise HTTPException(status_code=400, detail="Invalid scan type")
+    
+    success = await realtime_ws.request_scan(agent_id, scan_type, target)
+    
+    return {
+        "status": "ok" if success else "queued",
+        "message": f"Scan request {'sent' if success else 'queued'} for agent {agent_id}"
+    }
+
+# ============ OPENCLAW GATEWAY CONFIGURATION ============
+
+class OpenClawConfig(BaseModel):
+    enabled: bool
+    gateway_url: str
+    api_key: Optional[str] = None
+
+@api_router.get("/openclaw/config")
+async def get_openclaw_config(current_user: dict = Depends(get_current_user)):
+    """Get OpenClaw gateway configuration"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    return {
+        "enabled": response_config.openclaw_enabled,
+        "gateway_url": response_config.openclaw_gateway_url,
+        "api_key_configured": bool(response_config.openclaw_api_key)
+    }
+
+@api_router.post("/openclaw/config")
+async def update_openclaw_config(
+    config_update: OpenClawConfig,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update OpenClaw gateway configuration"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    old_enabled = response_config.openclaw_enabled
+    old_url = response_config.openclaw_gateway_url
+    
+    response_config.openclaw_enabled = config_update.enabled
+    response_config.openclaw_gateway_url = config_update.gateway_url
+    if config_update.api_key:
+        response_config.openclaw_api_key = config_update.api_key
+    
+    # Log configuration change
+    await log_config_change(
+        setting="openclaw",
+        actor=current_user.get("email"),
+        old_value={"enabled": old_enabled, "url": old_url},
+        new_value={"enabled": config_update.enabled, "url": config_update.gateway_url}
+    )
+    
+    # Save to database
+    await db.settings.update_one(
+        {"type": "openclaw_settings"},
+        {"$set": {
+            "enabled": config_update.enabled,
+            "gateway_url": config_update.gateway_url,
+            "api_key_configured": bool(config_update.api_key),
+            "updated_by": current_user.get("email"),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }},
+        upsert=True
+    )
+    
+    return {"status": "ok", "message": "OpenClaw configuration updated"}
+
+@api_router.post("/openclaw/test")
+async def test_openclaw_connection(current_user: dict = Depends(get_current_user)):
+    """Test OpenClaw gateway connection"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    if not response_config.openclaw_enabled:
+        raise HTTPException(status_code=400, detail="OpenClaw not enabled")
+    
+    available = await openclaw.is_available()
+    
+    if available:
+        # Try a simple task
+        result = await openclaw.execute_security_task(
+            task="Test connection - respond with 'OK' if you receive this message.",
+            tools=[]
+        )
+        return {
+            "status": "connected",
+            "gateway_url": response_config.openclaw_gateway_url,
+            "test_response": result.details.get("ai_response", "No response") if result.status.value == "success" else "Failed"
+        }
+    else:
+        return {
+            "status": "offline",
+            "gateway_url": response_config.openclaw_gateway_url,
+            "message": "Gateway not reachable"
+        }
+
 # ============ ROOT ENDPOINT ============
 
 @api_router.get("/")
