@@ -325,7 +325,7 @@ class TimelineBuilder:
     @classmethod
     async def get_recent_timelines(cls, limit: int = 10) -> List[Dict[str, Any]]:
         """Get summaries of recent threat timelines"""
-        if not cls._db:
+        if cls._db is None:
             return []
         
         threats = await cls._db.threats.find(
