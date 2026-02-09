@@ -1,0 +1,394 @@
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
+import { motion } from 'framer-motion';
+import { 
+  Workflow, Play, Pause, Plus, Trash2, Edit, Clock, 
+  CheckCircle, XCircle, AlertTriangle, Zap, Shield,
+  ChevronRight, Settings, RefreshCw, Eye, Activity
+} from 'lucide-react';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
+import { Switch } from '../components/ui/switch';
+import { toast } from 'sonner';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const SOARPage = () => {
+  const { token } = useAuth();
+  const [stats, setStats] = useState(null);
+  const [playbooks, setPlaybooks] = useState([]);
+  const [executions, setExecutions] = useState([]);
+  const [selectedPlaybook, setSelectedPlaybook] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const headers = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    fetchData();
+  }, [token]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [statsRes, playbooksRes, executionsRes] = await Promise.all([
+        axios.get(`${API}/soar/stats`, { headers }),
+        axios.get(`${API}/soar/playbooks`, { headers }),
+        axios.get(`${API}/soar/executions?limit=20`, { headers })
+      ]);
+      setStats(statsRes.data);
+      setPlaybooks(playbooksRes.data.playbooks || []);
+      setExecutions(executionsRes.data.executions || []);
+    } catch (err) {
+      toast.error('Failed to load SOAR data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTogglePlaybook = async (playbookId) => {
+    try {
+      await axios.post(`${API}/soar/playbooks/${playbookId}/toggle`, {}, { headers });
+      toast.success('Playbook status updated');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to toggle playbook');
+    }
+  };
+
+  const handleExecutePlaybook = async (playbookId) => {
+    try {
+      const res = await axios.post(`${API}/soar/playbooks/${playbookId}/execute`, {
+        trigger_type: 'manual',
+        severity: 'medium'
+      }, { headers });
+      toast.success('Playbook executed successfully');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to execute playbook');
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'completed': return 'text-green-400 bg-green-500/10 border-green-500/30';
+      case 'failed': return 'text-red-400 bg-red-500/10 border-red-500/30';
+      case 'partial': return 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+      case 'running': return 'text-blue-400 bg-blue-500/10 border-blue-500/30';
+      default: return 'text-slate-400 bg-slate-500/10 border-slate-500/30';
+    }
+  };
+
+  const getTriggerIcon = (trigger) => {
+    switch(trigger) {
+      case 'malware_found': return <Shield className="w-4 h-4 text-red-400" />;
+      case 'ransomware_detected': return <AlertTriangle className="w-4 h-4 text-red-400" />;
+      case 'ioc_match': return <Zap className="w-4 h-4 text-amber-400" />;
+      case 'suspicious_process': return <Activity className="w-4 h-4 text-purple-400" />;
+      case 'honeypot_triggered': return <Eye className="w-4 h-4 text-cyan-400" />;
+      default: return <Workflow className="w-4 h-4 text-slate-400" />;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6" data-testid="soar-page">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <Workflow className="w-6 h-6 text-cyan-400" />
+            SOAR Playbooks
+          </h1>
+          <p className="text-slate-400 text-sm mt-1">Security Orchestration, Automation & Response</p>
+        </div>
+        <Button onClick={fetchData} variant="outline" className="border-cyan-500/50 text-cyan-400">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+              <Workflow className="w-5 h-5 text-cyan-400" />
+            </div>
+            <div>
+              <p className="text-slate-400 text-sm">Total Playbooks</p>
+              <p className="text-2xl font-bold text-white">{stats?.total_playbooks || 0}</p>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+              <Play className="w-5 h-5 text-green-400" />
+            </div>
+            <div>
+              <p className="text-slate-400 text-sm">Active</p>
+              <p className="text-2xl font-bold text-green-400">{stats?.active_playbooks || 0}</p>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+              <Activity className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <p className="text-slate-400 text-sm">Executions</p>
+              <p className="text-2xl font-bold text-white">{stats?.total_executions || 0}</p>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+              <CheckCircle className="w-5 h-5 text-green-400" />
+            </div>
+            <div>
+              <p className="text-slate-400 text-sm">Success Rate</p>
+              <p className="text-2xl font-bold text-green-400">{stats?.success_rate || 0}%</p>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
+          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+              <XCircle className="w-5 h-5 text-red-400" />
+            </div>
+            <div>
+              <p className="text-slate-400 text-sm">Failed</p>
+              <p className="text-2xl font-bold text-red-400">{stats?.executions_failed || 0}</p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Playbooks Grid */}
+      <Card className="bg-slate-900/50 border-slate-800">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <Workflow className="w-5 h-5 text-cyan-400" />
+            Playbooks ({playbooks.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {playbooks.map((pb) => (
+              <motion.div
+                key={pb.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className={`p-4 rounded-lg border ${pb.status === 'active' ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-900/30 border-slate-800'}`}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    {getTriggerIcon(pb.trigger)}
+                    <div>
+                      <h3 className="text-white font-medium">{pb.name}</h3>
+                      <p className="text-slate-400 text-xs">{pb.description}</p>
+                    </div>
+                  </div>
+                  <Switch 
+                    checked={pb.status === 'active'} 
+                    onCheckedChange={() => handleTogglePlaybook(pb.id)}
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <Badge variant="outline" className="text-xs text-cyan-400 border-cyan-500/30">
+                    {pb.trigger.replace(/_/g, ' ')}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs text-purple-400 border-purple-500/30">
+                    {pb.steps?.length || 0} steps
+                  </Badge>
+                  {pb.execution_count > 0 && (
+                    <Badge variant="outline" className="text-xs text-green-400 border-green-500/30">
+                      {pb.execution_count} runs
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {pb.last_executed ? new Date(pb.last_executed).toLocaleString() : 'Never executed'}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      className="h-7 px-2 text-slate-400 hover:text-white"
+                      onClick={() => setSelectedPlaybook(pb)}
+                    >
+                      <Eye className="w-4 h-4" />
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      className="h-7 px-2 text-green-400 hover:text-green-300"
+                      onClick={() => handleExecutePlaybook(pb.id)}
+                      disabled={pb.status !== 'active'}
+                    >
+                      <Play className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Recent Executions */}
+      <Card className="bg-slate-900/50 border-slate-800">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <Activity className="w-5 h-5 text-blue-400" />
+            Recent Executions
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {executions.length > 0 ? (
+            <div className="space-y-2">
+              {executions.map((exec) => (
+                <div key={exec.id} 
+                  className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-8 h-8 rounded flex items-center justify-center ${getStatusColor(exec.status)}`}>
+                      {exec.status === 'completed' ? <CheckCircle className="w-4 h-4" /> :
+                       exec.status === 'failed' ? <XCircle className="w-4 h-4" /> :
+                       exec.status === 'partial' ? <AlertTriangle className="w-4 h-4" /> :
+                       <RefreshCw className="w-4 h-4 animate-spin" />}
+                    </div>
+                    <div>
+                      <p className="text-white text-sm font-medium">{exec.playbook_name}</p>
+                      <p className="text-slate-400 text-xs">
+                        {exec.step_results?.length || 0} steps executed
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <Badge variant="outline" className={getStatusColor(exec.status)}>
+                      {exec.status}
+                    </Badge>
+                    <span className="text-slate-500 text-xs">
+                      {new Date(exec.started_at).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-400">
+              <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>No executions yet</p>
+              <p className="text-sm">Playbooks will run automatically when triggered</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Playbook Detail Modal */}
+      {selectedPlaybook && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setSelectedPlaybook(null)}>
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-slate-800 border border-slate-700 rounded-lg w-full max-w-2xl max-h-[80vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {getTriggerIcon(selectedPlaybook.trigger)}
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">{selectedPlaybook.name}</h2>
+                    <p className="text-sm text-slate-400">{selectedPlaybook.description}</p>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedPlaybook(null)} className="text-slate-400 hover:text-white">
+                  ×
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-400 mb-2">Trigger</h3>
+                <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30">
+                  {selectedPlaybook.trigger.replace(/_/g, ' ').toUpperCase()}
+                </Badge>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-slate-400 mb-2">Conditions</h3>
+                <pre className="text-xs bg-slate-900 p-3 rounded overflow-auto text-slate-300">
+                  {JSON.stringify(selectedPlaybook.trigger_conditions, null, 2)}
+                </pre>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-slate-400 mb-2">Steps ({selectedPlaybook.steps?.length || 0})</h3>
+                <div className="space-y-2">
+                  {selectedPlaybook.steps?.map((step, idx) => (
+                    <div key={idx} className="flex items-center gap-3 p-3 bg-slate-900/50 rounded-lg">
+                      <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xs font-bold">
+                        {idx + 1}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-white text-sm font-medium">
+                          {step.action.replace(/_/g, ' ').toUpperCase()}
+                        </p>
+                        <p className="text-slate-400 text-xs">
+                          Timeout: {step.timeout}s | Continue on failure: {step.continue_on_failure ? 'Yes' : 'No'}
+                        </p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-500" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-slate-700">
+                <Button 
+                  className="flex-1 bg-green-600 hover:bg-green-500"
+                  onClick={() => {
+                    handleExecutePlaybook(selectedPlaybook.id);
+                    setSelectedPlaybook(null);
+                  }}
+                  disabled={selectedPlaybook.status !== 'active'}
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Execute Now
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default SOARPage;
