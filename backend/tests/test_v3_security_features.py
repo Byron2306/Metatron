@@ -59,7 +59,7 @@ def auth_token():
         "password": TEST_PASSWORD
     })
     if response.status_code == 200:
-        token = response.json().get("token")
+        token = response.json().get("access_token")  # Fixed: field is access_token not token
         print(f"✓ Authenticated as {TEST_EMAIL}")
         return token
     pytest.skip(f"Authentication failed: {response.status_code} - {response.text}")
