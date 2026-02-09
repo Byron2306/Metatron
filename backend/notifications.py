@@ -257,6 +257,73 @@ async def send_email_notification(
         return False
 
 # =============================================================================
+# SMS NOTIFICATIONS (TWILIO)
+# =============================================================================
+
+async def send_sms_notification(
+    message: str,
+    severity: str = "critical",
+    recipients: Optional[List[str]] = None,
+    account_sid: Optional[str] = None,
+    auth_token: Optional[str] = None,
+    from_number: Optional[str] = None
+) -> bool:
+    """
+    Send SMS notification via Twilio
+    
+    Args:
+        message: SMS message (max 1600 chars)
+        severity: Alert severity
+        recipients: List of phone numbers (E.164 format)
+        account_sid: Twilio Account SID (optional, uses config if not provided)
+        auth_token: Twilio Auth Token (optional, uses config if not provided)
+        from_number: Twilio phone number (optional, uses config if not provided)
+    
+    Returns:
+        bool: True if at least one SMS was sent successfully
+    """
+    sid = account_sid or config.twilio_account_sid
+    token = auth_token or config.twilio_auth_token
+    from_num = from_number or config.twilio_from_number
+    
+    if not all([sid, token, from_num]):
+        logger.warning("Twilio credentials not configured")
+        return False
+    
+    to_numbers = recipients or [r for r in config.sms_recipients if r]
+    if not to_numbers:
+        logger.warning("No SMS recipients configured")
+        return False
+    
+    # Truncate message if too long
+    sms_text = f"🚨 [{severity.upper()}] {message}"[:1600]
+    
+    success_count = 0
+    
+    for to_number in to_numbers:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
+                    data={
+                        "To": to_number,
+                        "From": from_num,
+                        "Body": sms_text
+                    },
+                    auth=(sid, token),
+                    timeout=10
+                )
+                if response.status_code in [200, 201]:
+                    logger.info(f"SMS sent to {to_number}")
+                    success_count += 1
+                else:
+                    logger.error(f"SMS failed to {to_number}: {response.status_code} - {response.text}")
+        except Exception as e:
+            logger.error(f"SMS error for {to_number}: {e}")
+    
+    return success_count > 0
+
+# =============================================================================
 # ELASTICSEARCH LOGGING
 # =============================================================================
 
