@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Anti-AI Defense System - Complete Security Suite Installer
-===========================================================
+Anti-AI Defense System - Complete Security Suite Installer v3.0
+================================================================
 This is a SINGLE-FILE installer that downloads and sets up the complete
 local security agent with all features:
 
@@ -12,6 +12,15 @@ local security agent with all features:
 - Process Monitoring
 - Data Recovery Tools
 - Local Web Dashboard
+
+NEW IN v3.0:
+- Live Task Manager Monitoring
+- Suspicious Services/Processes Detection & Auto-Kill
+- PUP (Potentially Unwanted Programs) Detection
+- Privilege Escalation Monitoring
+- Hidden File/Folder Scanner
+- Rootkit Detection & Repair
+- Advanced Scan Functions
 
 USAGE:
     python defender_installer.py              # Interactive install
