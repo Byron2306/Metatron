@@ -414,7 +414,11 @@ class AntiAIDefenseAPITester:
             ("Threats CRUD", self.test_threats_crud),
             ("Alerts CRUD", self.test_alerts_crud),
             ("AI Analysis (GPT-5.2)", self.test_ai_analysis),
-            ("AI Analyses History", self.test_ai_analyses_history)
+            ("AI Analyses History", self.test_ai_analyses_history),
+            ("Network Topology", self.test_network_topology),
+            ("Generate Hunting Hypotheses", self.test_threat_hunting_generate),
+            ("Get Hunting Hypotheses", self.test_threat_hunting_get_hypotheses),
+            ("Update Hypothesis Status", self.test_threat_hunting_update_status)
         ]
         
         for test_name, test_func in tests:
