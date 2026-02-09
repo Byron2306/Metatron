@@ -1597,25 +1597,29 @@ async def receive_agent_event(event: AgentEvent):
         yara_data = event.data
         matches = yara_data.get("matches", [])
         match_names = [m.get("rule", "Unknown") for m in matches]
+        filepath = yara_data.get("filepath", "Unknown")
         
         # Determine severity based on rule metadata
         severity = "high"
+        threat_type = "malware"
         for match in matches:
-            if match.get("meta", {}).get("severity") == "critical":
+            meta = match.get("meta", {})
+            if meta.get("severity") == "critical":
                 severity = "critical"
-                break
+            if meta.get("category"):
+                threat_type = meta.get("category")
         
         threat_doc = {
             "id": str(uuid.uuid4()),
             "name": f"Malware Detected: {', '.join(match_names[:3])}",
-            "type": "malware",
+            "type": threat_type,
             "severity": severity,
             "status": "active",
             "source_ip": None,
-            "target_system": yara_data.get("filepath", "Unknown"),
-            "description": f"YARA rules matched on file: {yara_data.get('filepath')}",
+            "target_system": filepath,
+            "description": f"YARA rules matched on file: {filepath}",
             "indicators": [
-                f"File: {yara_data.get('filepath')}",
+                f"File: {filepath}",
                 f"Rules matched: {', '.join(match_names)}",
                 f"File size: {yara_data.get('file_size', 'Unknown')} bytes"
             ],
@@ -1632,7 +1636,7 @@ async def receive_agent_event(event: AgentEvent):
             "title": f"Malware Detected: {match_names[0] if match_names else 'Unknown'}",
             "type": "malware",
             "severity": severity,
-            "message": f"File: {yara_data.get('filepath')}. Matched rules: {', '.join(match_names)}",
+            "message": f"File: {filepath}. Matched rules: {', '.join(match_names)}",
             "status": "new",
             "threat_id": threat_doc["id"],
             "source_agent": event.agent_name,
@@ -1640,15 +1644,47 @@ async def receive_agent_event(event: AgentEvent):
         }
         await db.alerts.insert_one(alert_doc)
         
+        # AUTO-QUARANTINE: Handle malware detection with auto-quarantine
+        quarantine_result = None
+        try:
+            quarantine_result = await handle_malware_detection(
+                filepath=filepath,
+                threat_name=match_names[0] if match_names else "Unknown",
+                threat_type=threat_type,
+                detection_source="yara",
+                agent_id=event.agent_id,
+                agent_name=event.agent_name,
+                auto_quarantine=True,
+                notify=True
+            )
+            
+            # Store quarantine info in threat document
+            if quarantine_result.get("quarantined"):
+                await db.threats.update_one(
+                    {"id": threat_doc["id"]},
+                    {"$set": {
+                        "quarantine_info": quarantine_result.get("quarantine_entry"),
+                        "status": "quarantined"
+                    }}
+                )
+        except Exception as e:
+            logger.error(f"Auto-quarantine failed: {e}")
+        
         # Broadcast
         await ws_manager.broadcast({
             "type": "malware_detected",
             "threat_id": threat_doc["id"],
-            "file": yara_data.get("filepath"),
-            "rules": match_names
+            "file": filepath,
+            "rules": match_names,
+            "quarantined": quarantine_result.get("quarantined", False) if quarantine_result else False
         })
         
-        return {"status": "ok", "threat_id": threat_doc["id"], "alert_id": alert_doc["id"]}
+        return {
+            "status": "ok", 
+            "threat_id": threat_doc["id"], 
+            "alert_id": alert_doc["id"],
+            "quarantined": quarantine_result.get("quarantined", False) if quarantine_result else False
+        }
     
     elif event.event_type == "network_scan":
         # Store network scan results
