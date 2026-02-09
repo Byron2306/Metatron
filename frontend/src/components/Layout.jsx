@@ -15,7 +15,8 @@ import {
   FileText,
   Monitor,
   ShieldAlert,
-  Settings
+  Settings,
+  Zap
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -35,6 +36,7 @@ const Layout = () => {
     { path: '/threats', icon: AlertTriangle, label: 'Threats' },
     { path: '/alerts', icon: Bell, label: 'Alerts' },
     { path: '/quarantine', icon: ShieldAlert, label: 'Quarantine' },
+    { path: '/response', icon: Zap, label: 'Auto Response' },
     { path: '/network', icon: Network, label: 'Network Map' },
     { path: '/hunting', icon: Crosshair, label: 'Threat Hunting' },
     { path: '/honeypots', icon: Radar, label: 'Honeypots' },
