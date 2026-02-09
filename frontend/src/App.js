@@ -91,6 +91,10 @@ function App() {
               <Route path="soar" element={<SOARPage />} />
               <Route path="honey-tokens" element={<HoneyTokensPage />} />
               <Route path="zero-trust" element={<ZeroTrustPage />} />
+              <Route path="ml-prediction" element={<MLPredictionPage />} />
+              <Route path="sandbox" element={<SandboxPage />} />
+              <Route path="browser-isolation" element={<BrowserIsolationPage />} />
+              <Route path="kibana" element={<KibanaDashboardsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
