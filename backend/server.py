@@ -1345,7 +1345,7 @@ def generate_threat_report_pdf(threats: List[dict], alerts: List[dict], stats: d
         ]))
         elements.append(threat_table)
     else:
-        elements.append(Paragraph("No active threats at this time.", styles['BodyText']))
+        elements.append(Paragraph("No active threats at this time.", styles['CustomBody']))
     
     elements.append(Spacer(1, 20))
     
