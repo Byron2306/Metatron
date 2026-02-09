@@ -27,11 +27,37 @@ Build a defensive AI system with:
 
 ### Backend (FastAPI + MongoDB)
 - User authentication (register, login, JWT)
+- Role-Based Access Control (admin/analyst/viewer)
 - Threats API (CRUD + status management)
 - Alerts API (CRUD + status management)  
-- AI Analysis endpoint using GPT-5.2 via Emergent LLM key
+- AI Analysis endpoint using GPT-4o via Emergent LLM key
 - Dashboard stats aggregation
 - Demo data seeding
+- Network topology visualization
+- Threat hunting with AI hypothesis generation
+- Honeypot system with interaction tracking
+- PDF report generation
+- AI executive summaries
+- **Local Agent API** - receives real security data from local network agents
+- **Suricata IDS integration** - processes and stores IDS alerts
+- **YARA malware detection** - receives malware scan results
+- **Network discovery** - tracks discovered hosts from nmap scans
+
+### Local Security Agent (Python)
+- Downloadable agent script for local network scanning
+- System monitoring (CPU, memory, network interfaces)
+- Process monitoring for suspicious activity
+- Network scanning using nmap
+- Packet capture using scapy
+- YARA malware scanning with default rules
+- Suricata log monitoring
+- Real-time event reporting to cloud dashboard
+
+### Frontend (React + Tailwind)
+- 9 pages: Dashboard, Agents, AI Detection, Threats, Alerts, Network Map, Threat Hunting, Honeypots, Reports
+- Real-time agent status monitoring
+- Discovered network hosts display
+- Agent download functionality
 
 ### Frontend (React + Tailwind)
 - Login/Registration page with cyberpunk aesthetic
