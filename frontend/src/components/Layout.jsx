@@ -12,7 +12,8 @@ import {
   Network,
   Crosshair,
   Radar,
-  FileText
+  FileText,
+  Monitor
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -27,6 +28,7 @@ const Layout = () => {
 
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/agents', icon: Monitor, label: 'Agents' },
     { path: '/ai-detection', icon: Cpu, label: 'AI Detection' },
     { path: '/threats', icon: AlertTriangle, label: 'Threats' },
     { path: '/alerts', icon: Bell, label: 'Alerts' },

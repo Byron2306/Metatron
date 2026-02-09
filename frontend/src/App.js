@@ -10,6 +10,7 @@ import NetworkTopologyPage from "./pages/NetworkTopologyPage";
 import ThreatHuntingPage from "./pages/ThreatHuntingPage";
 import HoneypotsPage from "./pages/HoneypotsPage";
 import ReportsPage from "./pages/ReportsPage";
+import AgentsPage from "./pages/AgentsPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -57,6 +58,7 @@ function App() {
               <Route path="hunting" element={<ThreatHuntingPage />} />
               <Route path="honeypots" element={<HoneypotsPage />} />
               <Route path="reports" element={<ReportsPage />} />
+              <Route path="agents" element={<AgentsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
