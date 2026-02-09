@@ -469,7 +469,7 @@ async def notify_new_host_discovered(
     return await dispatcher.dispatch(
         event_type="discovery",
         title=f"New Host Discovered: {ip_address}",
-        message=f"A new device has been detected on the network.",
+        message="A new device has been detected on the network.",
         severity="low",
         source=agent_name,
         details={
@@ -490,7 +490,7 @@ async def notify_intrusion_attempt(
     return await dispatcher.dispatch(
         event_type="intrusion",
         title=f"Intrusion Attempt: {signature}",
-        message=f"IDS alert triggered. Potential intrusion attempt detected.",
+        message="IDS alert triggered. Potential intrusion attempt detected.",
         severity="high",
         source=agent_name,
         details={
