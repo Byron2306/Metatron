@@ -67,6 +67,23 @@ class Playbook:
     created_by: str = "system"
     execution_count: int = 0
     last_executed: Optional[str] = None
+    is_template: bool = False
+    template_id: Optional[str] = None  # If cloned from a template
+    tags: List[str] = field(default_factory=list)
+
+@dataclass
+class PlaybookTemplate:
+    id: str
+    name: str
+    description: str
+    category: str  # e.g., "malware", "ransomware", "network", "compliance"
+    trigger: PlaybookTrigger
+    trigger_conditions: Dict[str, Any]
+    steps: List[PlaybookStep]
+    tags: List[str]
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    use_count: int = 0
+    is_official: bool = False  # Official templates from the system
 
 @dataclass
 class PlaybookExecution:
