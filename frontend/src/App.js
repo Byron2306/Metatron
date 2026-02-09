@@ -6,6 +6,8 @@ import DashboardPage from "./pages/DashboardPage";
 import AIDetectionPage from "./pages/AIDetectionPage";
 import AlertsPage from "./pages/AlertsPage";
 import ThreatsPage from "./pages/ThreatsPage";
+import NetworkTopologyPage from "./pages/NetworkTopologyPage";
+import ThreatHuntingPage from "./pages/ThreatHuntingPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -49,6 +51,8 @@ function App() {
               <Route path="ai-detection" element={<AIDetectionPage />} />
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="threats" element={<ThreatsPage />} />
+              <Route path="network" element={<NetworkTopologyPage />} />
+              <Route path="hunting" element={<ThreatHuntingPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
