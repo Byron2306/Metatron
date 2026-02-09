@@ -13,6 +13,7 @@ import ReportsPage from "./pages/ReportsPage";
 import AgentsPage from "./pages/AgentsPage";
 import QuarantinePage from "./pages/QuarantinePage";
 import SettingsPage from "./pages/SettingsPage";
+import ThreatResponsePage from "./pages/ThreatResponsePage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
