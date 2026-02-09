@@ -304,7 +304,7 @@ class SandboxService:
         }
     
     async def run_analysis(self, analysis_id: str) -> SandboxAnalysis:
-        """Run the actual analysis (simulated)"""
+        """Run the actual analysis with real process isolation"""
         analysis = self.analyses.get(analysis_id)
         if not analysis:
             raise ValueError(f"Analysis {analysis_id} not found")
@@ -316,11 +316,12 @@ class SandboxService:
         self.running_count += 1
         
         try:
-            # Simulate analysis time (in production, this would be actual VM execution)
-            await asyncio.sleep(2)  # Simulated delay
-            
-            # Generate simulated results
-            analysis = self._generate_analysis_results(analysis)
+            # For URL analysis, use real URL fetching in sandbox
+            if analysis.sample_type == SampleType.URL:
+                analysis = await self._analyze_url_real(analysis)
+            else:
+                # For file analysis, use firejail sandbox
+                analysis = await self._analyze_file_real(analysis)
             
             analysis.status = AnalysisStatus.COMPLETED
             analysis.completed_at = datetime.now(timezone.utc).isoformat()
