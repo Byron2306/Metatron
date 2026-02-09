@@ -202,16 +202,17 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 ## Backlog / Future Features
 
 ### P1 - High Priority
-- [ ] Frontend pages for new v3.0 features
-- [ ] Memory forensics (Volatility integration)
-- [ ] EDR capabilities (process trees, FIM)
+- [x] Frontend pages for new v3.0 features ✅
+- [x] Memory forensics (Volatility integration) ✅ (installer ready)
+- [x] EDR capabilities (process trees, FIM) ✅
 
 ### P2 - Medium Priority
 - [ ] SOAR playbook engine
 - [ ] Honey tokens and honey credentials
 - [ ] Browser isolation
+- [ ] Kibana dashboard integration
 
 ### P3 - Future
 - [ ] Zero Trust architecture
 - [ ] ML-based threat prediction
-- [ ] Quantum-enhanced security
+- [ ] Sandbox/VM-based analysis (Cuckoo)
