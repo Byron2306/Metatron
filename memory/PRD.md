@@ -8,58 +8,48 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v2.0.0**: Real network scanning, local agent, notifications
 - **v3.0.0**: Backend refactoring + 4 enterprise security features
 - **v3.1.0**: Frontend pages for all 6 enterprise features + Enhanced installer
-- **v3.2.0**: SOAR Playbook Engine + Bug fixes (CURRENT - Feb 2026)
+- **v3.2.0**: SOAR Playbook Engine + Bug fixes
+- **v3.3.0**: Kibana + Honey Tokens + Zero Trust + Custom Templates (CURRENT - Feb 2026)
 
-## v3.2 New Features (Feb 2026)
+## v3.3 New Features (Feb 2026)
 
-### 1. SOAR Playbook Engine ✅
-- **5 Pre-configured Playbooks**: Malware, Ransomware, IOC Match, Suspicious Process, Honeypot
-- **10 Available Actions**: Block IP, Kill Process, Quarantine File, Send Alert, Isolate Endpoint, Collect Forensics, Disable User, Scan Endpoint, Update Firewall, Create Ticket
-- **8 Trigger Types**: Threat Detected, Malware Found, Ransomware Detected, Suspicious Process, IOC Match, Honeypot Triggered, Anomaly Detected, Manual
-- **Execution Tracking**: Full history with step-by-step results
+### 1. Kibana/Elasticsearch Integration ✅
+- **Index Template Created**: `security-events-*` with proper mappings
+- **Structured Event Logging**: All security events can be logged to Elasticsearch
+- **Kibana-Ready Fields**: @timestamp, event_type, severity, source_ip, user, threat_name, MITRE mappings
+- **Setup Endpoint**: `/api/settings/elasticsearch/setup-kibana`
 
-### 2. Bug Fixes ✅
-- Fixed Settings page crash (frontend expected nested structure, backend returned flat)
-- Fixed Quarantine page crash (frontend expected {entries: []}, backend returned [])
+### 2. Honey Tokens & Credentials ✅
+- **4 Pre-deployed Tokens**: AWS Key, Database Cred, API Key, JWT Token
+- **8 Token Types**: api_key, password, aws_key, database_cred, ssh_key, jwt_token, oauth_token, webhook_url
+- **Real-Time Detection**: Any use of honey tokens triggers CRITICAL alerts
+- **Access Logging**: Full audit trail of all token accesses with IP, user-agent, headers
 
-### 3. New UI Page ✅
-- **SOAR Page**: Visual playbook management with toggle switches, execution buttons, and history
+### 3. Zero Trust Architecture ✅
+- **5 Trust Levels**: Untrusted (0-20), Low (21-40), Medium (41-60), High (61-80), Trusted (81-100)
+- **Dynamic Trust Scoring**: Based on device, auth method, network, time, behavior anomaly, incidents
+- **5 Pre-configured Policies**: Admin Console, Settings, Dashboard, Threat Response, Quarantine
+- **Device Registration**: Track compliance (antivirus, firewall, encryption, OS updates)
+- **Access Evaluation**: Real-time allow/deny/challenge decisions
 
-## Credentials Required for Full Functionality
+### 4. Custom Playbook Templates ✅
+- **6 Official Templates**: Data Breach, Credential Theft, DDoS, Insider Threat, Compliance, Cryptomining
+- **Template Categories**: incident_response, identity, network, insider, compliance, malware
+- **Clone to Playbook**: One-click creation of playbooks from templates
+- **Custom Templates**: Users can create and share their own templates
 
-| Service | Credential | Status |
-|---------|-----------|--------|
-| **Slack** | Webhook URL | ✅ **CONFIGURED & ACTIVE** |
-| **SendGrid** | API Key | ✅ **CONFIGURED & ACTIVE** |
-| **Elasticsearch** | URL + API Key | ✅ **CONFIGURED & CONNECTED** (v9.3.0) |
-| **Twilio SMS** | Account SID, Auth Token, Phone | ⚠️ Needs Twilio-owned phone number |
-| **OpenClaw** | API Key + Gateway | ❌ Not configured (uses Emergent LLM key for AI) |
+## Credentials Status
 
-## v3.1 Features (Completed)
+| Service | Status | Notes |
+|---------|--------|-------|
+| **Slack** | ✅ ACTIVE | Webhook configured, notifications working |
+| **SendGrid** | ✅ ACTIVE | API key configured |
+| **Elasticsearch** | ✅ CONNECTED | v9.3.0, index template created |
+| **Twilio SMS** | ⚠️ Pending | Needs Twilio-purchased FROM number |
 
-### 1. Complete UI for All Enterprise Features ✅
-- **Threat Intelligence Page**: IOC lookup, feed stats, real-time search
-- **Ransomware Protection Page**: Canary management, protected folders
-- **Container Security Page**: Trivy scanning, runtime monitoring
-- **VPN Integration Page**: WireGuard management, peer configuration
-- **Threat Correlation Page**: Automated threat correlation engine
-- **EDR & Memory Forensics Page**: Process tree, FIM, USB control
+## Architecture (v3.3)
 
-### 2. Navigation Integration ✅
-- Added 6 new navigation items to sidebar
-- Updated App.js with routes for all new pages
-- All pages accessible after login
-
-### 3. Enhanced Local Agent Installer ✅
-- **Better Windows Support**: Auto-detection of winget/chocolatey/scoop
-- **WireGuard Installation**: Cross-platform installation support
-- **Trivy Installation**: Container scanner installation
-- **Volatility 3 Installation**: Memory forensics framework
-- **Improved UX**: Automatic browser opening for manual downloads
-
-## Architecture (v3.2)
-
-### Frontend Structure (21 Pages)
+### Frontend Structure (23 Pages)
 ```
 /app/frontend/src/pages/
 ├── DashboardPage.jsx          # Main dashboard
