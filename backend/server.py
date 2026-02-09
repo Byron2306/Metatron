@@ -140,6 +140,10 @@ app.include_router(edr_router, prefix="/api")
 app.include_router(soar_router, prefix="/api")
 app.include_router(honey_tokens_router, prefix="/api")
 app.include_router(zero_trust_router, prefix="/api")
+app.include_router(ml_router, prefix="/api")
+app.include_router(sandbox_router, prefix="/api")
+app.include_router(browser_isolation_router, prefix="/api")
+app.include_router(kibana_router, prefix="/api")
 
 # ============ WEBSOCKET ENDPOINTS ============
 
