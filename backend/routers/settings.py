@@ -82,11 +82,16 @@ async def update_notification_settings(settings: NotificationSettings, current_u
         "email_to": settings.email_to if settings.email_to else current.get("email_to", ""),
         "elasticsearch_url": settings.elasticsearch_url if settings.elasticsearch_url else current.get("elasticsearch_url", ""),
         "elasticsearch_enabled": settings.elasticsearch_enabled,
+        # Twilio settings
+        "twilio_account_sid": settings.twilio_account_sid if settings.twilio_account_sid else current.get("twilio_account_sid", ""),
+        "twilio_from_number": settings.twilio_from_number if settings.twilio_from_number else current.get("twilio_from_number", ""),
+        "sms_recipients": settings.sms_recipients if settings.sms_recipients else current.get("sms_recipients", ""),
+        "sms_enabled": settings.sms_enabled,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "updated_by": current_user["id"]
     }
     
-    # Only update API keys if new values provided (not masked)
+    # Only update API keys/tokens if new values provided (not masked)
     if settings.sendgrid_api_key and not settings.sendgrid_api_key.startswith("***"):
         update_doc["sendgrid_api_key"] = settings.sendgrid_api_key
     else:
@@ -96,6 +101,11 @@ async def update_notification_settings(settings: NotificationSettings, current_u
         update_doc["elasticsearch_api_key"] = settings.elasticsearch_api_key
     else:
         update_doc["elasticsearch_api_key"] = current.get("elasticsearch_api_key", "")
+    
+    if settings.twilio_auth_token and not settings.twilio_auth_token.startswith("***"):
+        update_doc["twilio_auth_token"] = settings.twilio_auth_token
+    else:
+        update_doc["twilio_auth_token"] = current.get("twilio_auth_token", "")
     
     await db.notification_settings.update_one(
         {},
