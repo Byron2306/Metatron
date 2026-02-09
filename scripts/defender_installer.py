@@ -1678,6 +1678,7 @@ def install(auto=False):
     create_yara_rules()
     create_config(os_type)
     create_agent_script()
+    create_advanced_security_module()
     create_launcher()
     
     print()
