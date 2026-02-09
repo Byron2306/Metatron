@@ -14,6 +14,33 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v4.1.0**: Real Tool Integrations - WireGuard, Trivy, Volatility 3
 - **v4.2.0**: Production Infrastructure - Elasticsearch 8.19.11, Kibana 8.19.11, VPN Tunnel, Production Sandbox (CURRENT - Feb 2026)
 
+## v4.2 Production Infrastructure (Feb 2026)
+
+### Deployed Services
+| Service | Version | Port | Status |
+|---------|---------|------|--------|
+| **Elasticsearch** | 8.19.11 | 9200 | ✅ Running |
+| **Kibana** | 8.19.11 | 5601 | ✅ Running |
+| **WireGuard VPN** | v1.0.20210914 | 51820 | ✅ Configured |
+| **Firejail Sandbox** | 0.9.72 | - | ✅ Production Mode |
+
+### WireGuard VPN Tunnel
+- Server config: `/etc/wireguard/wg0.conf`
+- Client configs: `/var/lib/anti-ai-defense/vpn/clients/`
+- Network: `10.200.200.0/24`
+- Features: NAT, IP forwarding, kill switch support
+
+### Elasticsearch Security Index
+- Index: `security-events-*`
+- Mappings: timestamp, event_type, severity, source_ip, dest_ip, threat_category, MITRE fields
+- Sample data loaded for testing
+
+### Production Sandbox
+- Backend: firejail + bubblewrap
+- Isolation: Network isolation, private filesystem, restricted capabilities
+- Analysis: URL fetching, strings analysis, signature matching
+- Reports: `/var/lib/anti-ai-defense/sandbox/reports/`
+
 ## v4.1 Real Tool Integrations (Feb 2026)
 
 ### Installed & Configured
