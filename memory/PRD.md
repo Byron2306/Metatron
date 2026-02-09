@@ -10,7 +10,8 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v3.1.0**: Frontend pages for all 6 enterprise features + Enhanced installer
 - **v3.2.0**: SOAR Playbook Engine + Bug fixes
 - **v3.3.0**: Kibana + Honey Tokens + Zero Trust + Custom Templates
-- **v4.0.0**: ML Threat Prediction + Sandbox Analysis + Browser Isolation + Kibana Dashboards (CURRENT - Feb 2026)
+- **v4.0.0**: ML Threat Prediction + Sandbox Analysis + Browser Isolation + Kibana Dashboards
+- **v4.1.0**: Real Tool Integrations - WireGuard, Trivy, Volatility 3 (CURRENT - Feb 2026)
 
 ## v4.0 New Features (Feb 2026)
 
