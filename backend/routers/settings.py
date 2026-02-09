@@ -110,7 +110,7 @@ async def test_notifications(channel: str, current_user: dict = Depends(get_curr
             raise HTTPException(status_code=400, detail="Slack webhook URL not configured")
         
         try:
-            result = await send_slack_notification(
+            await send_slack_notification(
                 "Test Notification",
                 "This is a test message from Anti-AI Defense System",
                 "info",
