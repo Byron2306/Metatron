@@ -6,46 +6,30 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 ## Version History
 - **v1.0.0**: Initial dashboard with simulated threats
 - **v2.0.0**: Real network scanning, local agent, notifications
-- **v3.0.0**: Backend refactoring + 4 enterprise security features (CURRENT)
+- **v3.0.0**: Backend refactoring + 4 enterprise security features
+- **v3.1.0**: Frontend pages for all 6 enterprise features + Enhanced installer (CURRENT)
 
-## v3.0 New Features
+## v3.1 New Features (Feb 2026)
 
-### 1. Threat Intelligence Feeds ✅
-- **Abuse.ch Integration**: URLhaus (malicious URLs), Feodo Tracker (botnet C2 IPs)
-- **Emerging Threats Integration**: Compromised IP blocklists
-- **AlienVault OTX**: Ready for API key (optional)
-- **Total Indicators**: ~20,500+ IOCs loaded
-- **Features**:
-  - Real-time IOC lookup (IP, domain, URL, file hashes)
-  - Bulk checking capability
-  - Auto-refresh feeds (configurable interval)
-  - Match logging and history
+### 1. Complete UI for All Enterprise Features ✅
+- **Threat Intelligence Page**: IOC lookup, feed stats, real-time search
+- **Ransomware Protection Page**: Canary management, protected folders
+- **Container Security Page**: Trivy scanning, runtime monitoring
+- **VPN Integration Page**: WireGuard management, peer configuration
+- **Threat Correlation Page**: Automated threat correlation engine
+- **EDR & Memory Forensics Page**: Process tree, FIM, USB control
 
-### 2. Ransomware Protection ✅
-- **Canary Files**: Decoy files that trigger alerts when modified
-  - Attractive filenames (Financial_Records, Passwords, etc.)
-  - Auto-deployed to user directories
-- **Behavioral Detection**: 
-  - Mass encryption pattern detection
-  - Suspicious file rename monitoring (.encrypted, .locked, etc.)
-- **Protected Folders**: Whitelist-based folder protection
-- **Auto-response**: Optional auto-kill for detected ransomware
+### 2. Navigation Integration ✅
+- Added 6 new navigation items to sidebar
+- Updated App.js with routes for all new pages
+- All pages accessible after login
 
-### 3. Container Security (Trivy) ✅
-- **Image Vulnerability Scanning**: Trivy-based CVE detection
-- **Runtime Monitoring**: 
-  - Privileged container detection
-  - Crypto-miner detection
-  - Container escape monitoring
-- **Security Scoring**: Per-container risk assessment
-- **Integration**: Works with existing Falco integration
-
-### 4. VPN Integration (WireGuard) ✅
-- **Server Management**: Initialize, start, stop WireGuard server
-- **Peer Management**: Add/remove VPN clients
-- **Config Generation**: Auto-generate client configs
-- **Kill Switch**: Block all traffic if VPN drops
-- **DNS Leak Protection**: Configurable DNS servers
+### 3. Enhanced Local Agent Installer ✅
+- **Better Windows Support**: Auto-detection of winget/chocolatey/scoop
+- **WireGuard Installation**: Cross-platform installation support
+- **Trivy Installation**: Container scanner installation
+- **Volatility 3 Installation**: Memory forensics framework
+- **Improved UX**: Automatic browser opening for manual downloads
 
 ## Architecture (v3.0)
 
