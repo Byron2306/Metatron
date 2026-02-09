@@ -1567,11 +1567,13 @@ async def receive_agent_event(event: AgentEvent):
     elif event.event_type == "suricata_alert":
         # Create threat from Suricata IDS alert
         suricata_data = event.data
+        severity = "critical" if suricata_data.get("severity", 3) == 1 else "high" if suricata_data.get("severity", 3) == 2 else "medium"
+        
         threat_doc = {
             "id": str(uuid.uuid4()),
             "name": f"IDS Alert: {suricata_data.get('signature', 'Unknown')}",
             "type": "ids_alert",
-            "severity": "critical" if suricata_data.get("severity", 3) == 1 else "high" if suricata_data.get("severity", 3) == 2 else "medium",
+            "severity": severity,
             "status": "active",
             "source_ip": suricata_data.get("src_ip"),
             "target_system": suricata_data.get("dest_ip"),
@@ -1589,6 +1591,26 @@ async def receive_agent_event(event: AgentEvent):
         }
         await db.threats.insert_one(threat_doc)
         
+        # AUTOMATED THREAT RESPONSE - Process intrusion with agentic response
+        response_results = []
+        try:
+            response_results = await respond_to_intrusion(
+                source_ip=suricata_data.get('src_ip'),
+                signature=suricata_data.get('signature', 'Unknown'),
+                severity=severity,
+                agent_name=event.agent_name
+            )
+            
+            # Update threat with response actions
+            actions_taken = [r.action.value for r in response_results if r.status.value == "success"]
+            if actions_taken:
+                await db.threats.update_one(
+                    {"id": threat_doc["id"]},
+                    {"$set": {"automated_response": actions_taken, "response_timestamp": datetime.now(timezone.utc).isoformat()}}
+                )
+        except Exception as e:
+            logger.error(f"Automated response failed: {e}")
+        
         # Send intrusion notification
         try:
             await notify_intrusion_attempt(
@@ -1602,13 +1624,15 @@ async def receive_agent_event(event: AgentEvent):
             logger.error(f"Failed to send intrusion notification: {e}")
         
         # Broadcast to WebSocket
+        ip_blocked = any(r.action.value == "block_ip" and r.status.value == "success" for r in response_results)
         await ws_manager.broadcast({
             "type": "new_threat",
             "threat": {"id": threat_doc["id"], "name": threat_doc["name"], "severity": threat_doc["severity"]},
-            "source": "suricata"
+            "source": "suricata",
+            "auto_blocked": ip_blocked
         })
         
-        return {"status": "ok", "threat_id": threat_doc["id"]}
+        return {"status": "ok", "threat_id": threat_doc["id"], "ip_blocked": ip_blocked}
     
     elif event.event_type == "yara_match":
         # Create threat from YARA malware detection
