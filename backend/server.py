@@ -2126,6 +2126,267 @@ async def search_elasticsearch(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ============ AUTOMATED THREAT RESPONSE ENDPOINTS ============
+
+class BlockIPRequest(BaseModel):
+    ip: str
+    reason: str = "Manual block"
+    duration_hours: int = 24
+
+class ThreatResponseSettingsUpdate(BaseModel):
+    auto_block_enabled: Optional[bool] = None
+    auto_isolate_enabled: Optional[bool] = None
+    block_duration_hours: Optional[int] = None
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_phone_number: Optional[str] = None
+    emergency_contacts: Optional[List[str]] = None
+    openclaw_enabled: Optional[bool] = None
+    openclaw_gateway_url: Optional[str] = None
+    openclaw_api_key: Optional[str] = None
+
+@api_router.get("/threat-response/stats")
+async def get_threat_response_stats(current_user: dict = Depends(get_current_user)):
+    """Get statistics about automated threat responses"""
+    stats = await response_engine.get_response_stats()
+    return stats
+
+@api_router.get("/threat-response/blocked-ips")
+async def get_blocked_ips_list(current_user: dict = Depends(get_current_user)):
+    """Get list of currently blocked IPs"""
+    blocked = response_engine.get_blocked_ips()
+    return {"blocked_ips": blocked, "count": len(blocked)}
+
+@api_router.post("/threat-response/block-ip")
+async def block_ip_endpoint(
+    request: BlockIPRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Manually block an IP address"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await manual_block_ip(request.ip, request.reason, request.duration_hours)
+    
+    # Log the action
+    await db.response_actions.insert_one({
+        "action": "block_ip",
+        "ip": request.ip,
+        "reason": request.reason,
+        "duration_hours": request.duration_hours,
+        "performed_by": current_user.get("email"),
+        "result": result.status.value,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+    
+    if result.status.value == "success":
+        return {"status": "ok", "message": f"IP {request.ip} blocked successfully"}
+    else:
+        raise HTTPException(status_code=400, detail=result.message)
+
+@api_router.post("/threat-response/unblock-ip/{ip}")
+async def unblock_ip_endpoint(ip: str, current_user: dict = Depends(get_current_user)):
+    """Manually unblock an IP address"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await manual_unblock_ip(ip)
+    
+    # Log the action
+    await db.response_actions.insert_one({
+        "action": "unblock_ip",
+        "ip": ip,
+        "performed_by": current_user.get("email"),
+        "result": result.status.value,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+    
+    if result.status.value == "success":
+        return {"status": "ok", "message": f"IP {ip} unblocked successfully"}
+    else:
+        raise HTTPException(status_code=400, detail=result.message)
+
+@api_router.get("/threat-response/history")
+async def get_response_history(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get history of automated threat responses"""
+    history = response_engine.response_history[-limit:]
+    return {"history": list(reversed(history)), "total": len(response_engine.response_history)}
+
+@api_router.get("/threat-response/settings")
+async def get_threat_response_settings(current_user: dict = Depends(get_current_user)):
+    """Get current threat response settings"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    return {
+        "auto_response": {
+            "auto_block_enabled": response_config.auto_block_enabled,
+            "auto_isolate_enabled": response_config.auto_isolate_enabled,
+            "block_duration_hours": response_config.block_duration_hours,
+            "critical_threat_threshold": response_config.critical_threat_threshold
+        },
+        "sms_alerts": {
+            "enabled": response_config.twilio_enabled,
+            "phone_configured": bool(response_config.twilio_phone_number),
+            "contacts_count": len([c for c in response_config.emergency_contacts if c])
+        },
+        "openclaw": {
+            "enabled": response_config.openclaw_enabled,
+            "gateway_url": response_config.openclaw_gateway_url if response_config.openclaw_enabled else None
+        }
+    }
+
+@api_router.post("/threat-response/settings")
+async def update_threat_response_settings(
+    settings: ThreatResponseSettingsUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update threat response settings"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    settings_doc = {
+        "type": "threat_response_settings",
+        "updated_by": current_user.get("email"),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if settings.auto_block_enabled is not None:
+        response_config.auto_block_enabled = settings.auto_block_enabled
+        settings_doc["auto_block_enabled"] = settings.auto_block_enabled
+    
+    if settings.block_duration_hours is not None:
+        response_config.block_duration_hours = settings.block_duration_hours
+        settings_doc["block_duration_hours"] = settings.block_duration_hours
+    
+    if settings.twilio_account_sid is not None:
+        response_config.twilio_account_sid = settings.twilio_account_sid
+        settings_doc["twilio_configured"] = True
+    
+    if settings.twilio_auth_token is not None:
+        response_config.twilio_auth_token = settings.twilio_auth_token
+    
+    if settings.twilio_phone_number is not None:
+        response_config.twilio_phone_number = settings.twilio_phone_number
+        settings_doc["twilio_phone_number"] = settings.twilio_phone_number
+    
+    if settings.emergency_contacts is not None:
+        response_config.emergency_contacts = settings.emergency_contacts
+        settings_doc["emergency_contacts_count"] = len(settings.emergency_contacts)
+    
+    if settings.openclaw_enabled is not None:
+        response_config.openclaw_enabled = settings.openclaw_enabled
+        settings_doc["openclaw_enabled"] = settings.openclaw_enabled
+    
+    if settings.openclaw_gateway_url is not None:
+        response_config.openclaw_gateway_url = settings.openclaw_gateway_url
+        settings_doc["openclaw_gateway_url"] = settings.openclaw_gateway_url
+    
+    await db.settings.update_one(
+        {"type": "threat_response_settings"},
+        {"$set": settings_doc},
+        upsert=True
+    )
+    
+    return {"status": "ok", "message": "Threat response settings updated"}
+
+@api_router.post("/threat-response/test-sms")
+async def test_sms_alert(current_user: dict = Depends(get_current_user)):
+    """Send a test SMS alert"""
+    if current_user.get("role") not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    if not response_config.twilio_enabled:
+        raise HTTPException(status_code=400, detail="Twilio SMS not configured")
+    
+    result = await sms_service.send_emergency_sms(
+        message=f"Test alert from Anti-AI Defense System. Triggered by {current_user.get('email')}"
+    )
+    
+    if result.status.value == "success":
+        return {"status": "ok", "message": result.message, "details": result.details}
+    else:
+        raise HTTPException(status_code=400, detail=result.message)
+
+@api_router.get("/threat-response/openclaw/status")
+async def get_openclaw_status(current_user: dict = Depends(get_current_user)):
+    """Check OpenClaw gateway status"""
+    available = await openclaw.is_available()
+    return {
+        "enabled": response_config.openclaw_enabled,
+        "available": available,
+        "gateway_url": response_config.openclaw_gateway_url if response_config.openclaw_enabled else None
+    }
+
+@api_router.post("/threat-response/openclaw/analyze")
+async def openclaw_analyze_threat(
+    threat_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Use OpenClaw AI to analyze a specific threat"""
+    if not response_config.openclaw_enabled:
+        raise HTTPException(status_code=400, detail="OpenClaw not enabled")
+    
+    # Get threat from database
+    threat = await db.threats.find_one({"id": threat_id}, {"_id": 0})
+    if not threat:
+        raise HTTPException(status_code=404, detail="Threat not found")
+    
+    context = ThreatContext(
+        threat_id=threat_id,
+        threat_type=threat.get("type", "unknown"),
+        severity=threat.get("severity", "medium"),
+        source_ip=threat.get("source_ip"),
+        target_path=threat.get("target_system"),
+        indicators=threat.get("indicators", [])
+    )
+    
+    analysis = await openclaw.analyze_threat(context)
+    
+    # Store analysis in threat document
+    await db.threats.update_one(
+        {"id": threat_id},
+        {"$set": {"ai_analysis": analysis.get("analysis"), "analyzed_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"analysis": analysis}
+
+@api_router.get("/threat-response/forensics/{incident_id}")
+async def get_forensics_data(
+    incident_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get forensic data for an incident"""
+    forensics_path = Path("/var/lib/anti-ai-defense/forensics") / incident_id
+    
+    if not forensics_path.exists():
+        raise HTTPException(status_code=404, detail="Forensics data not found")
+    
+    artifacts = []
+    for f in forensics_path.iterdir():
+        artifacts.append({
+            "name": f.name,
+            "size": f.stat().st_size,
+            "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+        })
+    
+    # Read threat context if available
+    context_file = forensics_path / "threat_context.json"
+    context = None
+    if context_file.exists():
+        with open(context_file) as f:
+            context = json.load(f)
+    
+    return {
+        "incident_id": incident_id,
+        "path": str(forensics_path),
+        "artifacts": artifacts,
+        "threat_context": context
+    }
+
 # ============ ROOT ENDPOINT ============
 
 @api_router.get("/")
