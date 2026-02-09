@@ -72,13 +72,15 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 ├── VPNPage.jsx                # VPN management
 ├── CorrelationPage.jsx        # Threat correlation
 ├── EDRPage.jsx                # EDR & Memory Forensics
-└── SOARPage.jsx               # NEW: SOAR Playbooks
+├── SOARPage.jsx               # SOAR Playbooks
+├── HoneyTokensPage.jsx        # NEW: Honey token management
+└── ZeroTrustPage.jsx          # NEW: Zero Trust security
 ```
 
-### Backend Structure (24 Router Modules)
+### Backend Structure (26 Router Modules)
 ```
 /app/backend/
-├── server.py                    # Main FastAPI app (200 lines)
+├── server.py                    # Main FastAPI app
 ├── routers/
 │   ├── auth.py                  # Authentication
 │   ├── threats.py               # Threat management
@@ -91,26 +93,25 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 │   ├── reports.py               # PDF reports
 │   ├── agents.py                # Local agent management
 │   ├── quarantine.py            # File quarantine
-│   ├── settings.py              # Notification settings
+│   ├── settings.py              # Notification settings + Kibana setup
 │   ├── response.py              # Threat response
 │   ├── audit.py                 # Audit logging
 │   ├── timeline.py              # Threat timeline
 │   ├── websocket.py             # WebSocket management
 │   ├── openclaw.py              # OpenClaw AI config
-│   ├── threat_intel.py          # NEW: Threat intelligence
-│   ├── ransomware.py            # NEW: Ransomware protection
-│   ├── containers.py            # NEW: Container security
-│   ├── vpn.py                   # NEW: VPN integration
-│   ├── correlation.py           # NEW: Threat correlation
-│   ├── edr.py                   # NEW: EDR & Memory Forensics
-│   └── soar.py                  # NEW: SOAR Playbooks
-├── soar_engine.py               # NEW: SOAR service
-├── threat_intel.py              # Threat feed service
-├── ransomware_protection.py     # Ransomware service
-├── container_security.py        # Container/Trivy service
-├── vpn_integration.py           # WireGuard service
-├── threat_correlation.py        # Threat correlation service
-├── edr_service.py               # EDR service
+│   ├── threat_intel.py          # Threat intelligence
+│   ├── ransomware.py            # Ransomware protection
+│   ├── containers.py            # Container security
+│   ├── vpn.py                   # VPN integration
+│   ├── correlation.py           # Threat correlation
+│   ├── edr.py                   # EDR & Memory Forensics
+│   ├── soar.py                  # SOAR Playbooks + Templates
+│   ├── honey_tokens.py          # NEW: Honey token management
+│   └── zero_trust.py            # NEW: Zero Trust architecture
+├── soar_engine.py               # SOAR service + Templates
+├── honey_tokens.py              # NEW: Honey token service
+├── zero_trust.py                # NEW: Zero Trust service
+├── notifications.py             # Updated: Kibana integration
 └── ... (existing services)
 ```
 
