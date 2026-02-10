@@ -2953,6 +2953,7 @@ class AdvancedSecurityAgent:
             "file_stats": self.folder_indexer.get_stats(),
             "task_stats": self.task_monitor.get_stats(),
             "usb_stats": self.usb_monitor.get_stats(),
+            "credential_stats": self.credential_detector.get_stats(),
             "memory_stats": self.memory_forensics.get_stats(),
             "cloud_status": self.cloud_sync.get_status(),
             "recent_alerts": list(self.process_monitor.alerts)[-20:]
