@@ -3400,11 +3400,169 @@ class AdvancedSecurityAgent:
         self.task_monitor = ScheduledTaskMonitor()
         self.usb_monitor = USBDeviceMonitor()
         self.credential_detector = CredentialTheftDetector()
+        self.persistence_monitor = RegistryPersistenceMonitor()
         self.memory_forensics = MemoryForensics()
         self.cloud_sync = CloudSyncClient(api_url)
         
         self.running = False
         self.threads: List[threading.Thread] = []
+        
+        # Register command handlers
+        self._register_command_handlers()
+    
+    def _register_command_handlers(self):
+        """Register handlers for server commands"""
+        self.cloud_sync.register_command_handler("full_scan", self._handle_full_scan)
+        self.cloud_sync.register_command_handler("kill_process", self._handle_kill_process)
+        self.cloud_sync.register_command_handler("quarantine_file", self._handle_quarantine_file)
+        self.cloud_sync.register_command_handler("block_ip", self._handle_block_ip)
+        self.cloud_sync.register_command_handler("collect_forensics", self._handle_collect_forensics)
+    
+    def _handle_full_scan(self, params: Dict) -> Dict:
+        """Handle full scan command from server"""
+        print(f"[>] Executing full scan command...")
+        results = self.run_full_scan(sync_to_cloud=True)
+        return {"status": "completed", "summary": {
+            "processes": results.get("processes", {}).get("suspicious", 0),
+            "alerts": len(results.get("alerts", []))
+        }}
+    
+    def _handle_kill_process(self, params: Dict) -> Dict:
+        """Handle kill process command"""
+        pid = params.get("pid")
+        proc_name = params.get("process_name")
+        
+        if pid:
+            try:
+                proc = psutil.Process(int(pid))
+                proc.terminate()
+                print(f"[+] Terminated process PID {pid}")
+                return {"status": "success", "pid": pid, "terminated": True}
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
+        
+        elif proc_name:
+            killed = 0
+            for proc in psutil.process_iter(['pid', 'name']):
+                if proc.info['name'].lower() == proc_name.lower():
+                    try:
+                        proc.terminate()
+                        killed += 1
+                    except:
+                        pass
+            return {"status": "success", "process_name": proc_name, "killed_count": killed}
+        
+        return {"status": "error", "error": "No PID or process name provided"}
+    
+    def _handle_quarantine_file(self, params: Dict) -> Dict:
+        """Handle quarantine file command"""
+        file_path = params.get("file_path")
+        if not file_path:
+            return {"status": "error", "error": "No file path provided"}
+        
+        src_path = Path(file_path)
+        if not src_path.exists():
+            return {"status": "error", "error": f"File not found: {file_path}"}
+        
+        try:
+            # Move to quarantine
+            dst_path = QUARANTINE_DIR / f"{src_path.name}.{datetime.now().strftime('%Y%m%d%H%M%S')}.quarantined"
+            shutil.move(str(src_path), str(dst_path))
+            print(f"[+] Quarantined: {file_path} -> {dst_path}")
+            return {"status": "success", "quarantined_to": str(dst_path)}
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    def _handle_block_ip(self, params: Dict) -> Dict:
+        """Handle block IP command"""
+        ip_address = params.get("ip_address")
+        if not ip_address:
+            return {"status": "error", "error": "No IP address provided"}
+        
+        # Use iptables on Linux, netsh on Windows
+        system = platform.system()
+        
+        if system == "Linux":
+            try:
+                subprocess.run(
+                    ["iptables", "-A", "INPUT", "-s", ip_address, "-j", "DROP"],
+                    capture_output=True, timeout=10
+                )
+                subprocess.run(
+                    ["iptables", "-A", "OUTPUT", "-d", ip_address, "-j", "DROP"],
+                    capture_output=True, timeout=10
+                )
+                print(f"[+] Blocked IP: {ip_address}")
+                return {"status": "success", "blocked_ip": ip_address, "method": "iptables"}
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
+        
+        elif system == "Windows":
+            try:
+                subprocess.run(
+                    ["netsh", "advfirewall", "firewall", "add", "rule",
+                     f"name=Block_{ip_address}", "dir=in", "action=block",
+                     f"remoteip={ip_address}"],
+                    capture_output=True, timeout=10
+                )
+                print(f"[+] Blocked IP: {ip_address}")
+                return {"status": "success", "blocked_ip": ip_address, "method": "netsh"}
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
+        
+        return {"status": "error", "error": f"Unsupported OS: {system}"}
+    
+    def _handle_collect_forensics(self, params: Dict) -> Dict:
+        """Handle collect forensics command"""
+        collection_type = params.get("collection_type", "basic")
+        results = {"collection_type": collection_type, "artifacts": []}
+        
+        # Collect system info
+        results["system_info"] = {
+            "hostname": platform.node(),
+            "os": f"{platform.system()} {platform.release()}",
+            "processes": len(list(psutil.process_iter())),
+            "network_connections": len(psutil.net_connections()),
+            "logged_users": [u.name for u in psutil.users()]
+        }
+        
+        # Collect running processes with details
+        results["processes"] = []
+        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'username']):
+            try:
+                results["processes"].append({
+                    "pid": proc.info['pid'],
+                    "name": proc.info['name'],
+                    "exe": proc.info['exe'],
+                    "cmdline": ' '.join(proc.info['cmdline'] or []),
+                    "username": proc.info['username']
+                })
+            except:
+                pass
+        
+        # Collect network connections
+        results["network_connections"] = []
+        for conn in psutil.net_connections():
+            try:
+                results["network_connections"].append({
+                    "local": f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "",
+                    "remote": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "",
+                    "status": conn.status,
+                    "pid": conn.pid
+                })
+            except:
+                pass
+        
+        print(f"[+] Collected forensic data: {len(results['processes'])} processes, {len(results['network_connections'])} connections")
+        return {"status": "success", "data": results}
+    
+    def connect_to_server(self) -> bool:
+        """Connect to server via WebSocket"""
+        return self.cloud_sync.connect_websocket()
+    
+    def disconnect_from_server(self):
+        """Disconnect from server"""
+        self.cloud_sync.disconnect_websocket()
     
     def run_full_scan(self, sync_to_cloud: bool = True) -> Dict:
         """Run a complete security scan"""
@@ -3418,6 +3576,7 @@ class AdvancedSecurityAgent:
             "scheduled_tasks": {},
             "usb_devices": {},
             "credentials": {},
+            "persistence": {},
             "memory": {},
             "alerts": []
         }
