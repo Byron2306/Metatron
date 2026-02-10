@@ -1,6 +1,6 @@
-# Anti-AI Defense System - Frontend Dockerfile
-# =============================================
-# Multi-stage build for React app
+# Seraph AI Defense System - Frontend Dockerfile
+# ===============================================
+# Multi-stage build for React app with Seraphic Watch theme
 
 # Stage 1: Build
 FROM node:20-alpine AS builder
@@ -26,8 +26,9 @@ RUN yarn build
 # Stage 2: Production
 FROM nginx:alpine
 
-LABEL maintainer="Anti-AI Defense Team"
-LABEL description="Anti-AI Defense System Frontend"
+LABEL maintainer="Seraph AI Team"
+LABEL description="Seraph AI Defense System Frontend"
+LABEL version="5.0.0"
 
 # Copy built files
 COPY --from=builder /app/build /usr/share/nginx/html
