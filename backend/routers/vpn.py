@@ -19,7 +19,13 @@ class AddPeerRequest(BaseModel):
 @router.get("/status")
 async def get_vpn_status(current_user: dict = Depends(get_current_user)):
     """Get VPN server status"""
-    return await vpn_manager.get_status()
+    status = await vpn_manager.get_status()
+    
+    # Add server public key for display
+    if vpn_manager.server.server_config:
+        status["server"]["public_key"] = vpn_manager.server.server_config.public_key
+    
+    return status
 
 @router.post("/initialize")
 async def initialize_vpn(current_user: dict = Depends(check_permission("manage_users"))):
