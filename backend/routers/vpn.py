@@ -28,19 +28,19 @@ async def get_vpn_status(current_user: dict = Depends(get_current_user)):
     return status
 
 @router.post("/initialize")
-async def initialize_vpn(current_user: dict = Depends(check_permission("manage_users"))):
+async def initialize_vpn(current_user: dict = Depends(check_permission("write"))):
     """Initialize VPN server (generates keys and config)"""
     result = await vpn_manager.initialize()
     return result
 
 @router.post("/start")
-async def start_vpn(current_user: dict = Depends(check_permission("manage_users"))):
+async def start_vpn(current_user: dict = Depends(check_permission("write"))):
     """Start VPN server"""
     result = await vpn_manager.start()
     return result
 
 @router.post("/stop")
-async def stop_vpn(current_user: dict = Depends(check_permission("manage_users"))):
+async def stop_vpn(current_user: dict = Depends(check_permission("write"))):
     """Stop VPN server"""
     result = await vpn_manager.stop()
     return result
