@@ -270,6 +270,27 @@ async def get_session_summaries(
     return {"summaries": summaries, "count": len(summaries)}
 
 
+@router.get("/sessions/all")
+async def get_all_session_summaries(
+    limit: int = 50,
+    min_ml: float = 0.0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all session summaries across all hosts"""
+    db = get_db()
+    
+    query = {}
+    if min_ml > 0:
+        query["machine_likelihood"] = {"$gte": min_ml}
+    
+    summaries = await db.cli_session_summaries.find(
+        query,
+        {"_id": 0}
+    ).sort("window_end", -1).to_list(limit)
+    
+    return {"summaries": summaries, "count": len(summaries)}
+
+
 # =============================================================================
 # DECEPTION EVENT ENDPOINTS
 # =============================================================================
