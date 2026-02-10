@@ -247,6 +247,9 @@ const SwarmDashboard = () => {
       {/* Main Content Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-slate-800/50">
+          <TabsTrigger value="setup" className="data-[state=active]:bg-yellow-500/20">
+            <Terminal className="w-4 h-4 mr-2" /> Setup Scanner
+          </TabsTrigger>
           <TabsTrigger value="overview" className="data-[state=active]:bg-cyan-500/20">
             <Globe className="w-4 h-4 mr-2" /> Devices
           </TabsTrigger>
@@ -257,6 +260,183 @@ const SwarmDashboard = () => {
             <Download className="w-4 h-4 mr-2" /> Deployments
           </TabsTrigger>
         </TabsList>
+
+        {/* Setup Tab - CRITICAL FOR REAL NETWORK SCANNING */}
+        <TabsContent value="setup" className="mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Scanner Setup */}
+            <Card className="bg-gradient-to-br from-yellow-900/30 to-slate-900 border-yellow-500/50">
+              <CardHeader>
+                <CardTitle className="text-yellow-400 flex items-center gap-2">
+                  <Search className="w-5 h-5" />
+                  Network Scanner Setup
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-4 bg-slate-800/70 rounded-lg border border-slate-700">
+                  <p className="text-slate-300 mb-4">
+                    <strong className="text-yellow-400">Important:</strong> To discover devices on YOUR network, 
+                    you must run the Network Scanner on a machine inside your LAN.
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <h4 className="text-white font-medium">Step 1: Download Scanner</h4>
+                    <Button
+                      onClick={() => window.open(`${API}/swarm/agent/download/scanner`, '_blank')}
+                      className="w-full bg-yellow-600 hover:bg-yellow-500"
+                      data-testid="download-scanner-btn"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Download seraph_network_scanner.py
+                    </Button>
+                  </div>
+                  
+                  <div className="mt-4 space-y-2">
+                    <h4 className="text-white font-medium">Step 2: Install Dependencies</h4>
+                    <code className="block p-3 bg-slate-900 rounded text-cyan-400 text-sm overflow-x-auto">
+                      pip install python-nmap paramiko requests
+                    </code>
+                    <p className="text-slate-400 text-sm">Also install nmap: <code className="text-cyan-400">apt install nmap</code> or <code className="text-cyan-400">brew install nmap</code></p>
+                  </div>
+                  
+                  <div className="mt-4 space-y-2">
+                    <h4 className="text-white font-medium">Step 3: Run Scanner</h4>
+                    <code className="block p-3 bg-slate-900 rounded text-cyan-400 text-sm overflow-x-auto whitespace-pre-wrap">
+{`python seraph_network_scanner.py \\
+  --api-url ${window.location.origin} \\
+  --interval 60`}
+                    </code>
+                    <p className="text-slate-400 text-sm">Run with <code className="text-cyan-400">sudo</code> for best results (ARP scanning)</p>
+                  </div>
+                  
+                  <div className="mt-4 space-y-2">
+                    <h4 className="text-white font-medium">Options:</h4>
+                    <ul className="text-slate-400 text-sm space-y-1">
+                      <li><code className="text-cyan-400">--network 192.168.1.0/24</code> - Specify network range</li>
+                      <li><code className="text-cyan-400">--once</code> - Single scan and exit</li>
+                      <li><code className="text-cyan-400">--deploy IP --deploy-user root --deploy-pass xxx</code> - Deploy to device</li>
+                    </ul>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Mobile Setup */}
+            <Card className="bg-gradient-to-br from-purple-900/30 to-slate-900 border-purple-500/50">
+              <CardHeader>
+                <CardTitle className="text-purple-400 flex items-center gap-2">
+                  <Smartphone className="w-5 h-5" />
+                  Mobile Agent Setup
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-4 bg-slate-800/70 rounded-lg border border-slate-700">
+                  <p className="text-slate-300 mb-4">
+                    Monitor iOS and Android devices with the Seraph Mobile Agent.
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <h4 className="text-white font-medium">Download Mobile Agent</h4>
+                    <Button
+                      onClick={() => window.open(`${API}/swarm/agent/download/mobile`, '_blank')}
+                      className="w-full bg-purple-600 hover:bg-purple-500"
+                      data-testid="download-mobile-btn"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Download seraph_mobile_agent.py
+                    </Button>
+                  </div>
+                  
+                  <div className="mt-4">
+                    <h4 className="text-white font-medium mb-2">For iOS (Pythonista):</h4>
+                    <ol className="text-slate-400 text-sm space-y-1 list-decimal list-inside">
+                      <li>Install Pythonista from App Store</li>
+                      <li>Copy agent script to Pythonista</li>
+                      <li>Run with API URL parameter</li>
+                    </ol>
+                  </div>
+                  
+                  <div className="mt-4">
+                    <h4 className="text-white font-medium mb-2">For Android (Termux):</h4>
+                    <ol className="text-slate-400 text-sm space-y-1 list-decimal list-inside">
+                      <li>Install Termux from F-Droid</li>
+                      <li><code className="text-cyan-400">pkg install python</code></li>
+                      <li><code className="text-cyan-400">pip install requests</code></li>
+                      <li>Run: <code className="text-cyan-400">python seraph_mobile_agent.py --api-url {window.location.origin}</code></li>
+                    </ol>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Desktop Agents */}
+            <Card className="bg-gradient-to-br from-cyan-900/30 to-slate-900 border-cyan-500/50">
+              <CardHeader>
+                <CardTitle className="text-cyan-400 flex items-center gap-2">
+                  <Laptop className="w-5 h-5" />
+                  Desktop Agent Downloads
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-3">
+                  <Button
+                    onClick={() => window.open(`${API}/swarm/agent/download/linux`, '_blank')}
+                    variant="outline"
+                    className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
+                  >
+                    <Server className="w-4 h-4 mr-2" />
+                    Linux
+                  </Button>
+                  <Button
+                    onClick={() => window.open(`${API}/swarm/agent/download/windows`, '_blank')}
+                    variant="outline"
+                    className="border-blue-500/50 text-blue-400 hover:bg-blue-500/20"
+                  >
+                    <Monitor className="w-4 h-4 mr-2" />
+                    Windows
+                  </Button>
+                  <Button
+                    onClick={() => window.open(`${API}/swarm/agent/download/macos`, '_blank')}
+                    variant="outline"
+                    className="border-slate-500/50 text-slate-400 hover:bg-slate-500/20"
+                  >
+                    <Laptop className="w-4 h-4 mr-2" />
+                    macOS
+                  </Button>
+                </div>
+                <p className="text-slate-400 text-sm mt-4">
+                  Desktop agents require Python 3.8+ and will automatically register with the server.
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Quick Commands */}
+            <Card className="bg-gradient-to-br from-green-900/30 to-slate-900 border-green-500/50">
+              <CardHeader>
+                <CardTitle className="text-green-400 flex items-center gap-2">
+                  <Terminal className="w-5 h-5" />
+                  Quick Deploy Commands
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div>
+                    <h4 className="text-white font-medium text-sm mb-1">One-liner Install (Linux/macOS):</h4>
+                    <code className="block p-3 bg-slate-900 rounded text-green-400 text-xs overflow-x-auto">
+                      curl -sL {window.location.origin}/api/swarm/agent/download/linux | python3 - --monitor --api-url {window.location.origin}
+                    </code>
+                  </div>
+                  <div>
+                    <h4 className="text-white font-medium text-sm mb-1">Deploy via SSH:</h4>
+                    <code className="block p-3 bg-slate-900 rounded text-green-400 text-xs overflow-x-auto">
+                      python seraph_network_scanner.py --deploy 192.168.1.100 --deploy-user root --deploy-pass YOUR_PASSWORD --api-url {window.location.origin}
+                    </code>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         {/* Devices Tab */}
         <TabsContent value="overview" className="mt-4">
