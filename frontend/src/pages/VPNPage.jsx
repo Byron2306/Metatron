@@ -332,6 +332,45 @@ const VPNPage = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Server Info */}
+      {status?.server?.public_key && (
+        <Card className="bg-indigo-500/10 border-indigo-500/30">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Key className="w-5 h-5 text-indigo-400" />
+              Server Information
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-slate-400 text-sm mb-1">Server Public Key</p>
+                <code className="text-xs font-mono text-white bg-slate-800 px-2 py-1 rounded block overflow-x-auto">
+                  {status.server.public_key}
+                </code>
+              </div>
+              <div>
+                <p className="text-slate-400 text-sm mb-1">VPN Endpoint</p>
+                <code className="text-xs font-mono text-white bg-slate-800 px-2 py-1 rounded block">
+                  {window.location.hostname}:{status?.config?.port || 51820}
+                </code>
+              </div>
+            </div>
+            <div className="mt-4 p-3 bg-slate-800/50 rounded border border-slate-700">
+              <p className="text-sm text-slate-300 mb-2">
+                <strong>How to connect:</strong>
+              </p>
+              <ol className="text-xs text-slate-400 list-decimal list-inside space-y-1">
+                <li>Add a VPN peer using the form above</li>
+                <li>Download the peer configuration file</li>
+                <li>Import into WireGuard client on your device</li>
+                <li>Connect and verify VPN status</li>
+              </ol>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };
