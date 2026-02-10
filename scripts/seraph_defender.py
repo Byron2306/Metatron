@@ -363,31 +363,62 @@ class FileIntegrityMonitor:
             return None
     
     def create_baseline(self):
-        """Create initial file baseline"""
+        """Create initial file baseline - FAST version"""
         logger.info("Creating file integrity baseline...")
         
         paths = self.CRITICAL_PATHS.get(OS_TYPE, [])
         count = 0
+        start_time = time.time()
         
         for path in paths:
+            # Check timeout
+            if time.time() - start_time > self.MAX_SCAN_TIME:
+                logger.warning(f"Baseline scan timeout reached, stopping at {count} files")
+                break
+            
+            # Check max files
+            if count >= self.MAX_FILES_TOTAL:
+                logger.info(f"Reached max files limit ({self.MAX_FILES_TOTAL})")
+                break
+            
             if os.path.isfile(path):
                 info = self._get_file_info(path)
                 if info:
                     self.baseline[path] = info
                     count += 1
+                    if count % 50 == 0:
+                        logger.info(f"  Scanned {count} files...")
             elif os.path.isdir(path):
-                for root, dirs, files in os.walk(path):
-                    # Limit depth
-                    depth = root.replace(path, '').count(os.sep)
-                    if depth > 2:
-                        continue
-                    
-                    for file in files[:100]:  # Limit files per dir
-                        filepath = os.path.join(root, file)
-                        info = self._get_file_info(filepath)
-                        if info:
-                            self.baseline[filepath] = info
-                            count += 1
+                dir_count = 0
+                try:
+                    for root, dirs, files in os.walk(path):
+                        # Check timeout
+                        if time.time() - start_time > self.MAX_SCAN_TIME:
+                            break
+                        
+                        # Limit depth to 1 level
+                        depth = root.replace(path, '').count(os.sep)
+                        if depth > 1:
+                            dirs.clear()  # Don't go deeper
+                            continue
+                        
+                        for file in files[:self.MAX_FILES_PER_DIR]:
+                            if dir_count >= self.MAX_FILES_PER_DIR:
+                                break
+                            if count >= self.MAX_FILES_TOTAL:
+                                break
+                            
+                            filepath = os.path.join(root, file)
+                            info = self._get_file_info(filepath)
+                            if info:
+                                self.baseline[filepath] = info
+                                count += 1
+                                dir_count += 1
+                                
+                                if count % 50 == 0:
+                                    logger.info(f"  Scanned {count} files...")
+                except PermissionError:
+                    pass  # Skip directories we can't access
         
         self._save_baseline()
         logger.info(f"Baseline created for {count} files")
