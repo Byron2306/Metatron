@@ -96,14 +96,33 @@ async def get_response_settings(current_user: dict = Depends(get_current_user)):
     settings = await db.response_settings.find_one({}, {"_id": 0})
     if not settings:
         settings = {
-            "auto_block_enabled": response_config.auto_block_enabled,
-            "block_duration_hours": response_config.block_duration_hours,
-            "sms_alerts_enabled": response_config.sms_alerts_enabled,
+            "auto_response": {
+                "auto_block_enabled": response_config.auto_block_enabled,
+                "block_duration_hours": response_config.block_duration_hours,
+                "critical_threat_threshold": 3
+            },
+            "sms_alerts": {
+                "enabled": response_config.sms_alerts_enabled,
+                "contacts_count": 0
+            },
             "twilio_account_sid": "",
             "twilio_auth_token": "",
             "twilio_phone_number": "",
             "emergency_contacts": []
         }
+    else:
+        # Normalize settings structure for frontend
+        if "auto_response" not in settings:
+            settings["auto_response"] = {
+                "auto_block_enabled": settings.get("auto_block_enabled", response_config.auto_block_enabled),
+                "block_duration_hours": settings.get("block_duration_hours", response_config.block_duration_hours),
+                "critical_threat_threshold": settings.get("critical_threat_threshold", 3)
+            }
+        if "sms_alerts" not in settings:
+            settings["sms_alerts"] = {
+                "enabled": settings.get("sms_alerts_enabled", response_config.sms_alerts_enabled),
+                "contacts_count": len(settings.get("emergency_contacts", []))
+            }
     
     # Mask sensitive data
     if settings.get("twilio_auth_token"):
