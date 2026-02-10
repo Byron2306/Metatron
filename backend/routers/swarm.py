@@ -705,6 +705,98 @@ async def set_deployment_credentials(
     return {"message": f"Credentials updated for {credentials.method}"}
 
 
+@router.post("/deploy/single")
+async def deploy_to_single_device(
+    device_ip: str,
+    os_type: str = "windows",
+    username: str = None,
+    password: str = None,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Deploy agent to a single device with credentials"""
+    from services.agent_deployment import get_deployment_service, start_deployment_service
+    import os
+    
+    service = get_deployment_service()
+    
+    # If service not running, start it
+    if service is None:
+        try:
+            api_url = os.environ.get('API_URL', 'http://localhost:8001')
+            service = await start_deployment_service(db, api_url)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Could not start deployment service: {e}")
+    
+    # Build credentials
+    credentials = None
+    if username and password:
+        credentials = {
+            "username": username,
+            "password": password
+        }
+    
+    try:
+        task_id = await service.queue_deployment(
+            device_ip=device_ip,
+            device_hostname=None,
+            os_type=os_type,
+            credentials=credentials
+        )
+        
+        return {
+            "message": f"Deployment queued for {device_ip}",
+            "task_id": task_id,
+            "os_type": os_type,
+            "method": "winrm" if os_type.lower() == "windows" else "ssh"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to queue deployment: {e}")
+
+
+@router.post("/deploy/winrm")
+async def deploy_via_winrm(
+    device_ip: str,
+    username: str,
+    password: str,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Deploy agent to Windows device via WinRM"""
+    from services.agent_deployment import get_deployment_service, start_deployment_service
+    import os
+    
+    service = get_deployment_service()
+    
+    if service is None:
+        try:
+            api_url = os.environ.get('API_URL', 'http://localhost:8001')
+            service = await start_deployment_service(db, api_url)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Could not start deployment service: {e}")
+    
+    # Set WinRM credentials for this deployment
+    credentials = {
+        "username": username,
+        "password": password
+    }
+    
+    try:
+        task_id = await service.queue_deployment(
+            device_ip=device_ip,
+            device_hostname=None,
+            os_type="Windows",
+            credentials=credentials
+        )
+        
+        return {
+            "message": f"WinRM deployment queued for {device_ip}",
+            "task_id": task_id,
+            "method": "winrm",
+            "note": "Agent will be deployed via WinRM using provided credentials"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"WinRM deployment failed: {e}")
+
+
 # =============================================================================
 # TELEMETRY INGESTION
 # =============================================================================
