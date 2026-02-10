@@ -245,11 +245,12 @@ class AgentDeploymentService:
                 logger.error(f"Deployment to {task.device_ip} failed permanently: {e}")
     
     async def _deploy_via_ssh(self, task: DeploymentTask) -> bool:
-        """Deploy agent via SSH"""
+        """Deploy agent via SSH using paramiko"""
         creds = task.credentials or self.default_credentials.get('ssh', {})
         username = creds.get('username', 'root')
         key_path = creds.get('key_path')
         password = creds.get('password')
+        port = creds.get('port', 22)
         
         # Read agent script
         if not self.agent_script_path.exists():
@@ -259,12 +260,6 @@ class AgentDeploymentService:
         agent_code = self.agent_script_path.read_text()
         agent_b64 = base64.b64encode(agent_code.encode()).decode()
         
-        # Build SSH command
-        ssh_opts = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10']
-        
-        if key_path and os.path.exists(key_path):
-            ssh_opts.extend(['-i', key_path])
-        
         # Commands to execute on remote host
         remote_commands = f'''
 set -e
@@ -273,7 +268,7 @@ echo "{agent_b64}" | base64 -d > /opt/seraph-defender/seraph_defender.py
 chmod +x /opt/seraph-defender/seraph_defender.py
 
 # Install dependencies
-pip3 install psutil requests 2>/dev/null || pip install psutil requests 2>/dev/null || true
+pip3 install psutil requests 2>/dev/null || pip install psutil requests 2>/dev/null || apt-get install -y python3-pip && pip3 install psutil requests || true
 
 # Create systemd service
 cat > /etc/systemd/system/seraph-defender.service << 'EOF'
@@ -298,8 +293,92 @@ echo "SERAPH_DEPLOY_SUCCESS"
 '''
         
         try:
+            import paramiko
+            
+            loop = asyncio.get_event_loop()
+            
+            def execute_ssh():
+                client = paramiko.SSHClient()
+                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                
+                connect_kwargs = {
+                    'hostname': task.device_ip,
+                    'port': port,
+                    'username': username,
+                    'timeout': 30,
+                    'allow_agent': False,
+                    'look_for_keys': False
+                }
+                
+                # Try key-based auth first, then password
+                if key_path and os.path.exists(key_path):
+                    try:
+                        private_key = paramiko.RSAKey.from_private_key_file(key_path)
+                        connect_kwargs['pkey'] = private_key
+                    except Exception:
+                        # Try as other key types
+                        try:
+                            private_key = paramiko.Ed25519Key.from_private_key_file(key_path)
+                            connect_kwargs['pkey'] = private_key
+                        except Exception:
+                            if password:
+                                connect_kwargs['password'] = password
+                elif password:
+                    connect_kwargs['password'] = password
+                else:
+                    # Allow looking for default keys
+                    connect_kwargs['look_for_keys'] = True
+                    connect_kwargs['allow_agent'] = True
+                
+                try:
+                    client.connect(**connect_kwargs)
+                except paramiko.AuthenticationException as e:
+                    return False, f"Authentication failed: {e}"
+                except Exception as e:
+                    return False, f"Connection failed: {e}"
+                
+                try:
+                    stdin, stdout, stderr = client.exec_command(remote_commands, timeout=120)
+                    exit_code = stdout.channel.recv_exit_status()
+                    output = stdout.read().decode() + stderr.read().decode()
+                    
+                    client.close()
+                    
+                    if 'SERAPH_DEPLOY_SUCCESS' in output:
+                        return True, output
+                    else:
+                        return False, f"Deployment commands failed (exit {exit_code}): {output[-500:]}"
+                        
+                except Exception as e:
+                    client.close()
+                    return False, f"Command execution failed: {e}"
+            
+            success, message = await loop.run_in_executor(None, execute_ssh)
+            
+            if not success:
+                task.error_message = message
+                return False
+            
+            return True
+            
+        except ImportError:
+            # Fall back to subprocess-based SSH
+            logger.warning("paramiko not installed, falling back to subprocess SSH")
+            return await self._deploy_via_ssh_subprocess(task, username, key_path, password, remote_commands)
+            
+        except Exception as e:
+            task.error_message = f"SSH error: {str(e)}"
+            return False
+    
+    async def _deploy_via_ssh_subprocess(self, task: DeploymentTask, username: str, key_path: str, password: str, remote_commands: str) -> bool:
+        """Fallback SSH deployment using subprocess"""
+        ssh_opts = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=30', '-o', 'BatchMode=yes']
+        
+        if key_path and os.path.exists(key_path):
+            ssh_opts.extend(['-i', key_path])
+        
+        try:
             if password:
-                # Use sshpass for password auth
                 proc = await asyncio.create_subprocess_exec(
                     'sshpass', '-p', password,
                     'ssh', *ssh_opts, f'{username}@{task.device_ip}',
@@ -328,7 +407,7 @@ echo "SERAPH_DEPLOY_SUCCESS"
             task.error_message = "SSH connection timed out"
             return False
         except Exception as e:
-            task.error_message = f"SSH error: {str(e)}"
+            task.error_message = f"SSH subprocess error: {str(e)}"
             return False
     
     async def _deploy_via_winrm(self, task: DeploymentTask) -> bool:
