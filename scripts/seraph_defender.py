@@ -234,7 +234,7 @@ class TelemetrySender:
         """Send a batch of events"""
         try:
             response = self.session.post(
-                f"{self.api_url}/api/telemetry/ingest",
+                f"{self.api_url}/api/swarm/telemetry/ingest",
                 json={"events": events},
                 timeout=30
             )
