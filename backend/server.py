@@ -154,6 +154,10 @@ from routers.cli_events import router as cli_events_router, deception_router
 app.include_router(cli_events_router, prefix="/api")
 app.include_router(deception_router, prefix="/api")
 
+# Import Swarm Management router
+from routers.swarm import router as swarm_router
+app.include_router(swarm_router, prefix="/api")
+
 # ============ WEBSOCKET ENDPOINTS ============
 
 from routers.honeypots import ws_manager
