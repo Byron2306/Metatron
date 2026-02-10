@@ -68,7 +68,7 @@ MODULES_DIR = INSTALL_DIR / "modules"
 CONFIG_FILE = INSTALL_DIR / "config.json"
 
 # Cloud API endpoint - UPDATE THIS TO YOUR DEPLOYMENT
-CLOUD_API_URL = "https://smartguard-11.preview.emergentagent.com/api"
+CLOUD_API_URL = "https://aidefender-22.preview.emergentagent.com/api"
 
 # Python packages required
 PYTHON_PACKAGES = [

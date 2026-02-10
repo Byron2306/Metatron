@@ -33,7 +33,7 @@ from collections import deque
 # CONFIGURATION
 # =============================================================================
 
-CLOUD_API_URL = "https://smartguard-11.preview.emergentagent.com/api"
+CLOUD_API_URL = "https://aidefender-22.preview.emergentagent.com/api"
 DASHBOARD_PORT = 5000
 AGENT_NAME = platform.node() or "local-agent"
 AGENT_ID = hashlib.md5(platform.node().encode()).hexdigest()[:16]
