@@ -57,6 +57,84 @@ class ScannerReportRequest(BaseModel):
     devices: List[dict]
 
 
+class AgentRegistrationRequest(BaseModel):
+    agent_id: str
+    hostname: str
+    os_type: str
+    version: str
+    ip_address: Optional[str] = None
+
+
+class AgentHeartbeatRequest(BaseModel):
+    status: str = "online"
+    cpu_percent: Optional[float] = None
+    memory_percent: Optional[float] = None
+    uptime: Optional[int] = None
+
+
+# =============================================================================
+# AGENT REGISTRATION & HEARTBEAT
+# =============================================================================
+
+@router.post("/agents/register")
+async def register_agent(request: AgentRegistrationRequest):
+    """Register a new Seraph Defender agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    agent_doc = {
+        "agent_id": request.agent_id,
+        "hostname": request.hostname,
+        "os": request.os_type,
+        "version": request.version,
+        "ip_address": request.ip_address,
+        "status": "online",
+        "first_seen": now,
+        "last_seen": now
+    }
+    
+    await db.agents.update_one(
+        {"agent_id": request.agent_id},
+        {"$set": agent_doc, "$setOnInsert": {"first_seen": now}},
+        upsert=True
+    )
+    
+    logger.info(f"Agent registered: {request.agent_id} ({request.hostname})")
+    
+    return {
+        "status": "ok",
+        "message": "Agent registered successfully",
+        "agent_id": request.agent_id
+    }
+
+
+@router.post("/agents/{agent_id}/heartbeat")
+async def agent_heartbeat(agent_id: str, request: AgentHeartbeatRequest):
+    """Receive heartbeat from agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    update_doc = {
+        "status": request.status,
+        "last_seen": now
+    }
+    
+    if request.cpu_percent is not None:
+        update_doc["cpu_percent"] = request.cpu_percent
+    if request.memory_percent is not None:
+        update_doc["memory_percent"] = request.memory_percent
+    if request.uptime is not None:
+        update_doc["uptime"] = request.uptime
+    
+    result = await db.agents.update_one(
+        {"agent_id": agent_id},
+        {"$set": update_doc}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    return {"status": "ok", "timestamp": now}
+
+
 # =============================================================================
 # NETWORK DISCOVERY
 # =============================================================================
