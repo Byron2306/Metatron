@@ -90,7 +90,7 @@ async def get_predictions(
     current_user: dict = Depends(get_current_user)
 ):
     """Get recent ML predictions"""
-    predictions = ml_predictor.get_predictions(
+    predictions = await ml_predictor.get_predictions_from_db(
         limit=limit,
         entity_type=entity_type,
         min_score=min_score
