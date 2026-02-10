@@ -104,6 +104,7 @@ function App() {
               <Route path="agent-commands/:agentId" element={<AgentDetailsPage />} />
               <Route path="cli-sessions" element={<CLISessionsPage />} />
               <Route path="swarm" element={<SwarmDashboard />} />
+              <Route path="ai-threats" element={<AIThreatIntelligence />} />
             </Route>
           </Routes>
         </BrowserRouter>
