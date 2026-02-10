@@ -112,6 +112,34 @@ const ZeroTrustPage = () => {
     }
   };
 
+  const handleBlockDevice = async (deviceId, deviceName) => {
+    if (!window.confirm(`Block device "${deviceName}"? This will set trust score to 0 and trigger a remediation command.`)) {
+      return;
+    }
+    try {
+      const res = await axios.post(`${API}/zero-trust/devices/${deviceId}/block`, {
+        device_id: deviceId,
+        reason: 'Manual block by administrator',
+        trigger_remediation: true
+      }, { headers });
+      
+      toast.success(`Device "${deviceName}" blocked. ${res.data.remediation_commands?.length || 0} remediation command(s) queued.`);
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to block device');
+    }
+  };
+
+  const handleUnblockDevice = async (deviceId, deviceName) => {
+    try {
+      await axios.post(`${API}/zero-trust/devices/${deviceId}/unblock`, {}, { headers });
+      toast.success(`Device "${deviceName}" unblocked`);
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to unblock device');
+    }
+  };
+
   const getDeviceIcon = (type) => {
     switch(type) {
       case 'workstation': return <Monitor className="w-4 h-4" />;
