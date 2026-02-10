@@ -957,7 +957,7 @@ class SOAREngine:
             "executed_at": datetime.now(timezone.utc).isoformat()
         }
         
-        if db:
+        if db is not None:
             await db.soar_executions.insert_one({
                 **execution_result,
                 "event": event
