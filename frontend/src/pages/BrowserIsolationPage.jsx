@@ -112,6 +112,7 @@ const BrowserIsolationPage = () => {
       return;
     }
 
+    setCreating(true);
     try {
       const response = await fetch(`${API_URL}/api/browser-isolation/sessions`, {
         method: 'POST',
@@ -128,8 +129,17 @@ const BrowserIsolationPage = () => {
       if (response.ok) {
         const result = await response.json();
         if (result.success) {
-          toast.success(`Isolated session created: ${result.session_id}`);
-          setUrlInput('');
+          toast.success(`Isolated session created!`);
+          // Set as active session to display
+          setActiveSession({
+            session_id: result.session_id,
+            url: urlInput,
+            safe_url: result.safe_url,
+            isolation_mode: selectedMode,
+            threat_level: result.threat_level,
+            category: result.category
+          });
+          setActiveTab('browser');
           fetchData();
         } else {
           toast.error(result.error || 'Failed to create session');
@@ -137,6 +147,8 @@ const BrowserIsolationPage = () => {
       }
     } catch (error) {
       toast.error('Failed to create session');
+    } finally {
+      setCreating(false);
     }
   };
 
