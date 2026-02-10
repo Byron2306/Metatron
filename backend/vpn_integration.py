@@ -326,24 +326,43 @@ AllowedIPs = {peer.allowed_ips}
     def get_peer_config(self, peer_id: str) -> Optional[str]:
         """Generate client configuration for a peer"""
         peer = self.peers.get(peer_id)
-        if not peer or not self.server_config:
+        if not peer:
             return None
         
         # Get server public endpoint from config
         server_endpoint = config.vpn_server_endpoint
         
+        # Use server config if available, otherwise use defaults
+        if self.server_config:
+            dns_servers = ', '.join(self.server_config.dns)
+            server_public_key = self.server_config.public_key
+            listen_port = self.server_config.listen_port
+        else:
+            # Fallback defaults when server not yet initialized
+            dns_servers = ', '.join(config.dns_servers)
+            server_public_key = "[SERVER_PUBLIC_KEY_PLACEHOLDER]"
+            listen_port = config.vpn_port
+        
         config_content = f"""[Interface]
 PrivateKey = {peer.private_key}
 Address = {peer.allowed_ips}
-DNS = {', '.join(self.server_config.dns)}
+DNS = {dns_servers}
 
 [Peer]
-PublicKey = {self.server_config.public_key}
+PublicKey = {server_public_key}
 PresharedKey = {peer.preshared_key}
-Endpoint = {server_endpoint}:{self.server_config.listen_port}
+Endpoint = {server_endpoint}:{listen_port}
 AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 """
+        
+        # Add note if server not initialized
+        if not self.server_config:
+            config_content = f"""# NOTE: Server not yet initialized
+# The server public key is a placeholder
+# Run 'Initialize Server' first, then re-download this config
+
+{config_content}"""
         
         return config_content
     
