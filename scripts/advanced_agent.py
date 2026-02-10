@@ -2671,6 +2671,10 @@ class CloudSyncClient:
         """Report memory forensics findings"""
         return self._send_event("memory_forensics", memory_info)
     
+    def send_credential_theft_alert(self, cred_info: Dict) -> bool:
+        """Report credential theft attempts"""
+        return self._send_event("credential_theft", cred_info)
+    
     def send_file_alert(self, file_info: Dict) -> bool:
         """Report suspicious file"""
         return self._send_event("suspicious_file", file_info)
