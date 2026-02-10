@@ -182,7 +182,7 @@ const AgentsPage = () => {
   }, []);
 
   const downloadAgent = () => {
-    window.open(`${API}/agent/download`, '_blank');
+    window.open(`${API}/agent/download/installer`, '_blank');
     toast.success('Downloading Defender Security Suite installer...', {
       description: 'Run with: python defender_installer.py'
     });
