@@ -108,10 +108,20 @@ const VPNPage = () => {
     }
   };
 
-  const handleGetConfig = async (peerId) => {
+  const handleGetConfig = async (peerId, peerName) => {
     try {
       const res = await axios.get(`${API}/vpn/peers/${peerId}/config`, { headers });
-      setSelectedPeerConfig(res.data);
+      // Create downloadable file
+      const blob = new Blob([res.data], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${peerName || peerId}.conf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success(`Config downloaded: ${peerName}.conf`);
     } catch (err) {
       toast.error('Failed to get peer config');
     }
