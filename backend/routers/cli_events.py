@@ -253,23 +253,6 @@ async def get_cli_commands(
     return {"commands": commands, "count": len(commands)}
 
 
-@router.get("/sessions/{host_id}")
-async def get_session_summaries(
-    host_id: str,
-    limit: int = 50,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get session summaries for a host"""
-    db = get_db()
-    
-    summaries = await db.cli_session_summaries.find(
-        {"host_id": host_id},
-        {"_id": 0}
-    ).sort("window_end", -1).to_list(limit)
-    
-    return {"summaries": summaries, "count": len(summaries)}
-
-
 @router.get("/sessions/all")
 async def get_all_session_summaries(
     limit: int = 50,
@@ -287,6 +270,25 @@ async def get_all_session_summaries(
         query,
         {"_id": 0}
     ).sort("window_end", -1).to_list(limit)
+    
+    return {"summaries": summaries, "count": len(summaries)}
+
+
+@router.get("/sessions/{host_id}")
+async def get_session_summaries(
+    host_id: str,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get session summaries for a host"""
+    db = get_db()
+    
+    summaries = await db.cli_session_summaries.find(
+        {"host_id": host_id},
+        {"_id": 0}
+    ).sort("window_end", -1).to_list(limit)
+    
+    return {"summaries": summaries, "count": len(summaries)}
     
     return {"summaries": summaries, "count": len(summaries)}
 
