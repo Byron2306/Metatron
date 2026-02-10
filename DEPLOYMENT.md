@@ -118,10 +118,10 @@ TWILIO_FROM_NUMBER=+1234567890
 
 ## Deployment Options
 
-### Option 1: Docker Compose (Recommended)
+### Option 1: Docker Compose (Development)
 
 ```bash
-# Start all services
+# Start all services (no SSL)
 docker-compose up -d
 
 # Check status
@@ -132,16 +132,89 @@ docker-compose logs -f
 
 # Stop services
 docker-compose down
-
-# Update and restart
-git pull
-docker-compose build --no-cache
-docker-compose up -d
 ```
 
-### Option 2: Production with SSL (Nginx Reverse Proxy)
+### Option 2: Production with SSL/TLS (Recommended)
 
-1. Create nginx configuration:
+Seraph AI includes a pre-configured Nginx reverse proxy with SSL support.
+
+#### Quick SSL Setup
+
+```bash
+# 1. Generate self-signed certificate (for testing)
+./scripts/setup_ssl.sh --self-signed localhost
+
+# OR for production with Let's Encrypt:
+./scripts/setup_ssl.sh --letsencrypt seraph.yourdomain.com admin@yourdomain.com
+
+# 2. Start with SSL enabled
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+#### Manual SSL Setup
+
+1. **Generate certificates:**
+
+```bash
+# For testing (self-signed)
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout nginx/ssl/privkey.pem \
+    -out nginx/ssl/fullchain.pem \
+    -subj "/CN=yourdomain.com"
+
+# For production (Let's Encrypt)
+sudo certbot certonly --standalone -d yourdomain.com
+sudo cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem nginx/ssl/
+sudo cp /etc/letsencrypt/live/yourdomain.com/privkey.pem nginx/ssl/
+```
+
+2. **Update environment:**
+
+```bash
+# In .env file
+REACT_APP_BACKEND_URL=https://yourdomain.com
+```
+
+3. **Deploy with SSL:**
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+#### SSL Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `nginx/nginx.conf` | Main Nginx configuration |
+| `nginx/conf.d/default.conf` | Server blocks with SSL settings |
+| `nginx/ssl/fullchain.pem` | SSL certificate chain |
+| `nginx/ssl/privkey.pem` | SSL private key |
+
+#### SSL Features Included
+
+- **TLS 1.2/1.3** with modern cipher suites
+- **HTTP to HTTPS** automatic redirect
+- **Rate limiting** on API and login endpoints
+- **WebSocket support** for agent communication
+- **Security headers** (XSS, CSRF, Content-Security-Policy)
+- **OCSP Stapling** for certificate validation
+- **Gzip compression** for performance
+
+#### Certificate Auto-Renewal (Let's Encrypt)
+
+```bash
+# Set up automatic renewal
+./scripts/setup_ssl.sh --letsencrypt yourdomain.com your@email.com
+
+# Manual renewal
+sudo certbot renew
+cp /etc/letsencrypt/live/yourdomain.com/*.pem nginx/ssl/
+docker-compose exec nginx nginx -s reload
+```
+
+### Option 3: Custom Nginx Configuration
+
+If you have an existing Nginx installation:
 
 ```nginx
 # /etc/nginx/sites-available/seraph-ai
