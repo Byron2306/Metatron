@@ -167,3 +167,100 @@ async def get_access_logs(
     """Get recent access evaluation logs"""
     logs = zero_trust_engine.get_access_logs(limit=limit)
     return {"logs": logs, "count": len(logs)}
+
+
+class BlockDeviceRequest(BaseModel):
+    device_id: str
+    reason: str = "Zero Trust violation"
+    trigger_remediation: bool = True
+
+@router.post("/devices/{device_id}/block")
+async def block_device(
+    device_id: str,
+    request: BlockDeviceRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Block a device and optionally trigger remediation commands to the agent"""
+    from .dependencies import get_db
+    import uuid
+    from datetime import datetime, timezone
+    
+    db = get_db()
+    
+    # Block the device in Zero Trust
+    block_result = zero_trust_engine.block_device(device_id, request.reason)
+    
+    if not block_result.get("success"):
+        raise HTTPException(status_code=404, detail=block_result.get("error", "Device not found"))
+    
+    # If remediation is requested, create agent commands
+    commands_created = []
+    if request.trigger_remediation:
+        # Get device info
+        device = zero_trust_engine.devices.get(device_id)
+        
+        # Create remediation command for the agent
+        command_id = str(uuid.uuid4())[:12]
+        command = {
+            "command_id": command_id,
+            "agent_id": device_id,  # Use device_id as agent_id
+            "command_type": "remediate_compliance",
+            "command_name": "Remediate Compliance Issue",
+            "parameters": {
+                "issue_type": "zero_trust_violation",
+                "remediation_action": "full_scan_and_report",
+                "reason": request.reason,
+                "compliance_issues": device.compliance_issues if device else []
+            },
+            "priority": "high",
+            "risk_level": "medium",
+            "status": "pending_approval",
+            "created_by": current_user.get("email", current_user.get("id")),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "approved_by": None,
+            "approved_at": None,
+            "executed_at": None,
+            "result": None,
+            "source": "zero_trust_violation"
+        }
+        
+        await db.agent_commands.insert_one(command)
+        commands_created.append(command_id)
+        
+        logger.info(f"Zero Trust remediation command created for device {device_id}: {command_id}")
+    
+    return {
+        "success": True,
+        "device_id": device_id,
+        "status": "blocked",
+        "reason": request.reason,
+        "remediation_commands": commands_created,
+        "message": f"Device blocked. {len(commands_created)} remediation command(s) queued for approval."
+    }
+
+@router.post("/devices/{device_id}/unblock")
+async def unblock_device(
+    device_id: str,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Unblock a previously blocked device"""
+    device = zero_trust_engine.devices.get(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Reset device trust
+    device.trust_score = 50  # Reset to baseline
+    device.trust_level = zero_trust_engine._get_trust_level(50)
+    device.is_compliant = True
+    device.compliance_issues = [i for i in device.compliance_issues if not i.startswith("BLOCKED:")]
+    
+    logger.info(f"Device {device_id} unblocked by {current_user.get('email')}")
+    
+    return {
+        "success": True,
+        "device_id": device_id,
+        "status": "unblocked",
+        "new_trust_score": device.trust_score,
+        "new_trust_level": device.trust_level.value
+    }
+
