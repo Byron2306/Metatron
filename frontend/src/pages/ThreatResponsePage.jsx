@@ -178,17 +178,28 @@ const ThreatResponsePage = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {settings?.auto_response?.auto_block_enabled ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 border border-green-500/30 rounded">
-              <Play className="w-4 h-4 text-green-400" />
-              <span className="text-green-400 text-sm font-semibold">Auto-Block ON</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-700 rounded">
-              <Pause className="w-4 h-4 text-slate-400" />
-              <span className="text-slate-400 text-sm">Auto-Block OFF</span>
-            </div>
-          )}
+          <button
+            onClick={handleToggleAutoBlock}
+            disabled={actionLoading === 'toggle'}
+            className={`flex items-center gap-2 px-4 py-2 rounded font-semibold transition-all ${
+              settings?.auto_response?.auto_block_enabled 
+                ? 'bg-green-600 hover:bg-green-500 text-white' 
+                : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+            }`}
+            data-testid="auto-block-toggle"
+          >
+            {settings?.auto_response?.auto_block_enabled ? (
+              <>
+                <Play className="w-4 h-4" />
+                <span>Auto-Block ON</span>
+              </>
+            ) : (
+              <>
+                <Pause className="w-4 h-4" />
+                <span>Auto-Block OFF</span>
+              </>
+            )}
+          </button>
           <button
             onClick={fetchData}
             disabled={loading}
