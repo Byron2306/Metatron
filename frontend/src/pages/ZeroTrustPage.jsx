@@ -420,9 +420,32 @@ const ZeroTrustPage = () => {
                           <p className="text-slate-400 text-xs font-mono">{device.device_id}</p>
                         </div>
                       </div>
-                      <Badge variant="outline" className={getTrustColor(device.trust_level)}>
-                        {device.trust_level} ({device.trust_score})
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className={getTrustColor(device.trust_level)}>
+                          {device.trust_level} ({device.trust_score})
+                        </Badge>
+                        {device.trust_level === 'untrusted' ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-green-500/50 text-green-400 hover:bg-green-500/10"
+                            onClick={() => handleUnblockDevice(device.device_id, device.device_name)}
+                          >
+                            <Unlock className="w-3 h-3 mr-1" />
+                            Unblock
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+                            onClick={() => handleBlockDevice(device.device_id, device.device_name)}
+                          >
+                            <Ban className="w-3 h-3 mr-1" />
+                            Block
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-2 text-xs">
                       {device.is_compliant ? (
