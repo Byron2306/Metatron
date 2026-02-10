@@ -21,11 +21,83 @@ const SOARPage = () => {
   const { token } = useAuth();
   const [stats, setStats] = useState(null);
   const [playbooks, setPlaybooks] = useState([]);
+  const [aiPlaybooks, setAiPlaybooks] = useState([]);
   const [executions, setExecutions] = useState([]);
   const [selectedPlaybook, setSelectedPlaybook] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('all');
 
   const headers = { Authorization: `Bearer ${token}` };
+
+  // AI-Agentic Defense Playbooks (loaded from YAML config)
+  const AI_PLAYBOOK_DEFINITIONS = [
+    {
+      id: 'AI-RECON-DEGRADE-01',
+      name: 'Machine-Paced Recon Loop — Degrade + Observe',
+      trigger: 'cli.session_summary',
+      description: 'Detect and slow down machine-paced reconnaissance. Applies soft throttle and latency injection.',
+      category: 'ai_defense',
+      conditions: { machine_likelihood: '≥ 0.80', dominant_intents: ['recon'], burstiness: '≥ 0.75' },
+      actions: ['tag_session', 'throttle_cli', 'inject_latency', 'capture_triage_bundle', 'notify'],
+      severity: 'medium',
+      status: 'active'
+    },
+    {
+      id: 'AI-DECOY-HIT-CONTAIN-01',
+      name: 'Decoy/Honey Token Hit — Immediate Containment',
+      trigger: 'deception.hit',
+      description: 'Immediately isolate host when a honey token is accessed. High confidence intrusion indicator.',
+      category: 'ai_defense',
+      conditions: { severity: ['high', 'critical'], token_accessed: true },
+      actions: ['isolate_host', 'capture_triage_bundle', 'kill_process_tree', 'notify', 'create_ticket'],
+      severity: 'critical',
+      status: 'active'
+    },
+    {
+      id: 'AI-CRED-ACCESS-RESP-01',
+      name: 'Credential Access Pattern — Decoy + Credential Controls',
+      trigger: 'cli.session_summary',
+      description: 'AI-style credential access detected. Triggers credential rotation and hard throttling.',
+      category: 'ai_defense',
+      conditions: { machine_likelihood: '≥ 0.80', dominant_intents: ['credential_access'] },
+      actions: ['rotate_credentials', 'throttle_cli', 'inject_latency', 'capture_triage_bundle', 'notify'],
+      severity: 'high',
+      status: 'active'
+    },
+    {
+      id: 'AI-PIVOT-CONTAIN-01',
+      name: 'Autonomous Pivot / Toolchain Switching — Contain Fast',
+      trigger: 'cli.session_summary',
+      description: 'Fast tool switching with lateral movement intent. Immediate host isolation.',
+      category: 'ai_defense',
+      conditions: { machine_likelihood: '≥ 0.80', tool_switch_latency: '≤ 300ms', dominant_intents: ['lateral_movement', 'privilege_escalation'] },
+      actions: ['isolate_host', 'capture_triage_bundle', 'notify', 'create_ticket'],
+      severity: 'critical',
+      status: 'active'
+    },
+    {
+      id: 'AI-EXFIL-PREP-CUT-01',
+      name: 'Exfil Prep — Cut Egress + Snapshot',
+      trigger: 'cli.session_summary',
+      description: 'Detect data staging and exfiltration preparation. Cut network egress immediately.',
+      category: 'ai_defense',
+      conditions: { machine_likelihood: '≥ 0.80', dominant_intents: ['exfil_prep', 'data_staging'] },
+      actions: ['isolate_host', 'capture_triage_bundle', 'notify', 'create_ticket'],
+      severity: 'critical',
+      status: 'active'
+    },
+    {
+      id: 'AI-HIGHCONF-ERADICATE-01',
+      name: 'High Confidence Agentic Intrusion — Full Containment',
+      trigger: 'cli.session_summary',
+      description: 'Machine likelihood ≥ 0.92 with decoy touched. Full containment and eradication.',
+      category: 'ai_defense',
+      conditions: { machine_likelihood: '≥ 0.92', decoy_touched: true },
+      actions: ['isolate_host', 'kill_process_tree', 'capture_memory_snapshot', 'capture_triage_bundle', 'notify', 'create_ticket'],
+      severity: 'critical',
+      status: 'active'
+    }
+  ];
 
   useEffect(() => {
     fetchData();
@@ -41,6 +113,7 @@ const SOARPage = () => {
       ]);
       setStats(statsRes.data);
       setPlaybooks(playbooksRes.data.playbooks || []);
+      setAiPlaybooks(AI_PLAYBOOK_DEFINITIONS);
       setExecutions(executionsRes.data.executions || []);
     } catch (err) {
       toast.error('Failed to load SOAR data');
