@@ -1222,12 +1222,11 @@ class SeraphDefenderAgent:
         """Register agent with server"""
         try:
             response = requests.post(
-                f"{self.api_url}/api/agents/register",
+                f"{self.api_url}/api/swarm/agents/register",
                 json={
                     "agent_id": AGENT_ID,
                     "hostname": HOSTNAME,
                     "os_type": OS_TYPE,
-                    "os_version": platform.version(),
                     "version": VERSION,
                     "ip_address": self._get_ip_address()
                 },
