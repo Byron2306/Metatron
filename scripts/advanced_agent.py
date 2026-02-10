@@ -3825,6 +3825,8 @@ def main():
     parser.add_argument("--monitor", action="store_true", help="Start continuous monitoring")
     parser.add_argument("--auto-kill", action="store_true", help="Auto-kill malicious processes")
     parser.add_argument("--api-url", type=str, help="Cloud API URL for sync")
+    parser.add_argument("--connect", action="store_true", help="Connect to server via WebSocket for real-time commands")
+    parser.add_argument("--persistence-scan", action="store_true", help="Scan registry/startup persistence mechanisms")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     
     args = parser.parse_args()
