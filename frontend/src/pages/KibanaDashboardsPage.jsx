@@ -10,13 +10,107 @@ import {
   Settings,
   CheckCircle,
   XCircle,
-  Database
+  Database,
+  Play,
+  Eye
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
+
+// Simple chart components for live preview
+const MetricCard = ({ title, value }) => (
+  <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+    <p className="text-3xl font-bold text-white">{value}</p>
+    <p className="text-slate-400 text-sm">{title}</p>
+  </div>
+);
+
+const PieChartSimple = ({ data, title }) => {
+  const total = data.reduce((sum, d) => sum + d.value, 0);
+  const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'];
+  
+  return (
+    <div className="bg-slate-800/50 rounded-lg p-4">
+      <p className="text-white font-medium mb-3">{title}</p>
+      <div className="space-y-2">
+        {data.slice(0, 5).map((item, idx) => (
+          <div key={idx} className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: colors[idx % colors.length] }}></div>
+            <span className="text-slate-300 text-sm flex-1">{item.label}</span>
+            <span className="text-slate-400 text-sm">{item.value} ({total > 0 ? Math.round(item.value / total * 100) : 0}%)</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const BarChartSimple = ({ data, title }) => {
+  const maxValue = Math.max(...data.map(d => d.value), 1);
+  
+  return (
+    <div className="bg-slate-800/50 rounded-lg p-4">
+      <p className="text-white font-medium mb-3">{title}</p>
+      <div className="space-y-2">
+        {data.slice(0, 6).map((item, idx) => (
+          <div key={idx}>
+            <div className="flex justify-between text-sm mb-1">
+              <span className="text-slate-300 truncate">{item.label}</span>
+              <span className="text-slate-400">{item.value}</span>
+            </div>
+            <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-pink-500 rounded-full transition-all" 
+                style={{ width: `${(item.value / maxValue) * 100}%` }}
+              ></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const LineChartSimple = ({ data, title }) => {
+  const maxValue = Math.max(...data.map(d => d.value), 1);
+  
+  return (
+    <div className="bg-slate-800/50 rounded-lg p-4">
+      <p className="text-white font-medium mb-3">{title}</p>
+      <div className="flex items-end gap-1 h-24">
+        {data.map((item, idx) => (
+          <div key={idx} className="flex-1 flex flex-col items-center">
+            <div 
+              className="w-full bg-pink-500/80 rounded-t transition-all"
+              style={{ height: `${(item.value / maxValue) * 100}%`, minHeight: '4px' }}
+            ></div>
+            <span className="text-slate-500 text-xs mt-1">{item.date?.slice(5) || idx}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const TableSimple = ({ data, title }) => (
+  <div className="bg-slate-800/50 rounded-lg p-4">
+    <p className="text-white font-medium mb-3">{title}</p>
+    <div className="space-y-2 max-h-48 overflow-y-auto">
+      {(data || []).slice(0, 5).map((row, idx) => (
+        <div key={idx} className="text-xs text-slate-300 p-2 bg-slate-700/50 rounded">
+          {Object.entries(row).slice(0, 3).map(([key, val]) => (
+            <span key={key} className="mr-2">
+              <span className="text-slate-500">{key}:</span> {String(val).slice(0, 30)}
+            </span>
+          ))}
+        </div>
+      ))}
+    </div>
+  </div>
+);
 
 const KibanaDashboardsPage = () => {
   const { token } = useAuth();
