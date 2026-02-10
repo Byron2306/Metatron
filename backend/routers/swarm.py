@@ -50,6 +50,13 @@ class CLIEventRequest(BaseModel):
     timestamp: Optional[str] = None
 
 
+class ScannerReportRequest(BaseModel):
+    scanner_id: str
+    network: str
+    scan_time: str
+    devices: List[dict]
+
+
 # =============================================================================
 # NETWORK DISCOVERY
 # =============================================================================
