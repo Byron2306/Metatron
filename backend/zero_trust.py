@@ -342,6 +342,19 @@ class ZeroTrustEngine:
         }
         return values.get(level, 0)
     
+    def _get_trust_level(self, score: int) -> TrustLevel:
+        """Get trust level from score"""
+        if score <= 20:
+            return TrustLevel.UNTRUSTED
+        elif score <= 40:
+            return TrustLevel.LOW
+        elif score <= 60:
+            return TrustLevel.MEDIUM
+        elif score <= 80:
+            return TrustLevel.HIGH
+        else:
+            return TrustLevel.TRUSTED
+    
     def register_device(
         self,
         device_id: str,
