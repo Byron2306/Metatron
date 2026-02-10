@@ -230,7 +230,7 @@ async def health_check():
 @app.on_event("startup")
 async def startup():
     """Initialize background services on startup"""
-    logger.info("Starting Anti-AI Defense System services...")
+    logger.info("Starting Seraph AI Defense System services...")
     
     # Start the CCE (Cognition/Correlation Engine) Worker
     try:
@@ -239,6 +239,23 @@ async def startup():
         logger.info("CCE Worker started successfully")
     except Exception as e:
         logger.error(f"Failed to start CCE Worker: {e}")
+    
+    # Start Network Discovery Service
+    try:
+        from services.network_discovery import start_network_discovery
+        await start_network_discovery(db, scan_interval_s=300)
+        logger.info("Network Discovery Service started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start Network Discovery Service: {e}")
+    
+    # Start Agent Deployment Service
+    try:
+        from services.agent_deployment import start_deployment_service
+        api_url = os.environ.get('API_URL', 'http://localhost:8001')
+        await start_deployment_service(db, api_url)
+        logger.info("Agent Deployment Service started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start Agent Deployment Service: {e}")
 
 
 @app.on_event("shutdown")
