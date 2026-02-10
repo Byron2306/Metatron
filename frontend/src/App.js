@@ -96,6 +96,7 @@ function App() {
               <Route path="sandbox" element={<SandboxPage />} />
               <Route path="browser-isolation" element={<BrowserIsolationPage />} />
               <Route path="kibana" element={<KibanaDashboardsPage />} />
+              <Route path="agent-commands" element={<AgentCommandsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
