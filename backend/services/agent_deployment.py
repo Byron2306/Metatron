@@ -46,10 +46,14 @@ class DeploymentTask:
     error_message: Optional[str] = None
     created_at: str = None
     completed_at: Optional[str] = None
+    task_id: str = None
     
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = datetime.now(timezone.utc).isoformat()
+        if self.task_id is None:
+            import uuid
+            self.task_id = f"deploy-{uuid.uuid4().hex[:8]}"
 
 
 class AgentDeploymentService:
