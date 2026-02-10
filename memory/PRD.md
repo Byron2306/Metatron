@@ -20,7 +20,50 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v4.7.0**: WebSocket Agent + Zero Trust Remediation
 - **v4.8.0**: Agent Details Page + Enhanced Downloads
 - **v4.9.0**: AI-Agentic Defense SOAR Playbooks
-- **v5.0.0**: Complete AI-Agentic Integration + Seraphic Watch Theme (CURRENT - Feb 2026)
+- **v5.0.0**: Complete AI-Agentic Integration + Seraphic Watch Theme
+- **v5.1.0**: Docker & VPN Deployment Finalization (CURRENT - Feb 2026)
+
+## v5.1.0 Docker & VPN Deployment Finalization (Feb 2026)
+
+### Updated Deployment Files
+- **docker-compose.yml**: Full stack with Seraph AI branding, health checks, service dependencies
+- **backend/Dockerfile**: Updated with CCE Worker support, proper volume mounts
+- **frontend/Dockerfile**: Multi-stage build with Seraphic Watch theme
+- **.env.example**: Comprehensive configuration template with all options documented
+- **DEPLOYMENT.md**: Complete deployment guide with troubleshooting
+- **scripts/validate_deployment.sh**: Automated deployment validation script
+
+### Docker Services
+| Service | Container | Port | Health Check |
+|---------|-----------|------|--------------|
+| MongoDB | seraph-mongodb | 27017 | mongosh ping |
+| Backend | seraph-backend | 8001 | /api/health |
+| Frontend | seraph-frontend | 3000 | wget localhost |
+| WireGuard | seraph-wireguard | 51820/udp | wg show |
+
+### VPN Configuration
+- **Subnet**: 10.200.200.0/24
+- **Server**: 10.200.200.1
+- **DNS**: 1.1.1.1, 8.8.8.8
+- **Peers**: Configurable via VPN_PEERS env var
+- **UI Controls**: Initialize, Add/Remove Peers, Download Configs, Kill Switch
+
+### Quick Deploy Commands
+```bash
+# Deploy
+docker-compose up -d
+
+# Validate
+./scripts/validate_deployment.sh
+
+# View logs
+docker-compose logs -f
+
+# Stop
+docker-compose down
+```
+
+---
 
 ## v5.0.0 Complete AI-Agentic Integration (Feb 2026)
 
