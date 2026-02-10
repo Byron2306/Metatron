@@ -172,7 +172,7 @@ const Layout = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto" style={{ backgroundColor: '#0C1020' }}>
         <Outlet />
       </main>
     </div>
