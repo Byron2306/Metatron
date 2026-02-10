@@ -337,11 +337,11 @@ class TimelineBuilder:
             event_count = await cls._db.alerts.count_documents({"threat_id": threat.get("id")})
             summaries.append({
                 "threat_id": threat.get("id"),
-                "threat_name": threat.get("name"),
-                "threat_type": threat.get("type"),
-                "severity": threat.get("severity"),
-                "status": threat.get("status"),
-                "first_seen": threat.get("created_at"),
+                "threat_name": threat.get("name", "Unknown Threat"),
+                "threat_type": threat.get("type", "unknown"),
+                "severity": threat.get("severity", "medium"),
+                "status": threat.get("status", "active"),
+                "first_seen": threat.get("created_at", datetime.now(timezone.utc).isoformat()),
                 "event_count": event_count + 1  # +1 for detection event
             })
         
