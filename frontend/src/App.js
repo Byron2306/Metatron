@@ -106,6 +106,7 @@ function App() {
               <Route path="cli-sessions" element={<CLISessionsPage />} />
               <Route path="swarm" element={<SwarmDashboard />} />
               <Route path="ai-threats" element={<AIThreatIntelligence />} />
+              <Route path="command-center" element={<CommandCenterPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
