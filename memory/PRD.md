@@ -21,10 +21,46 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v4.8.0**: Agent Details Page + Enhanced Downloads
 - **v4.9.0**: AI-Agentic Defense SOAR Playbooks
 - **v5.0.0**: Complete AI-Agentic Integration + Seraphic Watch Theme
-- **v5.1.0**: Docker & VPN Deployment Finalization (CURRENT - Feb 2026)
+- **v5.1.0**: Docker & VPN Deployment Finalization (Feb 2026)
 - **v5.2.0**: Swarm Auto-Deployment & Real Telemetry (Feb 2026)
-- **v5.3.0**: AI Threat Intelligence Layer (AATL/AATR) (Feb 2026) - CURRENT
-- **v5.4.0**: Real Network Scanner & Mobile Agent Support (Feb 2026) - CURRENT
+- **v5.3.0**: AI Threat Intelligence Layer (AATL/AATR) (Feb 2026)
+- **v5.4.0**: Real Network Scanner & Mobile Agent Support (Feb 2026)
+- **v5.5.0**: UI Branding Overhaul + Deploy All Fix + Documentation (Feb 2026) - CURRENT
+
+## v5.5.0 UI Branding Overhaul + Deploy All Fix + Documentation (Feb 2026) - COMPLETED
+
+### Changes Made
+
+#### 1. UI Branding Overhaul
+- **Login Page Hero Image**: Added divine angel guardian image with golden light, shields, and celestial protection theme
+- **Bigger Logo**: Login page logo increased to 96x96 (w-24 h-24), Dashboard sidebar logo increased to 64x64 (w-16 h-16)
+- **Gold Accent Colors**: Added gold borders (rgba 253,230,138) throughout:
+  - Login page form border
+  - Stats cards borders
+  - Submit button gradient (#FDE68A to #F59E0B)
+  - Sidebar borders
+  - System status section
+  - User avatar border
+- **Text Glow Effects**: SERAPH AI text has golden glow with text-shadow
+
+#### 2. Deploy All Button Fix
+- **Issue**: Button was not working, returning "No deployable devices found"
+- **Root Cause**: Case-sensitivity in OS type filtering (Windows vs windows)
+- **Fix**: Implemented case-insensitive regex matching for OS types
+- **Added**: On-demand deployment service startup if not running
+- **Result**: Successfully deploys to all discovered devices with compatible OS
+
+#### 3. Comprehensive README.md
+- Created `/app/README.md` with 428 lines of documentation
+- Sections: Overview, Key Features, Architecture, Technology Stack, Installation, Network Scanner Setup, Agent Deployment, API Reference, Competitive Analysis, Roadmap
+
+### Testing Results (iteration_18.json)
+- **Backend**: 100% pass rate
+- **Frontend**: 100% pass rate
+- All UI elements verified working
+- Deploy All button successfully initiates batch deployment
+
+---
 
 ## v5.4.0 Real Network Scanner & Mobile Agent Support (Feb 2026) - COMPLETED
 
