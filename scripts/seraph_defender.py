@@ -280,13 +280,23 @@ class FileIntegrityMonitor:
             '/usr/bin', '/usr/sbin'
         ],
         'windows': [
-            'C:\\Windows\\System32\\config',
+            # Only scan specific critical files, not entire directories
+            'C:\\Windows\\System32\\config\\SAM',
+            'C:\\Windows\\System32\\config\\SYSTEM',
+            'C:\\Windows\\System32\\config\\SOFTWARE',
             'C:\\Windows\\System32\\drivers\\etc\\hosts',
-            'C:\\Windows\\System32',
-            'C:\\Program Files',
-            'C:\\Users'
+            'C:\\Windows\\System32\\cmd.exe',
+            'C:\\Windows\\System32\\powershell.exe',
+            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+            'C:\\Windows\\regedit.exe',
+            'C:\\Windows\\explorer.exe'
         ]
     }
+    
+    # Maximum files to scan (prevents hanging on large directories)
+    MAX_FILES_TOTAL = 500
+    MAX_FILES_PER_DIR = 50
+    MAX_SCAN_TIME = 30  # seconds
     
     def __init__(self, telemetry: TelemetrySender):
         self.telemetry = telemetry
