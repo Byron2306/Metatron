@@ -149,6 +149,11 @@ app.include_router(kibana_router, prefix="/api")
 from routers.agent_commands import router as agent_commands_router
 app.include_router(agent_commands_router, prefix="/api")
 
+# Import CLI events router for AI-Agentic defense
+from routers.cli_events import router as cli_events_router, deception_router
+app.include_router(cli_events_router, prefix="/api")
+app.include_router(deception_router, prefix="/api")
+
 # ============ WEBSOCKET ENDPOINTS ============
 
 from routers.honeypots import ws_manager
