@@ -17,7 +17,40 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v4.4.0**: Data Visibility & Usability Fixes
 - **v4.5.0**: Kibana Live Dashboards + Credential Theft Detection
 - **v4.6.0**: Critical Fixes + Agent Command Center
-- **v4.7.0**: WebSocket Agent + Zero Trust Remediation (CURRENT - Feb 2026)
+- **v4.7.0**: WebSocket Agent + Zero Trust Remediation
+- **v4.8.0**: Agent Details Page + Enhanced Downloads (CURRENT - Feb 2026)
+
+## v4.8 Agent Details Page + Enhanced Downloads (Feb 2026)
+
+### Agent Details Page (`/agent-commands/{agentId}`)
+New dedicated page for viewing detailed agent information and sending commands:
+
+| Section | Features |
+|---------|----------|
+| **System Information** | Hostname, Agent ID, OS, IP Address, Version, Last Heartbeat, Last Scan |
+| **Quick Actions** | Full Scan, Collect Forensics, Update Agent, Restart Service (all require approval) |
+| **Tabs** | Overview, Alerts, Scans, Commands history |
+| **Real-time Status** | Connected/Offline badge, auto-refresh every 30 seconds |
+
+### Enhanced Agent Download System
+Updated Agents page with dropdown menu for two agent options:
+
+| Agent Type | Description | Command |
+|------------|-------------|---------|
+| **Advanced Agent** (Recommended) | Real-time WebSocket commands, all scan types | `python advanced_agent.py --connect --api-url URL` |
+| **Defender Installer** | Full GUI suite with auto-install | `python defender_installer.py` |
+
+### Download API Endpoints
+- `GET /api/agent/download/advanced-agent` - Downloads advanced_agent.py (4171 lines)
+- `GET /api/agent/download/installer` - Downloads defender_installer.py (2353 lines)
+
+### Bug Fixes
+- Fixed MongoDB ObjectId serialization in `/api/agent-commands/create`
+- Commands now properly exclude `_id` field before JSON response
+
+### Testing Results (iteration_14.json)
+- **Backend**: 15/15 tests passed (100%)
+- **Frontend**: All pages verified working
 
 ## v4.7 WebSocket Agent + Zero Trust Remediation (Feb 2026)
 
