@@ -139,6 +139,146 @@ async def agent_heartbeat(agent_id: str, request: AgentHeartbeatRequest):
 
 
 # =============================================================================
+# AGENT COMMAND QUEUE (Server -> Agent)
+# =============================================================================
+
+class AgentCommandRequest(BaseModel):
+    type: str  # kill_process, block_ip, scan, quarantine_file
+    params: dict = {}
+    priority: str = "normal"  # low, normal, high, critical
+
+
+@router.post("/agents/{agent_id}/command")
+async def send_command_to_agent(
+    agent_id: str,
+    request: AgentCommandRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Send a command to an agent for execution"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_doc = {
+        "command_id": f"cmd-{uuid.uuid4().hex[:8]}",
+        "agent_id": agent_id,
+        "type": request.type,
+        "params": request.params,
+        "priority": request.priority,
+        "status": "pending",
+        "created_at": now,
+        "created_by": current_user.get("email", "system")
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    
+    logger.info(f"Command queued for agent {agent_id}: {request.type}")
+    
+    return {
+        "status": "ok",
+        "command_id": command_doc["command_id"],
+        "message": f"Command {request.type} queued for agent {agent_id}"
+    }
+
+
+@router.get("/agents/{agent_id}/commands")
+async def get_pending_commands(agent_id: str):
+    """Get pending commands for an agent (agent polls this)"""
+    cursor = db.agent_commands.find(
+        {"agent_id": agent_id, "status": "pending"},
+        {"_id": 0}
+    ).sort("created_at", 1)
+    
+    commands = await cursor.to_list(100)
+    
+    # Mark as delivered
+    for cmd in commands:
+        await db.agent_commands.update_one(
+            {"command_id": cmd["command_id"]},
+            {"$set": {"status": "delivered", "delivered_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    
+    return {"commands": commands}
+
+
+@router.post("/agents/{agent_id}/commands/{command_id}/ack")
+async def acknowledge_command(agent_id: str, command_id: str, result: dict = None):
+    """Agent acknowledges command execution"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    await db.agent_commands.update_one(
+        {"command_id": command_id, "agent_id": agent_id},
+        {"$set": {
+            "status": "completed" if result and result.get("success") else "failed",
+            "completed_at": now,
+            "result": result
+        }}
+    )
+    
+    return {"status": "ok"}
+
+
+@router.get("/agents/{agent_id}/command-history")
+async def get_command_history(
+    agent_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get command history for an agent"""
+    cursor = db.agent_commands.find(
+        {"agent_id": agent_id},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50)
+    
+    commands = await cursor.to_list(50)
+    
+    return {"commands": commands}
+
+
+# =============================================================================
+# THREAT RESPONSE (Server-initiated remediation)
+# =============================================================================
+
+@router.post("/threats/respond")
+async def respond_to_threat(
+    threat_id: str,
+    action: str,
+    target_agent: str,
+    params: dict = None,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Send a remediation command to an agent in response to a threat"""
+    
+    # Create command for agent
+    command_doc = {
+        "command_id": f"cmd-{uuid.uuid4().hex[:8]}",
+        "agent_id": target_agent,
+        "type": action,
+        "params": params or {},
+        "priority": "critical",
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.get("email", "system"),
+        "threat_id": threat_id
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    
+    # Log the response
+    await db.threat_responses.insert_one({
+        "threat_id": threat_id,
+        "action": action,
+        "target_agent": target_agent,
+        "command_id": command_doc["command_id"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "initiated_by": current_user.get("email", "system")
+    })
+    
+    return {
+        "status": "ok",
+        "message": f"Remediation command sent to agent {target_agent}",
+        "command_id": command_doc["command_id"]
+    }
+
+
+# =============================================================================
 # NETWORK DISCOVERY
 # =============================================================================
 
