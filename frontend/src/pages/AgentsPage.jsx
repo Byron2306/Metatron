@@ -15,13 +15,22 @@ import {
   Activity,
   Server,
   Globe,
-  AlertTriangle
+  AlertTriangle,
+  ChevronDown,
+  Terminal,
+  Shield
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
