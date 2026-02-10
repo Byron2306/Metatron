@@ -110,6 +110,30 @@ const ThreatResponsePage = () => {
     }
   };
 
+  const handleToggleAutoBlock = async () => {
+    setActionLoading('toggle');
+    try {
+      const token = localStorage.getItem('token');
+      const newState = !settings?.auto_response?.auto_block_enabled;
+      const response = await fetch(`${API}/api/threat-response/settings/auto-block?enabled=${newState}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        toast.success(`Agentic Auto-Block ${newState ? 'enabled' : 'disabled'}`);
+        fetchData();
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || 'Failed to toggle auto-block');
+      }
+    } catch (err) {
+      toast.error('Failed to toggle auto-block');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleTestSMS = async () => {
     setActionLoading('sms');
     try {
