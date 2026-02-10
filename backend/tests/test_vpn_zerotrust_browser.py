@@ -290,8 +290,8 @@ class TestBrowserIsolationEndpoints:
         print(f"Isolation modes: {[m.get('id') for m in data.get('modes', [])]}")
     
     def test_browser_isolation_analyze_url(self, headers):
-        """Test POST /api/browser-isolation/analyze - Analyze URL"""
-        response = requests.post(f"{BASE_URL}/api/browser-isolation/analyze", headers=headers, json={
+        """Test POST /api/browser-isolation/analyze-url - Analyze URL"""
+        response = requests.post(f"{BASE_URL}/api/browser-isolation/analyze-url", headers=headers, json={
             "url": "https://example.com"
         })
         assert response.status_code == 200
@@ -303,7 +303,7 @@ class TestBrowserIsolationEndpoints:
     
     def test_browser_isolation_analyze_suspicious_url(self, headers):
         """Test URL analysis with suspicious domain"""
-        response = requests.post(f"{BASE_URL}/api/browser-isolation/analyze", headers=headers, json={
+        response = requests.post(f"{BASE_URL}/api/browser-isolation/analyze-url", headers=headers, json={
             "url": "https://malware-test.com/download.exe"
         })
         assert response.status_code == 200
@@ -331,8 +331,8 @@ class TestBrowserIsolationEndpoints:
         print(f"Active sessions count: {len(data.get('sessions', []))}")
     
     def test_browser_isolation_blocklist(self, headers):
-        """Test GET /api/browser-isolation/blocklist"""
-        response = requests.get(f"{BASE_URL}/api/browser-isolation/blocklist", headers=headers)
+        """Test GET /api/browser-isolation/blocked-domains"""
+        response = requests.get(f"{BASE_URL}/api/browser-isolation/blocked-domains", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert "domains" in data
