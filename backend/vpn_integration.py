@@ -329,8 +329,8 @@ AllowedIPs = {peer.allowed_ips}
         if not peer or not self.server_config:
             return None
         
-        # Get server public IP (placeholder - should be configured)
-        server_endpoint = os.environ.get("VPN_SERVER_ENDPOINT", "vpn.example.com")
+        # Get server public endpoint from config
+        server_endpoint = config.vpn_server_endpoint
         
         config_content = f"""[Interface]
 PrivateKey = {peer.private_key}
