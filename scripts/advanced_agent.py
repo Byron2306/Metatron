@@ -3119,6 +3119,58 @@ def main():
                     print(f"    - {factor}")
                 print()
     
+    elif args.credential_scan:
+        results = agent.credential_detector.scan()
+        
+        if args.json:
+            print(json.dumps(results, indent=2))
+        else:
+            print(f"\n{'='*60}")
+            print("CREDENTIAL THEFT DETECTION SCAN")
+            print(f"{'='*60}")
+            print(f"System: {results.get('system')}")
+            print(f"Overall Risk Score: {results.get('risk_score', 0)}\n")
+            
+            # Credential theft tools
+            tools = results.get('credential_theft_tools', [])
+            if tools:
+                print(f"\n[!] CREDENTIAL THEFT TOOLS DETECTED: {len(tools)}")
+                for t in tools:
+                    print(f"    [{t['risk_score']}] {t['name']} (PID: {t['pid']}) - {t['tool_matched']}")
+            else:
+                print("[OK] No credential theft tools detected")
+            
+            # LSASS access
+            lsass = results.get('lsass_access', [])
+            if lsass:
+                print(f"\n[!] SUSPICIOUS LSASS ACCESS: {len(lsass)}")
+                for a in lsass:
+                    print(f"    [{a['risk_score']}] {a['name']} (PID: {a['pid']})")
+            
+            # Credential file access
+            cred_files = results.get('credential_file_access', [])
+            high_risk_files = [f for f in cred_files if f.get('risk_score', 0) >= 50]
+            if high_risk_files:
+                print(f"\n[!] SUSPICIOUS CREDENTIAL FILE ACCESS: {len(high_risk_files)}")
+                for f in high_risk_files[:10]:
+                    print(f"    [{f['risk_score']}] {f['path']}")
+            
+            # Browser credential checks
+            browser_checks = results.get('browser_credential_checks', [])
+            suspicious_browser = [c for c in browser_checks if c.get('suspicious_process')]
+            if suspicious_browser:
+                print(f"\n[!] BROWSER CREDENTIAL THEFT ATTEMPTS: {len(suspicious_browser)}")
+                for c in suspicious_browser:
+                    proc = c['suspicious_process']
+                    print(f"    {c['browser']}: {proc['name']} (PID: {proc['pid']}) accessing credentials")
+            
+            # Alerts
+            alerts = results.get('alerts', [])
+            if alerts:
+                print(f"\n[!] TOTAL ALERTS: {len(alerts)}")
+                for a in alerts[-5:]:
+                    print(f"    [{a['severity'].upper()}] {a['type']}: {a['message']}")
+    
     elif args.memory_scan:
         results = agent.memory_forensics.quick_memory_scan()
         
