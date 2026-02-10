@@ -2854,6 +2854,7 @@ class AdvancedSecurityAgent:
             self.folder_indexer.alerts +
             self.task_monitor.alerts +
             self.usb_monitor.alerts +
+            self.credential_detector.alerts +
             self.memory_forensics.alerts
         )
         
