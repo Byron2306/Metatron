@@ -42,7 +42,21 @@ async def get_zero_trust_stats(current_user: dict = Depends(get_current_user)):
 @router.get("/devices")
 async def list_devices(current_user: dict = Depends(get_current_user)):
     """List all registered devices"""
-    devices = zero_trust_engine.get_devices()
+    from .dependencies import get_db
+    db = get_db()
+    
+    # Get devices from both memory and database
+    memory_devices = zero_trust_engine.get_devices()
+    
+    # Also get from database
+    db_devices = await db.zt_devices.find({}, {"_id": 0}).to_list(100)
+    
+    # Merge, preferring database records
+    device_map = {d.get("device_id"): d for d in memory_devices}
+    for d in db_devices:
+        device_map[d.get("device_id")] = d
+    
+    devices = list(device_map.values())
     return {"devices": devices, "count": len(devices)}
 
 @router.post("/devices")
