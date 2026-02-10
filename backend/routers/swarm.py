@@ -41,6 +41,15 @@ class TelemetryIngestRequest(BaseModel):
     events: List[dict]
 
 
+class CLIEventRequest(BaseModel):
+    host_id: str
+    session_id: str
+    command: str
+    user: Optional[str] = None
+    shell_type: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
 # =============================================================================
 # NETWORK DISCOVERY
 # =============================================================================
