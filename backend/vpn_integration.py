@@ -428,19 +428,24 @@ PersistentKeepalive = 25
                     "status": "running",
                     "interface": self.interface,
                     "peers_count": len(self.peers),
-                    "details": stdout.decode()
+                    "details": stdout.decode(),
+                    "server_configured": self.server_config is not None
                 }
             else:
+                # Interface not up but may be configured
                 return {
-                    "status": "stopped",
+                    "status": "stopped" if self.server_config else "not_configured",
                     "interface": self.interface,
-                    "peers_count": len(self.peers)
+                    "peers_count": len(self.peers),
+                    "server_configured": self.server_config is not None,
+                    "message": "Server is configured but interface is not active. Click 'Start Server' to activate."
                 }
                 
         except FileNotFoundError:
             return {
                 "status": "not_installed",
-                "error": "WireGuard not installed"
+                "error": "WireGuard not installed",
+                "message": "Install WireGuard: apt install wireguard wireguard-tools"
             }
         except Exception as e:
             return {
