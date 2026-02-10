@@ -521,6 +521,15 @@ async def download_agent(platform: str):
             media_type="text/x-python",
             filename="seraph_mobile_agent.py"
         )
+    elif platform == "mobile-v7" or platform == "mobile-full":
+        mobile_v7_path = "/app/scripts/seraph_mobile_v7.py"
+        if not os.path.exists(mobile_v7_path):
+            raise HTTPException(status_code=404, detail="Mobile v7 agent not found")
+        return FileResponse(
+            mobile_v7_path,
+            media_type="text/x-python",
+            filename="seraph_mobile_v7.py"
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
 
