@@ -2972,6 +2972,7 @@ def main():
     parser.add_argument("--user-scan", action="store_true", help="Scan user privileges")
     parser.add_argument("--task-scan", action="store_true", help="Scan scheduled tasks/cron")
     parser.add_argument("--usb-scan", action="store_true", help="Scan USB devices")
+    parser.add_argument("--credential-scan", action="store_true", help="Scan for credential theft attempts")
     parser.add_argument("--memory-scan", action="store_true", help="Quick memory scan")
     parser.add_argument("--memory-dump", type=str, help="Analyze memory dump file")
     parser.add_argument("--monitor", action="store_true", help="Start continuous monitoring")
