@@ -464,6 +464,7 @@ async def download_agent(platform: str):
     
     agent_path = "/app/scripts/seraph_defender.py"
     local_agent_path = "/app/scripts/seraph_defender_local.py"
+    v7_agent_path = "/app/scripts/seraph_defender_v7.py"
     
     if platform == "linux":
         return FileResponse(
@@ -491,6 +492,15 @@ async def download_agent(platform: str):
             local_agent_path,
             media_type="text/x-python",
             filename="seraph_defender_local.py"
+        )
+    elif platform == "v7" or platform == "full":
+        # Full protection with local dashboard
+        if not os.path.exists(v7_agent_path):
+            raise HTTPException(status_code=404, detail="V7 agent not found")
+        return FileResponse(
+            v7_agent_path,
+            media_type="text/x-python",
+            filename="seraph_defender_v7.py"
         )
     elif platform == "scanner":
         scanner_path = "/app/scripts/seraph_network_scanner.py"
