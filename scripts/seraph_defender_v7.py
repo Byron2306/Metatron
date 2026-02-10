@@ -1239,15 +1239,28 @@ class SeraphDefenderV7:
                 time.sleep(5)
     
     def _scan_network(self):
-        """Scan network connections"""
+        """Enhanced network connection scanning with traffic analysis"""
         connections = []
+        traffic_stats = defaultdict(lambda: {'bytes_sent': 0, 'bytes_recv': 0, 'packets': 0})
+        
+        # Get network I/O counters per connection
+        try:
+            net_io = psutil.net_io_counters(pernic=True)
+            total_io = psutil.net_io_counters()
+            telemetry_store.stats["bytes_sent"] = total_io.bytes_sent
+            telemetry_store.stats["bytes_recv"] = total_io.bytes_recv
+        except:
+            pass
         
         for conn in psutil.net_connections(kind='inet'):
             try:
                 proc_name = "Unknown"
+                proc_cmdline = ""
                 if conn.pid:
                     try:
-                        proc_name = psutil.Process(conn.pid).name()
+                        proc = psutil.Process(conn.pid)
+                        proc_name = proc.name()
+                        proc_cmdline = ' '.join(proc.cmdline() or [])[:200]
                     except:
                         pass
                 
@@ -1260,8 +1273,16 @@ class SeraphDefenderV7:
                     'status': conn.status,
                     'pid': conn.pid,
                     'process_name': proc_name,
-                    'suspicious': False
+                    'cmdline': proc_cmdline,
+                    'suspicious': False,
+                    'protocol': 'tcp' if conn.type == socket.SOCK_STREAM else 'udp',
+                    'family': 'ipv4' if conn.family == socket.AF_INET else 'ipv6'
                 }
+                
+                # Track traffic per remote endpoint
+                if conn.raddr:
+                    endpoint_key = f"{conn.raddr.ip}:{conn.raddr.port}"
+                    traffic_stats[endpoint_key]['packets'] += 1
                 
                 # Check for threats
                 threat = threat_engine.analyze_connection(conn_data)
@@ -1276,6 +1297,47 @@ class SeraphDefenderV7:
         
         telemetry_store.network_connections = connections
         telemetry_store.stats["connections_monitored"] = len(connections)
+        
+        # Analyze traffic patterns
+        self._analyze_traffic_patterns(connections, traffic_stats)
+    
+    def _analyze_traffic_patterns(self, connections, traffic_stats):
+        """Analyze traffic patterns for anomalies"""
+        # Count connections per remote IP
+        ip_counts = defaultdict(int)
+        port_counts = defaultdict(int)
+        
+        for conn in connections:
+            if conn.get('remote_ip'):
+                ip_counts[conn['remote_ip']] += 1
+                port_counts[conn.get('remote_port', 0)] += 1
+        
+        # Detect connection flooding
+        for ip, count in ip_counts.items():
+            if count > 50:  # Many connections to same IP
+                telemetry_store.add_event({
+                    "event_type": "network.high_connection_count",
+                    "severity": "medium",
+                    "data": {
+                        "remote_ip": ip,
+                        "connection_count": count,
+                        "message": f"High connection count ({count}) to {ip}"
+                    }
+                })
+        
+        # Detect unusual port activity
+        COMMON_PORTS = {80, 443, 8080, 8443, 22, 3389}
+        for port, count in port_counts.items():
+            if port and port not in COMMON_PORTS and count > 10:
+                telemetry_store.add_event({
+                    "event_type": "network.unusual_port_activity",
+                    "severity": "low",
+                    "data": {
+                        "port": port,
+                        "connection_count": count,
+                        "message": f"Unusual activity on port {port} ({count} connections)"
+                    }
+                })
     
     def _scan_processes(self):
         """Scan running processes"""
