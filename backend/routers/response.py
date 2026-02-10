@@ -102,8 +102,8 @@ async def get_response_settings(current_user: dict = Depends(get_current_user)):
                 "critical_threat_threshold": 3
             },
             "sms_alerts": {
-                "enabled": response_config.sms_alerts_enabled,
-                "contacts_count": 0
+                "enabled": response_config.twilio_enabled,
+                "contacts_count": len([c for c in response_config.emergency_contacts if c])
             },
             "twilio_account_sid": "",
             "twilio_auth_token": "",
@@ -120,7 +120,7 @@ async def get_response_settings(current_user: dict = Depends(get_current_user)):
             }
         if "sms_alerts" not in settings:
             settings["sms_alerts"] = {
-                "enabled": settings.get("sms_alerts_enabled", response_config.sms_alerts_enabled),
+                "enabled": settings.get("sms_alerts_enabled", response_config.twilio_enabled),
                 "contacts_count": len(settings.get("emergency_contacts", []))
             }
     
