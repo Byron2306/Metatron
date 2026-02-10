@@ -1,719 +1,428 @@
-# Anti-AI Defense System
+# 🛡️ SERAPH AI - Ultimate Agentic Anti-AI Defense System
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Version-4.3.0-blue.svg" alt="Version">
-  <img src="https://img.shields.io/badge/License-Enterprise-green.svg" alt="License">
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/Python-3.9+-yellow.svg" alt="Python">
-  <img src="https://img.shields.io/badge/React-18+-61DAFB.svg" alt="React">
-</p>
+![Seraph AI](https://static.prod-images.emergentagent.com/jobs/7a2da418-17b2-48d5-88ae-3a56a9260971/images/4c1f33e8192e1941702a034d02d9685b8de341c22798d285b5a277520e80b232.png)
 
-<p align="center">
-  <strong>The Ultimate Agentic Anti-AI Agent Defense System</strong><br>
-  Enterprise-grade endpoint protection designed to counter malicious AI agents, advanced malware, and sophisticated cyber threats.
-</p>
+> **Divine Cyber Guardian** - Protecting against autonomous AI agents, polymorphic malware, and advanced cyber threats with celestial precision.
 
 ---
 
-## Table of Contents
+## 📋 Table of Contents
 
-- [Overview](#overview)
-- [Key Features](#key-features)
-- [System Architecture](#system-architecture)
-- [Technical Specifications](#technical-specifications)
-- [Component Deep Dive](#component-deep-dive)
-- [Competitor Comparison](#competitor-comparison)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [API Reference](#api-reference)
-- [Local Agent Usage](#local-agent-usage)
-- [Security Considerations](#security-considerations)
-- [Roadmap](#roadmap)
+- [Overview](#-overview)
+- [Key Features](#-key-features)
+- [Architecture](#-architecture)
+- [Technology Stack](#-technology-stack)
+- [Installation & Setup](#-installation--setup)
+- [Network Scanner Setup](#-network-scanner-setup)
+- [Agent Deployment](#-agent-deployment)
+- [API Reference](#-api-reference)
+- [Competitive Analysis](#-competitive-analysis)
+- [Roadmap](#-roadmap)
 
 ---
 
-## Overview
+## 🌟 Overview
 
-The Anti-AI Defense System is a comprehensive cybersecurity platform that combines traditional endpoint protection with cutting-edge AI-powered threat detection. Unlike conventional security solutions, this system is specifically designed to detect and neutralize threats from autonomous AI agents, including:
+**Seraph AI** is a next-generation cybersecurity platform specifically designed to counter the emerging threat of malicious AI agents. Unlike traditional security solutions that focus on signature-based detection, Seraph AI employs behavioral analysis, machine learning, and autonomous response capabilities to detect and neutralize AI-driven attacks in real-time.
 
-- **AI-powered malware** that adapts to evade detection
-- **Automated attack frameworks** (Cobalt Strike, Metasploit, Sliver)
-- **Living-off-the-land attacks** using legitimate system tools
-- **Supply chain compromises** through malicious dependencies
-- **Insider threats** through behavioral analytics (UEBA)
+### What Makes Seraph AI Different?
 
-### Why Another Security Platform?
-
-| Challenge | Traditional Solutions | Our Approach |
-|-----------|----------------------|--------------|
-| AI-generated malware | Signature-based (fails) | ML behavioral analysis |
-| Fileless attacks | Limited visibility | Memory forensics + process trees |
-| Encrypted C2 traffic | Cannot inspect | Traffic pattern analysis |
-| Zero-day exploits | Reactive patches | Proactive anomaly detection |
-| Autonomous agents | No specific defense | Purpose-built detection |
+| Traditional Security | Seraph AI |
+|---------------------|-----------|
+| Signature-based detection | **Behavioral AI analysis (AATL)** |
+| Reactive response | **Proactive threat hunting** |
+| Manual investigation | **Autonomous agent threat detection** |
+| Single-point protection | **Swarm-based distributed defense** |
+| Static rules | **Adaptive ML models** |
 
 ---
 
-## Key Features
+## ✨ Key Features
 
-### 🛡️ Endpoint Protection
-- Real-time process monitoring with behavioral analysis
-- Memory forensics using Volatility 3
-- USB device control and BadUSB detection
-- Browser extension security scanning
-- Scheduled task/persistence monitoring
+### 1. 🤖 AATL - Autonomous Agent Threat Layer
+The core intelligence engine that detects AI-driven attacks by analyzing:
+- **Command velocity** - Detecting machine-paced command execution
+- **Inter-command timing** - Identifying non-human typing patterns
+- **Tool switching patterns** - Recognizing automated toolchain usage
+- **Intent accumulation** - Tracking goal-oriented attack progression
 
-### 🔍 Threat Detection
-- ML-powered threat prediction (4 models)
-- 20,500+ threat intelligence indicators
-- YARA rule scanning
-- Network anomaly detection (Suricata)
-- Container runtime security (Falco)
+### 2. 📚 AATR - Autonomous AI Threat Registry
+A comprehensive catalog of known AI threat actors including:
+- Generic Planning Agents
+- Tool-Using Code Agents
+- Multi-Agent Swarms
+- Reasoning Chain Agents
+- Jailbroken/Uncensored Agents
+- Persistent Reconnaissance Agents
 
-### 🤖 Automated Response (SOAR)
-- Customizable playbook engine
-- Auto-quarantine malicious files
-- Auto-kill malicious processes
-- IP blocking and firewall integration
-- Slack/Email/SMS alerting
+### 3. 🕸️ Swarm Auto-Deployment
+Deploy protection across your entire network automatically:
+- **Network Scanner** - Discover all devices on your LAN
+- **Auto-Push Deployment** - SSH/WinRM-based agent deployment
+- **Real-time Telemetry** - Continuous monitoring and reporting
+- **Mobile Support** - iOS (Pythonista) and Android (Termux) agents
 
-### 🏰 Advanced Security
-- Zero Trust Architecture with dynamic trust scoring
-- Honey tokens and deception technology
-- Browser isolation (4 modes)
-- Sandbox analysis with VM execution
-- Ransomware canary file protection
+### 4. 🎭 Deception Technology
+Advanced honeypot and decoy capabilities:
+- **Honey Tokens** - Fake credentials that trigger on access
+- **Honeypots** - Decoy services that attract attackers
+- **Poison Data** - Misleading information to confuse AI agents
 
-### 📊 Analytics & Visibility
-- Elasticsearch/Kibana integration
-- 6 pre-built security dashboards
+### 5. 🛡️ SOAR Playbooks
+Pre-built automated response playbooks for AI threats:
+- `AI-RECON-DEGRADE-01` - Degrade reconnaissance loops
+- `AI-DECOY-HIT-CONTAIN-01` - Immediate containment on decoy hit
+- `AI-CRED-ACCESS-RESP-01` - Credential access response
+- `AI-PIVOT-CONTAIN-01` - Lateral movement containment
+- `AI-EXFIL-PREP-CUT-01` - Exfiltration prevention
+- `AI-HIGHCONF-ERADICATE-01` - Full containment for confirmed threats
+
+### 6. 🔮 ML Threat Prediction
+Four ML models for predictive threat detection:
+- Network traffic analysis
+- Process behavior analysis
+- File threat analysis
+- User behavior analytics (UEBA)
+
+### 7. 🏖️ Sandbox Analysis
+Dynamic malware analysis with:
+- 10+ malware signatures
+- Process, network, file, and registry monitoring
 - MITRE ATT&CK mapping
-- Threat correlation engine
-- Audit logging and compliance
+- Detailed behavioral reports
+
+### 8. 🌐 Browser Isolation
+Secure web browsing with:
+- Full remote rendering
+- Content Disarm & Reconstruction (CDR)
+- Read-only mode
+- Pixel-push streaming
 
 ---
 
-## System Architecture
+## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           ANTI-AI DEFENSE SYSTEM                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         CLOUD PLATFORM                               │   │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │   │
-│  │  │   React UI   │  │  FastAPI     │  │   MongoDB    │              │   │
-│  │  │  Dashboard   │◄─┤  Backend     │◄─┤   Database   │              │   │
-│  │  │  (Port 3000) │  │  (Port 8001) │  │  (Port 27017)│              │   │
-│  │  └──────────────┘  └──────┬───────┘  └──────────────┘              │   │
-│  │                           │                                         │   │
-│  │  ┌────────────────────────┼────────────────────────────────────┐   │   │
-│  │  │                 SECURITY SERVICES                            │   │   │
-│  │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌────────┐│   │   │
-│  │  │  │   ML    │ │ Sandbox │ │ Browser │ │  SOAR   │ │  Zero  ││   │   │
-│  │  │  │Predictor│ │ Analysis│ │Isolation│ │ Engine  │ │ Trust  ││   │   │
-│  │  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └────────┘│   │   │
-│  │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌────────┐│   │   │
-│  │  │  │ Threat  │ │Container│ │   VPN   │ │  Honey  │ │ Threat ││   │   │
-│  │  │  │  Intel  │ │Security │ │ Manager │ │ Tokens  │ │Correlat││   │   │
-│  │  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └────────┘│   │   │
-│  │  └─────────────────────────────────────────────────────────────┘   │   │
-│  │                                                                     │   │
-│  │  ┌─────────────────────────────────────────────────────────────┐   │   │
-│  │  │                    INTEGRATIONS                              │   │   │
-│  │  │  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌─────────────┐ │   │   │
-│  │  │  │Elasticsearch│ │  Kibana  │ │   Slack   │ │  SendGrid   │ │   │   │
-│  │  │  │  (9200)   │ │  (5601)  │ │ Webhooks  │ │   Email     │ │   │   │
-│  │  │  └───────────┘ └───────────┘ └───────────┘ └─────────────┘ │   │   │
-│  │  └─────────────────────────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                      ▲                                      │
-│                                      │ WebSocket + REST API                 │
-│                                      │                                      │
-│  ┌───────────────────────────────────┼───────────────────────────────────┐ │
-│  │                    WireGuard VPN Tunnel (10.200.200.0/24)              │ │
-│  └───────────────────────────────────┼───────────────────────────────────┘ │
-│                                      │                                      │
-│  ┌───────────────────────────────────┼───────────────────────────────────┐ │
-│  │                         LOCAL AGENTS                                   │ │
-│  │                                                                        │ │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │ │
-│  │  │   Windows Agent │  │   Linux Agent   │  │   macOS Agent   │       │ │
-│  │  │  ┌───────────┐  │  │  ┌───────────┐  │  │  ┌───────────┐  │       │ │
-│  │  │  │  Process  │  │  │  │  Process  │  │  │  │  Process  │  │       │ │
-│  │  │  │  Monitor  │  │  │  │  Monitor  │  │  │  │  Monitor  │  │       │ │
-│  │  │  ├───────────┤  │  │  ├───────────┤  │  │  ├───────────┤  │       │ │
-│  │  │  │   User    │  │  │  │   User    │  │  │  │   User    │  │       │ │
-│  │  │  │ Privilege │  │  │  │ Privilege │  │  │  │ Privilege │  │       │ │
-│  │  │  ├───────────┤  │  │  ├───────────┤  │  │  ├───────────┤  │       │ │
-│  │  │  │  Browser  │  │  │  │  Browser  │  │  │  │  Browser  │  │       │ │
-│  │  │  │Extensions │  │  │  │Extensions │  │  │  │Extensions │  │       │ │
-│  │  │  ├───────────┤  │  │  ├───────────┤  │  │  ├───────────┤  │       │ │
-│  │  │  │  Folder   │  │  │  │  Folder   │  │  │  │  Folder   │  │       │ │
-│  │  │  │  Indexer  │  │  │  │  Indexer  │  │  │  │  Indexer  │  │       │ │
-│  │  │  ├───────────┤  │  │  ├───────────┤  │  │  ├───────────┤  │       │ │
-│  │  │  │ Scheduled │  │  │  │   Cron    │  │  │  │  Launchd  │  │       │ │
-│  │  │  │   Tasks   │  │  │  │  Monitor  │  │  │  │  Monitor  │  │       │ │
-│  │  │  ├───────────┤  │  │  ├───────────┤  │  │  ├───────────┤  │       │ │
-│  │  │  │    USB    │  │  │  │    USB    │  │  │  │    USB    │  │       │ │
-│  │  │  │  Monitor  │  │  │  │  Monitor  │  │  │  │  Monitor  │  │       │ │
-│  │  │  ├───────────┤  │  │  ├───────────┤  │  │  ├───────────┤  │       │ │
-│  │  │  │  Memory   │  │  │  │  Memory   │  │  │  │  Memory   │  │       │ │
-│  │  │  │ Forensics │  │  │  │ Forensics │  │  │  │ Forensics │  │       │ │
-│  │  │  └───────────┘  │  │  └───────────┘  │  │  └───────────┘  │       │ │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────┘       │ │
-│  └────────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           SERAPH AI ARCHITECTURE                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐        │
+│  │   React Frontend │────▶│  FastAPI Backend │────▶│    MongoDB      │        │
+│  │   (Port 3000)   │     │   (Port 8001)    │     │   Database      │        │
+│  └─────────────────┘     └─────────────────┘     └─────────────────┘        │
+│           │                       │                                          │
+│           │              ┌───────┴────────┐                                 │
+│           │              │                │                                 │
+│           │     ┌────────▼──────┐  ┌──────▼───────┐                        │
+│           │     │  AATL Engine  │  │ AATR Registry │                        │
+│           │     │ (AI Detection)│  │(Threat Intel) │                        │
+│           │     └───────────────┘  └──────────────┘                        │
+│           │                                                                  │
+│  ┌────────▼────────────────────────────────────────────────────────────┐   │
+│  │                        AGENT SWARM                                    │   │
+│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐   │   │
+│  │  │Desktop  │  │Desktop  │  │ Mobile  │  │ Mobile  │  │ Network │   │   │
+│  │  │Agent v7 │  │Agent v7 │  │Agent v7 │  │Agent v7 │  │ Scanner │   │   │
+│  │  │(Windows)│  │(Linux)  │  │ (iOS)   │  │(Android)│  │         │   │   │
+│  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘   │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Flow Architecture
+### Directory Structure
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Endpoint   │────▶│   Agent      │────▶│   API        │────▶│   Database   │
-│   Events     │     │   Process    │     │   Gateway    │     │   (MongoDB)  │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-                            │                    │                     │
-                            ▼                    ▼                     ▼
-                     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-                     │   Local      │     │   SOAR       │     │ Elasticsearch│
-                     │   Analysis   │     │   Engine     │     │   Index      │
-                     └──────────────┘     └──────────────┘     └──────────────┘
-                            │                    │                     │
-                            ▼                    ▼                     ▼
-                     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-                     │   Response   │     │   Playbook   │     │   Kibana     │
-                     │   (Kill/     │     │   Execution  │     │   Dashboard  │
-                     │   Quarantine)│     │              │     │              │
-                     └──────────────┘     └──────────────┘     └──────────────┘
+/app
+├── frontend/                 # React frontend application
+│   ├── src/
+│   │   ├── components/       # UI components (Shadcn/UI)
+│   │   ├── context/          # Auth context
+│   │   └── pages/            # 27+ dashboard pages
+│   └── package.json
+├── backend/                  # FastAPI backend
+│   ├── routers/              # API route modules
+│   │   ├── swarm.py          # Swarm management (primary)
+│   │   ├── ai_threats.py     # AATL/AATR endpoints
+│   │   └── ...               # 30+ router modules
+│   ├── services/             # Business logic
+│   │   ├── aatl.py           # AI threat detection
+│   │   ├── aatr.py           # Threat registry
+│   │   ├── agent_deployment.py
+│   │   └── network_discovery.py
+│   └── server.py             # Main FastAPI app
+├── scripts/                  # Agent scripts
+│   ├── seraph_defender_v7.py # Desktop agent (full)
+│   ├── seraph_mobile_v7.py   # Mobile agent
+│   └── seraph_network_scanner.py
+└── README.md                 # This file
 ```
 
 ---
 
-## Technical Specifications
+## 🔧 Technology Stack
 
-### Cloud Platform
+### Frontend
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| React | 18.x | UI Framework |
+| Tailwind CSS | 3.x | Styling |
+| Shadcn/UI | Latest | Component Library |
+| Framer Motion | Latest | Animations |
+| Recharts | Latest | Data Visualization |
+| Axios | Latest | HTTP Client |
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| **Frontend** | React + Tailwind CSS | 18.x | Dashboard UI |
-| **UI Components** | Shadcn/UI | Latest | Component library |
-| **Backend** | FastAPI (Python) | 3.11+ | REST API + WebSocket |
-| **Database** | MongoDB | 6.x | Document storage |
-| **Search/Analytics** | Elasticsearch | 8.19.11 | Log indexing |
-| **Visualization** | Kibana | 8.19.11 | Dashboards |
-| **VPN** | WireGuard | 1.0.x | Secure agent communication |
+### Backend
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Python | 3.11+ | Runtime |
+| FastAPI | 0.100+ | API Framework |
+| Motor | Latest | Async MongoDB |
+| Pydantic | 2.x | Data Validation |
+| python-nmap | 0.7.1 | Network Scanning |
+| paramiko | 4.0.0 | SSH Deployment |
+| pywinrm | 0.5.0 | Windows Deployment |
 
-### Local Agent
-
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **Runtime** | Python 3.9+ | Cross-platform execution |
-| **Process Monitoring** | psutil | System metrics |
-| **Memory Forensics** | Volatility 3 | Memory analysis |
-| **Network Scanning** | Nmap | Port/service discovery |
-| **IDS** | Suricata | Network intrusion detection |
-| **Container Security** | Falco + Trivy | Runtime + vulnerability scanning |
-| **Malware Detection** | YARA + ClamAV | Signature-based scanning |
-| **Sandbox** | Firejail/Bubblewrap | Process isolation |
-
-### ML Models
-
-| Model | Type | Purpose | Accuracy |
-|-------|------|---------|----------|
-| **Network Anomaly** | Isolation Forest | Traffic anomaly detection | 94.2% |
-| **Process Behavior** | Isolation Forest | Behavioral analysis | 92.8% |
-| **Threat Classifier** | Naive Bayes | Threat categorization | 89.5% |
-| **Behavior Model** | Neural Network (12-24-5) | Multi-class prediction | 91.3% |
-
-### Performance Specifications
-
-| Metric | Value |
-|--------|-------|
-| API Response Time | < 50ms (p95) |
-| Events/Second | 10,000+ |
-| Agents Supported | 10,000+ per instance |
-| Memory Footprint (Agent) | < 100MB |
-| CPU Usage (Agent idle) | < 2% |
-| Scan Time (Full System) | < 5 minutes |
+### Infrastructure
+| Technology | Purpose |
+|------------|---------|
+| MongoDB | Primary Database |
+| Elasticsearch | Log Storage & Search |
+| Kibana | Dashboard & Analytics |
+| WireGuard | VPN Integration |
+| Trivy | Container Security |
+| Volatility 3 | Memory Forensics |
 
 ---
 
-## Component Deep Dive
+## 🚀 Installation & Setup
 
-### 1. ML Threat Prediction Engine
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- MongoDB 6.0+
+- nmap installed (`apt install nmap` or `brew install nmap`)
 
-The ML engine uses four complementary models for comprehensive threat detection:
-
-```python
-# Architecture
-MLThreatPredictor
-├── IsolationForest (Network Anomaly)
-│   └── 50 trees, 128 sample size
-├── IsolationForest (Process Anomaly)
-│   └── 50 trees, 128 sample size
-├── BayesianClassifier (Threat Category)
-│   └── 10 threat categories
-└── SimpleNeuralNetwork (Behavior)
-    └── 12 inputs → 24 hidden → 5 outputs
-```
-
-**Threat Categories:**
-- Malware, Ransomware, APT, Insider Threat
-- Data Exfiltration, Cryptominer, Botnet
-- Phishing, Lateral Movement, Privilege Escalation
-
-**Risk Scoring:**
-| Score | Level | Action |
-|-------|-------|--------|
-| 80-100 | Critical | Immediate isolation |
-| 60-79 | High | Alert + investigation |
-| 40-59 | Medium | Monitor closely |
-| 20-39 | Low | Log for audit |
-| 0-19 | Info | Normal activity |
-
-### 2. Sandbox Analysis
-
-Production-grade malware sandbox using process isolation:
-
-```
-┌─────────────────────────────────────────────────────┐
-│                  SANDBOX ENVIRONMENT                 │
-├─────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │
-│  │  Firejail   │  │  Network    │  │  File       │ │
-│  │  Container  │  │  Isolation  │  │  Monitor    │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-│         │                │                │        │
-│         ▼                ▼                ▼        │
-│  ┌─────────────────────────────────────────────┐  │
-│  │              ANALYSIS ENGINE                 │  │
-│  │  • Process execution tracking                │  │
-│  │  • Network connection monitoring             │  │
-│  │  • File system changes                       │  │
-│  │  • Registry modifications (Windows)          │  │
-│  │  • API call interception                     │  │
-│  └─────────────────────────────────────────────┘  │
-│                        │                           │
-│                        ▼                           │
-│  ┌─────────────────────────────────────────────┐  │
-│  │           SIGNATURE MATCHING                 │  │
-│  │  10 malware signatures:                      │  │
-│  │  • Persistence mechanisms                    │  │
-│  │  • Process injection                         │  │
-│  │  • Anti-VM/sandbox evasion                   │  │
-│  │  • Crypto API usage                          │  │
-│  │  • C2 communication patterns                 │  │
-│  │  • File encryption behavior                  │  │
-│  │  • Credential access                         │  │
-│  │  • Screen capture                            │  │
-│  │  • Keylogging                                │  │
-│  │  • Data exfiltration                         │  │
-│  └─────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-```
-
-### 3. SOAR Engine
-
-Security Orchestration, Automation, and Response:
-
-```yaml
-# Example Playbook
-name: "Ransomware Response"
-trigger: "threat_category == 'ransomware'"
-steps:
-  - action: isolate_host
-    params:
-      block_network: true
-  - action: kill_process
-    params:
-      force: true
-  - action: quarantine_file
-    params:
-      preserve_evidence: true
-  - action: notify
-    channels: [slack, email, sms]
-  - action: create_ticket
-    severity: critical
-```
-
-### 4. Zero Trust Architecture
-
-Dynamic trust evaluation for access control:
-
-```
-Trust Score Calculation:
-┌─────────────────────────────────────────────────────┐
-│  Base Score: 50                                      │
-│  + Device compliance: +20                            │
-│  + MFA enabled: +15                                  │
-│  + Certificate valid: +10                            │
-│  + Network location (internal): +5                   │
-│  - Failed logins (>3): -10                           │
-│  - Unusual access time: -5                           │
-│  - Geographic anomaly: -15                           │
-│  - Suspicious process: -20                           │
-│  ─────────────────────────────────────────────────── │
-│  Final Score: 0-100                                  │
-│                                                      │
-│  Access Decision:                                    │
-│  • Score >= 80: Full access                          │
-│  • Score 60-79: Limited access + MFA                 │
-│  • Score 40-59: Read-only + MFA                      │
-│  • Score < 40: Access denied                         │
-└─────────────────────────────────────────────────────┘
-```
-
----
-
-## Competitor Comparison
-
-### Feature Matrix
-
-| Feature | Anti-AI Defense | CrowdStrike Falcon | SentinelOne | Carbon Black | Microsoft Defender |
-|---------|-----------------|-------------------|-------------|--------------|-------------------|
-| **Endpoint Protection** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **ML Threat Detection** | ✅ Custom 4-model | ✅ Proprietary | ✅ Proprietary | ✅ | ✅ |
-| **Memory Forensics** | ✅ Volatility 3 | ✅ | ✅ | ✅ | ⚠️ Limited |
-| **Container Security** | ✅ Trivy + Falco | ✅ Add-on | ✅ Add-on | ⚠️ Limited | ⚠️ Limited |
-| **Browser Isolation** | ✅ 4 modes | ⚠️ Partner | ⚠️ Partner | ❌ | ✅ |
-| **SOAR/Playbooks** | ✅ Built-in | ✅ Falcon Fusion | ✅ | ⚠️ Add-on | ⚠️ Sentinel |
-| **Zero Trust** | ✅ Built-in | ✅ | ⚠️ Limited | ⚠️ Limited | ✅ |
-| **Deception/Honeypots** | ✅ Built-in | ⚠️ Partner | ⚠️ Partner | ❌ | ❌ |
-| **Threat Intelligence** | ✅ 20.5k+ IOCs | ✅ Premium | ✅ | ✅ | ✅ |
-| **USB Control** | ✅ BadUSB detect | ✅ | ✅ | ✅ | ✅ |
-| **VPN Integration** | ✅ WireGuard | ⚠️ Partner | ⚠️ Partner | ❌ | ⚠️ Limited |
-| **Sandbox Analysis** | ✅ Built-in | ✅ Falcon Sandbox | ⚠️ Limited | ✅ | ⚠️ Cloud only |
-| **MITRE ATT&CK Mapping** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Kibana Dashboards** | ✅ 6 pre-built | ❌ Proprietary | ❌ Proprietary | ❌ Proprietary | ❌ Proprietary |
-| **Open Source Agent** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Self-Hosted Option** | ✅ | ❌ Cloud only | ❌ Cloud only | ⚠️ Hybrid | ⚠️ Hybrid |
-| **AI Agent Detection** | ✅ Purpose-built | ⚠️ Generic | ⚠️ Generic | ⚠️ Generic | ⚠️ Generic |
-
-### Pricing Comparison (Approximate)
-
-| Solution | Per Endpoint/Year | Minimum Commitment | Notes |
-|----------|-------------------|-------------------|-------|
-| **Anti-AI Defense** | Self-hosted (free) | None | Open source agent |
-| CrowdStrike Falcon Go | $60-100 | 5 endpoints | Cloud only |
-| CrowdStrike Falcon Pro | $100-150 | Enterprise | + Threat Intel |
-| SentinelOne Core | $45-70 | 100 endpoints | Basic EDR |
-| SentinelOne Complete | $70-120 | 100 endpoints | Full XDR |
-| Carbon Black Defense | $50-80 | 100 endpoints | NGAV + EDR |
-| Microsoft Defender P2 | $57/user/year | M365 license | Bundled |
-
-### Unique Differentiators
-
-#### What We Do Better:
-
-1. **AI Agent Detection**
-   - Purpose-built detection for autonomous AI threats
-   - Behavioral patterns specific to AI-generated attacks
-   - Command-line analysis for AI tool usage
-
-2. **Transparency & Control**
-   - Open source local agent
-   - Self-hosted deployment option
-   - No vendor lock-in
-
-3. **Integrated Security Stack**
-   - Single platform for EDR, SOAR, ZTNA, Deception
-   - No add-on licensing for features
-   - Unified dashboard
-
-4. **Elasticsearch/Kibana Native**
-   - Use existing ELK infrastructure
-   - Custom dashboard creation
-   - Data ownership
-
-5. **Cost Efficiency**
-   - No per-endpoint licensing
-   - Self-hosted option
-   - Scales with infrastructure
-
-#### Where Competitors Excel:
-
-| Competitor | Strength |
-|------------|----------|
-| CrowdStrike | Threat intelligence, cloud-native scale |
-| SentinelOne | Autonomous response, storyline visualization |
-| Carbon Black | VMware integration, compliance |
-| Microsoft | M365 integration, Azure native |
-
----
-
-## Installation
-
-### Cloud Platform (Docker)
+### Quick Start
 
 ```bash
-# Clone repository
-git clone https://github.com/your-org/anti-ai-defense.git
-cd anti-ai-defense
+# 1. Clone the repository
+git clone https://github.com/your-org/seraph-ai.git
+cd seraph-ai
 
-# Start with Docker Compose
-docker-compose up -d
-
-# Access dashboard
-open http://localhost:3000
-```
-
-### Cloud Platform (Manual)
-
-```bash
-# Backend
+# 2. Backend setup
 cd backend
 pip install -r requirements.txt
-uvicorn server:app --host 0.0.0.0 --port 8001
+cp .env.example .env
+# Edit .env with your MongoDB URL
 
-# Frontend
-cd frontend
+# 3. Frontend setup
+cd ../frontend
 yarn install
-yarn start
+cp .env.example .env
+# Edit .env with your API URL
 
-# Elasticsearch + Kibana
-docker run -d -p 9200:9200 elasticsearch:8.12.0
-docker run -d -p 5601:5601 kibana:8.12.0
+# 4. Start services
+# Terminal 1 - Backend
+cd backend && uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+
+# Terminal 2 - Frontend
+cd frontend && yarn start
 ```
 
-### Local Agent
+### Docker Deployment
 
 ```bash
-# Download agent
-curl -O https://your-server/api/agent/download/advanced-agent
+# Build and run all services
+docker-compose up -d
+
+# Validate deployment
+./scripts/validate_deployment.sh
+
+# View logs
+docker-compose logs -f
+```
+
+---
+
+## 📡 Network Scanner Setup
+
+The Network Scanner is a crucial component that discovers devices on your local network and reports them to the central server.
+
+### Why Run Locally?
+
+The Seraph AI server runs in the cloud, but network scanning requires access to your local LAN. The scanner runs on your network and reports discovered devices to the server.
+
+### Installation
+
+#### Windows (PowerShell - Run as Administrator)
+
+```powershell
+# Download scanner
+Invoke-WebRequest -Uri "https://YOUR_SERVER/api/swarm/agent/download/scanner" -OutFile "seraph_network_scanner.py"
 
 # Install dependencies
-pip install psutil requests volatility3
+pip install python-nmap requests netifaces
 
-# Run full scan
-python advanced_agent.py --full-scan
-
-# Start monitoring with cloud sync
-python advanced_agent.py --monitor --api-url https://your-server/api
+# Run scanner
+python seraph_network_scanner.py --api-url https://YOUR_SERVER --interval 60
 ```
 
----
-
-## Configuration
-
-### Environment Variables
+#### Linux/macOS
 
 ```bash
-# Backend (.env)
-MONGO_URL=mongodb://localhost:27017
-DB_NAME=anti_ai_defense
-JWT_SECRET=your-secret-key
-ELASTICSEARCH_URL=http://localhost:9200
-KIBANA_URL=http://localhost:5601
+# Download scanner
+curl -o seraph_network_scanner.py "https://YOUR_SERVER/api/swarm/agent/download/scanner"
 
-# Frontend (.env)
-REACT_APP_BACKEND_URL=https://your-domain.com
+# Install dependencies
+pip3 install python-nmap requests netifaces
 
-# Agent (config.json)
-{
-  "api_url": "https://your-server/api",
-  "agent_name": "workstation-001",
-  "scan_interval": 300,
-  "auto_kill_threshold": 70
-}
+# Run with sudo (required for network scanning)
+sudo python3 seraph_network_scanner.py --api-url https://YOUR_SERVER --interval 60
 ```
 
-### WireGuard VPN Setup
+### Scanner Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--api-url` | Seraph AI server URL | Required |
+| `--interval` | Scan interval (seconds) | 300 |
+| `--network` | Target network (CIDR) | Auto-detect |
+| `--deploy` | Auto-deploy to IP | - |
+| `--deploy-user` | SSH username | root |
+| `--deploy-pass` | SSH password | - |
+
+---
+
+## 🤖 Agent Deployment
+
+### Desktop Agent (v7)
+
+The full-featured desktop agent includes:
+- File integrity monitoring
+- Process monitoring with threat detection
+- CLI command capture for AI detection
+- Network traffic monitoring
+- Local dashboard UI
+- Server command execution (C2)
 
 ```bash
-# Generate server keys
-wg genkey | tee server_private.key | wg pubkey > server_public.key
-
-# Configure /etc/wireguard/wg0.conf
-[Interface]
-Address = 10.200.200.1/24
-ListenPort = 51820
-PrivateKey = <server_private_key>
-
-[Peer]
-PublicKey = <client_public_key>
-AllowedIPs = 10.200.200.2/32
-
-# Start VPN
-wg-quick up wg0
+# Download and run
+curl -o seraph_defender_v7.py "https://YOUR_SERVER/api/swarm/agent/download/v7"
+python3 seraph_defender_v7.py --monitor --api-url https://YOUR_SERVER
 ```
 
----
+### Mobile Agent
 
-## API Reference
-
-### Authentication
+For iOS (Pythonista) and Android (Termux):
 
 ```bash
-# Register
-POST /api/auth/register
-{"email": "user@example.com", "password": "secure123", "name": "User"}
+# Download
+curl -o seraph_mobile_v7.py "https://YOUR_SERVER/api/swarm/agent/download/mobile-v7"
 
-# Login
-POST /api/auth/login
-{"email": "user@example.com", "password": "secure123"}
-# Returns: {"access_token": "jwt..."}
-```
-
-### Core Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/ml/predict/network` | POST | Network threat prediction |
-| `/api/ml/predict/process` | POST | Process behavior analysis |
-| `/api/sandbox/submit/url` | POST | Submit URL for analysis |
-| `/api/sandbox/submit/file` | POST | Submit file for analysis |
-| `/api/browser-isolation/sessions` | POST | Create isolated session |
-| `/api/soar/playbooks` | GET/POST | Manage playbooks |
-| `/api/zero-trust/devices` | GET | List trusted devices |
-| `/api/honey-tokens/tokens` | GET/POST | Manage honey tokens |
-| `/api/agent/event` | POST | Receive agent events |
-
-### WebSocket
-
-```javascript
-// Real-time threat feed
-ws://your-server/api/ws/threats
-
-// Agent heartbeat
-ws://your-server/api/ws/agents
+# Run
+python3 seraph_mobile_v7.py --api-url https://YOUR_SERVER
 ```
 
 ---
 
-## Local Agent Usage
+## 📚 API Reference
 
-### CLI Commands
+### Swarm Management
 
-```bash
-# Full security scan
-python advanced_agent.py --full-scan
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/swarm/scanner/report` | Receive scanner reports (no auth) |
+| POST | `/api/swarm/agents/register` | Register new agent |
+| POST | `/api/swarm/agents/{id}/heartbeat` | Agent heartbeat |
+| GET | `/api/swarm/devices` | List discovered devices |
+| POST | `/api/swarm/deploy/batch` | Deploy to all devices |
+| GET | `/api/swarm/overview` | Swarm statistics |
 
-# Process monitoring (Task Manager)
-python advanced_agent.py --process-scan
+### AI Threat Intelligence
 
-# Browser extension analysis
-python advanced_agent.py --browser-scan
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/ai-threats/intelligence/dashboard` | Combined AATL/AATR dashboard |
+| GET | `/api/ai-threats/aatl/assessments` | Get AATL assessments |
+| GET | `/api/ai-threats/aatr/entries` | Get AATR registry |
+| POST | `/api/swarm/cli/event` | Ingest CLI event |
 
-# Folder indexing
-python advanced_agent.py --folder-scan /home/user
+### Agent Commands (C2)
 
-# User privilege audit
-python advanced_agent.py --user-scan
-
-# Scheduled task/cron monitoring
-python advanced_agent.py --task-scan
-
-# USB device scanning
-python advanced_agent.py --usb-scan
-
-# Memory forensics (quick)
-python advanced_agent.py --memory-scan
-
-# Memory dump analysis
-python advanced_agent.py --memory-dump /path/to/dump.raw
-
-# Continuous monitoring with cloud sync
-python advanced_agent.py --monitor --api-url https://server/api
-
-# Auto-kill malicious processes
-python advanced_agent.py --auto-kill
-
-# JSON output for automation
-python advanced_agent.py --full-scan --json
-```
-
-### Detection Capabilities
-
-| Category | Patterns Detected |
-|----------|-------------------|
-| **Process Names** | 50+ (mimikatz, xmrig, cobalt, etc.) |
-| **Command Lines** | 25+ (encoded PS, reverse shells, etc.) |
-| **High-Risk Ports** | 15+ (4444, 31337, etc.) |
-| **Browser Permissions** | 20+ dangerous permissions |
-| **File Patterns** | Double extensions, sensitive names |
-| **USB Devices** | BadUSB (Teensy, Digispark, Arduino) |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/swarm/agents/{id}/command` | Send command to agent |
+| GET | `/api/swarm/agents/{id}/commands` | Get pending commands |
+| POST | `/api/swarm/agents/{id}/commands/{cmd_id}/ack` | Acknowledge command |
 
 ---
 
-## Security Considerations
+## 📊 Competitive Analysis
 
-### Data Protection
+### Seraph AI vs. Traditional Security
 
-- All API communication over TLS 1.3
-- JWT tokens with short expiry (24h)
-- Passwords hashed with bcrypt
-- MongoDB authentication enabled
-- WireGuard encryption for agent traffic
+| Feature | CrowdStrike | SentinelOne | Seraph AI |
+|---------|-------------|-------------|-----------|
+| AI Threat Detection | ⚠️ Limited | ⚠️ Limited | ✅ **AATL Engine** |
+| Agent Behavior Analysis | ✅ Yes | ✅ Yes | ✅ **Yes** |
+| Swarm Deployment | ❌ No | ❌ No | ✅ **Auto-push** |
+| AI Attack Response | ❌ No | ❌ No | ✅ **Slow & Poison** |
+| Deception Technology | ⚠️ Basic | ❌ No | ✅ **Full Suite** |
+| Open Source | ❌ No | ❌ No | ✅ **Customizable** |
+| ML Prediction | ✅ Yes | ✅ Yes | ✅ **4 Models** |
+| Container Security | ⚠️ Add-on | ⚠️ Add-on | ✅ **Built-in** |
+| Price | $$$$ | $$$$ | 💰 **Affordable** |
 
-### Compliance
+### Why Choose Seraph AI?
 
-| Standard | Support |
-|----------|---------|
-| SOC 2 Type II | ✅ Audit logging |
-| GDPR | ✅ Data minimization |
-| HIPAA | ✅ Access controls |
-| PCI DSS | ✅ Encryption |
-| NIST CSF | ✅ Framework aligned |
-
-### Threat Model
-
-```
-Assets Protected:
-├── Endpoints (workstations, servers)
-├── User credentials
-├── Business data
-└── Network infrastructure
-
-Threats Mitigated:
-├── Malware (ransomware, trojans, RATs)
-├── Fileless attacks
-├── Insider threats
-├── Supply chain attacks
-├── AI-powered attacks
-└── Zero-day exploits
-```
+1. **Purpose-built for AI threats** - Not retrofitted from traditional AV
+2. **Autonomous response** - "Slow & Poison" strategy disrupts AI attackers
+3. **Swarm architecture** - Distributed defense across all endpoints
+4. **Deception-first** - Honey tokens and decoys as primary defense
+5. **Open and customizable** - Modify detection rules and playbooks
+6. **Modern stack** - React + FastAPI + MongoDB for speed
 
 ---
 
-## Roadmap
+## 🗺️ Roadmap
 
-### Version 4.4 (Q2 2026)
-- [ ] Credential theft detection (LSASS, SAM, browser)
-- [ ] Registry persistence monitoring (Windows)
-- [ ] Network traffic analysis integration
-- [ ] macOS kernel extension
+### Current Version: v5.4.0
 
-### Version 5.0 (Q3 2026)
-- [ ] XDR correlation engine
-- [ ] Cloud workload protection (AWS, Azure, GCP)
-- [ ] Mobile device management
-- [ ] Threat hunting automation
+### Upcoming Features
 
-### Future
-- [ ] Quantum-resistant encryption
-- [ ] Hardware security module (HSM) support
-- [ ] Air-gapped deployment option
-- [ ] Multi-tenant SaaS offering
+| Priority | Feature | Status |
+|----------|---------|--------|
+| P0 | UI Branding Overhaul | ✅ Complete |
+| P0 | Deploy All Fix | ✅ Complete |
+| P1 | v7 Agent Network Monitoring | 🚧 In Progress |
+| P1 | C2 UI for Remediation | 🚧 Planned |
+| P2 | Windows Batch Deployment | 📋 Backlog |
+| P2 | WinRM Integration | 📋 Backlog |
+| P2 | Device Grouping | 📋 Backlog |
+| P3 | VM Sandbox (Cuckoo) | 📋 Future |
 
 ---
 
-## Support
+## 📄 License
 
-- **Documentation**: https://docs.anti-ai-defense.io
-- **Community**: https://discord.gg/anti-ai-defense
-- **Enterprise Support**: enterprise@anti-ai-defense.io
-- **Security Issues**: security@anti-ai-defense.io
+Copyright © 2026 Seraph AI. All rights reserved.
 
 ---
 
-## License
+## 🤝 Support
 
-This project is licensed under the Enterprise License. See [LICENSE](LICENSE) for details.
+- **Documentation**: [docs.seraph-ai.io](https://docs.seraph-ai.io)
+- **Issues**: GitHub Issues
+- **Email**: support@seraph-ai.io
 
 ---
 
-<p align="center">
-  <strong>Built to defend against the next generation of cyber threats.</strong>
-</p>
+<div align="center">
+
+**SERAPH AI** - *Divine Protection for the Digital Age*
+
+🛡️ Protecting humanity from autonomous AI threats 🛡️
+
+</div>
