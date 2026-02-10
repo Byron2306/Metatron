@@ -476,6 +476,55 @@ class ZeroTrustEngine:
             "trust_levels": [t.value for t in TrustLevel],
             "device_types": [d.value for d in DeviceType]
         }
+    
+    def trigger_remediation(self, device_id: str, reason: str, compliance_issues: List[str] = None) -> Dict:
+        """
+        Trigger a remediation command for a device that fails zero trust checks.
+        Creates a pending command in the agent command system for manual approval.
+        """
+        device = self.devices.get(device_id)
+        if not device:
+            return {"success": False, "error": "Device not found"}
+        
+        remediation_action = {
+            "device_id": device_id,
+            "device_name": device.device_name,
+            "reason": reason,
+            "trust_score": device.trust_score,
+            "trust_level": device.trust_level.value,
+            "compliance_issues": compliance_issues or device.compliance_issues,
+            "triggered_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        logger.info(f"Zero Trust remediation triggered for device {device_id}: {reason}")
+        
+        return {
+            "success": True,
+            "remediation": remediation_action,
+            "message": "Remediation command queued for approval"
+        }
+    
+    def block_device(self, device_id: str, reason: str = "Zero Trust violation") -> Dict:
+        """Block a device and set its trust score to 0"""
+        device = self.devices.get(device_id)
+        if not device:
+            return {"success": False, "error": "Device not found"}
+        
+        # Update device trust
+        device.trust_score = 0
+        device.trust_level = TrustLevel.UNTRUSTED
+        device.is_compliant = False
+        device.compliance_issues.append(f"BLOCKED: {reason}")
+        device.last_seen = datetime.now(timezone.utc).isoformat()
+        
+        logger.warning(f"Device {device_id} blocked: {reason}")
+        
+        return {
+            "success": True,
+            "device_id": device_id,
+            "status": "blocked",
+            "reason": reason
+        }
 
 
 # Global instance
