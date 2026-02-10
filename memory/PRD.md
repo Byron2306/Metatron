@@ -16,7 +16,48 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v4.3.0**: Advanced Local Agent - Process Monitor, User Privileges, Browser Extensions
 - **v4.4.0**: Data Visibility & Usability Fixes
 - **v4.5.0**: Kibana Live Dashboards + Credential Theft Detection
-- **v4.6.0**: Critical Fixes + Agent Command Center (CURRENT - Feb 2026)
+- **v4.6.0**: Critical Fixes + Agent Command Center
+- **v4.7.0**: WebSocket Agent + Zero Trust Remediation (CURRENT - Feb 2026)
+
+## v4.7 WebSocket Agent + Zero Trust Remediation (Feb 2026)
+
+### WebSocket Agent Implementation
+Added real-time bidirectional communication to `advanced_agent.py`:
+
+| Feature | CLI Flag | Description |
+|---------|----------|-------------|
+| **Connect to Server** | `--connect --api-url URL` | Connects via WebSocket for real-time commands |
+| **Persistence Scan** | `--persistence-scan` | Scans registry/startup persistence mechanisms |
+| **Command Handlers** | Built-in | Handles full_scan, kill_process, quarantine_file, block_ip, collect_forensics |
+
+### Zero Trust → Agent Commands Integration
+Blocking a device now automatically creates remediation commands:
+
+| Action | Trigger | Result |
+|--------|---------|--------|
+| **Block Device** | Admin clicks "Block" on Zero Trust page | Trust score set to 0, remediation command queued |
+| **Unblock Device** | Admin clicks "Unblock" | Trust score reset to 50, compliance issues cleared |
+| **Remediation Command** | Auto-created on block | Command with `source: zero_trust_violation` queued for approval |
+
+### VPN Config Download Fix
+Fixed peer configuration download when server not fully initialized:
+
+| State | Behavior |
+|-------|----------|
+| Server initialized | Returns complete WireGuard config with real public key |
+| Server not initialized | Returns config with placeholder + instructions to initialize first |
+
+### New API Endpoints
+- `POST /api/zero-trust/devices/{id}/block` - Block device + create remediation command
+- `POST /api/zero-trust/devices/{id}/unblock` - Unblock device
+
+### Frontend Updates
+- **Zero Trust Page**: Added Block/Unblock buttons for each device
+- **Agent Commands Page**: Shows remediation commands from Zero Trust violations
+
+### Testing Results (iteration_13.json)
+- **Backend**: 28/28 tests passed (100%)
+- **Frontend**: All pages verified working
 
 ## v4.6 Critical Fixes + Agent Command Center (Feb 2026)
 
