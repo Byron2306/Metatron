@@ -15,11 +15,14 @@ NEW IN v4.0:
 - Scheduled task/cron monitoring
 
 USAGE:
-    python advanced_agent.py                    # Start all monitors
-    python advanced_agent.py --process-only    # Process monitoring only
-    python advanced_agent.py --browser-scan    # Browser extension scan
-    python advanced_agent.py --folder-scan     # Deep folder scan
-    python advanced_agent.py --dashboard       # Launch local dashboard
+    python advanced_agent.py                                    # Run full security scan
+    python advanced_agent.py --connect --api-url URL           # Connect to server for real-time commands
+    python advanced_agent.py --process-scan                    # Process monitoring only
+    python advanced_agent.py --browser-scan                    # Browser extension scan
+    python advanced_agent.py --folder-scan /path               # Deep folder scan
+    python advanced_agent.py --persistence-scan                # Registry/startup persistence scan
+    python advanced_agent.py --credential-scan                 # Credential theft detection
+    python advanced_agent.py --monitor --api-url URL           # Continuous monitoring with cloud sync
 
 Supports: Windows, macOS, Linux
 """
