@@ -168,6 +168,7 @@ class AgentDeploymentService:
         
         # Store in database
         await self.db.deployment_tasks.insert_one({
+            "task_id": task.task_id,
             "device_ip": task.device_ip,
             "device_hostname": task.device_hostname,
             "os_type": task.os_type,
@@ -187,7 +188,7 @@ class AgentDeploymentService:
         await self.deployment_queue.put(task)
         
         logger.info(f"Queued deployment for {device_ip} ({os_type}) via {method.value}")
-        return task
+        return task.task_id
     
     async def _deploy_agent(self, task: DeploymentTask):
         """Deploy agent to a device"""
