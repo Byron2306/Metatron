@@ -279,79 +279,177 @@ const SOARPage = () => {
         </motion.div>
       </div>
 
-      {/* Playbooks Grid */}
+      {/* Playbooks Section with Tabs */}
       <Card className="bg-slate-900/50 border-slate-800">
         <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
-            <Workflow className="w-5 h-5 text-cyan-400" />
-            Playbooks ({playbooks.length})
+          <CardTitle className="text-white flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Workflow className="w-5 h-5 text-cyan-400" />
+              Playbooks
+            </div>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="bg-slate-800/50">
+                <TabsTrigger value="all" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400">
+                  All ({playbooks.length})
+                </TabsTrigger>
+                <TabsTrigger value="ai" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400">
+                  <Brain className="w-4 h-4 mr-1" />
+                  AI Defense ({aiPlaybooks.length})
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {playbooks.map((pb) => (
-              <motion.div
-                key={pb.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className={`p-4 rounded-lg border ${pb.status === 'active' ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-900/30 border-slate-800'}`}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    {getTriggerIcon(pb.trigger)}
-                    <div>
-                      <h3 className="text-white font-medium">{pb.name}</h3>
-                      <p className="text-slate-400 text-xs">{pb.description}</p>
+          {/* Standard Playbooks */}
+          {activeTab === 'all' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {playbooks.map((pb) => (
+                <motion.div
+                  key={pb.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className={`p-4 rounded-lg border ${pb.status === 'active' ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-900/30 border-slate-800'}`}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      {getTriggerIcon(pb.trigger)}
+                      <div>
+                        <h3 className="text-white font-medium">{pb.name}</h3>
+                        <p className="text-slate-400 text-xs">{pb.description}</p>
+                      </div>
+                    </div>
+                    <Switch 
+                      checked={pb.status === 'active'} 
+                      onCheckedChange={() => handleTogglePlaybook(pb.id)}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    <Badge variant="outline" className="text-xs text-cyan-400 border-cyan-500/30">
+                      {pb.trigger.replace(/_/g, ' ')}
+                    </Badge>
+                    <Badge variant="outline" className="text-xs text-purple-400 border-purple-500/30">
+                      {pb.steps?.length || 0} steps
+                    </Badge>
+                    {pb.execution_count > 0 && (
+                      <Badge variant="outline" className="text-xs text-green-400 border-green-500/30">
+                        {pb.execution_count} runs
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {pb.last_executed ? new Date(pb.last_executed).toLocaleString() : 'Never executed'}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="h-7 px-2 text-slate-400 hover:text-white"
+                        onClick={() => setSelectedPlaybook(pb)}
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="h-7 px-2 text-green-400 hover:text-green-300"
+                        onClick={() => handleExecutePlaybook(pb.id)}
+                        disabled={pb.status !== 'active'}
+                      >
+                        <Play className="w-4 h-4" />
+                      </Button>
                     </div>
                   </div>
-                  <Switch 
-                    checked={pb.status === 'active'} 
-                    onCheckedChange={() => handleTogglePlaybook(pb.id)}
-                  />
-                </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
 
-                <div className="flex flex-wrap gap-2 mb-3">
-                  <Badge variant="outline" className="text-xs text-cyan-400 border-cyan-500/30">
-                    {pb.trigger.replace(/_/g, ' ')}
-                  </Badge>
-                  <Badge variant="outline" className="text-xs text-purple-400 border-purple-500/30">
-                    {pb.steps?.length || 0} steps
-                  </Badge>
-                  {pb.execution_count > 0 && (
-                    <Badge variant="outline" className="text-xs text-green-400 border-green-500/30">
-                      {pb.execution_count} runs
-                    </Badge>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {pb.last_executed ? new Date(pb.last_executed).toLocaleString() : 'Never executed'}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button 
-                      size="sm" 
-                      variant="ghost" 
-                      className="h-7 px-2 text-slate-400 hover:text-white"
-                      onClick={() => setSelectedPlaybook(pb)}
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="ghost" 
-                      className="h-7 px-2 text-green-400 hover:text-green-300"
-                      onClick={() => handleExecutePlaybook(pb.id)}
-                      disabled={pb.status !== 'active'}
-                    >
-                      <Play className="w-4 h-4" />
-                    </Button>
+          {/* AI-Agentic Defense Playbooks */}
+          {activeTab === 'ai' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-lg mb-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <Brain className="w-6 h-6 text-purple-400" />
+                  <div>
+                    <h3 className="text-white font-semibold">AI-Agentic Defense Playbook Pack</h3>
+                    <p className="text-slate-400 text-sm">Machine-paced intrusion detection and autonomous response</p>
                   </div>
                 </div>
-              </motion.div>
-            ))}
-          </div>
+                <p className="text-purple-300 text-xs">
+                  These playbooks analyze CLI session patterns via the Cognition Engine to detect and disrupt AI-driven attacks.
+                  Responses follow the "Slow & Poison" philosophy: degrade operations before full containment.
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-1 gap-4">
+                {aiPlaybooks.map((pb, idx) => (
+                  <motion.div
+                    key={pb.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.1 }}
+                    className="p-4 rounded-lg bg-gradient-to-r from-purple-500/10 to-slate-800/50 border border-purple-500/30 hover:border-purple-500/50 transition-all"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                          {getTriggerIcon(pb.trigger)}
+                        </div>
+                        <div>
+                          <h3 className="text-white font-medium">{pb.name}</h3>
+                          <p className="text-slate-400 text-sm mt-1">{pb.description}</p>
+                        </div>
+                      </div>
+                      <Badge className={getSeverityColor(pb.severity)}>
+                        {pb.severity.toUpperCase()}
+                      </Badge>
+                    </div>
+                    
+                    {/* Trigger Conditions */}
+                    <div className="mb-3 p-3 bg-slate-900/50 rounded-lg">
+                      <p className="text-slate-400 text-xs mb-2 font-semibold">TRIGGER CONDITIONS</p>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(pb.conditions).map(([key, value]) => (
+                          <span key={key} className="px-2 py-1 rounded text-xs bg-slate-800 text-slate-300">
+                            <span className="text-cyan-400">{key.replace(/_/g, ' ')}</span>: {Array.isArray(value) ? value.join(', ') : String(value)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Actions */}
+                    <div className="mb-3">
+                      <p className="text-slate-400 text-xs mb-2 font-semibold">RESPONSE ACTIONS</p>
+                      <div className="flex flex-wrap gap-2">
+                        {pb.actions.map((action, i) => (
+                          <span key={i} className="px-2 py-1 rounded text-xs bg-purple-500/20 text-purple-300 flex items-center gap-1">
+                            {getActionIcon(action)}
+                            {action.replace(/_/g, ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span className="flex items-center gap-1 text-purple-400">
+                        <Cpu className="w-3 h-3" />
+                        ID: {pb.id}
+                      </span>
+                      <Badge variant="outline" className="text-green-400 border-green-500/30">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        {pb.status}
+                      </Badge>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
