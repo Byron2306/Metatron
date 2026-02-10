@@ -3081,7 +3081,7 @@ class MemoryForensics:
 class CloudSyncClient:
     """
     Sync agent data with cloud dashboard
-    Report events, threats, and receive commands
+    Report events, threats, and receive commands via WebSocket
     """
     
     def __init__(self, api_url: str = None):
@@ -3089,7 +3089,13 @@ class CloudSyncClient:
         self.agent_id = CONFIG.get("agent_id", hashlib.md5(platform.node().encode()).hexdigest()[:16])
         self.agent_name = CONFIG.get("agent_name", platform.node())
         self.connected = False
+        self.ws_connected = False
         self.last_sync = None
+        self.ws = None
+        self.ws_thread = None
+        self.pending_commands = []
+        self.command_handlers = {}
+        self._stop_ws = False
         
         if requests:
             self.session = requests.Session()
@@ -3129,12 +3135,184 @@ class CloudSyncClient:
             self.connected = False
             return False
     
+    def connect_websocket(self):
+        """Connect to server via WebSocket for real-time commands"""
+        try:
+            import websocket
+        except ImportError:
+            print("[!] websocket-client not installed. Install with: pip install websocket-client")
+            return False
+        
+        if not self.api_url:
+            print("[!] API URL not configured")
+            return False
+        
+        # Convert HTTP URL to WebSocket URL
+        ws_url = self.api_url.replace("https://", "wss://").replace("http://", "ws://")
+        ws_url = f"{ws_url}/api/agent-commands/ws/{self.agent_id}"
+        
+        print(f"[*] Connecting to server: {ws_url}")
+        
+        def on_message(ws, message):
+            try:
+                data = json.loads(message)
+                msg_type = data.get("type")
+                
+                if msg_type == "command":
+                    print(f"[>] Received command: {data.get('command_type')}")
+                    self.pending_commands.append(data)
+                    
+                    # Execute command if handler registered
+                    cmd_type = data.get("command_type")
+                    if cmd_type in self.command_handlers:
+                        try:
+                            result = self.command_handlers[cmd_type](data.get("parameters", {}))
+                            self._send_command_result(data.get("command_id"), True, result)
+                        except Exception as e:
+                            self._send_command_result(data.get("command_id"), False, {"error": str(e)})
+                    
+                elif msg_type == "ping":
+                    ws.send(json.dumps({"type": "pong"}))
+                    
+            except Exception as e:
+                print(f"[!] Error processing message: {e}")
+        
+        def on_error(ws, error):
+            print(f"[!] WebSocket error: {error}")
+            self.ws_connected = False
+        
+        def on_close(ws, close_status_code, close_msg):
+            print(f"[*] WebSocket closed: {close_msg}")
+            self.ws_connected = False
+        
+        def on_open(ws):
+            print(f"[+] Connected to server!")
+            self.ws_connected = True
+            
+            # Send initial status
+            ws.send(json.dumps({
+                "type": "status_update",
+                "hostname": platform.node(),
+                "os": f"{platform.system()} {platform.release()}",
+                "ip_address": self._get_local_ip(),
+                "security_status": {
+                    "agent_version": VERSION,
+                    "last_scan": None
+                }
+            }))
+        
+        def run_ws():
+            while not self._stop_ws:
+                try:
+                    self.ws = websocket.WebSocketApp(
+                        ws_url,
+                        on_open=on_open,
+                        on_message=on_message,
+                        on_error=on_error,
+                        on_close=on_close
+                    )
+                    self.ws.run_forever(ping_interval=30, ping_timeout=10)
+                except Exception as e:
+                    print(f"[!] WebSocket connection failed: {e}")
+                
+                if not self._stop_ws:
+                    print("[*] Reconnecting in 5 seconds...")
+                    time.sleep(5)
+        
+        self._stop_ws = False
+        self.ws_thread = threading.Thread(target=run_ws, daemon=True)
+        self.ws_thread.start()
+        
+        return True
+    
+    def disconnect_websocket(self):
+        """Disconnect WebSocket"""
+        self._stop_ws = True
+        if self.ws:
+            self.ws.close()
+        self.ws_connected = False
+    
+    def _get_local_ip(self) -> str:
+        """Get local IP address"""
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except:
+            return "127.0.0.1"
+    
+    def _send_command_result(self, command_id: str, success: bool, result: Dict):
+        """Send command execution result back to server"""
+        if self.ws and self.ws_connected:
+            try:
+                self.ws.send(json.dumps({
+                    "type": "command_result",
+                    "command_id": command_id,
+                    "success": success,
+                    "result": result,
+                    "timestamp": datetime.now().isoformat()
+                }))
+            except:
+                pass
+    
+    def send_alert_to_server(self, alert_type: str, severity: str, message: str, details: Dict = None):
+        """Send alert to server via WebSocket"""
+        if self.ws and self.ws_connected:
+            try:
+                self.ws.send(json.dumps({
+                    "type": "alert",
+                    "alert_type": alert_type,
+                    "severity": severity,
+                    "message": message,
+                    "details": details or {},
+                    "timestamp": datetime.now().isoformat()
+                }))
+                return True
+            except:
+                pass
+        return False
+    
+    def send_scan_results(self, scan_type: str, results: Dict):
+        """Send scan results to server via WebSocket"""
+        if self.ws and self.ws_connected:
+            try:
+                self.ws.send(json.dumps({
+                    "type": "scan_result",
+                    "scan_type": scan_type,
+                    "results": results,
+                    "timestamp": datetime.now().isoformat()
+                }))
+                return True
+            except:
+                pass
+        return False
+    
+    def register_command_handler(self, command_type: str, handler):
+        """Register a handler function for a command type"""
+        self.command_handlers[command_type] = handler
+    
     def send_heartbeat(self, system_info: Dict) -> bool:
         """Send heartbeat with system info"""
+        # Send via WebSocket if connected
+        if self.ws and self.ws_connected:
+            try:
+                self.ws.send(json.dumps({
+                    "type": "heartbeat",
+                    "system_info": system_info,
+                    "timestamp": datetime.now().isoformat()
+                }))
+            except:
+                pass
+        
         return self._send_event("heartbeat", system_info)
     
     def send_process_alert(self, process_info: Dict) -> bool:
         """Report suspicious process"""
+        self.send_alert_to_server("suspicious_process", "high", 
+            f"Suspicious process: {process_info.get('name')}", process_info)
         return self._send_event("suspicious_process", process_info)
     
     def send_usb_event(self, device_info: Dict) -> bool:
@@ -3155,7 +3333,15 @@ class CloudSyncClient:
     
     def send_credential_theft_alert(self, cred_info: Dict) -> bool:
         """Report credential theft attempts"""
+        self.send_alert_to_server("credential_theft", "critical",
+            "Credential theft attempt detected", cred_info)
         return self._send_event("credential_theft", cred_info)
+    
+    def send_persistence_alert(self, persistence_info: Dict) -> bool:
+        """Report persistence mechanism"""
+        self.send_alert_to_server("persistence_detected", "high",
+            f"Persistence detected: {persistence_info.get('name')}", persistence_info)
+        return self._send_event("persistence_detected", persistence_info)
     
     def send_file_alert(self, file_info: Dict) -> bool:
         """Report suspicious file"""
@@ -3163,6 +3349,7 @@ class CloudSyncClient:
     
     def send_full_scan_report(self, report: Dict) -> bool:
         """Send full scan report"""
+        self.send_scan_results("full_scan", report)
         return self._send_event("full_scan_report", report)
     
     def get_commands(self) -> List[Dict]:
@@ -3190,7 +3377,9 @@ class CloudSyncClient:
             "agent_id": self.agent_id,
             "agent_name": self.agent_name,
             "connected": self.connected,
-            "last_sync": self.last_sync
+            "ws_connected": self.ws_connected,
+            "last_sync": self.last_sync,
+            "pending_commands": len(self.pending_commands)
         }
 
 
