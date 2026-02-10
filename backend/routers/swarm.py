@@ -273,6 +273,15 @@ async def download_agent(platform: str):
             media_type="text/x-python",
             filename="seraph_network_scanner.py"
         )
+    elif platform == "mobile":
+        mobile_path = "/app/scripts/seraph_mobile_agent.py"
+        if not os.path.exists(mobile_path):
+            raise HTTPException(status_code=404, detail="Mobile agent not found")
+        return FileResponse(
+            mobile_path,
+            media_type="text/x-python",
+            filename="seraph_mobile_agent.py"
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
 
