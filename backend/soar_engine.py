@@ -440,7 +440,7 @@ class SOAREngine:
             return {"isolated_agent": agent_id, "network": params.get("network", True)}
         
         elif action == PlaybookAction.COLLECT_FORENSICS:
-            logger.info(f"SOAR: Collecting forensics data")
+            logger.info("SOAR: Collecting forensics data")
             return {"forensics_collected": True, "params": params}
         
         elif action == PlaybookAction.DISABLE_USER:
