@@ -334,8 +334,12 @@ const BrowserIsolationPage = () => {
                 <Eye className="w-4 h-4 mr-2" />
                 Analyze URL
               </Button>
-              <Button onClick={createSession} className="bg-cyan-600 hover:bg-cyan-700">
-                <Lock className="w-4 h-4 mr-2" />
+              <Button onClick={createSession} disabled={creating} className="bg-cyan-600 hover:bg-cyan-700">
+                {creating ? (
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Lock className="w-4 h-4 mr-2" />
+                )}
                 Start Isolated Session
               </Button>
             </div>
