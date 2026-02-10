@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 
 class AntiAIDefenseAPITester:
-    def __init__(self, base_url="https://aidefender-22.preview.emergentagent.com/api"):
+    def __init__(self, base_url="https://securityshield-17.preview.emergentagent.com/api"):
         self.base_url = base_url
         self.token = None
         self.user_id = None
