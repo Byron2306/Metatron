@@ -31,6 +31,7 @@ import BrowserIsolationPage from "./pages/BrowserIsolationPage";
 import KibanaDashboardsPage from "./pages/KibanaDashboardsPage";
 import AgentCommandsPage from "./pages/AgentCommandsPage";
 import AgentDetailsPage from "./pages/AgentDetailsPage";
+import CLISessionsPage from "./pages/CLISessionsPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
