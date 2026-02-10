@@ -1,20 +1,23 @@
-# Anti-AI Defense System - Docker Compose Setup
-# =============================================
+# Seraph AI Defense System - Docker Compose Setup
+# ================================================
 # Complete deployment with all services
 #
-# Usage:
-#   docker-compose up -d
+# Quick Start:
+#   1. cp .env.example .env && nano .env
+#   2. docker-compose up -d
+#   3. Access UI at http://localhost:3000
 #
 # Services:
-#   - backend: FastAPI server
-#   - frontend: React app
-#   - mongodb: Database
-#   - wireguard: VPN server
+#   - backend: FastAPI server (port 8001)
+#   - frontend: React app (port 3000)
+#   - mongodb: Database (port 27017)
+#   - wireguard: VPN server (port 51820/udp)
 #
 # Requirements:
-#   - Docker & Docker Compose
+#   - Docker 20.10+ & Docker Compose 2.0+
 #   - Linux kernel with WireGuard support (5.6+)
 #   - NET_ADMIN capability for VPN
+#   - 4GB+ RAM recommended
 
 version: '3.8'
 
@@ -24,7 +27,7 @@ services:
   # ==========================================================================
   mongodb:
     image: mongo:7.0
-    container_name: anti-ai-mongodb
+    container_name: seraph-mongodb
     restart: unless-stopped
     ports:
       - "27017:27017"
@@ -32,14 +35,15 @@ services:
       - mongodb_data:/data/db
       - mongodb_config:/data/configdb
     environment:
-      MONGO_INITDB_DATABASE: anti_ai_defense
+      MONGO_INITDB_DATABASE: seraph_ai_defense
     networks:
-      - anti-ai-network
+      - seraph-network
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   # ==========================================================================
   # Backend API Server
@@ -48,32 +52,37 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: anti-ai-backend
+    container_name: seraph-backend
     restart: unless-stopped
     ports:
       - "8001:8001"
     environment:
       - MONGO_URL=mongodb://mongodb:27017
-      - DB_NAME=anti_ai_defense
+      - DB_NAME=seraph_ai_defense
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       - VPN_SERVER_ENDPOINT=${VPN_SERVER_ENDPOINT:-vpn.yourdomain.com}
       - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-}
       - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME:-}
       - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD:-}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
     depends_on:
       mongodb:
         condition: service_healthy
     volumes:
-      - vpn_config:/var/lib/anti-ai-defense/vpn
+      - vpn_config:/var/lib/seraph-ai/vpn
       - agent_scripts:/app/scripts
       - playbooks:/app/playbooks
     networks:
-      - anti-ai-network
+      - seraph-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 15s
 
   # ==========================================================================
   # Frontend React App
@@ -84,21 +93,27 @@ services:
       dockerfile: Dockerfile
       args:
         - REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL:-http://localhost:8001}
-    container_name: anti-ai-frontend
+    container_name: seraph-frontend
     restart: unless-stopped
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
-      - anti-ai-network
+      - seraph-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # ==========================================================================
   # WireGuard VPN Server
   # ==========================================================================
   wireguard:
     image: linuxserver/wireguard:latest
-    container_name: anti-ai-wireguard
+    container_name: seraph-wireguard
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
@@ -109,10 +124,11 @@ services:
       - TZ=UTC
       - SERVERURL=${VPN_SERVER_ENDPOINT:-vpn.yourdomain.com}
       - SERVERPORT=51820
-      - PEERS=${VPN_PEERS:-5}
+      - PEERS=${VPN_PEERS:-10}
       - PEERDNS=1.1.1.1,8.8.8.8
       - INTERNAL_SUBNET=10.200.200.0/24
       - ALLOWEDIPS=0.0.0.0/0
+      - LOG_CONFS=true
     volumes:
       - wireguard_config:/config
       - /lib/modules:/lib/modules:ro
@@ -122,34 +138,21 @@ services:
       - net.ipv4.conf.all.src_valid_mark=1
       - net.ipv4.ip_forward=1
     networks:
-      - anti-ai-network
+      - seraph-network
 
-  # ==========================================================================
-  # Nginx Reverse Proxy (Optional - for production)
-  # ==========================================================================
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: anti-ai-nginx
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-  #     - ./nginx/ssl:/etc/nginx/ssl:ro
-  #   depends_on:
-  #     - backend
-  #     - frontend
-  #   networks:
-  #     - anti-ai-network
-
+# ==========================================================================
+# Networks
+# ==========================================================================
 networks:
-  anti-ai-network:
+  seraph-network:
     driver: bridge
     ipam:
       config:
         - subnet: 172.28.0.0/16
 
+# ==========================================================================
+# Volumes
+# ==========================================================================
 volumes:
   mongodb_data:
     driver: local
