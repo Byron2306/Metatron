@@ -1,4 +1,4 @@
-# Anti-AI Defense System - Deployment Guide
+# Seraph AI Defense System - Deployment Guide
 
 ## Quick Start with Docker Compose
 
@@ -13,8 +13,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/anti-ai-defense.git
-cd anti-ai-defense
+git clone https://github.com/your-org/seraph-ai-defense.git
+cd seraph-ai-defense
 
 # Copy and edit environment file
 cp .env.example .env
