@@ -30,7 +30,8 @@ import {
   Box,
   Globe,
   BarChart3,
-  Terminal
+  Terminal,
+  Radio
 } from 'lucide-react';
 import { Button } from './ui/button';
 
