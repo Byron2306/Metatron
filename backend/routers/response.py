@@ -67,7 +67,27 @@ async def get_response_history(limit: int = 50, current_user: dict = Depends(get
     """Get response action history"""
     db = get_db()
     history = await db.response_history.find({}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
-    return history
+    return {"history": history, "count": len(history)}
+
+@router.post("/settings/auto-block")
+async def toggle_auto_block(enabled: bool, current_user: dict = Depends(check_permission("write"))):
+    """Toggle auto-block functionality"""
+    db = get_db()
+    
+    await db.response_settings.update_one(
+        {},
+        {"$set": {
+            "auto_block_enabled": enabled,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": current_user["id"]
+        }},
+        upsert=True
+    )
+    
+    # Update in-memory config
+    response_config.auto_block_enabled = enabled
+    
+    return {"auto_block_enabled": enabled, "message": f"Auto-block {'enabled' if enabled else 'disabled'}"}
 
 @router.get("/settings")
 async def get_response_settings(current_user: dict = Depends(get_current_user)):
