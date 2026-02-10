@@ -34,6 +34,7 @@ import AgentDetailsPage from "./pages/AgentDetailsPage";
 import CLISessionsPage from "./pages/CLISessionsPage";
 import SwarmDashboard from "./pages/SwarmDashboard";
 import AIThreatIntelligence from "./pages/AIThreatIntelligence";
+import CommandCenterPage from "./pages/CommandCenterPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
