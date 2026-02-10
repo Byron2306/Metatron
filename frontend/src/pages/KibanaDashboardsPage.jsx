@@ -473,6 +473,157 @@ const KibanaDashboardsPage = () => {
           </CardContent>
         </Card>
       )}
+
+      {activeTab === 'live' && (
+        <div className="space-y-6">
+          {/* Dashboard Selector for Live Preview */}
+          {!liveData && !loadingLive && (
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardContent className="p-6">
+                <h3 className="text-white font-medium mb-4">Select a Dashboard for Live Preview</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {dashboards.map((dashboard) => (
+                    <Button
+                      key={dashboard.id}
+                      variant="outline"
+                      className="border-slate-700 justify-start"
+                      onClick={() => fetchLiveData(dashboard.id)}
+                    >
+                      {getDashboardIcon(dashboard.id)}
+                      <span className="ml-2 truncate">{dashboard.title}</span>
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {loadingLive && (
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardContent className="p-8 text-center">
+                <RefreshCw className="w-8 h-8 animate-spin text-pink-400 mx-auto mb-4" />
+                <p className="text-slate-400">Loading live dashboard data...</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {liveData && !loadingLive && (
+            <>
+              {/* Live Dashboard Header */}
+              <Card className="bg-slate-900/50 border-slate-800">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-pink-500/20 flex items-center justify-center text-pink-400">
+                        <Activity className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-white font-medium">{liveData.title}</h3>
+                        <p className="text-slate-500 text-xs">
+                          Generated: {new Date(liveData.generated_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="border-slate-700"
+                        onClick={() => fetchLiveData(liveData.dashboard_id)}
+                      >
+                        <RefreshCw className="w-4 h-4 mr-1" />
+                        Refresh
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="text-slate-400"
+                        onClick={() => setLiveData(null)}
+                      >
+                        Change Dashboard
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Live Dashboard Panels */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {liveData.panels.map((panel, idx) => {
+                  if (panel.type === 'metric' && panel.data) {
+                    return <MetricCard key={idx} title={panel.title} value={panel.data.value || 0} />;
+                  }
+                  if (panel.type === 'pie' && panel.data?.length > 0) {
+                    return <PieChartSimple key={idx} title={panel.title} data={panel.data} />;
+                  }
+                  if (panel.type === 'bar' && panel.data?.length > 0) {
+                    return <BarChartSimple key={idx} title={panel.title} data={panel.data} />;
+                  }
+                  if (panel.type === 'line' && panel.data?.length > 0) {
+                    return <LineChartSimple key={idx} title={panel.title} data={panel.data} />;
+                  }
+                  if (panel.type === 'table' && panel.data) {
+                    return <TableSimple key={idx} title={panel.title} data={panel.data} />;
+                  }
+                  if (panel.type === 'map' && panel.data) {
+                    return (
+                      <div key={idx} className="bg-slate-800/50 rounded-lg p-4">
+                        <p className="text-white font-medium mb-3">{panel.title}</p>
+                        <div className="space-y-2">
+                          {panel.data.map((point, i) => (
+                            <div key={i} className="flex justify-between text-sm">
+                              <span className="text-slate-300">{point.country}</span>
+                              <span className="text-pink-400">{point.count} attacks</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (panel.type === 'heatmap' && panel.data) {
+                    return (
+                      <div key={idx} className="bg-slate-800/50 rounded-lg p-4 md:col-span-2">
+                        <p className="text-white font-medium mb-3">{panel.title}</p>
+                        <div className="grid grid-cols-6 gap-1 text-xs">
+                          <div></div>
+                          {panel.data.techniques?.slice(0, 5).map((t, i) => (
+                            <div key={i} className="text-slate-500 text-center truncate">{t}</div>
+                          ))}
+                          {panel.data.tactics?.slice(0, 5).map((tactic, ti) => (
+                            <>
+                              <div key={`t-${ti}`} className="text-slate-400 truncate">{tactic}</div>
+                              {panel.data.values?.[ti]?.slice(0, 5).map((val, vi) => (
+                                <div 
+                                  key={`v-${ti}-${vi}`}
+                                  className="h-6 rounded flex items-center justify-center text-white"
+                                  style={{ 
+                                    backgroundColor: `rgba(236, 72, 153, ${Math.min(val / 15, 1)})` 
+                                  }}
+                                >
+                                  {val}
+                                </div>
+                              ))}
+                            </>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={idx} className="bg-slate-800/50 rounded-lg p-4">
+                      <p className="text-white font-medium">{panel.title}</p>
+                      <p className="text-slate-500 text-sm">Type: {panel.type}</p>
+                      <p className="text-slate-600 text-xs mt-2">
+                        {panel.error || 'No data available'}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
