@@ -387,6 +387,18 @@ const KibanaDashboardsPage = () => {
                     <Download className="w-3 h-3 mr-1" />
                     Export
                   </Button>
+                  <Button 
+                    size="sm" 
+                    className="bg-pink-600 hover:bg-pink-700"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fetchLiveData(dashboard.id);
+                      setActiveTab('live');
+                    }}
+                  >
+                    <Eye className="w-3 h-3 mr-1" />
+                    Preview
+                  </Button>
                 </div>
               </CardContent>
             </Card>
