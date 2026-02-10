@@ -24,8 +24,59 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v5.1.0**: Docker & VPN Deployment Finalization (CURRENT - Feb 2026)
 - **v5.2.0**: Swarm Auto-Deployment & Real Telemetry (Feb 2026)
 - **v5.3.0**: AI Threat Intelligence Layer (AATL/AATR) (Feb 2026) - CURRENT
+- **v5.4.0**: Real Network Scanner & Mobile Agent Support (Feb 2026) - CURRENT
 
-## v5.3.0 AI Threat Intelligence Layer (Feb 2026) - COMPLETED
+## v5.4.0 Real Network Scanner & Mobile Agent Support (Feb 2026) - COMPLETED
+
+### Overview
+This version addresses the critical limitation that the cloud preview cannot scan user's local network. Solution: A downloadable Network Scanner that runs on the user's LAN and reports devices to the server.
+
+### Key Components
+
+#### 1. Seraph Network Scanner (`/app/scripts/seraph_network_scanner.py`)
+- **Runs on user's network** - Not in the cloud container
+- Multiple scanning methods: ARP scan, nmap, mDNS/Bonjour
+- Device enrichment with OS detection and port scanning
+- Reports devices to server via `/api/swarm/scanner/report`
+- Supports direct deployment via SSH to discovered devices
+- **Usage**: 
+  ```bash
+  python seraph_network_scanner.py --api-url https://your-server.com --interval 60
+  ```
+
+#### 2. Seraph Mobile Agent (`/app/scripts/seraph_mobile_agent.py`)
+- **Platforms**: iOS (Pythonista), Android (Termux)
+- Features: Battery monitoring, network info, location (opt-in), suspicious app detection
+- Self-registers with server as mobile device
+- **Usage**:
+  ```bash
+  python seraph_mobile_agent.py --api-url https://your-server.com
+  ```
+
+#### 3. Scanner Report Endpoint (Public)
+- `POST /api/swarm/scanner/report` - No auth required
+- Accepts device array from network scanners
+- Creates/updates devices in database
+- Tracks active scanners
+
+#### 4. Agent Download Endpoints
+- `GET /api/swarm/agent/download/scanner` - Network scanner
+- `GET /api/swarm/agent/download/mobile` - Mobile agent
+- `GET /api/swarm/agent/download/linux|windows|macos` - Desktop agents
+
+### Frontend Updates
+- **Setup Scanner Tab**: Step-by-step instructions with:
+  - Download buttons for all agents
+  - Pre-filled API URL commands
+  - iOS and Android setup guides
+  - Quick deploy one-liners
+
+### Testing Results (iteration_17.json)
+- **Backend**: 22/22 tests passed (100%)
+- **Frontend**: All tabs and features verified working
+- **17 devices** discovered and displayed
+
+---
 
 ### Overview
 This version introduces the Autonomous Agent Threat Layer (AATL) and Autonomous AI Threat Registry (AATR) - a sophisticated system for detecting and responding to AI-driven attacks.
