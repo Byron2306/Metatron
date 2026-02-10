@@ -162,8 +162,29 @@ const SOARPage = () => {
       case 'ioc_match': return <Zap className="w-4 h-4 text-amber-400" />;
       case 'suspicious_process': return <Activity className="w-4 h-4 text-purple-400" />;
       case 'honeypot_triggered': return <Eye className="w-4 h-4 text-cyan-400" />;
+      case 'cli.session_summary': return <Brain className="w-4 h-4 text-purple-400" />;
+      case 'deception.hit': return <Target className="w-4 h-4 text-red-400" />;
       default: return <Workflow className="w-4 h-4 text-slate-400" />;
     }
+  };
+
+  const getSeverityColor = (severity) => {
+    switch(severity) {
+      case 'critical': return 'bg-red-500/20 text-red-400 border-red-500/30';
+      case 'high': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+      case 'medium': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+      case 'low': return 'bg-green-500/20 text-green-400 border-green-500/30';
+      default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+    }
+  };
+
+  const getActionIcon = (action) => {
+    if (action.includes('isolate') || action.includes('block')) return <Lock className="w-3 h-3" />;
+    if (action.includes('kill') || action.includes('terminate')) return <XCircle className="w-3 h-3" />;
+    if (action.includes('capture') || action.includes('triage')) return <Terminal className="w-3 h-3" />;
+    if (action.includes('notify')) return <Activity className="w-3 h-3" />;
+    if (action.includes('throttle') || action.includes('latency')) return <Cpu className="w-3 h-3" />;
+    return <Zap className="w-3 h-3" />;
   };
 
   if (loading) {
