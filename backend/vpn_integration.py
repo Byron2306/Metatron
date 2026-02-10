@@ -45,6 +45,7 @@ class VPNConfig:
         self.dns_servers = os.environ.get("VPN_DNS", "1.1.1.1,8.8.8.8").split(",")
         self.kill_switch_enabled = os.environ.get("KILL_SWITCH_ENABLED", "true").lower() == "true"
         self.split_tunnel_enabled = os.environ.get("SPLIT_TUNNEL", "false").lower() == "true"
+        self.vpn_server_endpoint = os.environ.get("VPN_SERVER_ENDPOINT", "localhost")
 
 config = VPNConfig()
 
