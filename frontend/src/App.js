@@ -100,6 +100,7 @@ function App() {
               <Route path="kibana" element={<KibanaDashboardsPage />} />
               <Route path="agent-commands" element={<AgentCommandsPage />} />
               <Route path="agent-commands/:agentId" element={<AgentDetailsPage />} />
+              <Route path="cli-sessions" element={<CLISessionsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
