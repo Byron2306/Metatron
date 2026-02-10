@@ -340,8 +340,14 @@ class TestAgentsPageAPI:
         
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
-        print(f"SUCCESS: Found {len(data)} discovered hosts")
+        # Response can be a list or an object with hosts key
+        if isinstance(data, dict):
+            assert "hosts" in data
+            hosts = data["hosts"]
+        else:
+            hosts = data
+        assert isinstance(hosts, list)
+        print(f"SUCCESS: Found {len(hosts)} discovered hosts")
 
 
 if __name__ == "__main__":
