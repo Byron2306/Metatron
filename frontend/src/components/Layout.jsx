@@ -29,7 +29,8 @@ import {
   ShieldCheck,
   Box,
   Globe,
-  BarChart3
+  BarChart3,
+  Terminal
 } from 'lucide-react';
 import { Button } from './ui/button';
 
