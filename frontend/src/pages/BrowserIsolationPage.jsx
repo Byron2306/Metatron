@@ -522,6 +522,24 @@ const BrowserIsolationPage = () => {
                       </span>
                       <Button
                         size="sm"
+                        variant="outline"
+                        className="border-cyan-500 text-cyan-400"
+                        onClick={() => {
+                          setActiveSession({
+                            session_id: session.session_id,
+                            url: session.original_url,
+                            safe_url: session.sanitized_url,
+                            isolation_mode: session.isolation_mode,
+                            threat_level: session.threat_level
+                          });
+                          setActiveTab('browser');
+                        }}
+                      >
+                        <Eye className="w-4 h-4 mr-1" />
+                        Open
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="ghost"
                         className="text-red-400 hover:text-red-300"
                         onClick={() => endSession(session.session_id)}
