@@ -145,10 +145,11 @@ class AgentDeploymentService:
     ) -> DeploymentTask:
         """Queue a device for agent deployment"""
         
-        # Determine deployment method
-        if os_type in ('linux', 'macos'):
+        # Determine deployment method (case-insensitive)
+        os_lower = os_type.lower() if os_type else 'unknown'
+        if os_lower in ('linux', 'macos', 'darwin'):
             method = DeploymentMethod.SSH
-        elif os_type == 'windows':
+        elif os_lower == 'windows':
             method = DeploymentMethod.WINRM
         else:
             method = DeploymentMethod.MANUAL
