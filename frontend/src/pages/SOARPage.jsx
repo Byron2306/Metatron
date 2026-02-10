@@ -5,12 +5,14 @@ import { motion } from 'framer-motion';
 import { 
   Workflow, Play, Pause, Plus, Trash2, Edit, Clock, 
   CheckCircle, XCircle, AlertTriangle, Zap, Shield,
-  ChevronRight, Settings, RefreshCw, Eye, Activity
+  ChevronRight, Settings, RefreshCw, Eye, Activity,
+  Brain, Target, Terminal, Cpu, Network, Lock
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Switch } from '../components/ui/switch';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
