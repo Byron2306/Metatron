@@ -98,6 +98,7 @@ function App() {
               <Route path="browser-isolation" element={<BrowserIsolationPage />} />
               <Route path="kibana" element={<KibanaDashboardsPage />} />
               <Route path="agent-commands" element={<AgentCommandsPage />} />
+              <Route path="agent-commands/:agentId" element={<AgentDetailsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
