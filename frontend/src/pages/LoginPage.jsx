@@ -21,6 +21,9 @@ const LoginPage = () => {
   const { login, register } = useAuth();
   const navigate = useNavigate();
 
+  // Seraph AI Logo URL
+  const logoUrl = "https://customer-assets.emergentagent.com/job_securityshield-17/artifacts/4jbqdhyd_ChatGPT%20Image%20Feb%2010%2C%202026%2C%2009_07_51%20AM.png";
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -28,10 +31,10 @@ const LoginPage = () => {
     try {
       if (isLogin) {
         await login(formData.email, formData.password);
-        toast.success('Access granted. Welcome back, Analyst.');
+        toast.success('Seraphic access granted. Welcome, Guardian.');
       } else {
         await register(formData.email, formData.password, formData.name);
-        toast.success('Account created. Access granted.');
+        toast.success('Guardian registered. Seraphic access granted.');
       }
       navigate('/dashboard');
     } catch (error) {
@@ -43,7 +46,7 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex">
+    <div className="min-h-screen flex" style={{ backgroundColor: '#0C1020' }}>
       {/* Left Panel - Decorative */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         <div 
@@ -52,8 +55,8 @@ const LoginPage = () => {
             backgroundImage: 'url(https://images.unsplash.com/photo-1680992046626-418f7e910589?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHwxfHxzZXJ2ZXIlMjByb29tJTIwZGFyayUyMGJsdWUlMjBsaWdodHN8ZW58MHx8fHwxNzcwNjQ0NjkxfDA&ixlib=rb-4.1.0&q=85)'
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent" />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, #0C1020, rgba(12, 16, 32, 0.8), transparent)' }} />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, #0C1020, transparent, transparent)' }} />
         
         {/* Content overlay */}
         <div className="relative z-10 p-12 flex flex-col justify-end">
@@ -62,22 +65,27 @@ const LoginPage = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
           >
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-12 h-12 rounded bg-blue-500/20 flex items-center justify-center border border-blue-500/30">
-                <Shield className="w-7 h-7 text-blue-400" />
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-16 h-16 rounded-xl overflow-hidden" style={{ 
+                background: 'linear-gradient(135deg, rgba(253, 230, 138, 0.3), rgba(56, 189, 248, 0.3))',
+                boxShadow: '0 0 40px rgba(253, 230, 138, 0.4), 0 0 80px rgba(56, 189, 248, 0.2)',
+                border: '1px solid rgba(253, 230, 138, 0.3)'
+              }}>
+                <img src={logoUrl} alt="Seraph AI" className="w-full h-full object-cover" />
               </div>
               <div>
-                <h1 className="font-mono font-bold text-2xl text-white">DEFENDER</h1>
-                <p className="text-sm text-blue-400">Anti-AI Defense System</p>
+                <h1 className="font-mono font-bold text-3xl tracking-wider" style={{ color: '#FDE68A', textShadow: '0 0 20px rgba(253, 230, 138, 0.5)' }}>SERAPH AI</h1>
+                <p className="text-sm" style={{ color: '#A5F3FC' }}>Divine Cyber Guardian</p>
               </div>
             </div>
             
-            <h2 className="text-3xl font-mono font-bold text-white mb-4">
-              Next-Gen Threat<br />Detection Platform
+            <h2 className="text-3xl font-mono font-bold mb-4" style={{ color: '#E0E7FF' }}>
+              Seraphic Watch<br />
+              <span style={{ color: '#38BDF8' }}>Defense Platform</span>
             </h2>
-            <p className="text-slate-400 max-w-md">
-              Advanced AI-powered defense against autonomous agents, polymorphic malware, 
-              and sophisticated cyber threats. Real-time behavioral analysis and threat intelligence.
+            <p style={{ color: '#A5F3FC' }} className="max-w-md">
+              Divine protection against autonomous AI agents, polymorphic malware, 
+              and advanced cyber threats. Omniscient behavioral analysis with celestial precision.
             </p>
             
             {/* Stats */}
@@ -87,9 +95,12 @@ const LoginPage = () => {
                 { label: 'AI Scans/Day', value: '150K+' },
                 { label: 'Response Time', value: '<10ms' },
               ].map((stat, i) => (
-                <div key={i} className="bg-slate-900/50 backdrop-blur border border-slate-800 rounded p-3">
-                  <p className="text-2xl font-mono font-bold text-blue-400">{stat.value}</p>
-                  <p className="text-xs text-slate-500">{stat.label}</p>
+                <div key={i} className="backdrop-blur rounded-lg p-3" style={{ 
+                  backgroundColor: 'rgba(18, 24, 51, 0.8)', 
+                  border: '1px solid rgba(56, 189, 248, 0.2)' 
+                }}>
+                  <p className="text-2xl font-mono font-bold" style={{ color: '#FDE68A' }}>{stat.value}</p>
+                  <p className="text-xs" style={{ color: '#A5F3FC' }}>{stat.label}</p>
                 </div>
               ))}
             </div>
@@ -107,40 +118,52 @@ const LoginPage = () => {
         >
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded bg-blue-500/20 flex items-center justify-center border border-blue-500/30">
-              <Shield className="w-6 h-6 text-blue-400" />
+            <div className="w-12 h-12 rounded-xl overflow-hidden" style={{ 
+              background: 'linear-gradient(135deg, rgba(253, 230, 138, 0.2), rgba(56, 189, 248, 0.2))',
+              border: '1px solid rgba(253, 230, 138, 0.3)'
+            }}>
+              <img src={logoUrl} alt="Seraph AI" className="w-full h-full object-cover" />
             </div>
             <div>
-              <h1 className="font-mono font-bold text-xl text-white">DEFENDER</h1>
-              <p className="text-xs text-blue-400">Anti-AI Defense System</p>
+              <h1 className="font-mono font-bold text-xl" style={{ color: '#FDE68A' }}>SERAPH AI</h1>
+              <p className="text-xs" style={{ color: '#A5F3FC' }}>Seraphic Watch</p>
             </div>
           </div>
 
-          <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 rounded p-8">
+          <div className="backdrop-blur-xl rounded-xl p-8" style={{ 
+            backgroundColor: 'rgba(18, 24, 51, 0.9)', 
+            border: '1px solid rgba(56, 189, 248, 0.2)',
+            boxShadow: '0 0 40px rgba(56, 189, 248, 0.1)'
+          }}>
             <div className="mb-6">
-              <h2 className="text-xl font-mono font-bold text-white mb-1">
-                {isLogin ? 'Authenticate' : 'Create Account'}
+              <h2 className="text-xl font-mono font-bold mb-1" style={{ color: '#E0E7FF' }}>
+                {isLogin ? 'Guardian Access' : 'Register Guardian'}
               </h2>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm" style={{ color: '#A5F3FC' }}>
                 {isLogin 
-                  ? 'Enter your credentials to access the defense console'
-                  : 'Register for access to the defense system'}
+                  ? 'Enter credentials to access the Seraphic console'
+                  : 'Register for Seraphic guardian access'}
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               {!isLogin && (
                 <div className="space-y-2">
-                  <Label htmlFor="name" className="text-slate-300 text-sm">Name</Label>
+                  <Label htmlFor="name" className="text-sm" style={{ color: '#A5F3FC' }}>Name</Label>
                   <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#38BDF8' }} />
                     <Input
                       id="name"
                       type="text"
                       placeholder="Your name"
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="pl-10 bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus:border-blue-500 focus:ring-blue-500/20"
+                      className="pl-10"
+                      style={{ 
+                        backgroundColor: '#0C1020', 
+                        borderColor: 'rgba(56, 189, 248, 0.3)', 
+                        color: '#E0E7FF' 
+                      }}
                       data-testid="register-name-input"
                       required={!isLogin}
                     />
