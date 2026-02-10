@@ -12,10 +12,50 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v3.3.0**: Kibana + Honey Tokens + Zero Trust + Custom Templates
 - **v4.0.0**: ML Threat Prediction + Sandbox Analysis + Browser Isolation + Kibana Dashboards
 - **v4.1.0**: Real Tool Integrations - WireGuard, Trivy, Volatility 3
-- **v4.2.0**: Production Infrastructure - Elasticsearch 8.19.11, Kibana 8.19.11, VPN Tunnel, Production Sandbox
-- **v4.3.0**: Advanced Local Agent - Process Monitor, User Privileges, Browser Extensions, Folder Indexer
+- **v4.2.0**: Production Infrastructure - Elasticsearch, Kibana, VPN Tunnel
+- **v4.3.0**: Advanced Local Agent - Process Monitor, User Privileges, Browser Extensions
 - **v4.4.0**: Data Visibility & Usability Fixes
-- **v4.5.0**: Kibana Live Dashboards + Credential Theft Detection (CURRENT - Feb 2026)
+- **v4.5.0**: Kibana Live Dashboards + Credential Theft Detection
+- **v4.6.0**: Critical Fixes + Agent Command Center (CURRENT - Feb 2026)
+
+## v4.6 Critical Fixes + Agent Command Center (Feb 2026)
+
+### Major Fixes Implemented
+
+| Issue | Fix |
+|-------|-----|
+| **Kibana Not Working** | Configured with user's Elasticsearch credentials, shows "Kibana Connected" |
+| **Browser Isolation Does Nothing** | Added "Browser View" tab with iframe, session status, "Open in New Tab" button |
+| **VPN Download Broken** | Fixed handleGetConfig to create blob and trigger .conf file download |
+| **Container Security Empty** | Seeded sample data, updated router to read from MongoDB when Docker unavailable |
+| **Auto-Block Toggle Missing** | Already fixed in v4.4 - toggle button persists state |
+
+### New Feature: Agent Command Center
+
+Bi-directional communication system between server and local agents with **manual approval** workflow.
+
+| Component | Description |
+|-----------|-------------|
+| **WebSocket Connection** | `/api/agent-commands/ws/{agent_id}` - Real-time bidirectional |
+| **11 Command Types** | block_ip, kill_process, quarantine_file, delete_file, remove_persistence, block_user, collect_forensics, full_scan, update_agent, restart_service, remediate_compliance |
+| **Approval Workflow** | Commands require admin approval before execution |
+| **Agent Status Tracking** | Connected/disconnected status, last heartbeat, scan results |
+
+### New API Endpoints
+- `POST /api/agent-commands/create` - Create command (goes to pending_approval)
+- `GET /api/agent-commands/pending` - List pending commands
+- `POST /api/agent-commands/{id}/approve` - Approve/reject command
+- `GET /api/agent-commands/types` - List available command types
+- `WS /api/agent-commands/ws/{agent_id}` - WebSocket for agent connection
+
+### New Frontend Page
+- **Agent Commands** (`/agent-commands`) - Command center with agents list, pending approval queue, command history
+
+### Elasticsearch Configuration
+```
+ELASTICSEARCH_URL=https://3a44e4d314ff40f4b54c8c0323ffb89a.us-central1.gcp.cloud.es.io:443
+ELASTICSEARCH_API_KEY=YTVfeFJad0JCZ3J2bDRMN2drQkw6MHdwbVE0V214MG9jUTJtWklmUURKUQ==
+```
 
 ## v4.5 Kibana Live Dashboards + Credential Theft Detection (Feb 2026)
 
