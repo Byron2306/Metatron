@@ -293,20 +293,36 @@ const SwarmDashboard = () => {
                   
                   <div className="mt-4 space-y-2">
                     <h4 className="text-white font-medium">Step 2: Install Dependencies</h4>
-                    <code className="block p-3 bg-slate-900 rounded text-cyan-400 text-sm overflow-x-auto">
-                      pip install python-nmap paramiko requests
-                    </code>
-                    <p className="text-slate-400 text-sm">Also install nmap: <code className="text-cyan-400">apt install nmap</code> or <code className="text-cyan-400">brew install nmap</code></p>
+                    <div className="space-y-2">
+                      <div className="p-2 bg-slate-900 rounded">
+                        <span className="text-yellow-400 text-xs font-bold">WINDOWS:</span>
+                        <code className="block text-cyan-400 text-sm mt-1">pip install python-nmap paramiko requests</code>
+                        <p className="text-slate-500 text-xs mt-1">Download nmap from <a href="https://nmap.org/download.html" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline">nmap.org/download.html</a></p>
+                      </div>
+                      <div className="p-2 bg-slate-900 rounded">
+                        <span className="text-green-400 text-xs font-bold">LINUX:</span>
+                        <code className="block text-cyan-400 text-sm mt-1">sudo apt install nmap && pip install python-nmap paramiko requests</code>
+                      </div>
+                      <div className="p-2 bg-slate-900 rounded">
+                        <span className="text-blue-400 text-xs font-bold">macOS:</span>
+                        <code className="block text-cyan-400 text-sm mt-1">brew install nmap && pip install python-nmap paramiko requests</code>
+                      </div>
+                    </div>
                   </div>
                   
                   <div className="mt-4 space-y-2">
                     <h4 className="text-white font-medium">Step 3: Run Scanner</h4>
-                    <code className="block p-3 bg-slate-900 rounded text-cyan-400 text-sm overflow-x-auto whitespace-pre-wrap">
-{`python seraph_network_scanner.py \\
-  --api-url ${window.location.origin} \\
-  --interval 60`}
-                    </code>
-                    <p className="text-slate-400 text-sm">Run with <code className="text-cyan-400">sudo</code> for best results (ARP scanning)</p>
+                    <div className="space-y-2">
+                      <div className="p-2 bg-slate-900 rounded">
+                        <span className="text-yellow-400 text-xs font-bold">WINDOWS (PowerShell):</span>
+                        <code className="block text-cyan-400 text-sm mt-1 whitespace-pre-wrap">{`python seraph_network_scanner.py --api-url "${window.location.origin}" --interval 60`}</code>
+                      </div>
+                      <div className="p-2 bg-slate-900 rounded">
+                        <span className="text-green-400 text-xs font-bold">LINUX/macOS:</span>
+                        <code className="block text-cyan-400 text-sm mt-1 whitespace-pre-wrap">{`sudo python3 seraph_network_scanner.py --api-url ${window.location.origin} --interval 60`}</code>
+                      </div>
+                    </div>
+                    <p className="text-slate-400 text-sm">Run as Administrator (Windows) or with sudo (Linux/macOS) for best results</p>
                   </div>
                   
                   <div className="mt-4 space-y-2">
@@ -362,7 +378,7 @@ const SwarmDashboard = () => {
                       <li>Install Termux from F-Droid</li>
                       <li><code className="text-cyan-400">pkg install python</code></li>
                       <li><code className="text-cyan-400">pip install requests</code></li>
-                      <li>Run: <code className="text-cyan-400">python seraph_mobile_agent.py --api-url {window.location.origin}</code></li>
+                      <li>Run: <code className="text-cyan-400">{`python seraph_mobile_agent.py --api-url "${window.location.origin}"`}</code></li>
                     </ol>
                   </div>
                 </div>
