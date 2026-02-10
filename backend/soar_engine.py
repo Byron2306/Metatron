@@ -977,12 +977,15 @@ class SOAREngine:
                 "event": event
             })
         
+        # Sanitize event before storing in memory (remove MongoDB ObjectId)
+        sanitized_event = {k: v for k, v in event.items() if k != "_id"}
+        
         # Store in memory
         self.executions.append(PlaybookExecution(
             id=execution_id,
             playbook_id=playbook_id,
             playbook_name=playbook_info["name"],
-            trigger_event=event,
+            trigger_event=sanitized_event,
             status=ExecutionStatus.COMPLETED,
             started_at=datetime.now(timezone.utc).isoformat(),
             completed_at=datetime.now(timezone.utc).isoformat()
