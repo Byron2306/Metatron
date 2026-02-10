@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, timezone
+import uuid
 
 from .dependencies import get_current_user, check_permission, db
 
