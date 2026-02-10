@@ -488,7 +488,21 @@ class SOAREngine:
         
         # Return most recent first
         execs = sorted(execs, key=lambda x: x.started_at, reverse=True)[:limit]
-        return [asdict(e) for e in execs]
+        
+        # Convert to dict and sanitize MongoDB ObjectIds
+        result = []
+        for e in execs:
+            exec_dict = asdict(e)
+            # Remove any MongoDB _id fields that might be in trigger_event
+            if "trigger_event" in exec_dict and isinstance(exec_dict["trigger_event"], dict):
+                exec_dict["trigger_event"].pop("_id", None)
+            # Sanitize step_results
+            if "step_results" in exec_dict:
+                for step in exec_dict["step_results"]:
+                    if isinstance(step, dict):
+                        step.pop("_id", None)
+            result.append(exec_dict)
+        return result
     
     def get_stats(self) -> Dict:
         """Get SOAR statistics"""
