@@ -57,4 +57,5 @@ timelines_router = APIRouter(prefix="/timelines", tags=["Timeline"])
 async def get_recent_timelines(limit: int = 10, current_user: dict = Depends(get_current_user)):
     """Get recent threat timelines"""
     # Use the class method that handles this properly
-    return await timeline_builder.get_recent_timelines(limit)
+    timelines = await timeline_builder.get_recent_timelines(limit)
+    return {"timelines": timelines, "count": len(timelines)}
