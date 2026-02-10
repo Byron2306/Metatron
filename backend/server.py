@@ -223,10 +223,33 @@ async def health_check():
 
 # ============ SHUTDOWN HANDLER ============
 
+@app.on_event("startup")
+async def startup():
+    """Initialize background services on startup"""
+    logger.info("Starting Anti-AI Defense System services...")
+    
+    # Start the CCE (Cognition/Correlation Engine) Worker
+    try:
+        from services.cce_worker import start_cce_worker
+        await start_cce_worker(db)
+        logger.info("CCE Worker started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start CCE Worker: {e}")
+
+
 @app.on_event("shutdown")
 async def shutdown():
     """Cleanup on shutdown"""
     logger.info("Shutting down Anti-AI Defense System...")
+    
+    # Stop the CCE Worker
+    try:
+        from services.cce_worker import stop_cce_worker
+        await stop_cce_worker()
+        logger.info("CCE Worker stopped")
+    except Exception as e:
+        logger.error(f"Error stopping CCE Worker: {e}")
+    
     client.close()
 
 # ============ MAIN ============
