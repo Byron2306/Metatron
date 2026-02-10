@@ -3669,6 +3669,21 @@ class AdvancedSecurityAgent:
         if cred_risk >= 50:
             print(f"    [!] WARNING: Potential credential theft detected!")
         
+        # Persistence scan
+        print("[*] Scanning for persistence mechanisms...")
+        persistence_results = self.persistence_monitor.scan()
+        results["persistence"] = {
+            "total_entries": persistence_results.get("total_count", 0),
+            "high_risk": len(persistence_results.get("high_risk_entries", [])),
+            "new_entries": len(persistence_results.get("new_entries", [])),
+            "risk_summary": persistence_results.get("risk_summary", {}),
+            "details": persistence_results
+        }
+        pers_high_risk = len(persistence_results.get("high_risk_entries", []))
+        print(f"    Found {persistence_results.get('total_count', 0)} persistence entries, {pers_high_risk} high risk")
+        if pers_high_risk > 0:
+            print(f"    [!] WARNING: Suspicious persistence mechanisms detected!")
+        
         # Quick memory scan
         print("[*] Scanning memory for injections...")
         memory_results = self.memory_forensics.quick_memory_scan()
@@ -3689,6 +3704,7 @@ class AdvancedSecurityAgent:
             self.task_monitor.alerts +
             self.usb_monitor.alerts +
             self.credential_detector.alerts +
+            self.persistence_monitor.alerts +
             self.memory_forensics.alerts
         )
         
