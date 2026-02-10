@@ -443,3 +443,174 @@ async def get_swarm_overview(current_user: dict = Depends(get_current_user)):
             "success_rate": (successful / deployments * 100) if deployments > 0 else 0
         }
     }
+
+
+
+# =============================================================================
+# CLI EVENT INGESTION (AATL Integration)
+# =============================================================================
+
+@router.post("/cli/event")
+async def ingest_cli_event(request: CLIEventRequest):
+    """
+    Ingest a CLI event and process through AATL for AI threat detection.
+    This is the primary endpoint for CLI monitoring integration.
+    """
+    from services.aatl import get_aatl_engine
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Store CLI command
+    cli_doc = {
+        "host_id": request.host_id,
+        "session_id": request.session_id,
+        "command": request.command,
+        "user": request.user,
+        "shell_type": request.shell_type,
+        "timestamp": request.timestamp or now,
+        "ingested_at": now
+    }
+    
+    await db.cli_commands.insert_one(cli_doc)
+    
+    # Process through AATL
+    assessment = None
+    engine = get_aatl_engine()
+    
+    if engine:
+        try:
+            event = {
+                "host_id": request.host_id,
+                "event_type": "cli.command",
+                "timestamp": request.timestamp or now,
+                "data": {
+                    "session_id": request.session_id,
+                    "command": request.command,
+                    "user": request.user,
+                    "shell_type": request.shell_type
+                }
+            }
+            assessment = await engine.process_cli_event(event)
+        except Exception as e:
+            logger.error(f"AATL processing error: {e}")
+    
+    result = {
+        "status": "ok",
+        "command_stored": True
+    }
+    
+    if assessment:
+        result["aatl_assessment"] = {
+            "machine_plausibility": assessment.machine_plausibility,
+            "threat_score": assessment.threat_score,
+            "threat_level": assessment.threat_level,
+            "actor_type": assessment.actor_type.value,
+            "recommended_strategy": assessment.recommended_strategy.value
+        }
+    
+    return result
+
+
+@router.post("/cli/batch")
+async def ingest_cli_batch(events: List[CLIEventRequest]):
+    """Ingest multiple CLI events in batch"""
+    from services.aatl import get_aatl_engine
+    
+    now = datetime.now(timezone.utc).isoformat()
+    processed = 0
+    assessments = []
+    
+    engine = get_aatl_engine()
+    
+    for request in events:
+        # Store CLI command
+        cli_doc = {
+            "host_id": request.host_id,
+            "session_id": request.session_id,
+            "command": request.command,
+            "user": request.user,
+            "shell_type": request.shell_type,
+            "timestamp": request.timestamp or now,
+            "ingested_at": now
+        }
+        
+        await db.cli_commands.insert_one(cli_doc)
+        processed += 1
+        
+        # Process through AATL
+        if engine:
+            try:
+                event = {
+                    "host_id": request.host_id,
+                    "event_type": "cli.command",
+                    "timestamp": request.timestamp or now,
+                    "data": {
+                        "session_id": request.session_id,
+                        "command": request.command,
+                        "user": request.user,
+                        "shell_type": request.shell_type
+                    }
+                }
+                assessment = await engine.process_cli_event(event)
+                if assessment and assessment.threat_score >= 30:
+                    assessments.append(assessment.to_dict())
+            except Exception as e:
+                logger.warning(f"AATL batch processing error: {e}")
+    
+    return {
+        "status": "ok",
+        "processed": processed,
+        "aatl_assessments": len(assessments),
+        "high_threat_sessions": [a for a in assessments if a.get("threat_score", 0) >= 60]
+    }
+
+
+@router.get("/cli/sessions/{host_id}")
+async def get_cli_sessions(
+    host_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get CLI sessions for a host with AATL assessments"""
+    from services.aatl import get_aatl_engine
+    
+    # Get unique session IDs
+    pipeline = [
+        {"$match": {"host_id": host_id}},
+        {"$group": {
+            "_id": "$session_id",
+            "command_count": {"$sum": 1},
+            "first_seen": {"$min": "$timestamp"},
+            "last_seen": {"$max": "$timestamp"}
+        }},
+        {"$sort": {"last_seen": -1}},
+        {"$limit": 50}
+    ]
+    
+    sessions = await db.cli_commands.aggregate(pipeline).to_list(50)
+    
+    # Enrich with AATL assessments
+    engine = get_aatl_engine()
+    enriched = []
+    
+    for session in sessions:
+        session_data = {
+            "session_id": session["_id"],
+            "command_count": session["command_count"],
+            "first_seen": session["first_seen"],
+            "last_seen": session["last_seen"]
+        }
+        
+        if engine:
+            assessment = await engine.get_assessment(host_id, session["_id"])
+            if assessment:
+                session_data["aatl"] = {
+                    "machine_plausibility": assessment.get("machine_plausibility"),
+                    "threat_score": assessment.get("threat_score"),
+                    "threat_level": assessment.get("threat_level"),
+                    "actor_type": assessment.get("actor_type"),
+                    "recommended_strategy": assessment.get("recommended_strategy")
+                }
+        
+        enriched.append(session_data)
+    
+    return {"sessions": enriched, "host_id": host_id}
