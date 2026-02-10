@@ -232,6 +232,52 @@ async def get_scan_status(current_user: dict = Depends(get_current_user)):
 
 
 # =============================================================================
+# AGENT DOWNLOAD
+# =============================================================================
+
+@router.get("/agent/download/{platform}")
+async def download_agent(platform: str):
+    """Download the Seraph Defender agent for the specified platform"""
+    from fastapi.responses import FileResponse, PlainTextResponse
+    import os
+    
+    agent_path = "/app/scripts/seraph_defender.py"
+    
+    if not os.path.exists(agent_path):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    if platform == "linux":
+        return FileResponse(
+            agent_path,
+            media_type="text/x-python",
+            filename="seraph_defender.py"
+        )
+    elif platform == "windows":
+        return FileResponse(
+            agent_path,
+            media_type="text/x-python",
+            filename="seraph_defender.py"
+        )
+    elif platform == "macos":
+        return FileResponse(
+            agent_path,
+            media_type="text/x-python",
+            filename="seraph_defender.py"
+        )
+    elif platform == "scanner":
+        scanner_path = "/app/scripts/seraph_network_scanner.py"
+        if not os.path.exists(scanner_path):
+            raise HTTPException(status_code=404, detail="Scanner not found")
+        return FileResponse(
+            scanner_path,
+            media_type="text/x-python",
+            filename="seraph_network_scanner.py"
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
+
+
+# =============================================================================
 # AGENT DEPLOYMENT
 # =============================================================================
 
