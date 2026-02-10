@@ -1,44 +1,124 @@
 # Seraph AI Defense System - Deployment Guide
 
-## Quick Start with Docker Compose
+## Table of Contents
+1. [Quick Start](#quick-start)
+2. [System Requirements](#system-requirements)
+3. [Configuration](#configuration)
+4. [Deployment Options](#deployment-options)
+5. [VPN Setup](#vpn-setup)
+6. [Agent Deployment](#agent-deployment)
+7. [Monitoring & Maintenance](#monitoring--maintenance)
+8. [Troubleshooting](#troubleshooting)
+
+---
+
+## Quick Start
 
 ### Prerequisites
 - Docker 20.10+
 - Docker Compose 2.0+
-- Linux server with kernel 5.6+ (for WireGuard)
-- 4GB+ RAM recommended
-- Ports: 80, 443, 3000, 8001, 27017, 51820/udp
+- Linux server (Ubuntu 22.04+ recommended)
+- 4GB+ RAM, 2+ CPU cores
+- Kernel 5.6+ (for WireGuard VPN)
 
-### 1. Clone and Configure
+### 3-Step Deployment
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/your-org/seraph-ai-defense.git
 cd seraph-ai-defense
 
-# Copy and edit environment file
+# 2. Configure environment
 cp .env.example .env
-nano .env
+nano .env  # Set JWT_SECRET and VPN_SERVER_ENDPOINT
+
+# 3. Deploy
+docker-compose up -d
 ```
 
-### 2. Configure Environment Variables
+**Access Points:**
+- 🖥️ **Web UI**: http://your-server:3000
+- 🔌 **API**: http://your-server:8001/api
+- 🔐 **VPN**: your-server:51820/udp
 
-Edit `.env` with your settings:
+---
+
+## System Requirements
+
+### Minimum Requirements
+| Component | Requirement |
+|-----------|-------------|
+| OS | Linux (Ubuntu 22.04+, Debian 12+, CentOS 9+) |
+| RAM | 4 GB |
+| CPU | 2 cores |
+| Disk | 20 GB |
+| Kernel | 5.6+ (WireGuard support) |
+
+### Recommended for Production
+| Component | Requirement |
+|-----------|-------------|
+| RAM | 8+ GB |
+| CPU | 4+ cores |
+| Disk | 100+ GB SSD |
+| Network | 100+ Mbps |
+
+### Required Ports
+| Port | Protocol | Service |
+|------|----------|---------|
+| 3000 | TCP | Frontend UI |
+| 8001 | TCP | Backend API |
+| 27017 | TCP | MongoDB (internal) |
+| 51820 | UDP | WireGuard VPN |
+
+---
+
+## Configuration
+
+### Essential Settings (.env)
 
 ```bash
-# REQUIRED: Change the JWT secret
-JWT_SECRET=your-very-long-random-secret-key-at-least-32-characters
+# REQUIRED - Generate with: openssl rand -base64 64
+JWT_SECRET=your-64-character-random-secret-key
 
-# REQUIRED: Your server's public domain/IP for VPN
-VPN_SERVER_ENDPOINT=your-server.example.com
+# REQUIRED - Your server's public IP or domain
+VPN_SERVER_ENDPOINT=vpn.yourdomain.com
 
-# Optional: Elasticsearch for advanced analytics
-ELASTICSEARCH_URL=https://your-elastic.example.com:9200
+# Optional - Number of VPN client configs to generate
+VPN_PEERS=10
+
+# Optional - For production with custom domain
+REACT_APP_BACKEND_URL=https://api.yourdomain.com
+```
+
+### Elasticsearch Integration (Optional)
+
+```bash
+ELASTICSEARCH_URL=https://your-elastic-cluster:9200
 ELASTICSEARCH_USERNAME=elastic
 ELASTICSEARCH_PASSWORD=your-password
 ```
 
-### 3. Deploy
+### Notification Services (Optional)
+
+```bash
+# Slack alerts
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
+
+# Email via SendGrid
+SENDGRID_API_KEY=your-api-key
+SENDGRID_FROM_EMAIL=alerts@yourdomain.com
+
+# SMS via Twilio
+TWILIO_ACCOUNT_SID=your-sid
+TWILIO_AUTH_TOKEN=your-token
+TWILIO_FROM_NUMBER=+1234567890
+```
+
+---
+
+## Deployment Options
+
+### Option 1: Docker Compose (Recommended)
 
 ```bash
 # Start all services
@@ -49,19 +129,67 @@ docker-compose ps
 
 # View logs
 docker-compose logs -f
+
+# Stop services
+docker-compose down
+
+# Update and restart
+git pull
+docker-compose build --no-cache
+docker-compose up -d
 ```
 
-### 4. Access the Application
+### Option 2: Production with SSL (Nginx Reverse Proxy)
 
-- **Web UI**: http://your-server:3000
-- **API**: http://your-server:8001/api
-- **VPN**: your-server:51820/udp
+1. Create nginx configuration:
 
-### 5. Initial Setup
+```nginx
+# /etc/nginx/sites-available/seraph-ai
+server {
+    listen 80;
+    server_name seraph.yourdomain.com;
+    return 301 https://$server_name$request_uri;
+}
 
-1. Open the web UI and register an admin account
-2. Go to Settings to configure notifications
-3. Download and deploy agents to endpoints
+server {
+    listen 443 ssl http2;
+    server_name seraph.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/seraph.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/seraph.yourdomain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /api {
+        proxy_pass http://localhost:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_read_timeout 300;
+    }
+
+    location /api/agent-commands/ws {
+        proxy_pass http://localhost:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+    }
+}
+```
+
+2. Enable and get SSL certificate:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/seraph-ai /etc/nginx/sites-enabled/
+sudo certbot --nginx -d seraph.yourdomain.com
+sudo systemctl reload nginx
+```
 
 ---
 
@@ -69,28 +197,30 @@ docker-compose logs -f
 
 ### Server Configuration
 
-The WireGuard VPN server starts automatically. To manage peers:
+The WireGuard VPN is automatically configured when you start the stack. Client configs are generated based on `VPN_PEERS` setting.
 
 ```bash
-# View server status
-docker exec anti-ai-wireguard wg show
+# View generated client configs
+docker exec seraph-wireguard ls /config
 
-# View peer configs
-docker exec anti-ai-wireguard ls /config/peer*
-
-# Get peer config QR code
-docker exec anti-ai-wireguard cat /config/peer1/peer1.conf
+# Get a specific peer config
+docker exec seraph-wireguard cat /config/peer1/peer1.conf
 ```
 
-### Client Configuration
+### Client Setup
 
-1. In the Web UI, go to **VPN** page
-2. Click **Add Peer** to create a new peer config
-3. Download the `.conf` file
-4. Import into WireGuard client:
-   - **Windows/Mac**: WireGuard app → Import tunnel
-   - **Linux**: `wg-quick up /path/to/peer.conf`
-   - **Mobile**: WireGuard app → Scan QR code
+1. **Download client config** from Seraph AI UI → VPN → Download Config
+2. **Install WireGuard** on client:
+   - Windows/Mac: Download from https://wireguard.com/install
+   - Linux: `sudo apt install wireguard`
+3. **Import config** and connect
+
+### VPN Network
+
+- **Subnet**: 10.200.200.0/24
+- **Server**: 10.200.200.1
+- **Clients**: 10.200.200.2-254
+- **DNS**: 1.1.1.1, 8.8.8.8
 
 ---
 
@@ -98,182 +228,178 @@ docker exec anti-ai-wireguard cat /config/peer1/peer1.conf
 
 ### Download Agent
 
-From the Web UI:
-1. Go to **Agents** page
-2. Click **Download Agent** dropdown
-3. Choose **Advanced Agent** (recommended)
+1. Go to Seraph AI UI → Agent Center → Download Agent
+2. Select agent type:
+   - **Basic**: Lightweight monitoring
+   - **Advanced**: Full security suite with CLI monitoring
 
-### Install on Endpoints
+### Deploy on Endpoints
 
 ```bash
-# Install dependencies
-pip install psutil requests websocket-client
+# Linux/macOS
+chmod +x advanced_agent.py
+python3 advanced_agent.py --api-url https://your-server:8001 --monitor
 
-# Run agent with server connection
-python advanced_agent.py --connect --api-url https://your-server.example.com
+# Windows (PowerShell)
+python advanced_agent.py --api-url https://your-server:8001 --monitor
 ```
 
 ### Agent Features
-- Real-time WebSocket connection for commands
-- Process monitoring and threat detection
-- Browser extension scanning
+- Process monitoring
+- CLI command tracking (AI-Agentic detection)
+- USB device monitoring
 - Credential theft detection
-- Persistence mechanism scanning
-- CLI command telemetry for AI detection
-
-### Run as Service (Linux)
-
-```bash
-# Create systemd service
-sudo cat > /etc/systemd/system/anti-ai-agent.service << 'EOF'
-[Unit]
-Description=Anti-AI Defense Agent
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/anti-ai-agent
-ExecStart=/usr/bin/python3 advanced_agent.py --connect --api-url https://your-server.example.com
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start
-sudo systemctl enable anti-ai-agent
-sudo systemctl start anti-ai-agent
-```
+- WebSocket real-time communication
 
 ---
 
-## Architecture
+## Monitoring & Maintenance
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Docker Host                                  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                 anti-ai-network                           │   │
-│  │                                                           │   │
-│  │  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐  │   │
-│  │  │ Frontend│   │ Backend │   │ MongoDB │   │WireGuard│  │   │
-│  │  │  :3000  │◄─►│  :8001  │◄─►│ :27017  │   │ :51820  │  │   │
-│  │  │  React  │   │ FastAPI │   │         │   │   VPN   │  │   │
-│  │  └─────────┘   └─────────┘   └─────────┘   └─────────┘  │   │
-│  │       │              │                            │      │   │
-│  └───────┼──────────────┼────────────────────────────┼──────┘   │
-│          │              │                            │          │
-└──────────┼──────────────┼────────────────────────────┼──────────┘
-           │              │                            │
-           ▼              ▼                            ▼
-       Users          Agents                     VPN Clients
-       (Web)        (WebSocket)                  (WireGuard)
-```
-
----
-
-## Services
-
-| Service | Port | Description |
-|---------|------|-------------|
-| Frontend | 3000 | React web application |
-| Backend | 8001 | FastAPI REST API + WebSocket |
-| MongoDB | 27017 | Database |
-| WireGuard | 51820/udp | VPN server |
-
----
-
-## Maintenance
-
-### Backup Database
+### Health Checks
 
 ```bash
-# Backup MongoDB
-docker exec anti-ai-mongodb mongodump --out /backup
-docker cp anti-ai-mongodb:/backup ./backup-$(date +%Y%m%d)
+# Check all services
+docker-compose ps
 
-# Restore
-docker cp ./backup anti-ai-mongodb:/restore
-docker exec anti-ai-mongodb mongorestore /restore
+# Check backend health
+curl http://localhost:8001/api/health
+
+# Check MongoDB
+docker exec seraph-mongodb mongosh --eval "db.adminCommand('ping')"
+
+# View CCE Worker status
+docker logs seraph-backend | grep "CCE Worker"
 ```
 
-### Update Services
+### Logs
 
 ```bash
-# Pull latest images
-docker-compose pull
-
-# Rebuild and restart
-docker-compose up -d --build
-```
-
-### View Logs
-
-```bash
-# All services
+# All logs
 docker-compose logs -f
 
 # Specific service
 docker-compose logs -f backend
+docker-compose logs -f wireguard
+
+# Backend errors only
+docker-compose logs backend 2>&1 | grep -i error
+```
+
+### Backup
+
+```bash
+# Backup MongoDB
+docker exec seraph-mongodb mongodump --out /backup
+docker cp seraph-mongodb:/backup ./mongodb-backup-$(date +%Y%m%d)
+
+# Backup VPN configs
+docker cp seraph-wireguard:/config ./wireguard-backup-$(date +%Y%m%d)
+```
+
+### Updates
+
+```bash
+# Pull latest changes
+git pull origin main
+
+# Rebuild and restart
+docker-compose build --no-cache
+docker-compose up -d
+
+# Clean up old images
+docker image prune -f
 ```
 
 ---
 
 ## Troubleshooting
 
-### VPN Not Working
+### Common Issues
 
+#### Backend won't start
 ```bash
-# Check WireGuard status
-docker exec anti-ai-wireguard wg show
-
-# Check kernel modules
-lsmod | grep wireguard
-
-# Enable IP forwarding (host)
-echo 1 > /proc/sys/net/ipv4/ip_forward
-```
-
-### Backend Issues
-
-```bash
-# Check health
-curl http://localhost:8001/api/health
-
-# View logs
+# Check logs
 docker-compose logs backend
 
-# Restart service
+# Common fixes:
+# 1. MongoDB not ready - wait and retry
 docker-compose restart backend
+
+# 2. Port conflict
+sudo lsof -i :8001
 ```
 
-### Database Connection
-
+#### VPN not connecting
 ```bash
-# Test MongoDB
-docker exec anti-ai-mongodb mongosh --eval "db.stats()"
+# Check WireGuard status
+docker exec seraph-wireguard wg show
 
-# Check connection from backend
-docker-compose logs backend | grep -i mongo
+# Verify kernel module
+lsmod | grep wireguard
+
+# Check firewall
+sudo ufw allow 51820/udp
+```
+
+#### Database connection issues
+```bash
+# Check MongoDB status
+docker-compose logs mongodb
+
+# Restart MongoDB
+docker-compose restart mongodb
+
+# If persistent, clear volumes
+docker-compose down -v
+docker-compose up -d
+```
+
+#### CCE Worker not running
+```bash
+# Check backend logs for CCE Worker
+docker-compose logs backend | grep -i "cce"
+
+# Should see: "CCE Worker started successfully"
+```
+
+### Getting Help
+
+- **Documentation**: Check `/app/memory/PRD.md` for full feature documentation
+- **Logs**: Always check `docker-compose logs` first
+- **Issues**: https://github.com/your-org/seraph-ai-defense/issues
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        SERAPH AI                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐  │
+│  │ Frontend │◄──►│ Backend  │◄──►│ MongoDB  │    │WireGuard │  │
+│  │  :3000   │    │  :8001   │    │  :27017  │    │  :51820  │  │
+│  │  (React) │    │ (FastAPI)│    │          │    │  (VPN)   │  │
+│  └──────────┘    └────┬─────┘    └──────────┘    └──────────┘  │
+│                       │                                         │
+│                 ┌─────┴─────┐                                   │
+│                 │CCE Worker │  Real-time CLI Analysis           │
+│                 │  (Async)  │  AI-Agentic Detection             │
+│                 └───────────┘                                   │
+│                                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                     ENDPOINT AGENTS                             │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐            │
+│  │ Agent 1 │  │ Agent 2 │  │ Agent 3 │  │ Agent N │            │
+│  │(Windows)│  │ (Linux) │  │ (macOS) │  │   ...   │            │
+│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘            │
+│       │            │            │            │                  │
+│       └────────────┴────────────┴────────────┘                  │
+│                     WebSocket / HTTPS                           │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Security Recommendations
-
-1. **Change JWT Secret**: Use a strong, random 64+ character secret
-2. **Enable HTTPS**: Use nginx with SSL certificates
-3. **Firewall**: Only expose necessary ports
-4. **Updates**: Regularly update Docker images
-5. **Monitoring**: Set up alerts for critical events
-6. **Backup**: Regular database backups
-7. **VPN**: Use VPN for all agent connections in production
-
----
-
-## Support
-
-- GitHub Issues: [Report bugs](https://github.com/your-org/anti-ai-defense/issues)
-- Documentation: [Full docs](https://docs.your-org.com)
+**Seraph AI Defense System v5.0.0** | Built for the AI-Agentic Era
