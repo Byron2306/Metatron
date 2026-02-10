@@ -725,6 +725,256 @@ class SOAREngine:
             categories[tpl.category]["templates"].append(tpl.name)
         
         return list(categories.values())
+    
+    # =========================================================================
+    # AI-AGENTIC EVENT EVALUATION
+    # =========================================================================
+    
+    async def evaluate_event(self, event: Dict, db=None) -> List[Dict]:
+        """
+        Evaluate an event against AI-Agentic playbooks.
+        Called by the CLI events router for session summaries and deception hits.
+        
+        Args:
+            event: Event dict with event_type, host_id, session_id, etc.
+            db: Database instance for logging
+            
+        Returns:
+            List of triggered playbook execution results
+        """
+        event_type = event.get("event_type")
+        results = []
+        
+        logger.info(f"SOAR: Evaluating event type '{event_type}' for host {event.get('host_id')}")
+        
+        # Map event types to playbook triggers
+        if event_type == "cli.session_summary":
+            results = await self._evaluate_session_summary(event, db)
+        elif event_type == "deception.hit":
+            results = await self._evaluate_deception_hit(event, db)
+        
+        return results
+    
+    async def _evaluate_session_summary(self, event: Dict, db=None) -> List[Dict]:
+        """Evaluate a CLI session summary against AI-Agentic playbooks"""
+        results = []
+        host_id = event.get("host_id")
+        session_id = event.get("session_id")
+        machine_likelihood = event.get("machine_likelihood", 0)
+        burstiness = event.get("burstiness_score", 0)
+        intents = event.get("dominant_intents", [])
+        decoy_touched = event.get("decoy_touched", False)
+        tool_switch_ms = event.get("tool_switch_latency_ms", 1000)
+        goal_persistence = event.get("goal_persistence", 0)
+        
+        # Threshold values
+        ML_HIGH = 0.80
+        ML_CRITICAL = 0.92
+        BURST_HIGH = 0.75
+        TOOL_SWITCH_FAST = 300
+        
+        triggered_playbooks = []
+        
+        # AI-RECON-DEGRADE-01: Machine-paced recon loop
+        if (machine_likelihood >= ML_HIGH and 
+            "recon" in intents and 
+            burstiness >= BURST_HIGH):
+            triggered_playbooks.append({
+                "playbook_id": "AI-RECON-DEGRADE-01",
+                "name": "Machine-Paced Recon Loop — Degrade + Observe",
+                "reason": f"ML:{machine_likelihood:.2f} Burst:{burstiness:.2f} Intent:recon"
+            })
+        
+        # AI-CRED-ACCESS-RESP-01: Credential access pattern
+        if machine_likelihood >= ML_HIGH and "credential_access" in intents:
+            triggered_playbooks.append({
+                "playbook_id": "AI-CRED-ACCESS-RESP-01",
+                "name": "Credential Access Pattern — Decoy + Credential Controls",
+                "reason": f"ML:{machine_likelihood:.2f} Intent:credential_access"
+            })
+        
+        # AI-PIVOT-CONTAIN-01: Fast tool switching + lateral movement
+        if (machine_likelihood >= ML_HIGH and 
+            tool_switch_ms <= TOOL_SWITCH_FAST and
+            goal_persistence >= 0.70 and
+            any(i in intents for i in ["lateral_movement", "privilege_escalation"])):
+            triggered_playbooks.append({
+                "playbook_id": "AI-PIVOT-CONTAIN-01",
+                "name": "Autonomous Pivot / Toolchain Switching — Contain Fast",
+                "reason": f"ML:{machine_likelihood:.2f} ToolSwitch:{tool_switch_ms}ms Persist:{goal_persistence:.2f}"
+            })
+        
+        # AI-EXFIL-PREP-CUT-01: Exfil preparation
+        if machine_likelihood >= ML_HIGH and any(i in intents for i in ["exfil_prep", "data_staging"]):
+            triggered_playbooks.append({
+                "playbook_id": "AI-EXFIL-PREP-CUT-01",
+                "name": "Exfil Prep — Cut Egress + Snapshot",
+                "reason": f"ML:{machine_likelihood:.2f} Intent:{intents}"
+            })
+        
+        # AI-HIGHCONF-ERADICATE-01: High confidence + decoy touched
+        if machine_likelihood >= ML_CRITICAL and decoy_touched:
+            triggered_playbooks.append({
+                "playbook_id": "AI-HIGHCONF-ERADICATE-01",
+                "name": "High Confidence Agentic Intrusion — Full Containment + Eradication",
+                "reason": f"ML:{machine_likelihood:.2f} + DecoyTouched"
+            })
+        
+        # Execute triggered playbooks
+        for pb in triggered_playbooks:
+            try:
+                execution_result = await self._execute_ai_playbook(pb, event, db)
+                results.append(execution_result)
+                logger.warning(
+                    f"SOAR AI Playbook Triggered: {pb['playbook_id']} for {host_id}/{session_id} - {pb['reason']}"
+                )
+            except Exception as e:
+                logger.error(f"SOAR AI Playbook execution failed: {e}")
+                results.append({
+                    "playbook_id": pb["playbook_id"],
+                    "status": "failed",
+                    "error": str(e)
+                })
+        
+        return results
+    
+    async def _evaluate_deception_hit(self, event: Dict, db=None) -> List[Dict]:
+        """Evaluate a deception/honey token hit"""
+        results = []
+        severity = event.get("severity", "medium")
+        
+        if severity in ["high", "critical"]:
+            pb = {
+                "playbook_id": "AI-DECOY-HIT-CONTAIN-01",
+                "name": "Decoy/Honey Token Hit — Immediate Containment",
+                "reason": f"Severity:{severity} Token:{event.get('token_id')}"
+            }
+            
+            try:
+                execution_result = await self._execute_ai_playbook(pb, event, db)
+                results.append(execution_result)
+                logger.critical(
+                    f"SOAR Deception Hit: {pb['playbook_id']} for {event.get('host_id')} - {pb['reason']}"
+                )
+            except Exception as e:
+                logger.error(f"SOAR Deception playbook failed: {e}")
+                results.append({
+                    "playbook_id": pb["playbook_id"],
+                    "status": "failed",
+                    "error": str(e)
+                })
+        
+        return results
+    
+    async def _execute_ai_playbook(self, playbook_info: Dict, event: Dict, db=None) -> Dict:
+        """
+        Execute an AI-Agentic playbook and create agent commands.
+        
+        This creates commands in the agent_commands collection for manual approval.
+        """
+        import uuid
+        
+        playbook_id = playbook_info["playbook_id"]
+        host_id = event.get("host_id")
+        session_id = event.get("session_id")
+        
+        execution_id = f"ai_exec_{uuid.uuid4().hex[:12]}"
+        actions_created = []
+        
+        # Define actions for each playbook
+        playbook_actions = {
+            "AI-RECON-DEGRADE-01": [
+                {"action": "tag_session", "params": {"tags": ["ai_suspected", "recon"]}},
+                {"action": "throttle_cli", "params": {"rate_per_min": 20, "mode": "soft"}},
+                {"action": "inject_latency", "params": {"delay_ms": 250, "jitter_ms": 200, "mode": "soft"}},
+                {"action": "capture_triage_bundle", "params": {"window_s": 30}}
+            ],
+            "AI-DECOY-HIT-CONTAIN-01": [
+                {"action": "isolate_host", "params": {"block_network": True}},
+                {"action": "capture_triage_bundle", "params": {"window_s": 300}},
+                {"action": "kill_process_tree", "params": {"mode": "force"}}
+            ],
+            "AI-CRED-ACCESS-RESP-01": [
+                {"action": "throttle_cli", "params": {"rate_per_min": 10, "mode": "hard"}},
+                {"action": "inject_latency", "params": {"delay_ms": 600, "jitter_ms": 400, "mode": "hard"}},
+                {"action": "capture_triage_bundle", "params": {"window_s": 180}}
+            ],
+            "AI-PIVOT-CONTAIN-01": [
+                {"action": "isolate_host", "params": {"block_network": True}},
+                {"action": "capture_triage_bundle", "params": {"window_s": 300}}
+            ],
+            "AI-EXFIL-PREP-CUT-01": [
+                {"action": "isolate_host", "params": {"block_network": True}},
+                {"action": "capture_triage_bundle", "params": {"window_s": 600}}
+            ],
+            "AI-HIGHCONF-ERADICATE-01": [
+                {"action": "isolate_host", "params": {"block_network": True}},
+                {"action": "kill_process_tree", "params": {"mode": "force"}},
+                {"action": "capture_memory_snapshot", "params": {"mode": "quick"}},
+                {"action": "capture_triage_bundle", "params": {"window_s": 900}}
+            ]
+        }
+        
+        actions = playbook_actions.get(playbook_id, [])
+        
+        # Create agent commands for each action (requires manual approval)
+        if db:
+            for action in actions:
+                command_id = str(uuid.uuid4())[:12]
+                command = {
+                    "command_id": command_id,
+                    "agent_id": host_id,
+                    "command_type": action["action"],
+                    "command_name": f"AI Playbook: {action['action']}",
+                    "parameters": {
+                        **action["params"],
+                        "session_id": session_id,
+                        "playbook_id": playbook_id,
+                        "execution_id": execution_id
+                    },
+                    "priority": "critical" if "isolate" in action["action"] else "high",
+                    "risk_level": "high",
+                    "status": "pending_approval",
+                    "created_by": f"SOAR:{playbook_id}",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "source": "ai_agentic_playbook",
+                    "playbook_info": playbook_info
+                }
+                
+                await db.agent_commands.insert_one(command)
+                actions_created.append(command_id)
+        
+        # Log the execution
+        execution_result = {
+            "execution_id": execution_id,
+            "playbook_id": playbook_id,
+            "playbook_name": playbook_info["name"],
+            "trigger_reason": playbook_info["reason"],
+            "host_id": host_id,
+            "session_id": session_id,
+            "status": "commands_queued",
+            "commands_created": actions_created,
+            "executed_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        if db:
+            await db.soar_executions.insert_one({
+                **execution_result,
+                "event": event
+            })
+        
+        # Store in memory
+        self.executions.append(PlaybookExecution(
+            id=execution_id,
+            playbook_id=playbook_id,
+            playbook_name=playbook_info["name"],
+            trigger_event=event,
+            status=ExecutionStatus.COMPLETED,
+            started_at=datetime.now(timezone.utc).isoformat(),
+            completed_at=datetime.now(timezone.utc).isoformat()
+        ))
+        
+        return execution_result
 
 
 # Global instance
