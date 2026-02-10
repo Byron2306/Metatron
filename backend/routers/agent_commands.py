@@ -138,9 +138,11 @@ async def create_command(
         "result": None
     }
     
-    pending_commands[command_id] = command
+    pending_commands[command_id] = command.copy()
     await db.agent_commands.insert_one(command)
     
+    # Remove MongoDB _id before returning
+    command.pop("_id", None)
     return {"command_id": command_id, "status": "pending_approval", "command": command}
 
 
