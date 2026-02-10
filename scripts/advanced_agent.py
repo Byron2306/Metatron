@@ -3453,6 +3453,169 @@ class CloudSyncClient:
         }
 
 
+
+# =============================================================================
+# CLI COMMAND MONITOR (for AI-Agentic Detection)
+# =============================================================================
+
+class CLICommandMonitor:
+    """
+    Monitors CLI/shell command execution and sends events to the server
+    for AI-Agentic detection via the Cognition Engine.
+    
+    This enables real-time detection of machine-paced, autonomous CLI sessions
+    by tracking command timing, patterns, and behavior.
+    """
+    
+    def __init__(self, cloud_sync: 'CloudSyncClient'):
+        self.cloud_sync = cloud_sync
+        self.running = False
+        self.session_id = f"session-{hashlib.md5(str(time.time()).encode()).hexdigest()[:8]}"
+        self.current_user = self._get_current_user()
+        self.shell_type = self._detect_shell_type()
+        self.command_history: deque = deque(maxlen=1000)
+        self.monitor_thread = None
+        
+        # Process watching configuration
+        self.watched_shells = {
+            'bash', 'sh', 'zsh', 'fish', 'csh', 'tcsh', 'ksh',
+            'powershell', 'pwsh', 'cmd', 'cmd.exe',
+            'powershell.exe', 'python', 'python3', 'node', 'ruby', 'perl'
+        }
+        
+        # Track parent PIDs we've seen
+        self._seen_parents: Set[int] = set()
+        self._last_check_time = time.time()
+        
+    def _get_current_user(self) -> str:
+        """Get current username"""
+        try:
+            import getpass
+            return getpass.getuser()
+        except:
+            return os.environ.get('USER', os.environ.get('USERNAME', 'unknown'))
+    
+    def _detect_shell_type(self) -> str:
+        """Detect the current shell type"""
+        shell = os.environ.get('SHELL', '')
+        if 'bash' in shell:
+            return 'bash'
+        elif 'zsh' in shell:
+            return 'zsh'
+        elif 'fish' in shell:
+            return 'fish'
+        elif platform.system() == 'Windows':
+            return 'powershell'
+        return 'bash'
+    
+    def start(self):
+        """Start CLI command monitoring"""
+        if self.running:
+            return
+        
+        self.running = True
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+        print(f"[*] CLI Monitor started (session: {self.session_id})")
+    
+    def stop(self):
+        """Stop CLI command monitoring"""
+        self.running = False
+        if self.monitor_thread:
+            self.monitor_thread.join(timeout=2)
+    
+    def _monitor_loop(self):
+        """Main monitoring loop - watches for new shell processes and their commands"""
+        while self.running:
+            try:
+                self._scan_shell_processes()
+                time.sleep(0.5)  # Check every 500ms for responsiveness
+            except Exception as e:
+                print(f"[!] CLI Monitor error: {e}")
+                time.sleep(2)
+    
+    def _scan_shell_processes(self):
+        """Scan for shell processes and capture their command lines"""
+        current_time = time.time()
+        
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'username', 'create_time', 'ppid', 'cwd']):
+            try:
+                info = proc.info
+                proc_name = info.get('name', '').lower()
+                
+                # Check if this is a shell or command interpreter
+                base_name = proc_name.replace('.exe', '')
+                if base_name not in self.watched_shells:
+                    continue
+                
+                cmdline = info.get('cmdline') or []
+                if len(cmdline) <= 1:
+                    continue  # No command arguments
+                
+                # Check if this is a new command (process created since last check)
+                create_time = info.get('create_time', 0)
+                if create_time < self._last_check_time:
+                    continue  # Old process
+                
+                # Build the command string
+                command = ' '.join(cmdline[1:]) if len(cmdline) > 1 else ''
+                if not command.strip():
+                    continue
+                
+                # Don't re-report same command
+                cmd_hash = hashlib.md5(f"{info['pid']}{command}".encode()).hexdigest()
+                if cmd_hash in [h for h, _ in self.command_history]:
+                    continue
+                
+                self.command_history.append((cmd_hash, current_time))
+                
+                # Send CLI event to server
+                self._send_cli_event(
+                    command=command,
+                    shell_type=base_name,
+                    parent_pid=info.get('ppid'),
+                    cwd=info.get('cwd'),
+                    username=info.get('username')
+                )
+                
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+            except Exception:
+                continue
+        
+        self._last_check_time = current_time
+    
+    def _send_cli_event(self, command: str, shell_type: str = None, 
+                        parent_pid: int = None, cwd: str = None, username: str = None):
+        """Send a CLI command event to the server"""
+        # Use cloud sync to send CLI command
+        success = self.cloud_sync.send_cli_command(
+            session_id=self.session_id,
+            user=username or self.current_user,
+            command=command,
+            shell_type=shell_type or self.shell_type,
+            parent_process=str(parent_pid) if parent_pid else None,
+            cwd=cwd
+        )
+        
+        if success:
+            print(f"[CLI] Sent: {command[:60]}...")
+    
+    def report_manual_command(self, command: str, exit_code: int = None, duration_ms: int = None):
+        """
+        Manually report a command execution.
+        Call this from any code that executes shell commands.
+        """
+        self.cloud_sync.send_cli_command(
+            session_id=self.session_id,
+            user=self.current_user,
+            command=command,
+            shell_type=self.shell_type,
+            exit_code=exit_code,
+            duration_ms=duration_ms
+        )
+
+
 # =============================================================================
 # MAIN AGENT
 # =============================================================================
