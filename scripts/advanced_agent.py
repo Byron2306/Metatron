@@ -3350,6 +3350,73 @@ class CloudSyncClient:
         """Report suspicious file"""
         return self._send_event("suspicious_file", file_info)
     
+    def send_cli_command(self, session_id: str, user: str, command: str, 
+                         shell_type: str = "bash", parent_process: str = None,
+                         cwd: str = None, exit_code: int = None, duration_ms: int = None) -> bool:
+        """
+        Send CLI command event for AI-Agentic detection.
+        This enables the Cognition Engine to analyze session patterns.
+        """
+        cli_event = {
+            "host_id": self.agent_id,
+            "session_id": session_id,
+            "user": user,
+            "shell_type": shell_type,
+            "command": command,
+            "parent_process": parent_process,
+            "cwd": cwd,
+            "exit_code": exit_code,
+            "duration_ms": duration_ms,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Send via HTTP API (requires auth)
+        if self.session and self.api_url:
+            try:
+                response = self.session.post(
+                    f"{self.api_url}/api/cli/event",
+                    json=cli_event,
+                    timeout=10
+                )
+                return response.status_code == 200
+            except:
+                pass
+        return False
+    
+    def send_deception_hit(self, token_id: str, severity: str = "high",
+                          suspect_pid: int = None, context: Dict = None) -> bool:
+        """
+        Report deception/honey token access.
+        This triggers immediate containment playbooks.
+        """
+        hit_event = {
+            "host_id": self.agent_id,
+            "token_id": token_id,
+            "severity": severity,
+            "suspect_pid": suspect_pid,
+            "context": context or {},
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Send via HTTP API
+        if self.session and self.api_url:
+            try:
+                response = self.session.post(
+                    f"{self.api_url}/api/deception/event",
+                    json=hit_event,
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    print(f"[!] DECEPTION HIT reported: {token_id}")
+                return response.status_code == 200
+            except:
+                pass
+        
+        # Also send via WebSocket for immediate alert
+        self.send_alert_to_server("deception_hit", "critical",
+            f"Honey token accessed: {token_id}", hit_event)
+        return False
+    
     def send_full_scan_report(self, report: Dict) -> bool:
         """Send full scan report"""
         self.send_scan_results("full_scan", report)
