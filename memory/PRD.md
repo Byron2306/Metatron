@@ -18,7 +18,110 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v4.5.0**: Kibana Live Dashboards + Credential Theft Detection
 - **v4.6.0**: Critical Fixes + Agent Command Center
 - **v4.7.0**: WebSocket Agent + Zero Trust Remediation
-- **v4.8.0**: Agent Details Page + Enhanced Downloads (CURRENT - Feb 2026)
+- **v4.8.0**: Agent Details Page + Enhanced Downloads
+- **v4.9.0**: AI-Agentic Defense SOAR Playbooks (CURRENT - Feb 2026)
+
+## v4.9 AI-Agentic Defense SOAR Playbooks (Feb 2026)
+
+### Overview
+Implemented comprehensive SOAR playbook pack focused on detecting and disrupting machine-paced, autonomous CLI-driven intrusion patterns.
+
+### YAML Playbook Pack
+Location: `/app/backend/playbooks/ai_agentic_defense.yaml`
+
+| Playbook ID | Name | Trigger |
+|------------|------|---------|
+| `AI-RECON-DEGRADE-01` | Machine-Paced Recon Loop — Degrade + Observe | ML ≥ 0.80, intent: recon, burst ≥ 0.75 |
+| `AI-DECOY-HIT-CONTAIN-01` | Decoy/Honey Token Hit — Immediate Containment | deception.hit with high/critical severity |
+| `AI-CRED-ACCESS-RESP-01` | Credential Access Pattern — Decoy + Credential Controls | ML ≥ 0.80, intent: credential_access |
+| `AI-PIVOT-CONTAIN-01` | Autonomous Pivot / Toolchain Switching — Contain Fast | ML ≥ 0.80, fast tool switch, lateral/privesc intent |
+| `AI-EXFIL-PREP-CUT-01` | Exfil Prep — Cut Egress + Snapshot | ML ≥ 0.80, intent: exfil_prep/data_staging |
+| `AI-HIGHCONF-ERADICATE-01` | High Confidence Agentic Intrusion — Full Containment | ML ≥ 0.92 + decoy_touched |
+
+### Event Schemas
+
+#### cli.command (from agent)
+```json
+{
+  "event_type": "cli.command",
+  "host_id": "workstation-001",
+  "session_id": "sess-9f2c",
+  "user": "alice",
+  "shell_type": "powershell",
+  "command": "whoami /all",
+  "parent_process": "explorer.exe"
+}
+```
+
+#### cli.session_summary (from CCE)
+```json
+{
+  "event_type": "cli.session_summary",
+  "host_id": "workstation-001",
+  "session_id": "sess-9f2c",
+  "machine_likelihood": 0.86,
+  "burstiness_score": 0.79,
+  "tool_switch_latency_ms": 220,
+  "goal_persistence": 0.74,
+  "dominant_intents": ["recon"],
+  "decoy_touched": false
+}
+```
+
+#### deception.hit
+```json
+{
+  "event_type": "deception.hit",
+  "host_id": "workstation-001",
+  "token_id": "honey-aws-creds-001",
+  "severity": "critical",
+  "suspect_pid": 4532
+}
+```
+
+### New API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/cli/event` | Ingest raw CLI command |
+| POST | `/api/cli/session-summary` | Ingest session summary (triggers SOAR) |
+| GET | `/api/cli/commands/{host_id}` | Get CLI commands for host |
+| GET | `/api/cli/sessions/{host_id}` | Get session summaries for host |
+| POST | `/api/deception/event` | Ingest deception hit (triggers containment) |
+| GET | `/api/deception/hits` | Get deception hit events |
+
+### Response Actions (Agent Commands)
+- `throttle_cli` - Limit command execution rate
+- `inject_latency` - Add delays to slow down attacker
+- `isolate_host` - Network isolation with allowlist
+- `kill_process_tree` - Terminate malicious process tree
+- `quarantine_path` - Quarantine suspicious files
+- `capture_triage_bundle` - Collect forensic evidence
+- `capture_memory_snapshot` - Memory dump
+- `tag_session` - Tag session for tracking
+- `rotate_credentials` - Trigger credential rotation webhook
+
+### Cognition/Correlation Engine (CCE)
+Location: `/app/backend/services/cognition_engine.py`
+
+Features:
+- Sliding window analysis (30s default)
+- Machine likelihood scoring based on timing patterns
+- Intent classification (recon, credential_access, lateral_movement, etc.)
+- Burstiness and tool switch latency analysis
+- Goal persistence tracking
+
+### "Slow & Poison" Response Mode
+For AI-style sessions, default response is NOT "kill" but:
+1. **Soft controls (stealth)**: throttle_cli, inject_latency, extra telemetry
+2. **Hard controls (contain)**: isolate_host, kill process tree
+3. **Confidence escalation**: decoy touched → immediate contain
+
+### Testing Results
+- CLI event ingestion: ✅ Working
+- Session summary evaluation: ✅ Triggers playbooks
+- Deception hit containment: ✅ Creates agent commands
+- Commands queued for approval: ✅ 3 commands created on deception hit
 
 ## v4.8 Agent Details Page + Enhanced Downloads (Feb 2026)
 
