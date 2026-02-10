@@ -575,29 +575,42 @@ async def deploy_agents_batch(
     current_user: dict = Depends(check_permission("write"))
 ):
     """Deploy agents to all deployable devices"""
-    from services.agent_deployment import get_deployment_service
+    from services.agent_deployment import get_deployment_service, start_deployment_service
     
     service = get_deployment_service()
-    if service is None:
-        raise HTTPException(status_code=503, detail="Deployment service not running")
     
-    # Get deployable devices - check both lowercase and capitalized OS types
+    # If service not running, try to start it
+    if service is None:
+        try:
+            import os
+            api_url = os.environ.get('API_URL', 'http://localhost:8001')
+            service = await start_deployment_service(db, api_url)
+            logger.info("Deployment service started on-demand")
+        except Exception as e:
+            logger.error(f"Failed to start deployment service: {e}")
+            raise HTTPException(status_code=503, detail=f"Deployment service could not be started: {str(e)}")
+    
+    # Get deployable devices - case-insensitive OS check
     cursor = db.discovered_devices.find({
         "deployment_status": {"$in": ["discovered", "failed", None]},
         "$or": [
-            {"os_type": {"$in": ["windows", "linux", "macos", "Windows", "Linux", "macOS"]}},
+            {"os_type": {"$regex": "^(windows|linux|macos|darwin)$", "$options": "i"}},
             {"deployable": True}
         ]
     }, {"_id": 0})
     devices = await cursor.to_list(100)
     
     if not devices:
+        # Check total devices for better error message
+        total_devices = await db.discovered_devices.count_documents({})
         return {
-            "message": "No deployable devices found",
-            "devices": []
+            "message": f"No deployable devices found (total devices: {total_devices}). Devices need OS type (Windows/Linux/macOS) or deployable=True flag.",
+            "devices": [],
+            "total_devices_in_db": total_devices
         }
     
     queued = []
+    errors = []
     for device in devices:
         try:
             task_id = await service.queue_deployment(
@@ -608,6 +621,7 @@ async def deploy_agents_batch(
             queued.append({
                 "ip": device["ip_address"],
                 "hostname": device.get("hostname"),
+                "os_type": device.get("os_type"),
                 "task_id": task_id
             })
             
@@ -617,13 +631,16 @@ async def deploy_agents_batch(
                 {"$set": {"deployment_status": "queued"}}
             )
         except Exception as e:
-            logger.error(f"Failed to queue deployment for {device['ip_address']}: {e}")
+            error_msg = f"Failed to queue deployment for {device['ip_address']}: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
     
-    logger.info(f"Batch deployment: queued {len(queued)} devices")
+    logger.info(f"Batch deployment: queued {len(queued)} devices, {len(errors)} errors")
     
     return {
         "message": f"Batch deployment initiated for {len(queued)} devices",
-        "devices": queued
+        "devices": queued,
+        "errors": errors if errors else None
     }
 
 
