@@ -225,14 +225,40 @@ const AgentsPage = () => {
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
-          <Button
-            className="bg-cyan-600 hover:bg-cyan-500"
-            onClick={downloadAgent}
-            data-testid="download-agent-btn"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Download Agent
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="bg-cyan-600 hover:bg-cyan-500"
+                data-testid="download-agent-btn"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Agent
+                <ChevronDown className="w-4 h-4 ml-2" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-slate-900 border-slate-700">
+              <DropdownMenuItem 
+                onClick={downloadAdvancedAgent}
+                className="text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <Terminal className="w-4 h-4 mr-2 text-cyan-400" />
+                <div>
+                  <p className="font-medium">Advanced Agent (Recommended)</p>
+                  <p className="text-xs text-slate-400">Real-time commands, WebSocket support</p>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={downloadAgent}
+                className="text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <Shield className="w-4 h-4 mr-2 text-green-400" />
+                <div>
+                  <p className="font-medium">Defender Installer</p>
+                  <p className="text-xs text-slate-400">Full security suite with GUI</p>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
