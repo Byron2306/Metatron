@@ -918,7 +918,7 @@ class SOAREngine:
         actions = playbook_actions.get(playbook_id, [])
         
         # Create agent commands for each action (requires manual approval)
-        if db:
+        if db is not None:
             for action in actions:
                 command_id = str(uuid.uuid4())[:12]
                 command = {
