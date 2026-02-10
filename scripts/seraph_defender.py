@@ -1364,11 +1364,12 @@ class SeraphDefenderAgent:
         """Send heartbeat to server"""
         try:
             requests.post(
-                f"{self.api_url}/api/agents/{AGENT_ID}/heartbeat",
+                f"{self.api_url}/api/swarm/agents/{AGENT_ID}/heartbeat",
                 json={
+                    "status": "online",
                     "cpu_percent": psutil.cpu_percent(),
                     "memory_percent": psutil.virtual_memory().percent,
-                    "disk_percent": psutil.disk_usage('/').percent if OS_TYPE != 'windows' else psutil.disk_usage('C:').percent
+                    "uptime": int(time.time() - psutil.boot_time())
                 },
                 timeout=10
             )
