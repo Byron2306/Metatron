@@ -28,7 +28,7 @@ class TestAuth:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         # Try to register if login fails
         register_response = requests.post(f"{BASE_URL}/api/auth/register", json={
             "email": TEST_EMAIL,
@@ -41,7 +41,7 @@ class TestAuth:
                 "password": TEST_PASSWORD
             })
             if login_response.status_code == 200:
-                return login_response.json().get("token")
+                return login_response.json().get("access_token")
         pytest.skip("Authentication failed - skipping authenticated tests")
     
     def test_login_success(self, auth_token):
@@ -61,7 +61,7 @@ class TestVPNEndpoints:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     @pytest.fixture
@@ -157,7 +157,7 @@ class TestZeroTrustEndpoints:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     @pytest.fixture
@@ -267,7 +267,7 @@ class TestBrowserIsolationEndpoints:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     @pytest.fixture
@@ -350,7 +350,7 @@ class TestAgentCommandsEndpoints:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     @pytest.fixture
@@ -437,7 +437,7 @@ class TestZeroTrustAgentIntegration:
             "password": TEST_PASSWORD
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     @pytest.fixture
