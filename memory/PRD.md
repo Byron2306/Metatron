@@ -22,8 +22,117 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v4.9.0**: AI-Agentic Defense SOAR Playbooks
 - **v5.0.0**: Complete AI-Agentic Integration + Seraphic Watch Theme
 - **v5.1.0**: Docker & VPN Deployment Finalization (CURRENT - Feb 2026)
+- **v5.2.0**: Swarm Auto-Deployment & Real Telemetry (Feb 2026)
+- **v5.3.0**: AI Threat Intelligence Layer (AATL/AATR) (Feb 2026) - CURRENT
 
-## v5.2.0 Swarm Auto-Deployment & Real Telemetry (Feb 2026)
+## v5.3.0 AI Threat Intelligence Layer (Feb 2026) - COMPLETED
+
+### Overview
+This version introduces the Autonomous Agent Threat Layer (AATL) and Autonomous AI Threat Registry (AATR) - a sophisticated system for detecting and responding to AI-driven attacks.
+
+### Major New Components
+
+#### 1. AATL Engine (Autonomous Agent Threat Layer)
+- **Location**: `/app/backend/services/aatl.py`
+- Real-time analysis of CLI command streams for AI-specific threat patterns
+- **Behavior Detection**:
+  - Command velocity (commands per second)
+  - Inter-command timing analysis
+  - Timing variance (low variance = machine)
+  - Tool switching patterns
+  - Intent accumulation tracking
+  - Goal convergence scoring
+- **Threat Classification**:
+  - Actor types: human, ai_assisted, autonomous_agent, unknown
+  - Threat levels: low, medium, high, critical
+  - Machine plausibility scores (0-1 scale)
+- **Response Strategy Selection**: observe, slow, poison, deceive, contain, eradicate
+
+#### 2. AATR (Autonomous AI Threat Registry)
+- **Location**: `/app/backend/services/aatr.py`
+- Defensive intelligence catalog of AI threat actors
+- **Pre-loaded entries**:
+  - AATR-001: Generic Planning Agent (high)
+  - AATR-002: Tool-Using Code Agent (critical)
+  - AATR-003: Multi-Agent Swarm (critical)
+  - AATR-004: Reasoning Chain Agent (high)
+  - AATR-005: Uncensored/Jailbroken Agent (critical)
+  - AATR-006: Persistent Reconnaissance Agent (medium)
+- Fields: typical_behaviors, CLI signatures, defensive_indicators, recommended_defenses
+
+#### 3. Enhanced Network Discovery
+- **Location**: `/app/backend/services/network_discovery.py`
+- Now uses `python-nmap` library for robust device discovery
+- OS detection, hostname resolution, vendor identification
+- Thread-pool execution to avoid blocking
+
+#### 4. Enhanced Agent Deployment
+- **Location**: `/app/backend/services/agent_deployment.py`
+- Now uses `paramiko` library for SSH deployments
+- Supports key-based and password authentication
+- Fallback to subprocess SSH for compatibility
+
+#### 5. AI Threat Intelligence UI
+- **Location**: `/app/frontend/src/pages/AIThreatIntelligence.jsx`
+- **Tabs**:
+  - AATL Overview: Actor type distribution, attack lifecycle stages
+  - Threat Assessments: Detailed session analysis with indicators
+  - AATR Registry: Browse threat actor catalog
+  - Detection Indicators: View behavioral signatures
+- **Response Strategies Display**: Visual cards for observe, slow, poison, deceive, contain, eradicate
+
+### New API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/ai-threats/intelligence/dashboard` | Combined AATL/AATR dashboard |
+| GET | `/api/ai-threats/aatl/assessments` | Get AATL assessments |
+| GET | `/api/ai-threats/aatr/entries` | Get AATR registry entries |
+| GET | `/api/ai-threats/aatr/indicators` | Get detection indicators |
+| POST | `/api/swarm/cli/event` | Single CLI event with AATL processing |
+| POST | `/api/swarm/cli/batch` | Batch CLI events with AATL processing |
+| GET | `/api/swarm/cli/sessions/{host_id}` | Get CLI sessions with AATL assessments |
+
+### AATL Assessment Response Format
+```json
+{
+  "host_id": "workstation-001",
+  "session_id": "sess-001",
+  "machine_plausibility": 0.7,
+  "human_plausibility": 0.3,
+  "threat_score": 52.0,
+  "threat_level": "medium",
+  "actor_type": "ai_assisted",
+  "recommended_strategy": "poison",
+  "behavior_signature": {
+    "command_velocity": 7.88,
+    "avg_inter_command_delay": 158,
+    "delay_variance": 7.2,
+    "entropy_score": 3.78,
+    "tool_switch_count": 0
+  },
+  "intent_accumulation": {
+    "primary_intent": "reconnaissance",
+    "confidence": 1.0,
+    "goal_convergence_score": 1.0
+  },
+  "indicators": ["fast_typing:159ms", "consistent_timing:variance=7ms"],
+  "recommended_actions": ["deploy_decoy_data", "honeypot_redirect"]
+}
+```
+
+### Testing Results (iteration_16.json)
+- **Backend**: 16/16 tests passed (100%)
+- **Frontend**: All pages verified working
+- **AATL Detection**: Successfully identifies machine-like patterns
+- **AATR Registry**: 6 threat entries loaded and queryable
+
+### Dependencies Added
+- `python-nmap==0.7.1` - Network scanning
+- `paramiko==4.0.0` - SSH deployment
+- `pywinrm==0.5.0` - Windows remote management
+
+---
 
 ### Major Architecture Changes
 This version fundamentally transforms the system from manual agent downloads to **automatic swarm deployment**.
