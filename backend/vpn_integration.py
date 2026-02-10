@@ -332,15 +332,17 @@ AllowedIPs = {peer.allowed_ips}
         # Get server public endpoint from config
         server_endpoint = config.vpn_server_endpoint
         
-        # Use server config if available, otherwise use defaults
-        if self.server_config:
+        # Use server config if available and valid, otherwise use defaults
+        has_valid_server = self.server_config and self.server_config.public_key
+        
+        if has_valid_server:
             dns_servers = ', '.join(self.server_config.dns)
             server_public_key = self.server_config.public_key
             listen_port = self.server_config.listen_port
         else:
             # Fallback defaults when server not yet initialized
             dns_servers = ', '.join(config.dns_servers)
-            server_public_key = "[SERVER_PUBLIC_KEY_PLACEHOLDER]"
+            server_public_key = "[SERVER_PUBLIC_KEY_WILL_BE_GENERATED]"
             listen_port = config.vpn_port
         
         config_content = f"""[Interface]
@@ -357,10 +359,15 @@ PersistentKeepalive = 25
 """
         
         # Add note if server not initialized
-        if not self.server_config:
-            config_content = f"""# NOTE: Server not yet initialized
-# The server public key is a placeholder
-# Run 'Initialize Server' first, then re-download this config
+        if not has_valid_server:
+            config_content = f"""# ========================================
+# NOTE: VPN Server Not Yet Initialized
+# ========================================
+# The server public key is a placeholder.
+# To complete setup:
+# 1. Go to VPN page and click "Initialize Server"
+# 2. Re-download this configuration file
+# ========================================
 
 {config_content}"""
         
