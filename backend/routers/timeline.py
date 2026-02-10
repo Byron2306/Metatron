@@ -46,7 +46,7 @@ async def export_threat_timeline(threat_id: str, format: str = "json", current_u
     if format == "json":
         return asdict(timeline)
     elif format == "markdown":
-        return {"content": timeline_builder._to_markdown(timeline)}
+        return {"markdown": timeline_builder._to_markdown(timeline)}
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
 
