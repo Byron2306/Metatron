@@ -83,18 +83,19 @@ const Layout = () => {
   return (
     <div className="min-h-screen flex" style={{ backgroundColor: '#0C1020' }}>
       {/* Sidebar */}
-      <aside className="w-64 flex flex-col" style={{ backgroundColor: '#121833', borderRight: '1px solid rgba(56, 189, 248, 0.15)' }}>
+      <aside className="w-64 flex flex-col" style={{ backgroundColor: '#121833', borderRight: '2px solid rgba(253, 230, 138, 0.2)' }}>
         {/* Logo */}
-        <div className="p-5" style={{ borderBottom: '1px solid rgba(56, 189, 248, 0.15)' }}>
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-lg overflow-hidden" style={{ 
-              background: 'linear-gradient(135deg, rgba(253, 230, 138, 0.2), rgba(56, 189, 248, 0.2))',
-              boxShadow: '0 0 20px rgba(253, 230, 138, 0.3), inset 0 0 20px rgba(56, 189, 248, 0.1)'
+        <div className="p-6" style={{ borderBottom: '2px solid rgba(253, 230, 138, 0.2)' }}>
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-xl overflow-hidden" style={{ 
+              background: 'linear-gradient(135deg, rgba(253, 230, 138, 0.3), rgba(56, 189, 248, 0.2))',
+              boxShadow: '0 0 30px rgba(253, 230, 138, 0.4), inset 0 0 20px rgba(56, 189, 248, 0.1)',
+              border: '2px solid rgba(253, 230, 138, 0.4)'
             }}>
               <img src={logoUrl} alt="Seraph AI" className="w-full h-full object-cover" />
             </div>
             <div>
-              <h1 className="font-mono font-bold text-sm tracking-wider" style={{ color: '#FDE68A' }}>SERAPH AI</h1>
+              <h1 className="font-mono font-bold text-xl tracking-wider" style={{ color: '#FDE68A', textShadow: '0 0 15px rgba(253, 230, 138, 0.4)' }}>SERAPH AI</h1>
               <p className="text-xs" style={{ color: '#A5F3FC' }}>Seraphic Watch</p>
             </div>
           </div>
@@ -136,30 +137,30 @@ const Layout = () => {
         </nav>
 
         {/* System Status */}
-        <div className="p-4" style={{ borderTop: '1px solid rgba(56, 189, 248, 0.15)' }}>
-          <div className="rounded-lg p-3" style={{ backgroundColor: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.1)' }}>
+        <div className="p-4" style={{ borderTop: '2px solid rgba(253, 230, 138, 0.2)' }}>
+          <div className="rounded-xl p-4" style={{ backgroundColor: 'rgba(253, 230, 138, 0.08)', border: '1px solid rgba(253, 230, 138, 0.2)' }}>
             <div className="flex items-center gap-2 mb-2">
-              <Activity className="w-4 h-4" style={{ color: '#FDE68A' }} />
-              <span className="text-xs" style={{ color: '#A5F3FC' }}>Seraphic Status</span>
+              <Activity className="w-5 h-5" style={{ color: '#FDE68A' }} />
+              <span className="text-sm font-medium" style={{ color: '#FDE68A' }}>Seraphic Status</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: '#FDE68A', boxShadow: '0 0 10px #FDE68A' }} />
-              <span className="text-xs font-mono" style={{ color: '#FDE68A' }}>WATCHING</span>
+              <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: '#FDE68A', boxShadow: '0 0 15px #FDE68A' }} />
+              <span className="text-sm font-mono font-bold" style={{ color: '#FDE68A' }}>WATCHING</span>
             </div>
           </div>
         </div>
 
         {/* User Section */}
-        <div className="p-4" style={{ borderTop: '1px solid rgba(56, 189, 248, 0.15)' }}>
+        <div className="p-4" style={{ borderTop: '2px solid rgba(253, 230, 138, 0.2)' }}>
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(253, 230, 138, 0.1)', border: '1px solid rgba(253, 230, 138, 0.3)' }}>
-              <span className="text-sm font-mono" style={{ color: '#FDE68A' }}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(253, 230, 138, 0.15)', border: '2px solid rgba(253, 230, 138, 0.4)' }}>
+              <span className="text-lg font-mono font-bold" style={{ color: '#FDE68A' }}>
                 {user?.name?.charAt(0)?.toUpperCase() || 'U'}
               </span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-white truncate">{user?.name}</p>
-              <p className="text-xs text-slate-500 truncate">{user?.role}</p>
+              <p className="text-sm font-medium text-white truncate">{user?.name}</p>
+              <p className="text-xs truncate" style={{ color: '#A5F3FC' }}>{user?.role}</p>
             </div>
           </div>
           <Button
