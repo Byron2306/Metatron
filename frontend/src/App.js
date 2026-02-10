@@ -33,6 +33,7 @@ import AgentCommandsPage from "./pages/AgentCommandsPage";
 import AgentDetailsPage from "./pages/AgentDetailsPage";
 import CLISessionsPage from "./pages/CLISessionsPage";
 import SwarmDashboard from "./pages/SwarmDashboard";
+import AIThreatIntelligence from "./pages/AIThreatIntelligence";
 import Layout from "./components/Layout";
 import "@/App.css";
 
