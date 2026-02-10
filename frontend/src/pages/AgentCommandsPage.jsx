@@ -284,7 +284,21 @@ const AgentCommandsPage = () => {
                           <p className="text-slate-500 text-xs">{agent.os} | {agent.ip_address}</p>
                         </div>
                       </div>
-                      <ChevronRight className="w-5 h-5 text-slate-500" />
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/agent-commands/${agent.agent_id}`);
+                          }}
+                        >
+                          <ExternalLink className="w-4 h-4 mr-1" />
+                          Details
+                        </Button>
+                        <ChevronRight className="w-5 h-5 text-slate-500" />
+                      </div>
                     </div>
                   </div>
                 ))
