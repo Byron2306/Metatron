@@ -279,41 +279,104 @@ class NetworkDiscoveryService:
         return devices
     
     async def _arp_scan_linux(self, network: ipaddress.IPv4Network) -> List[DiscoveredDevice]:
-        """ARP scan using Linux tools (nmap or arp-scan)"""
+        """ARP scan using python-nmap for comprehensive discovery"""
         devices = []
         
-        # Try nmap first
         try:
-            result = await asyncio.create_subprocess_exec(
-                'nmap', '-sn', '-PR', str(network), '--exclude', str(list(network.hosts())[0]),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(result.communicate(), timeout=120)
-            output = stdout.decode()
+            import nmap
             
-            # Parse nmap output
-            current_ip = None
-            for line in output.split('\n'):
-                if 'Nmap scan report for' in line:
-                    match = re.search(r'(\d+\.\d+\.\d+\.\d+)', line)
-                    if match:
-                        current_ip = match.group(1)
-                elif 'MAC Address:' in line and current_ip:
-                    match = re.search(r'([0-9A-Fa-f:]{17})', line)
-                    if match:
-                        mac = match.group(1).lower()
-                        devices.append(DiscoveredDevice(
-                            ip_address=current_ip,
-                            mac_address=mac,
-                            vendor=self._lookup_vendor(mac)
-                        ))
-                        current_ip = None
-        except FileNotFoundError:
-            # Fall back to reading ARP cache
-            devices = await self._read_arp_cache()
-        except asyncio.TimeoutError:
-            logger.warning("nmap scan timed out, falling back to ARP cache")
+            # Run nmap in a thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            
+            def run_nmap_scan():
+                nm = nmap.PortScanner()
+                # Use -sn for ping scan, -O for OS detection (requires root)
+                # -T4 for faster execution
+                try:
+                    nm.scan(hosts=str(network), arguments='-sn -T4 --min-rate=1000')
+                except Exception as e:
+                    logger.warning(f"Nmap scan failed: {e}")
+                    return {}
+                return nm.all_hosts(), nm
+            
+            hosts, nm = await loop.run_in_executor(None, run_nmap_scan)
+            
+            for host in hosts:
+                try:
+                    host_info = nm[host]
+                    
+                    # Get MAC address and vendor
+                    mac = None
+                    vendor = None
+                    if 'mac' in host_info.get('addresses', {}):
+                        mac = host_info['addresses']['mac'].lower()
+                        vendor = host_info.get('vendor', {}).get(mac.upper())
+                    
+                    if not vendor:
+                        vendor = self._lookup_vendor(mac) if mac else None
+                    
+                    # Get hostname
+                    hostname = None
+                    if host_info.get('hostnames'):
+                        for h in host_info['hostnames']:
+                            if h.get('name'):
+                                hostname = h['name']
+                                break
+                    
+                    device = DiscoveredDevice(
+                        ip_address=host,
+                        mac_address=mac,
+                        hostname=hostname,
+                        vendor=vendor
+                    )
+                    devices.append(device)
+                    
+                except Exception as e:
+                    logger.warning(f"Error processing host {host}: {e}")
+                    continue
+                    
+        except ImportError:
+            logger.warning("python-nmap not installed, falling back to subprocess")
+            # Fall back to subprocess-based nmap
+            try:
+                result = await asyncio.create_subprocess_exec(
+                    'nmap', '-sn', '-T4', str(network),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, _ = await asyncio.wait_for(result.communicate(), timeout=120)
+                output = stdout.decode()
+                
+                current_ip = None
+                current_hostname = None
+                for line in output.split('\n'):
+                    if 'Nmap scan report for' in line:
+                        match = re.search(r'(\d+\.\d+\.\d+\.\d+)', line)
+                        if match:
+                            current_ip = match.group(1)
+                        # Extract hostname if present
+                        host_match = re.search(r'for\s+([^\s(]+)', line)
+                        if host_match and not host_match.group(1)[0].isdigit():
+                            current_hostname = host_match.group(1)
+                    elif 'MAC Address:' in line and current_ip:
+                        match = re.search(r'([0-9A-Fa-f:]{17})', line)
+                        if match:
+                            mac = match.group(1).lower()
+                            devices.append(DiscoveredDevice(
+                                ip_address=current_ip,
+                                mac_address=mac,
+                                hostname=current_hostname,
+                                vendor=self._lookup_vendor(mac)
+                            ))
+                            current_ip = None
+                            current_hostname = None
+            except FileNotFoundError:
+                devices = await self._read_arp_cache()
+            except asyncio.TimeoutError:
+                logger.warning("nmap scan timed out, falling back to ARP cache")
+                devices = await self._read_arp_cache()
+        except Exception as e:
+            logger.error(f"ARP scan error: {e}")
             devices = await self._read_arp_cache()
         
         return devices
