@@ -333,27 +333,49 @@ async def deploy_agents_batch(
     if service is None:
         raise HTTPException(status_code=503, detail="Deployment service not running")
     
-    # Get deployable devices
+    # Get deployable devices - check both lowercase and capitalized OS types
     cursor = db.discovered_devices.find({
-        "deployment_status": {"$in": ["discovered", "failed"]},
-        "os_type": {"$in": ["windows", "linux", "macos"]},
-        "device_type": {"$in": ["workstation", "server"]}
+        "deployment_status": {"$in": ["discovered", "failed", None]},
+        "$or": [
+            {"os_type": {"$in": ["windows", "linux", "macos", "Windows", "Linux", "macOS"]}},
+            {"deployable": True}
+        ]
     }, {"_id": 0})
     devices = await cursor.to_list(100)
     
-    async def deploy_all():
-        for device in devices:
-            await service.queue_deployment(
+    if not devices:
+        return {
+            "message": "No deployable devices found",
+            "devices": []
+        }
+    
+    queued = []
+    for device in devices:
+        try:
+            task_id = await service.queue_deployment(
                 device_ip=device["ip_address"],
                 device_hostname=device.get("hostname"),
                 os_type=device.get("os_type", "unknown")
             )
+            queued.append({
+                "ip": device["ip_address"],
+                "hostname": device.get("hostname"),
+                "task_id": task_id
+            })
+            
+            # Update device status
+            await db.discovered_devices.update_one(
+                {"ip_address": device["ip_address"]},
+                {"$set": {"deployment_status": "queued"}}
+            )
+        except Exception as e:
+            logger.error(f"Failed to queue deployment for {device['ip_address']}: {e}")
     
-    background_tasks.add_task(deploy_all)
+    logger.info(f"Batch deployment: queued {len(queued)} devices")
     
     return {
-        "message": f"Batch deployment initiated for {len(devices)} devices",
-        "devices": [d["ip_address"] for d in devices]
+        "message": f"Batch deployment initiated for {len(queued)} devices",
+        "devices": queued
     }
 
 
