@@ -68,6 +68,7 @@ const Layout = () => {
     { path: '/sandbox', icon: Box, label: 'Sandbox' },
     { path: '/browser-isolation', icon: Globe, label: 'Browser Isolation' },
     { path: '/kibana', icon: BarChart3, label: 'Kibana' },
+    { path: '/agent-commands', icon: Terminal, label: 'Agent Commands' },
     { path: '/reports', icon: FileText, label: 'Reports' },
     { path: '/audit', icon: ScrollText, label: 'Audit Logs' },
     { path: '/settings', icon: Settings, label: 'Settings' },
