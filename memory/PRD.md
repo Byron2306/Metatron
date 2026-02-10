@@ -23,6 +23,92 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v5.0.0**: Complete AI-Agentic Integration + Seraphic Watch Theme
 - **v5.1.0**: Docker & VPN Deployment Finalization (CURRENT - Feb 2026)
 
+## v5.2.0 Swarm Auto-Deployment & Real Telemetry (Feb 2026)
+
+### Major Architecture Changes
+This version fundamentally transforms the system from manual agent downloads to **automatic swarm deployment**.
+
+### New Components
+
+#### 1. Network Discovery Service
+- **Location**: `/app/backend/services/network_discovery.py`
+- Auto-discovers devices using ARP scanning, SNMP, NetBIOS
+- Identifies device type, OS, open ports, vendor
+- Calculates risk scores for unmanaged devices
+- Runs continuously (default: every 5 minutes)
+
+#### 2. Agent Deployment Service
+- **Location**: `/app/backend/services/agent_deployment.py`
+- **Push-based deployment** - Server pushes agent to discovered devices
+- Supports SSH (Linux/macOS) and WinRM (Windows)
+- Manages deployment queue with retries
+- Tracks deployment status per device
+
+#### 3. Unified Seraph Defender Agent
+- **Location**: `/app/scripts/seraph_defender.py`
+- Single unified agent replacing separate Defender/Advanced agents
+- Real-time telemetry streaming to server
+- **File Integrity Monitoring**: MD5/SHA256 hashes, change detection
+- **Process Monitor**: Suspicious process detection with risk scoring
+- **CLI Monitor**: Command capture for AI attack detection
+- **Registry Monitor** (Windows): Persistence detection
+- **Privilege Monitor**: Admin escalation tracking
+- **USB Monitor**: Device connection events
+- **Active Remediation**: Kill processes, quarantine files
+
+#### 4. Swarm Command Center (Frontend)
+- **Location**: `/app/frontend/src/pages/SwarmDashboard.jsx`
+- Network discovery status and device list
+- Real-time telemetry feed with severity filtering
+- Deployment status tracking
+- "Scan Network" and "Deploy All" controls
+
+### New API Endpoints
+- `GET /api/swarm/overview` - Swarm statistics
+- `GET /api/swarm/devices` - Discovered devices
+- `POST /api/swarm/scan` - Trigger network scan
+- `POST /api/swarm/deploy` - Deploy to specific device
+- `POST /api/swarm/deploy/batch` - Deploy to all eligible devices
+- `POST /api/swarm/telemetry/ingest` - Ingest telemetry events
+- `GET /api/swarm/telemetry` - Query telemetry
+- `GET /api/swarm/telemetry/stats` - Telemetry statistics
+
+### Telemetry Event Types
+| Event Type | Description |
+|------------|-------------|
+| `file.change` | File modified from baseline |
+| `file.create` | New file created |
+| `file.delete` | File deleted |
+| `process.start` | New process started |
+| `process.suspicious` | Suspicious process detected |
+| `registry.change` | Registry modification |
+| `admin.escalation` | Admin privilege change |
+| `cli.command` | CLI command captured |
+| `usb.connected` | USB device connected |
+| `credential.access` | Credential access attempt |
+| `remediation.action` | Agent took remediation action |
+
+### Agent Telemetry Data Structure
+```json
+{
+  "event_type": "process.suspicious",
+  "timestamp": "2026-02-10T19:49:02Z",
+  "severity": "high",
+  "host_id": "workstation-001",
+  "agent_id": "agent-abc123",
+  "data": {
+    "pid": 12345,
+    "name": "powershell.exe",
+    "cmdline": "powershell -enc ...",
+    "risk_score": 75,
+    "indicators": ["suspicious_cmdline", "encoded_powershell"],
+    "message": "Suspicious encoded PowerShell detected"
+  }
+}
+```
+
+---
+
 ## v5.1.0 Docker & VPN Deployment Finalization (Feb 2026)
 
 ### Updated Deployment Files
