@@ -2819,6 +2819,22 @@ class AdvancedSecurityAgent:
         }
         print(f"    Found {len(usb_devices)} USB devices, {len(suspicious_usb)} suspicious")
         
+        # Credential theft detection
+        print("[*] Scanning for credential theft attempts...")
+        cred_results = self.credential_detector.scan()
+        results["credentials"] = {
+            "theft_tools_found": len(cred_results.get("credential_theft_tools", [])),
+            "lsass_access_detected": len(cred_results.get("lsass_access", [])),
+            "credential_file_access": len(cred_results.get("credential_file_access", [])),
+            "browser_credential_theft": len([c for c in cred_results.get("browser_credential_checks", []) if c.get("suspicious_process")]),
+            "risk_score": cred_results.get("risk_score", 0),
+            "details": cred_results
+        }
+        cred_risk = cred_results.get("risk_score", 0)
+        print(f"    Credential scan complete, risk score: {cred_risk}")
+        if cred_risk >= 50:
+            print(f"    [!] WARNING: Potential credential theft detected!")
+        
         # Quick memory scan
         print("[*] Scanning memory for injections...")
         memory_results = self.memory_forensics.quick_memory_scan()
