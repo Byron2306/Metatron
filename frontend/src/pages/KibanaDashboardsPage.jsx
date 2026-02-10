@@ -118,6 +118,8 @@ const KibanaDashboardsPage = () => {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedDashboard, setSelectedDashboard] = useState(null);
+  const [liveData, setLiveData] = useState(null);
+  const [loadingLive, setLoadingLive] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboards');
 
   useEffect(() => {
@@ -160,6 +162,24 @@ const KibanaDashboardsPage = () => {
       }
     } catch (error) {
       console.error('Failed to fetch dashboard details:', error);
+    }
+  };
+
+  const fetchLiveData = async (dashboardId) => {
+    setLoadingLive(true);
+    try {
+      const response = await fetch(`${API_URL}/api/kibana/live-data/${dashboardId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setLiveData(data);
+        toast.success('Live data loaded');
+      }
+    } catch (error) {
+      toast.error('Failed to fetch live data');
+    } finally {
+      setLoadingLive(false);
     }
   };
 
