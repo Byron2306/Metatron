@@ -50,6 +50,7 @@ const Layout = () => {
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/swarm', icon: Radio, label: 'Swarm Command' },
+    { path: '/ai-threats', icon: Brain, label: 'AI Threats (AATL)' },
     { path: '/agents', icon: Monitor, label: 'Agents' },
     { path: '/cli-sessions', icon: Brain, label: 'AI Detection' },
     { path: '/threats', icon: AlertTriangle, label: 'Threats' },
