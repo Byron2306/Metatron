@@ -333,14 +333,21 @@ const KibanaDashboardsPage = () => {
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6">
-        {['dashboards', 'details'].map((tab) => (
+        {['dashboards', 'details', 'live'].map((tab) => (
           <Button
             key={tab}
             variant={activeTab === tab ? 'default' : 'ghost'}
             onClick={() => setActiveTab(tab)}
             className={activeTab === tab ? 'bg-pink-600 hover:bg-pink-700' : 'text-slate-400'}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'live' ? (
+              <>
+                <Play className="w-4 h-4 mr-1" />
+                Live Preview
+              </>
+            ) : (
+              tab.charAt(0).toUpperCase() + tab.slice(1)
+            )}
           </Button>
         ))}
       </div>
