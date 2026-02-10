@@ -389,17 +389,107 @@ const BrowserIsolationPage = () => {
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6">
-        {['sessions', 'blocklist', 'modes'].map((tab) => (
+        {['sessions', 'browser', 'blocklist', 'modes'].map((tab) => (
           <Button
             key={tab}
             variant={activeTab === tab ? 'default' : 'ghost'}
             onClick={() => setActiveTab(tab)}
             className={activeTab === tab ? 'bg-cyan-600 hover:bg-cyan-700' : 'text-slate-400'}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'browser' ? (
+              <span className="flex items-center gap-2">
+                <Globe className="w-4 h-4" />
+                Browser View {activeSession && <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />}
+              </span>
+            ) : (
+              tab.charAt(0).toUpperCase() + tab.slice(1)
+            )}
           </Button>
         ))}
       </div>
+
+      {/* Browser View Tab - Shows iframe with isolated content */}
+      {activeTab === 'browser' && (
+        <Card className="bg-slate-900/50 border-slate-800">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-white flex items-center gap-2">
+                <Globe className="w-5 h-5 text-cyan-400" />
+                Isolated Browser View
+              </CardTitle>
+              {activeSession && (
+                <Button 
+                  size="sm" 
+                  variant="destructive" 
+                  onClick={() => {
+                    endSession(activeSession.session_id);
+                    setActiveSession(null);
+                  }}
+                >
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  End Session
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {activeSession ? (
+              <div className="space-y-4">
+                {/* Session Info Bar */}
+                <div className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Lock className="w-5 h-5 text-green-400" />
+                    <div>
+                      <p className="text-white text-sm font-medium">Secure Session Active</p>
+                      <p className="text-slate-400 text-xs">Mode: {activeSession.isolation_mode} | Threat: {activeSession.threat_level}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-mono truncate max-w-md">{activeSession.url}</span>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="border-slate-600"
+                      onClick={() => window.open(activeSession.url, '_blank', 'noopener,noreferrer')}
+                    >
+                      Open in New Tab
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Isolated Browser Frame */}
+                <div className="relative bg-white rounded-lg overflow-hidden" style={{ height: '500px' }}>
+                  <div className="absolute top-0 left-0 right-0 bg-slate-800 text-white px-3 py-1 text-xs flex items-center gap-2 z-10">
+                    <Shield className="w-3 h-3 text-green-400" />
+                    <span className="text-green-400">ISOLATED</span>
+                    <span className="text-slate-400">|</span>
+                    <span className="truncate flex-1">{activeSession.url}</span>
+                  </div>
+                  <iframe
+                    src={activeSession.url}
+                    className="w-full h-full border-0 pt-6"
+                    sandbox="allow-scripts allow-same-origin"
+                    referrerPolicy="no-referrer"
+                    title="Isolated Browser"
+                  />
+                </div>
+
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-amber-400 text-sm">
+                  <AlertTriangle className="w-4 h-4 inline-block mr-2" />
+                  <strong>Note:</strong> Some sites may not load due to security headers (X-Frame-Options). 
+                  In production, this would use a secure proxy or pixel-streaming approach.
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-slate-400">
+                <Globe className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium mb-2">No Active Session</p>
+                <p className="text-sm">Enter a URL above and click "Start Isolated Session" to browse securely.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {activeTab === 'sessions' && (
         <Card className="bg-slate-900/50 border-slate-800">
