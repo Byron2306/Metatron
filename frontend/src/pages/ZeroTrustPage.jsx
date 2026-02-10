@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { 
   ShieldCheck, Monitor, Lock, Unlock, AlertTriangle, CheckCircle,
   XCircle, RefreshCw, Plus, Eye, Activity, Laptop, Server,
-  Smartphone, Wifi, Clock, User
+  Smartphone, Wifi, Clock, User, Ban, ShieldOff
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
