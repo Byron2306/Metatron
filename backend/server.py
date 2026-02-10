@@ -260,6 +260,22 @@ async def startup():
         logger.info("Agent Deployment Service started successfully")
     except Exception as e:
         logger.error(f"Failed to start Agent Deployment Service: {e}")
+    
+    # Initialize AATL (Autonomous Agent Threat Layer)
+    try:
+        from services.aatl import init_aatl_engine
+        await init_aatl_engine(db)
+        logger.info("AATL Engine initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize AATL Engine: {e}")
+    
+    # Initialize AATR (Autonomous AI Threat Registry)
+    try:
+        from services.aatr import init_aatr
+        await init_aatr(db)
+        logger.info("AATR initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize AATR: {e}")
 
 
 @app.on_event("shutdown")
