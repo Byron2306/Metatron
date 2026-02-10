@@ -29,6 +29,7 @@ import MLPredictionPage from "./pages/MLPredictionPage";
 import SandboxPage from "./pages/SandboxPage";
 import BrowserIsolationPage from "./pages/BrowserIsolationPage";
 import KibanaDashboardsPage from "./pages/KibanaDashboardsPage";
+import AgentCommandsPage from "./pages/AgentCommandsPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
