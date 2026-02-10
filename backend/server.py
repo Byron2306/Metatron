@@ -158,6 +158,10 @@ app.include_router(deception_router, prefix="/api")
 from routers.swarm import router as swarm_router
 app.include_router(swarm_router, prefix="/api")
 
+# Import AI Threats (AATL/AATR) router
+from routers.ai_threats import router as ai_threats_router
+app.include_router(ai_threats_router, prefix="/api")
+
 # ============ WEBSOCKET ENDPOINTS ============
 
 from routers.honeypots import ws_manager
