@@ -295,7 +295,6 @@ class CognitionEngine:
         # Burstiness = variance in intervals
         # High variance with some very short intervals = bursty
         short_intervals = sum(1 for i in intervals if i < 1.0)
-        long_intervals = sum(1 for i in intervals if i > 5.0)
         
         if len(intervals) > 0:
             burst_ratio = short_intervals / len(intervals)
