@@ -13,7 +13,43 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v4.0.0**: ML Threat Prediction + Sandbox Analysis + Browser Isolation + Kibana Dashboards
 - **v4.1.0**: Real Tool Integrations - WireGuard, Trivy, Volatility 3
 - **v4.2.0**: Production Infrastructure - Elasticsearch 8.19.11, Kibana 8.19.11, VPN Tunnel, Production Sandbox
-- **v4.3.0**: Advanced Local Agent - Process Monitor, User Privileges, Browser Extensions, Folder Indexer (CURRENT - Feb 2026)
+- **v4.3.0**: Advanced Local Agent - Process Monitor, User Privileges, Browser Extensions, Folder Indexer
+- **v4.4.0**: Data Visibility & Usability Fixes (CURRENT - Feb 2026)
+
+## v4.4 Data Visibility & Usability Fixes (Feb 2026)
+
+### Fixed Issues
+| Feature | Previous State | Fixed State |
+|---------|---------------|-------------|
+| **Timeline Page** | No data displayed | Shows 20+ threat timelines with events |
+| **Correlation Page** | Empty | Shows correlations with APT28, FIN7, Lazarus Group attribution |
+| **ML Prediction Page** | No predictions | Shows predictions (ransomware, apt, insider_threat, malware) |
+| **Network Hosts** | Empty | Shows 6 discovered hosts with risk levels |
+| **Zero Trust Devices** | Memory-only | Persists to database, shows 4+ devices with trust scores |
+| **Auto Response Toggle** | Display only | Clickable button to enable/disable agentic auto-block |
+| **VPN Page** | No server info | Shows public key, endpoint, connection instructions |
+| **Browser Isolation** | Unclear usage | Added how-to instructions |
+
+### New API Endpoints
+- `POST /api/threat-response/settings/auto-block` - Toggle auto-block state
+- `GET /api/network/hosts` - Alias for discovered-hosts with proper format
+- `GET /api/ml/predictions` - Now reads from database via get_predictions_from_db
+
+### Database Collections Seeded
+- `discovered_hosts` - 6 network hosts with IPs, services, risk levels
+- `ml_predictions` - 5 sample predictions with threat scores
+- `zt_devices` - 3 Zero Trust devices with compliance status
+- `zt_evaluations` - 3 access evaluation samples
+- `threat_correlations` - 3 correlations with APT attribution
+- `response_history` - 3 automated response actions
+- `response_settings` - Auto-block configuration
+
+### WireGuard VPN Setup
+- Server keys generated at `/etc/wireguard/`
+- Config file: `/etc/wireguard/wg0.conf`
+- Server address: 10.200.200.1/24
+- Listen port: 51820
+- Public key: INNXQAWHKGWsuiOIYgt8uIhO3jgvjnFskpGCptgMVCk=
 
 ## v4.3 Advanced Local Agent (Feb 2026)
 
