@@ -2368,6 +2368,488 @@ class CredentialTheftDetector:
 
 
 # =============================================================================
+# REGISTRY PERSISTENCE MONITORING (Windows)
+# =============================================================================
+
+@dataclass
+class PersistenceEntry:
+    """Records a persistence mechanism"""
+    location: str
+    name: str
+    value: str
+    persistence_type: str
+    risk_score: int = 0
+    risk_factors: List[str] = field(default_factory=list)
+    timestamp: str = ""
+    is_new: bool = False
+
+class RegistryPersistenceMonitor:
+    """
+    Monitor Windows registry and startup locations for persistence mechanisms.
+    Detects malware persistence in:
+    - Run/RunOnce keys
+    - Services
+    - Scheduled Tasks
+    - WMI subscriptions
+    - DLL hijacking opportunities
+    - Boot execution
+    """
+    
+    # Windows Registry persistence locations
+    REGISTRY_PERSISTENCE_KEYS = {
+        # User-level Run keys
+        "HKCU_Run": r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run",
+        "HKCU_RunOnce": r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+        "HKCU_RunServices": r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunServices",
+        "HKCU_RunServicesOnce": r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce",
+        
+        # Machine-level Run keys
+        "HKLM_Run": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run",
+        "HKLM_RunOnce": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+        "HKLM_RunServices": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunServices",
+        "HKLM_RunServicesOnce": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce",
+        
+        # 32-bit on 64-bit
+        "HKLM_Run_Wow64": r"HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
+        "HKLM_RunOnce_Wow64": r"HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce",
+        
+        # Explorer
+        "HKCU_Explorer_Run": r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run",
+        "HKLM_Explorer_Run": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run",
+        
+        # Winlogon
+        "Winlogon_Shell": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon",
+        "Winlogon_Userinit": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon",
+        "Winlogon_Notify": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify",
+        
+        # Services
+        "Services": r"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services",
+        
+        # Boot Execute
+        "BootExecute": r"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager",
+        
+        # AppInit DLLs (DLL injection)
+        "AppInit_DLLs": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Windows",
+        "AppInit_DLLs_Wow64": r"HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Windows",
+        
+        # Image File Execution Options (debugger hijacking)
+        "IFEO": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options",
+        
+        # Shell extensions
+        "ShellExecuteHooks": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Explorer\ShellExecuteHooks",
+        
+        # Browser Helper Objects
+        "BHO": r"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects",
+        
+        # Startup Approved
+        "StartupApproved_Run": r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run",
+        "StartupApproved_Run32": r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32",
+    }
+    
+    # Linux/macOS persistence locations
+    LINUX_PERSISTENCE_PATHS = [
+        "/etc/rc.local",
+        "/etc/init.d/",
+        "/etc/systemd/system/",
+        "/usr/lib/systemd/system/",
+        "~/.config/autostart/",
+        "~/.bashrc",
+        "~/.bash_profile",
+        "~/.profile",
+        "~/.zshrc",
+        "/etc/crontab",
+        "/var/spool/cron/",
+        "/etc/cron.d/",
+        "/etc/cron.daily/",
+        "/etc/cron.hourly/",
+        "/etc/cron.weekly/",
+        "/etc/cron.monthly/",
+    ]
+    
+    MACOS_PERSISTENCE_PATHS = [
+        "~/Library/LaunchAgents/",
+        "/Library/LaunchAgents/",
+        "/Library/LaunchDaemons/",
+        "/System/Library/LaunchAgents/",
+        "/System/Library/LaunchDaemons/",
+        "~/Library/Preferences/com.apple.loginitems.plist",
+        "/etc/rc.common",
+    ]
+    
+    # Suspicious patterns in persistence entries
+    SUSPICIOUS_PATTERNS = [
+        r"powershell.*-enc",
+        r"powershell.*-nop",
+        r"powershell.*hidden",
+        r"cmd.*\/c.*start",
+        r"wscript.*\.vbs",
+        r"cscript.*\.vbs",
+        r"mshta.*",
+        r"rundll32.*javascript",
+        r"regsvr32.*\/s.*\/n",
+        r"certutil.*-urlcache",
+        r"bitsadmin.*\/transfer",
+        r"\\temp\\",
+        r"\\tmp\\",
+        r"\\appdata\\local\\temp",
+        r"base64",
+        r"frombase64",
+        r"-enc[oded]*command",
+    ]
+    
+    # Known legitimate entries (whitelist)
+    KNOWN_LEGITIMATE = [
+        "SecurityHealth",
+        "Windows Defender",
+        "OneDrive",
+        "Google Update",
+        "Adobe",
+        "Microsoft",
+        "Intel",
+        "Realtek",
+        "NVIDIA",
+        "Steam",
+        "Discord",
+    ]
+    
+    def __init__(self):
+        self.system = platform.system()
+        self.entries: Dict[str, PersistenceEntry] = {}
+        self.baseline: Dict[str, Dict] = {}
+        self.alerts: List[Dict] = []
+        self._lock = threading.Lock()
+        
+        # Load baseline if exists
+        baseline_path = DATA_DIR / "persistence_baseline.json"
+        if baseline_path.exists():
+            try:
+                with open(baseline_path) as f:
+                    self.baseline = json.load(f)
+            except:
+                pass
+    
+    def _run_reg_query(self, key: str) -> List[Dict]:
+        """Query Windows registry using reg.exe"""
+        if self.system != "Windows":
+            return []
+        
+        entries = []
+        try:
+            result = subprocess.run(
+                ["reg", "query", key],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line or line.startswith("HKEY_"):
+                        continue
+                    
+                    # Parse REG_SZ, REG_EXPAND_SZ, etc.
+                    parts = line.split(None, 2)
+                    if len(parts) >= 3:
+                        entries.append({
+                            "name": parts[0],
+                            "type": parts[1],
+                            "value": parts[2] if len(parts) > 2 else ""
+                        })
+        except Exception as e:
+            pass
+        
+        return entries
+    
+    def _calculate_risk(self, name: str, value: str) -> tuple:
+        """Calculate risk score for a persistence entry"""
+        risk_score = 0
+        risk_factors = []
+        
+        # Check against suspicious patterns
+        for pattern in self.SUSPICIOUS_PATTERNS:
+            if re.search(pattern, value, re.IGNORECASE):
+                risk_score += 30
+                risk_factors.append(f"Suspicious pattern: {pattern}")
+        
+        # Check for encoded commands
+        if "powershell" in value.lower() and ("-enc" in value.lower() or "-e " in value.lower()):
+            risk_score += 40
+            risk_factors.append("Encoded PowerShell command")
+        
+        # Check for temp/appdata paths
+        if any(p in value.lower() for p in ["\\temp\\", "\\tmp\\", "\\appdata\\local\\temp"]):
+            risk_score += 25
+            risk_factors.append("Execution from temp directory")
+        
+        # Check for script execution
+        if any(ext in value.lower() for ext in [".vbs", ".js", ".hta", ".wsf"]):
+            risk_score += 20
+            risk_factors.append("Script-based persistence")
+        
+        # Check if NOT in whitelist
+        is_legitimate = any(legit.lower() in name.lower() or legit.lower() in value.lower() 
+                          for legit in self.KNOWN_LEGITIMATE)
+        if not is_legitimate and value:
+            risk_score += 10
+            risk_factors.append("Unknown/unrecognized entry")
+        
+        # Check for new entries (not in baseline)
+        entry_key = f"{name}:{value}"
+        if entry_key not in self.baseline and value:
+            risk_score += 15
+            risk_factors.append("New persistence entry (not in baseline)")
+        
+        return min(risk_score, 100), risk_factors
+    
+    def scan_windows_registry(self) -> List[PersistenceEntry]:
+        """Scan Windows registry for persistence mechanisms"""
+        if self.system != "Windows":
+            return []
+        
+        entries = []
+        
+        for key_name, key_path in self.REGISTRY_PERSISTENCE_KEYS.items():
+            try:
+                reg_entries = self._run_reg_query(key_path)
+                
+                for entry in reg_entries:
+                    risk_score, risk_factors = self._calculate_risk(entry["name"], entry["value"])
+                    
+                    pe = PersistenceEntry(
+                        location=key_path,
+                        name=entry["name"],
+                        value=entry["value"],
+                        persistence_type="registry",
+                        risk_score=risk_score,
+                        risk_factors=risk_factors,
+                        timestamp=datetime.now().isoformat(),
+                        is_new=f"{entry['name']}:{entry['value']}" not in self.baseline
+                    )
+                    entries.append(pe)
+                    
+                    # Generate alert for high-risk entries
+                    if risk_score >= 50:
+                        with self._lock:
+                            self.alerts.append({
+                                "type": "registry_persistence",
+                                "severity": "critical" if risk_score >= 80 else "high",
+                                "location": key_path,
+                                "name": entry["name"],
+                                "value": entry["value"][:100],
+                                "risk_score": risk_score,
+                                "risk_factors": risk_factors,
+                                "timestamp": datetime.now().isoformat()
+                            })
+                            
+            except Exception as e:
+                pass
+        
+        return entries
+    
+    def scan_linux_persistence(self) -> List[PersistenceEntry]:
+        """Scan Linux startup locations"""
+        if self.system != "Linux":
+            return []
+        
+        entries = []
+        
+        for path_pattern in self.LINUX_PERSISTENCE_PATHS:
+            path = Path(path_pattern.replace("~", str(Path.home())))
+            
+            try:
+                if path.is_file():
+                    # Read file and check for suspicious content
+                    content = path.read_text()
+                    risk_score, risk_factors = self._calculate_risk(str(path), content[:500])
+                    
+                    entries.append(PersistenceEntry(
+                        location=str(path),
+                        name=path.name,
+                        value=content[:200],
+                        persistence_type="startup_script",
+                        risk_score=risk_score,
+                        risk_factors=risk_factors,
+                        timestamp=datetime.now().isoformat()
+                    ))
+                    
+                elif path.is_dir():
+                    # Scan directory for files
+                    for item in path.iterdir():
+                        if item.is_file():
+                            try:
+                                content = item.read_text()[:500]
+                                risk_score, risk_factors = self._calculate_risk(str(item), content)
+                                
+                                entries.append(PersistenceEntry(
+                                    location=str(path),
+                                    name=item.name,
+                                    value=content[:200],
+                                    persistence_type="startup_file" if "autostart" in str(path) else "service",
+                                    risk_score=risk_score,
+                                    risk_factors=risk_factors,
+                                    timestamp=datetime.now().isoformat()
+                                ))
+                            except:
+                                pass
+            except Exception as e:
+                pass
+        
+        # Check crontabs
+        entries.extend(self._scan_crontabs())
+        
+        return entries
+    
+    def _scan_crontabs(self) -> List[PersistenceEntry]:
+        """Scan crontab entries"""
+        entries = []
+        
+        try:
+            result = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        risk_score, risk_factors = self._calculate_risk("crontab", line)
+                        entries.append(PersistenceEntry(
+                            location="user_crontab",
+                            name="cron_entry",
+                            value=line,
+                            persistence_type="cron",
+                            risk_score=risk_score,
+                            risk_factors=risk_factors,
+                            timestamp=datetime.now().isoformat()
+                        ))
+        except:
+            pass
+        
+        return entries
+    
+    def scan_macos_persistence(self) -> List[PersistenceEntry]:
+        """Scan macOS LaunchAgents/Daemons"""
+        if self.system != "Darwin":
+            return []
+        
+        entries = []
+        
+        for path_pattern in self.MACOS_PERSISTENCE_PATHS:
+            path = Path(path_pattern.replace("~", str(Path.home())))
+            
+            try:
+                if path.is_dir():
+                    for item in path.iterdir():
+                        if item.suffix == '.plist':
+                            try:
+                                content = item.read_text()[:500]
+                                risk_score, risk_factors = self._calculate_risk(item.name, content)
+                                
+                                entries.append(PersistenceEntry(
+                                    location=str(path),
+                                    name=item.name,
+                                    value=content[:200],
+                                    persistence_type="launchd",
+                                    risk_score=risk_score,
+                                    risk_factors=risk_factors,
+                                    timestamp=datetime.now().isoformat()
+                                ))
+                            except:
+                                pass
+            except:
+                pass
+        
+        return entries
+    
+    def scan(self) -> Dict:
+        """Perform full persistence scan"""
+        results = {
+            "timestamp": datetime.now().isoformat(),
+            "system": self.system,
+            "entries": [],
+            "high_risk_entries": [],
+            "new_entries": [],
+            "alerts": [],
+            "total_count": 0,
+            "risk_summary": {
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0
+            }
+        }
+        
+        # Scan based on OS
+        if self.system == "Windows":
+            entries = self.scan_windows_registry()
+        elif self.system == "Linux":
+            entries = self.scan_linux_persistence()
+        elif self.system == "Darwin":
+            entries = self.scan_macos_persistence()
+        else:
+            entries = []
+        
+        results["entries"] = [asdict(e) for e in entries]
+        results["total_count"] = len(entries)
+        
+        # Categorize entries
+        for entry in entries:
+            if entry.risk_score >= 80:
+                results["risk_summary"]["critical"] += 1
+                results["high_risk_entries"].append(asdict(entry))
+            elif entry.risk_score >= 50:
+                results["risk_summary"]["high"] += 1
+                results["high_risk_entries"].append(asdict(entry))
+            elif entry.risk_score >= 30:
+                results["risk_summary"]["medium"] += 1
+            else:
+                results["risk_summary"]["low"] += 1
+            
+            if entry.is_new:
+                results["new_entries"].append(asdict(entry))
+        
+        with self._lock:
+            results["alerts"] = list(self.alerts)
+        
+        return results
+    
+    def save_baseline(self):
+        """Save current entries as baseline"""
+        if self.system == "Windows":
+            entries = self.scan_windows_registry()
+        elif self.system == "Linux":
+            entries = self.scan_linux_persistence()
+        elif self.system == "Darwin":
+            entries = self.scan_macos_persistence()
+        else:
+            entries = []
+        
+        self.baseline = {}
+        for entry in entries:
+            key = f"{entry.name}:{entry.value}"
+            self.baseline[key] = {
+                "location": entry.location,
+                "name": entry.name,
+                "value": entry.value,
+                "saved_at": datetime.now().isoformat()
+            }
+        
+        baseline_path = DATA_DIR / "persistence_baseline.json"
+        with open(baseline_path, 'w') as f:
+            json.dump(self.baseline, f, indent=2)
+        
+        return len(self.baseline)
+    
+    def get_stats(self) -> Dict:
+        """Get persistence monitoring statistics"""
+        with self._lock:
+            return {
+                "system": self.system,
+                "monitored_locations": len(self.REGISTRY_PERSISTENCE_KEYS) if self.system == "Windows" else len(self.LINUX_PERSISTENCE_PATHS),
+                "baseline_entries": len(self.baseline),
+                "alerts_count": len(self.alerts),
+                "recent_alerts": self.alerts[-5:] if self.alerts else []
+            }
+
+
+# =============================================================================
 # MEMORY FORENSICS (Volatility Integration)
 # =============================================================================
 
