@@ -3636,6 +3636,7 @@ class AdvancedSecurityAgent:
         self.persistence_monitor = RegistryPersistenceMonitor()
         self.memory_forensics = MemoryForensics()
         self.cloud_sync = CloudSyncClient(api_url)
+        self.cli_monitor = CLICommandMonitor(self.cloud_sync)
         
         self.running = False
         self.threads: List[threading.Thread] = []
