@@ -81,20 +81,23 @@ async def register_agent(request: AgentRegistrationRequest):
     """Register a new Seraph Defender agent"""
     now = datetime.now(timezone.utc).isoformat()
     
-    agent_doc = {
+    # Fields to always update
+    update_doc = {
         "agent_id": request.agent_id,
         "hostname": request.hostname,
         "os": request.os_type,
         "version": request.version,
         "ip_address": request.ip_address,
         "status": "online",
-        "first_seen": now,
         "last_seen": now
     }
     
     await db.agents.update_one(
         {"agent_id": request.agent_id},
-        {"$set": agent_doc, "$setOnInsert": {"first_seen": now}},
+        {
+            "$set": update_doc,
+            "$setOnInsert": {"first_seen": now}
+        },
         upsert=True
     )
     
