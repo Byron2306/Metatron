@@ -14,7 +14,42 @@ The Ultimate Agentic Anti-AI Agent Defense System - a comprehensive cybersecurit
 - **v4.1.0**: Real Tool Integrations - WireGuard, Trivy, Volatility 3
 - **v4.2.0**: Production Infrastructure - Elasticsearch 8.19.11, Kibana 8.19.11, VPN Tunnel, Production Sandbox
 - **v4.3.0**: Advanced Local Agent - Process Monitor, User Privileges, Browser Extensions, Folder Indexer
-- **v4.4.0**: Data Visibility & Usability Fixes (CURRENT - Feb 2026)
+- **v4.4.0**: Data Visibility & Usability Fixes
+- **v4.5.0**: Kibana Live Dashboards + Credential Theft Detection (CURRENT - Feb 2026)
+
+## v4.5 Kibana Live Dashboards + Credential Theft Detection (Feb 2026)
+
+### Kibana Live Preview
+The Kibana dashboards now feature a **Live Preview** mode that renders data directly from MongoDB, eliminating the need for a running Elasticsearch instance.
+
+| Dashboard | Visualizations |
+|-----------|----------------|
+| **Security Overview** | Total Threats metric, Critical Alerts, Severity pie chart, Type pie chart, 7-day Trend line, Critical Events table |
+| **MITRE ATT&CK** | Tactics/Techniques Heatmap (5x5), Top Tactics bar, Top Techniques bar, Recent Detections table |
+| **Geo Threat Map** | Country attack map, Top Attacking Countries, Top Cities |
+| **Threat Intelligence** | IOC Matches, IOC Types pie, Top Threat Actors bar |
+| **Endpoint Security** | Active Agents, Quarantined Files, Events by Agent, Suspicious Processes |
+| **Playbook Analytics** | Executions count, By Playbook pie, Execution Results, Actions Taken |
+
+### New API Endpoint
+- `GET /api/kibana/live-data/{dashboard_id}` - Returns live panel data from MongoDB
+
+### Credential Theft Detection (advanced_agent.py)
+New `CredentialTheftDetector` class added to monitor and detect credential theft attempts.
+
+| Feature | Details |
+|---------|---------|
+| **Known Theft Tools** | 37 tools including mimikatz, pwdump, lazagne, rubeus, lsassy, pypykatz |
+| **LSASS Access Patterns** | 7 patterns for detecting LSASS memory dumps |
+| **Windows Paths** | 13 credential locations (SAM, SECURITY, browser creds, Vault) |
+| **Linux Paths** | 24 paths (/etc/shadow, SSH keys, browser profiles, GNOME Keyring) |
+| **macOS Paths** | 14 paths (Keychain, Safari passwords, SSH keys) |
+
+### CLI Usage
+```bash
+python advanced_agent.py --credential-scan    # Run credential theft scan
+python advanced_agent.py --credential-scan --json  # Output as JSON
+```
 
 ## v4.4 Data Visibility & Usability Fixes (Feb 2026)
 
