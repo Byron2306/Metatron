@@ -3966,6 +3966,9 @@ class AdvancedSecurityAgent:
         """Start continuous monitoring with cloud sync"""
         self.running = True
         
+        # Start CLI command monitor for AI-Agentic detection
+        self.cli_monitor.start()
+        
         def process_monitor_loop():
             while self.running:
                 suspicious = self.process_monitor.get_suspicious_processes()
@@ -4015,11 +4018,12 @@ class AdvancedSecurityAgent:
             t.start()
             self.threads.append(t)
         
-        print("[*] Monitoring started (processes, USB, heartbeat)...")
+        print("[*] Monitoring started (CLI, processes, USB, heartbeat)...")
     
     def stop_monitoring(self):
         """Stop all monitoring"""
         self.running = False
+        self.cli_monitor.stop()
         for t in self.threads:
             t.join(timeout=5)
         print("[*] Monitoring stopped")
