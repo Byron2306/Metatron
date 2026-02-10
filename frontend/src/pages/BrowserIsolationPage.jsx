@@ -32,6 +32,8 @@ const BrowserIsolationPage = () => {
   const [selectedMode, setSelectedMode] = useState('full');
   const [newDomain, setNewDomain] = useState('');
   const [urlAnalysis, setUrlAnalysis] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     fetchData();
