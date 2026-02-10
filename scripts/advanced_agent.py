@@ -2724,6 +2724,7 @@ class AdvancedSecurityAgent:
         self.folder_indexer = FolderIndexer()
         self.task_monitor = ScheduledTaskMonitor()
         self.usb_monitor = USBDeviceMonitor()
+        self.credential_detector = CredentialTheftDetector()
         self.memory_forensics = MemoryForensics()
         self.cloud_sync = CloudSyncClient(api_url)
         
@@ -2741,6 +2742,7 @@ class AdvancedSecurityAgent:
             "files": {},
             "scheduled_tasks": {},
             "usb_devices": {},
+            "credentials": {},
             "memory": {},
             "alerts": []
         }
