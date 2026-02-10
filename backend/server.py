@@ -261,7 +261,7 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     """Cleanup on shutdown"""
-    logger.info("Shutting down Anti-AI Defense System...")
+    logger.info("Shutting down Seraph AI Defense System...")
     
     # Stop the CCE Worker
     try:
@@ -270,6 +270,22 @@ async def shutdown():
         logger.info("CCE Worker stopped")
     except Exception as e:
         logger.error(f"Error stopping CCE Worker: {e}")
+    
+    # Stop Network Discovery Service
+    try:
+        from services.network_discovery import stop_network_discovery
+        await stop_network_discovery()
+        logger.info("Network Discovery Service stopped")
+    except Exception as e:
+        logger.error(f"Error stopping Network Discovery: {e}")
+    
+    # Stop Agent Deployment Service
+    try:
+        from services.agent_deployment import stop_deployment_service
+        await stop_deployment_service()
+        logger.info("Agent Deployment Service stopped")
+    except Exception as e:
+        logger.error(f"Error stopping Deployment Service: {e}")
     
     client.close()
 
