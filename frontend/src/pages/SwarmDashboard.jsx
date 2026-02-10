@@ -420,9 +420,19 @@ const SwarmDashboard = () => {
                     macOS
                   </Button>
                 </div>
-                <p className="text-slate-400 text-sm mt-4">
-                  Desktop agents require Python 3.8+ and will automatically register with the server.
-                </p>
+                <div className="mt-4 space-y-2">
+                  <p className="text-slate-400 text-sm">
+                    Desktop agents require Python 3.8+ and will automatically register with the server.
+                  </p>
+                  <div className="p-2 bg-slate-900 rounded">
+                    <span className="text-yellow-400 text-xs font-bold">WINDOWS (PowerShell):</span>
+                    <code className="block text-green-400 text-xs mt-1">{`python seraph_defender.py --api-url "${window.location.origin}" --monitor`}</code>
+                  </div>
+                  <div className="p-2 bg-slate-900 rounded">
+                    <span className="text-green-400 text-xs font-bold">LINUX/macOS:</span>
+                    <code className="block text-green-400 text-xs mt-1">{`python3 seraph_defender.py --api-url ${window.location.origin} --monitor`}</code>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -437,15 +447,21 @@ const SwarmDashboard = () => {
               <CardContent>
                 <div className="space-y-3">
                   <div>
-                    <h4 className="text-white font-medium text-sm mb-1">One-liner Install (Linux/macOS):</h4>
+                    <h4 className="text-white font-medium text-sm mb-1">Windows (PowerShell as Admin):</h4>
                     <code className="block p-3 bg-slate-900 rounded text-green-400 text-xs overflow-x-auto">
-                      curl -sL {window.location.origin}/api/swarm/agent/download/linux | python3 - --monitor --api-url {window.location.origin}
+                      {`Invoke-WebRequest -Uri "${window.location.origin}/api/swarm/agent/download/windows" -OutFile seraph_defender.py; python seraph_defender.py --api-url "${window.location.origin}" --monitor`}
                     </code>
                   </div>
                   <div>
-                    <h4 className="text-white font-medium text-sm mb-1">Deploy via SSH:</h4>
+                    <h4 className="text-white font-medium text-sm mb-1">Linux/macOS One-liner:</h4>
                     <code className="block p-3 bg-slate-900 rounded text-green-400 text-xs overflow-x-auto">
-                      python seraph_network_scanner.py --deploy 192.168.1.100 --deploy-user root --deploy-pass YOUR_PASSWORD --api-url {window.location.origin}
+                      {`curl -sL ${window.location.origin}/api/swarm/agent/download/linux -o seraph_defender.py && python3 seraph_defender.py --api-url ${window.location.origin} --monitor`}
+                    </code>
+                  </div>
+                  <div>
+                    <h4 className="text-white font-medium text-sm mb-1">Deploy via SSH (from scanner):</h4>
+                    <code className="block p-3 bg-slate-900 rounded text-green-400 text-xs overflow-x-auto">
+                      {`python seraph_network_scanner.py --deploy 192.168.1.100 --deploy-user root --deploy-pass YOUR_PASSWORD --api-url "${window.location.origin}"`}
                     </code>
                   </div>
                 </div>
