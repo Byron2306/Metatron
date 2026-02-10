@@ -784,7 +784,7 @@ class MLThreatPredictor:
         entity_type: Optional[str] = None,
         min_score: Optional[int] = None
     ) -> List[Dict]:
-        """Get recent predictions"""
+        """Get recent predictions from memory cache"""
         preds = list(self.predictions.values())
         
         if entity_type:
@@ -808,6 +808,43 @@ class MLThreatPredictor:
             }
             for p in preds
         ]
+    
+    async def get_predictions_from_db(
+        self,
+        limit: int = 50,
+        entity_type: Optional[str] = None,
+        min_score: Optional[int] = None
+    ) -> List[Dict]:
+        """Get recent predictions from database"""
+        if self._db is None:
+            return self.get_predictions(limit, entity_type, min_score)
+        
+        query = {}
+        if entity_type:
+            query["entity_type"] = entity_type
+        if min_score is not None:
+            query["threat_score"] = {"$gte": min_score}
+        
+        preds = await self._db.ml_predictions.find(query, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+        
+        # Normalize the output format
+        result = []
+        for p in preds:
+            result.append({
+                "prediction_id": p.get("prediction_id"),
+                "timestamp": p.get("timestamp"),
+                "entity_type": p.get("entity_type"),
+                "entity_id": p.get("entity_id"),
+                "category": p.get("predicted_category", p.get("category")),
+                "risk_level": p.get("risk_level"),
+                "threat_score": p.get("threat_score"),
+                "confidence": round(p.get("confidence", 0), 2),
+                "contributing_factors": p.get("contributing_factors", []),
+                "recommended_actions": p.get("recommended_actions", []),
+                "mitre_mappings": p.get("mitre_mappings", [])
+            })
+        
+        return result
     
     def get_stats(self) -> Dict:
         """Get ML service statistics"""
