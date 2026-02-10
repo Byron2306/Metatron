@@ -434,9 +434,38 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
     # Process and store events
     now = datetime.now(timezone.utc).isoformat()
     aatl_assessments = []
+    agents_updated = 0
     
     for event in events:
         event["ingested_at"] = now
+        
+        # Handle agent heartbeat - register/update agent
+        event_type = event.get("event_type", "")
+        if event_type == "agent.heartbeat":
+            agent_data = event.get("data", {})
+            agent_id = event.get("agent_id") or event.get("host_id")
+            
+            if agent_id:
+                await db.agents.update_one(
+                    {"agent_id": agent_id},
+                    {
+                        "$set": {
+                            "agent_id": agent_id,
+                            "host_id": event.get("host_id"),
+                            "hostname": agent_data.get("hostname"),
+                            "os": agent_data.get("os"),
+                            "version": agent_data.get("version"),
+                            "status": "online",
+                            "last_seen": now,
+                            "uptime": agent_data.get("uptime")
+                        },
+                        "$setOnInsert": {
+                            "first_seen": now
+                        }
+                    },
+                    upsert=True
+                )
+                agents_updated += 1
         
         # Determine severity for alerting
         severity = event.get("severity", "info")
