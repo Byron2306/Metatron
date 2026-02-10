@@ -287,6 +287,14 @@ const BrowserIsolationPage = () => {
       {/* URL Input Section */}
       <Card className="bg-slate-900/50 border-slate-800 mb-6">
         <CardContent className="p-4">
+          <div className="mb-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded">
+            <p className="text-cyan-400 text-sm font-medium mb-1">How to use Browser Isolation:</p>
+            <ol className="text-xs text-slate-300 list-decimal list-inside space-y-1">
+              <li><strong>Analyze URL</strong> - Check if a URL is safe before visiting</li>
+              <li><strong>Start Isolated Session</strong> - Browse untrusted sites in a secure container</li>
+              <li>Choose isolation mode: <strong>Full</strong> (safest), <strong>CDR</strong> (sanitized), <strong>Read-only</strong>, or <strong>Pixel push</strong></li>
+            </ol>
+          </div>
           <div className="flex flex-col gap-4">
             <div className="flex gap-2">
               <input
