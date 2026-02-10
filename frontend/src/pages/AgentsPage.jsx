@@ -179,6 +179,13 @@ const AgentsPage = () => {
     });
   };
 
+  const downloadAdvancedAgent = () => {
+    window.open(`${API}/agent/download/advanced-agent`, '_blank');
+    toast.success('Downloading Advanced Security Agent...', {
+      description: 'Run with: python advanced_agent.py --connect --api-url <your-server>'
+    });
+  };
+
   const stats = {
     total: agents.length,
     online: agents.filter(a => a.status === 'online').length,
