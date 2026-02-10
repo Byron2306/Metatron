@@ -68,7 +68,7 @@ MODULES_DIR = INSTALL_DIR / "modules"
 CONFIG_FILE = INSTALL_DIR / "config.json"
 
 # Cloud API endpoint - UPDATE THIS TO YOUR DEPLOYMENT
-CLOUD_API_URL = "https://cyber-sentinel-51.preview.emergentagent.com/api"
+CLOUD_API_URL = "https://threat-guardian-10.preview.emergentagent.com/api"
 
 # Python packages required
 PYTHON_PACKAGES = [
