@@ -4077,6 +4077,88 @@ def main():
             for k in killed:
                 print(f"    - {k['name']} (PID: {k['pid']}, Score: {k['risk_score']})")
     
+    elif args.persistence_scan:
+        # Scan for persistence mechanisms
+        results = agent.persistence_monitor.scan()
+        
+        if args.json:
+            print(json.dumps(results, indent=2, default=str))
+        else:
+            print(f"\n{'='*60}")
+            print("PERSISTENCE MECHANISM SCAN")
+            print(f"{'='*60}")
+            print(f"System: {platform.system()}")
+            print(f"Total entries found: {results.get('total_count', 0)}")
+            print(f"High risk entries: {len(results.get('high_risk_entries', []))}\n")
+            
+            # Show high risk entries
+            high_risk = results.get('high_risk_entries', [])
+            if high_risk:
+                print("[!] HIGH RISK PERSISTENCE ENTRIES:")
+                for entry in high_risk[:15]:
+                    print(f"    [{entry.get('risk_score', 0)}] {entry.get('name', 'Unknown')}")
+                    print(f"        Location: {entry.get('location', '')}")
+                    print(f"        Value: {str(entry.get('value', ''))[:80]}...")
+                    for factor in entry.get('risk_factors', []):
+                        print(f"        - {factor}")
+                    print()
+            else:
+                print("[OK] No high-risk persistence mechanisms found")
+            
+            # Show summary by type
+            summary = results.get('risk_summary', {})
+            if summary:
+                print("\nRisk Summary by Type:")
+                for ptype, data in summary.items():
+                    print(f"    {ptype}: {data.get('count', 0)} entries, avg risk: {data.get('avg_risk', 0):.1f}")
+    
+    elif args.connect:
+        if not args.api_url:
+            print("[!] Error: --api-url is required when using --connect")
+            print("    Usage: python advanced_agent.py --connect --api-url https://your-server.com")
+            sys.exit(1)
+        
+        print(f"\n{'='*60}")
+        print("ANTI-AI DEFENSE AGENT - REAL-TIME CONNECTION MODE")
+        print(f"{'='*60}")
+        print(f"Agent ID: {agent.cloud_sync.agent_id}")
+        print(f"Agent Name: {agent.cloud_sync.agent_name}")
+        print(f"Server: {args.api_url}")
+        print(f"{'='*60}\n")
+        
+        # Connect to server via WebSocket
+        print("[*] Connecting to server...")
+        if agent.cloud_sync.connect_websocket():
+            # Start monitoring in background
+            agent.start_monitoring()
+            
+            print("[*] Agent is now connected and listening for commands.")
+            print("[*] Press Ctrl+C to disconnect.\n")
+            
+            try:
+                while True:
+                    time.sleep(5)
+                    status = agent.cloud_sync.get_status()
+                    stats = agent.process_monitor.get_stats()
+                    
+                    ws_status = "CONNECTED" if status['ws_connected'] else "DISCONNECTED"
+                    pending = status.get('pending_commands', 0)
+                    
+                    print(f"\r[{datetime.now().strftime('%H:%M:%S')}] "
+                          f"WebSocket: {ws_status} | "
+                          f"Processes: {stats['total_processes']} | "
+                          f"Alerts: {stats['alerts_count']} | "
+                          f"Pending Commands: {pending}    ", end="")
+                    
+            except KeyboardInterrupt:
+                print("\n\n[*] Disconnecting from server...")
+                agent.cloud_sync.disconnect_websocket()
+                agent.stop_monitoring()
+                print("[*] Agent disconnected. Goodbye!")
+        else:
+            print("[!] Failed to connect to server")
+            sys.exit(1)
+    
     else:
         # Default: run full scan
         agent.run_full_scan()
