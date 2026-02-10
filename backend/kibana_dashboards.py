@@ -2,6 +2,7 @@
 Kibana Dashboard Service - Pre-built security dashboards
 """
 import json
+import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import httpx
