@@ -1906,6 +1906,468 @@ class USBDeviceMonitor:
 
 
 # =============================================================================
+# CREDENTIAL THEFT DETECTION
+# =============================================================================
+
+@dataclass
+class CredentialAccessEvent:
+    """Records credential access attempts"""
+    timestamp: str
+    event_type: str
+    process_name: str
+    pid: int
+    target_path: str
+    access_type: str  # read, write, execute
+    risk_score: int = 0
+    risk_factors: List[str] = field(default_factory=list)
+    blocked: bool = False
+
+class CredentialTheftDetector:
+    """
+    Detect credential theft attempts
+    Monitors access to:
+    - Windows: LSASS, SAM/SECURITY hives, browser credentials, Windows Vault
+    - Linux: /etc/shadow, /etc/passwd, SSH keys, browser profiles
+    - macOS: Keychain, browser credentials, SSH keys
+    """
+    
+    # Known credential theft tools
+    CREDENTIAL_THEFT_TOOLS = {
+        "mimikatz", "mimikatz.exe", "mimilib.dll", "mimidrv.sys",
+        "pwdump", "pwdump.exe", "fgdump", "gsecdump",
+        "wce", "wce.exe", "windows credential editor",
+        "lazagne", "lazagne.exe", "credentialdumper",
+        "secretsdump", "secretsdump.py", "impacket",
+        "lsassy", "pypykatz", "procdump", "procdump.exe",
+        "nanodump", "handlekatz", "dcsync",
+        "kerberoast", "asreproast", "rubeus",
+        "keethief", "keethief.exe", "keepass",
+        "chromepass", "webbrowserpassview", "passwordfox",
+        "netpass", "network password recovery",
+        "credentialmanager", "vaultcmd",
+    }
+    
+    # Windows credential locations
+    WINDOWS_CREDENTIAL_PATHS = [
+        # SAM and SECURITY hives
+        r"C:\Windows\System32\config\SAM",
+        r"C:\Windows\System32\config\SECURITY",
+        r"C:\Windows\System32\config\SYSTEM",
+        # NTDS (domain controller)
+        r"C:\Windows\NTDS\ntds.dit",
+        # Browser credentials
+        r"\AppData\Local\Google\Chrome\User Data\Default\Login Data",
+        r"\AppData\Local\Microsoft\Edge\User Data\Default\Login Data",
+        r"\AppData\Roaming\Mozilla\Firefox\Profiles\*\logins.json",
+        r"\AppData\Roaming\Mozilla\Firefox\Profiles\*\key4.db",
+        # Windows Vault
+        r"\AppData\Local\Microsoft\Vault",
+        r"\AppData\Roaming\Microsoft\Credentials",
+        r"\AppData\Local\Microsoft\Credentials",
+        # RDP credentials
+        r"\AppData\Local\Microsoft\Terminal Server Client\Cache",
+        # WiFi passwords (requires admin)
+        r"C:\ProgramData\Microsoft\Wlansvc\Profiles\Interfaces\*",
+    ]
+    
+    # Linux credential locations
+    LINUX_CREDENTIAL_PATHS = [
+        "/etc/shadow",
+        "/etc/passwd",
+        "/etc/sudoers",
+        "/etc/ssh/ssh_host_*_key",
+        "~/.ssh/id_rsa",
+        "~/.ssh/id_ed25519",
+        "~/.ssh/id_ecdsa",
+        "~/.ssh/id_dsa",
+        "~/.ssh/authorized_keys",
+        "~/.ssh/known_hosts",
+        # Browser credentials
+        "~/.config/google-chrome/*/Login Data",
+        "~/.config/chromium/*/Login Data",
+        "~/.mozilla/firefox/*/logins.json",
+        "~/.mozilla/firefox/*/key4.db",
+        # GNOME Keyring
+        "~/.local/share/keyrings/*",
+        # KDE Wallet
+        "~/.local/share/kwalletd/*",
+        # Environment files with potential secrets
+        "~/.bash_history",
+        "~/.zsh_history",
+        "~/.netrc",
+        "~/.pgpass",
+        "~/.my.cnf",
+        "~/.docker/config.json",
+        "~/.aws/credentials",
+        "~/.azure/accessTokens.json",
+    ]
+    
+    # macOS credential locations
+    MACOS_CREDENTIAL_PATHS = [
+        "/var/db/dslocal/nodes/Default/users/*.plist",
+        "~/Library/Keychains/*",
+        "/Library/Keychains/*",
+        "~/.ssh/id_*",
+        "~/.ssh/authorized_keys",
+        # Browser credentials
+        "~/Library/Application Support/Google/Chrome/*/Login Data",
+        "~/Library/Application Support/Firefox/Profiles/*/logins.json",
+        "~/Library/Application Support/Firefox/Profiles/*/key4.db",
+        "~/Library/Safari/Passwords.plist",
+        # Other secrets
+        "~/.bash_history",
+        "~/.zsh_history",
+        "~/.netrc",
+        "~/.aws/credentials",
+        "~/.docker/config.json",
+    ]
+    
+    # Suspicious process behaviors for LSASS access
+    LSASS_ACCESS_PATTERNS = [
+        r"lsass.*memory",
+        r"dump.*lsass",
+        r"minidump",
+        r"procdump.*lsass",
+        r"comsvcs.*MiniDump",
+        r"rundll32.*comsvcs",
+        r"task.*manager.*dump",
+    ]
+    
+    def __init__(self):
+        self.system = platform.system()
+        self.events: List[CredentialAccessEvent] = []
+        self.alerts: List[Dict] = []
+        self.monitoring = False
+        self._lock = threading.Lock()
+        self._monitored_processes: Dict[int, Dict] = {}
+        
+        # Track LSASS PID on Windows
+        self.lsass_pid = None
+        if self.system == "Windows":
+            self._find_lsass()
+    
+    def _find_lsass(self):
+        """Find LSASS process on Windows"""
+        try:
+            for proc in psutil.process_iter(['pid', 'name']):
+                if proc.info['name'].lower() == 'lsass.exe':
+                    self.lsass_pid = proc.info['pid']
+                    break
+        except:
+            pass
+    
+    def _expand_path(self, path: str) -> List[str]:
+        """Expand path patterns to actual paths"""
+        expanded = []
+        
+        # Replace ~ with home directory
+        if path.startswith("~"):
+            path = str(Path.home()) + path[1:]
+        
+        # Handle wildcards
+        if "*" in path:
+            try:
+                from glob import glob
+                expanded.extend(glob(path, recursive=True))
+            except:
+                pass
+        else:
+            if Path(path).exists():
+                expanded.append(path)
+        
+        return expanded
+    
+    def _get_credential_paths(self) -> List[str]:
+        """Get all credential paths for current OS"""
+        paths = []
+        
+        if self.system == "Windows":
+            base_paths = self.WINDOWS_CREDENTIAL_PATHS
+        elif self.system == "Linux":
+            base_paths = self.LINUX_CREDENTIAL_PATHS
+        elif self.system == "Darwin":
+            base_paths = self.MACOS_CREDENTIAL_PATHS
+        else:
+            return []
+        
+        for path in base_paths:
+            paths.extend(self._expand_path(path))
+        
+        return list(set(paths))
+    
+    def check_credential_theft_tools(self) -> List[Dict]:
+        """Check for running credential theft tools"""
+        found_tools = []
+        
+        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+            try:
+                name = proc.info['name'].lower()
+                cmdline = ' '.join(proc.info['cmdline'] or []).lower()
+                
+                # Check process name
+                for tool in self.CREDENTIAL_THEFT_TOOLS:
+                    if tool in name or tool in cmdline:
+                        found_tools.append({
+                            "pid": proc.info['pid'],
+                            "name": proc.info['name'],
+                            "tool_matched": tool,
+                            "cmdline": ' '.join(proc.info['cmdline'] or []),
+                            "risk_score": 95,
+                            "severity": "critical"
+                        })
+                        
+                        # Create alert
+                        with self._lock:
+                            self.alerts.append({
+                                "type": "credential_theft_tool",
+                                "severity": "critical",
+                                "message": f"Credential theft tool detected: {tool}",
+                                "process": proc.info['name'],
+                                "pid": proc.info['pid'],
+                                "timestamp": datetime.now().isoformat()
+                            })
+                        break
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        
+        return found_tools
+    
+    def check_lsass_access(self) -> List[Dict]:
+        """Check for suspicious LSASS access (Windows)"""
+        suspicious_access = []
+        
+        if self.system != "Windows" or not self.lsass_pid:
+            return []
+        
+        try:
+            lsass = psutil.Process(self.lsass_pid)
+            
+            # Get processes accessing LSASS
+            for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+                try:
+                    # Skip system processes
+                    if proc.info['name'].lower() in ['system', 'csrss.exe', 'smss.exe', 'wininit.exe']:
+                        continue
+                    
+                    cmdline = ' '.join(proc.info['cmdline'] or []).lower()
+                    
+                    # Check for LSASS access patterns
+                    for pattern in self.LSASS_ACCESS_PATTERNS:
+                        if re.search(pattern, cmdline, re.IGNORECASE):
+                            suspicious_access.append({
+                                "pid": proc.info['pid'],
+                                "name": proc.info['name'],
+                                "cmdline": cmdline,
+                                "pattern_matched": pattern,
+                                "risk_score": 90,
+                                "severity": "critical"
+                            })
+                            
+                            with self._lock:
+                                self.alerts.append({
+                                    "type": "lsass_access",
+                                    "severity": "critical",
+                                    "message": f"Suspicious LSASS access detected",
+                                    "process": proc.info['name'],
+                                    "pid": proc.info['pid'],
+                                    "pattern": pattern,
+                                    "timestamp": datetime.now().isoformat()
+                                })
+                            break
+                            
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+                    
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        
+        return suspicious_access
+    
+    def check_credential_file_access(self) -> List[Dict]:
+        """Check for recent access to credential files"""
+        access_events = []
+        cred_paths = self._get_credential_paths()
+        
+        # Check each credential file
+        for path in cred_paths:
+            try:
+                stat = os.stat(path)
+                mtime = datetime.fromtimestamp(stat.st_mtime)
+                atime = datetime.fromtimestamp(stat.st_atime)
+                
+                # Check if accessed recently (last 10 minutes)
+                if (datetime.now() - atime).total_seconds() < 600:
+                    risk_score = 30
+                    risk_factors = []
+                    
+                    # Higher risk for sensitive files
+                    if any(x in path.lower() for x in ['shadow', 'sam', 'security', 'ntds', 'lsass']):
+                        risk_score = 80
+                        risk_factors.append("High-value credential store")
+                    elif any(x in path.lower() for x in ['ssh', 'id_rsa', 'id_ed25519']):
+                        risk_score = 60
+                        risk_factors.append("SSH private key")
+                    elif any(x in path.lower() for x in ['login data', 'logins.json', 'key4.db']):
+                        risk_score = 50
+                        risk_factors.append("Browser credential store")
+                    elif any(x in path.lower() for x in ['credentials', 'vault', 'keychain']):
+                        risk_score = 55
+                        risk_factors.append("System credential store")
+                    
+                    access_events.append({
+                        "path": path,
+                        "last_accessed": atime.isoformat(),
+                        "last_modified": mtime.isoformat(),
+                        "risk_score": risk_score,
+                        "risk_factors": risk_factors
+                    })
+                    
+                    if risk_score >= 50:
+                        with self._lock:
+                            self.alerts.append({
+                                "type": "credential_file_access",
+                                "severity": "high" if risk_score >= 70 else "medium",
+                                "message": f"Recent access to credential file: {path}",
+                                "path": path,
+                                "risk_score": risk_score,
+                                "timestamp": datetime.now().isoformat()
+                            })
+            except (OSError, PermissionError):
+                pass
+        
+        return access_events
+    
+    def check_browser_credential_databases(self) -> List[Dict]:
+        """Check browser credential database integrity"""
+        browser_checks = []
+        
+        browser_db_paths = {
+            "Chrome": [
+                "~/.config/google-chrome/*/Login Data",
+                "~/Library/Application Support/Google/Chrome/*/Login Data",
+                r"\AppData\Local\Google\Chrome\User Data\*\Login Data",
+            ],
+            "Firefox": [
+                "~/.mozilla/firefox/*/logins.json",
+                "~/Library/Application Support/Firefox/Profiles/*/logins.json",
+                r"\AppData\Roaming\Mozilla\Firefox\Profiles\*\logins.json",
+            ],
+            "Edge": [
+                r"\AppData\Local\Microsoft\Edge\User Data\*\Login Data",
+            ]
+        }
+        
+        for browser, paths in browser_db_paths.items():
+            for path_pattern in paths:
+                for path in self._expand_path(path_pattern):
+                    try:
+                        stat = os.stat(path)
+                        atime = datetime.fromtimestamp(stat.st_atime)
+                        
+                        check = {
+                            "browser": browser,
+                            "path": path,
+                            "size": stat.st_size,
+                            "last_accessed": atime.isoformat(),
+                            "recently_accessed": (datetime.now() - atime).total_seconds() < 600
+                        }
+                        
+                        # Check if database is being accessed by non-browser process
+                        if check["recently_accessed"]:
+                            for proc in psutil.process_iter(['pid', 'name', 'open_files']):
+                                try:
+                                    open_files = proc.info.get('open_files') or []
+                                    for f in open_files:
+                                        if path in str(f):
+                                            if browser.lower() not in proc.info['name'].lower():
+                                                check["suspicious_process"] = {
+                                                    "pid": proc.info['pid'],
+                                                    "name": proc.info['name']
+                                                }
+                                                check["risk_score"] = 75
+                                                
+                                                with self._lock:
+                                                    self.alerts.append({
+                                                        "type": "browser_credential_theft",
+                                                        "severity": "high",
+                                                        "message": f"Non-browser process accessing {browser} credentials",
+                                                        "process": proc.info['name'],
+                                                        "pid": proc.info['pid'],
+                                                        "path": path,
+                                                        "timestamp": datetime.now().isoformat()
+                                                    })
+                                except:
+                                    pass
+                        
+                        browser_checks.append(check)
+                    except (OSError, PermissionError):
+                        pass
+        
+        return browser_checks
+    
+    def scan(self) -> Dict:
+        """Perform full credential theft scan"""
+        results = {
+            "timestamp": datetime.now().isoformat(),
+            "system": self.system,
+            "credential_theft_tools": [],
+            "lsass_access": [],
+            "credential_file_access": [],
+            "browser_credential_checks": [],
+            "alerts": [],
+            "risk_score": 0
+        }
+        
+        # Check for credential theft tools
+        results["credential_theft_tools"] = self.check_credential_theft_tools()
+        
+        # Check LSASS access (Windows)
+        results["lsass_access"] = self.check_lsass_access()
+        
+        # Check credential file access
+        results["credential_file_access"] = self.check_credential_file_access()
+        
+        # Check browser credential databases
+        results["browser_credential_checks"] = self.check_browser_credential_databases()
+        
+        # Calculate overall risk
+        max_risk = 0
+        if results["credential_theft_tools"]:
+            max_risk = max(max_risk, max(t.get("risk_score", 0) for t in results["credential_theft_tools"]))
+        if results["lsass_access"]:
+            max_risk = max(max_risk, max(a.get("risk_score", 0) for a in results["lsass_access"]))
+        if results["credential_file_access"]:
+            max_risk = max(max_risk, max(a.get("risk_score", 0) for a in results["credential_file_access"]))
+        for check in results["browser_credential_checks"]:
+            if "risk_score" in check:
+                max_risk = max(max_risk, check["risk_score"])
+        
+        results["risk_score"] = max_risk
+        
+        with self._lock:
+            results["alerts"] = list(self.alerts)
+        
+        return results
+    
+    def get_stats(self) -> Dict:
+        """Get credential theft detection statistics"""
+        with self._lock:
+            return {
+                "system": self.system,
+                "lsass_pid": self.lsass_pid,
+                "monitored_paths": len(self._get_credential_paths()),
+                "known_theft_tools": len(self.CREDENTIAL_THEFT_TOOLS),
+                "alerts_count": len(self.alerts),
+                "recent_alerts": self.alerts[-5:] if self.alerts else []
+            }
+    
+    def clear_alerts(self):
+        """Clear all alerts"""
+        with self._lock:
+            self.alerts.clear()
+
+
+# =============================================================================
 # MEMORY FORENSICS (Volatility Integration)
 # =============================================================================
 
