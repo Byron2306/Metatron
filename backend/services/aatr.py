@@ -19,6 +19,7 @@ This contains ONLY:
 - Defensive indicators
 """
 import logging
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field, asdict
