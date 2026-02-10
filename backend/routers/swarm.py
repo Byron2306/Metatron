@@ -259,7 +259,8 @@ async def set_deployment_credentials(
 
 @router.post("/telemetry/ingest")
 async def ingest_telemetry(request: TelemetryIngestRequest):
-    """Ingest telemetry events from agents"""
+    """Ingest telemetry events from agents and process through AATL"""
+    from services.aatl import get_aatl_engine
     
     events = request.events
     if not events:
@@ -267,15 +268,36 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
     
     # Process and store events
     now = datetime.now(timezone.utc).isoformat()
+    aatl_assessments = []
     
     for event in events:
         event["ingested_at"] = now
         
         # Determine severity for alerting
         severity = event.get("severity", "info")
+        event_type = event.get("event_type", "")
         
         # Store in telemetry collection
         await db.agent_telemetry.insert_one(event)
+        
+        # Process CLI events through AATL
+        if event_type == "cli.command":
+            engine = get_aatl_engine()
+            if engine:
+                try:
+                    assessment = await engine.process_cli_event(event)
+                    if assessment:
+                        aatl_assessments.append(assessment.to_dict())
+                        
+                        # Update severity based on AATL assessment
+                        if assessment.threat_score >= 80:
+                            severity = "critical"
+                        elif assessment.threat_score >= 60:
+                            severity = "high"
+                        elif assessment.threat_score >= 40:
+                            severity = "medium"
+                except Exception as e:
+                    logger.warning(f"AATL processing failed: {e}")
         
         # Create alert for high severity events
         if severity in ("critical", "high"):
@@ -283,16 +305,20 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
                 "type": "telemetry",
                 "severity": severity,
                 "source": event.get("host_id", "unknown"),
-                "event_type": event.get("event_type"),
+                "event_type": event_type,
                 "message": event.get("data", {}).get("message", "Security event detected"),
                 "data": event.get("data"),
                 "timestamp": now,
                 "status": "open"
             })
     
-    logger.info(f"Ingested {len(events)} telemetry events")
+    logger.info(f"Ingested {len(events)} telemetry events, {len(aatl_assessments)} AATL assessments")
     
-    return {"status": "ok", "ingested": len(events)}
+    return {
+        "status": "ok", 
+        "ingested": len(events),
+        "aatl_assessments": len(aatl_assessments)
+    }
 
 
 @router.get("/telemetry")
