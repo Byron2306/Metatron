@@ -61,6 +61,100 @@ class ScannerReportRequest(BaseModel):
 # NETWORK DISCOVERY
 # =============================================================================
 
+@router.post("/scanner/report")
+async def receive_scanner_report(request: ScannerReportRequest):
+    """
+    Receive device reports from network scanners running on user's LAN.
+    This is the PRIMARY way devices get into the system.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Track the scanner
+    await db.network_scanners.update_one(
+        {"scanner_id": request.scanner_id},
+        {
+            "$set": {
+                "scanner_id": request.scanner_id,
+                "network": request.network,
+                "last_report": now,
+                "last_device_count": len(request.devices)
+            },
+            "$inc": {"total_reports": 1}
+        },
+        upsert=True
+    )
+    
+    new_devices = 0
+    updated_devices = 0
+    
+    for device in request.devices:
+        ip = device.get('ip_address')
+        if not ip:
+            continue
+        
+        # Determine risk score
+        risk_score = 30  # Base risk
+        if not device.get('deployable', False):
+            risk_score += 20  # Higher risk if can't deploy agent
+        if device.get('os') == 'unknown':
+            risk_score += 15
+        if device.get('device_type') == 'iot':
+            risk_score += 10
+        
+        device_doc = {
+            "ip_address": ip,
+            "mac_address": device.get('mac_address'),
+            "hostname": device.get('hostname'),
+            "vendor": device.get('vendor'),
+            "os_type": device.get('os', 'unknown'),
+            "device_type": device.get('device_type', 'unknown'),
+            "open_ports": device.get('open_ports', []),
+            "discovery_method": device.get('discovery_method'),
+            "deployable": device.get('deployable', False),
+            "mobile_manageable": device.get('mobile_manageable', False),
+            "risk_score": min(risk_score, 100),
+            "last_seen": now,
+            "scanner_id": request.scanner_id,
+            "network": request.network
+        }
+        
+        # Upsert device
+        result = await db.discovered_devices.update_one(
+            {"ip_address": ip},
+            {
+                "$set": device_doc,
+                "$setOnInsert": {
+                    "first_seen": now,
+                    "deployment_status": "discovered",
+                    "is_managed": False
+                }
+            },
+            upsert=True
+        )
+        
+        if result.upserted_id:
+            new_devices += 1
+        else:
+            updated_devices += 1
+    
+    logger.info(f"Scanner {request.scanner_id} reported {len(request.devices)} devices ({new_devices} new, {updated_devices} updated)")
+    
+    return {
+        "status": "ok",
+        "message": f"Received {len(request.devices)} devices",
+        "new_devices": new_devices,
+        "updated_devices": updated_devices
+    }
+
+
+@router.get("/scanners")
+async def get_network_scanners(current_user: dict = Depends(get_current_user)):
+    """Get list of active network scanners"""
+    cursor = db.network_scanners.find({}, {"_id": 0})
+    scanners = await cursor.to_list(100)
+    return {"scanners": scanners}
+
+
 @router.get("/devices")
 async def get_discovered_devices(
     status: Optional[str] = None,
