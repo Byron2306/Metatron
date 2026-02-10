@@ -283,7 +283,7 @@ const VPNPage = () => {
                     <Badge variant="outline" className={peer.status === 'active' ? 'text-green-400 border-green-500/30' : 'text-slate-400 border-slate-500/30'}>
                       {peer.status}
                     </Badge>
-                    <Button size="sm" variant="outline" onClick={() => handleGetConfig(peer.peer_id)}>
+                    <Button size="sm" variant="outline" onClick={() => handleGetConfig(peer.peer_id, peer.name)} data-testid={`download-peer-${peer.peer_id}`}>
                       <Download className="w-4 h-4" />
                     </Button>
                     <Button size="sm" variant="destructive" onClick={() => handleRemovePeer(peer.peer_id)}>
