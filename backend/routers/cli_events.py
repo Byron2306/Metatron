@@ -373,10 +373,9 @@ async def analyze_session_window(db, host_id: str, session_id: str):
 
 async def evaluate_playbooks_for_event(db, event: dict):
     """Evaluate SOAR playbooks against an event"""
-    from services.soar_engine import SOAREngine
+    from soar_engine import soar_engine
     
     try:
-        soar = SOAREngine()
-        await soar.evaluate_event(event, db)
+        await soar_engine.evaluate_event(event, db)
     except Exception as e:
         logger.error(f"SOAR evaluation failed: {e}")
