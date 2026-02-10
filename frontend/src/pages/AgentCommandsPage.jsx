@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   Terminal, Shield, AlertTriangle, CheckCircle, XCircle,
   RefreshCw, Send, Clock, Activity, Cpu, HardDrive,
-  Users, Eye, Lock, Trash2, Play, Pause, ChevronDown, ChevronRight
+  Users, Eye, Lock, Trash2, Play, Pause, ChevronDown, ChevronRight, ExternalLink
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -13,6 +14,7 @@ import { toast } from 'sonner';
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 const AgentCommandsPage = () => {
+  const navigate = useNavigate();
   const { token } = useAuth();
   const [agents, setAgents] = useState([]);
   const [connectedAgents, setConnectedAgents] = useState([]);
