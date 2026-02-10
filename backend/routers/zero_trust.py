@@ -65,6 +65,9 @@ async def register_device(
     current_user: dict = Depends(check_permission("write"))
 ):
     """Register a new device"""
+    from .dependencies import get_db
+    db = get_db()
+    
     device = zero_trust_engine.register_device(
         device_id=request.device_id,
         device_name=request.device_name,
@@ -73,6 +76,17 @@ async def register_device(
         security_posture=request.security_posture,
         owner_id=current_user["id"]
     )
+    
+    # Also store in database
+    await db.zt_devices.update_one(
+        {"device_id": request.device_id},
+        {"$set": {
+            **device,
+            "registered_by": current_user.get("name", current_user["id"])
+        }},
+        upsert=True
+    )
+    
     logger.info(f"Registered device {device['device_id']} by user {current_user['id']}")
     return device
 
