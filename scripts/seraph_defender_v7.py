@@ -3805,6 +3805,68 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
         
+        # === USB SCANNING ENDPOINTS ===
+        elif self.path == '/api/scan/usb':
+            # Scan all USB devices
+            try:
+                devices = usb_scanner.get_usb_devices()
+                results = []
+                for device in devices:
+                    if device.get('path'):
+                        result = usb_scanner.scan_usb(device['path'])
+                        results.append(result)
+                
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "devices": devices,
+                    "scan_results": results,
+                    "total_threats": sum(len(r.get('threats', [])) for r in results)
+                }).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+        
+        elif self.path == '/api/usb/devices':
+            # Get USB device list
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(usb_scanner.to_dict()).encode())
+        
+        # === SANDBOX ENDPOINTS ===
+        elif self.path == '/api/sandbox/analyze':
+            # Submit file for sandbox analysis
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length).decode()
+            try:
+                data = json.loads(post_data)
+                file_path = data.get('file_path')
+                if not file_path:
+                    raise ValueError("file_path required")
+                
+                result = sandbox.submit_file(file_path)
+                self.send_response(200 if result.get("success") else 400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+        
+        elif self.path == '/api/sandbox/status':
+            # Get sandbox status
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(sandbox.to_dict()).encode())
+        
         else:
             self.send_response(404)
             self.end_headers()
