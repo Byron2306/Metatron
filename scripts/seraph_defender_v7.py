@@ -440,6 +440,481 @@ class ThreatDetectionEngine:
 
 
 # =============================================================================
+# ADVANCED DETECTION MODULES
+# =============================================================================
+
+class RootkitDetector:
+    """Detect rootkits and kernel-level threats"""
+    
+    def __init__(self):
+        self.known_rootkit_signatures = [
+            # File-based signatures
+            'rk_', 'rootkit', 'hide_', 'stealth',
+            'kernel_', 'sys_hijack', 'hook_',
+        ]
+        self.suspicious_drivers = []
+        self.hidden_processes = []
+    
+    def scan(self) -> List[dict]:
+        """Perform rootkit scan"""
+        findings = []
+        
+        # Check for hidden processes
+        try:
+            visible_pids = set(psutil.pids())
+            
+            # Try to access /proc directly on Linux
+            if os.name == 'posix' and os.path.exists('/proc'):
+                proc_pids = set()
+                for entry in os.listdir('/proc'):
+                    if entry.isdigit():
+                        proc_pids.add(int(entry))
+                
+                hidden = proc_pids - visible_pids
+                for pid in hidden:
+                    findings.append({
+                        "type": "hidden_process",
+                        "severity": "critical",
+                        "pid": pid,
+                        "message": f"Hidden process detected: PID {pid}"
+                    })
+        except:
+            pass
+        
+        # Check for suspicious kernel modules (Linux)
+        if os.name == 'posix':
+            try:
+                result = subprocess.run(['lsmod'], capture_output=True, text=True)
+                for line in result.stdout.split('\n'):
+                    for sig in self.known_rootkit_signatures:
+                        if sig in line.lower():
+                            findings.append({
+                                "type": "suspicious_module",
+                                "severity": "high",
+                                "module": line.split()[0],
+                                "message": f"Suspicious kernel module: {line.split()[0]}"
+                            })
+            except:
+                pass
+        
+        # Check for suspicious drivers (Windows)
+        if os.name == 'nt':
+            try:
+                result = subprocess.run(['driverquery', '/v'], capture_output=True, text=True)
+                for line in result.stdout.split('\n'):
+                    for sig in self.known_rootkit_signatures:
+                        if sig in line.lower():
+                            findings.append({
+                                "type": "suspicious_driver",
+                                "severity": "high",
+                                "driver": line.strip()[:50],
+                                "message": f"Suspicious driver detected"
+                            })
+            except:
+                pass
+        
+        # Check for hooked system calls (basic)
+        try:
+            # Check if certain syscalls return unexpected values
+            import ctypes
+            if os.name == 'nt':
+                # Windows: Check for IAT hooks
+                kernel32 = ctypes.windll.kernel32
+                # Basic integrity check
+                pass
+        except:
+            pass
+        
+        return findings
+
+
+class HiddenFolderDetector:
+    """Detect hidden folders and suspicious file structures"""
+    
+    def __init__(self):
+        self.suspicious_hidden_patterns = [
+            r'^\.',              # Unix hidden files
+            r'^\$',              # Windows system/hidden
+            r'~\$',              # Office temp files
+            r'\.tmp$',
+            r'\.bak$',
+            r'thumbs\.db',
+            r'desktop\.ini',
+        ]
+        
+        self.malware_folder_names = [
+            'temp', 'tmp', 'cache', 'appdata', 'programdata',
+            '.hidden', '.secret', '.malware', '.backdoor',
+            'system32', 'syswow64',  # Mimicking system folders
+        ]
+    
+    def scan(self, paths: List[str] = None) -> List[dict]:
+        """Scan for hidden and suspicious folders"""
+        findings = []
+        
+        if paths is None:
+            # Default scan paths
+            if os.name == 'nt':
+                paths = [
+                    os.environ.get('TEMP', 'C:\\Windows\\Temp'),
+                    os.environ.get('APPDATA', ''),
+                    os.environ.get('LOCALAPPDATA', ''),
+                    'C:\\ProgramData',
+                ]
+            else:
+                paths = ['/tmp', '/var/tmp', os.path.expanduser('~')]
+        
+        for scan_path in paths:
+            if not scan_path or not os.path.exists(scan_path):
+                continue
+            
+            try:
+                for root, dirs, files in os.walk(scan_path):
+                    # Limit depth
+                    if root.count(os.sep) - scan_path.count(os.sep) > 3:
+                        continue
+                    
+                    for d in dirs:
+                        # Check for hidden attribute (Windows)
+                        full_path = os.path.join(root, d)
+                        is_hidden = False
+                        
+                        if os.name == 'nt':
+                            try:
+                                attrs = ctypes.windll.kernel32.GetFileAttributesW(full_path)
+                                is_hidden = attrs != -1 and (attrs & 2)  # FILE_ATTRIBUTE_HIDDEN
+                            except:
+                                pass
+                        else:
+                            is_hidden = d.startswith('.')
+                        
+                        # Check if suspicious
+                        if is_hidden:
+                            # Check for executable content
+                            try:
+                                exe_count = sum(1 for f in os.listdir(full_path) 
+                                              if f.endswith(('.exe', '.dll', '.bat', '.ps1', '.sh')))
+                                if exe_count > 0:
+                                    findings.append({
+                                        "type": "hidden_executable_folder",
+                                        "severity": "high",
+                                        "path": full_path,
+                                        "exe_count": exe_count,
+                                        "message": f"Hidden folder with {exe_count} executables"
+                                    })
+                            except:
+                                pass
+                        
+                        # Check for suspicious names
+                        d_lower = d.lower()
+                        for pattern in self.malware_folder_names:
+                            if pattern in d_lower and 'system32' not in root.lower():
+                                # Check modification time
+                                try:
+                                    mtime = os.path.getmtime(full_path)
+                                    age_hours = (time.time() - mtime) / 3600
+                                    if age_hours < 24:  # Recently created
+                                        findings.append({
+                                            "type": "suspicious_recent_folder",
+                                            "severity": "medium",
+                                            "path": full_path,
+                                            "age_hours": round(age_hours, 1),
+                                            "message": f"Recently created suspicious folder"
+                                        })
+                                except:
+                                    pass
+            except PermissionError:
+                pass
+            except Exception as e:
+                pass
+        
+        return findings
+
+
+class AdminPrivilegesMonitor:
+    """Monitor for privilege escalation and admin access"""
+    
+    def __init__(self):
+        self.baseline_admins = set()
+        self.baseline_sudoers = set()
+        self.admin_changes = []
+    
+    def get_current_admins(self) -> dict:
+        """Get current admin users and privileges"""
+        admins = {
+            "local_admins": [],
+            "sudoers": [],
+            "elevated_processes": [],
+            "scheduled_tasks_as_admin": [],
+            "services_as_system": []
+        }
+        
+        if os.name == 'nt':
+            # Windows: Get local administrators
+            try:
+                result = subprocess.run(
+                    ['net', 'localgroup', 'administrators'],
+                    capture_output=True, text=True
+                )
+                lines = result.stdout.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('-') and 'Members' not in line and 'Alias' not in line and 'Comment' not in line:
+                        if line not in ['The command completed successfully.', '']:
+                            admins["local_admins"].append(line)
+            except:
+                pass
+            
+            # Get elevated processes
+            for proc in psutil.process_iter(['pid', 'name', 'username']):
+                try:
+                    if proc.info['username'] and 'SYSTEM' in proc.info['username']:
+                        admins["elevated_processes"].append({
+                            "pid": proc.info['pid'],
+                            "name": proc.info['name'],
+                            "user": proc.info['username']
+                        })
+                except:
+                    pass
+        else:
+            # Linux: Get sudoers
+            try:
+                with open('/etc/sudoers', 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            admins["sudoers"].append(line[:100])
+            except:
+                pass
+            
+            # Get wheel/sudo group members
+            try:
+                result = subprocess.run(['getent', 'group', 'sudo'], capture_output=True, text=True)
+                if result.stdout:
+                    members = result.stdout.strip().split(':')[-1].split(',')
+                    admins["local_admins"].extend(members)
+            except:
+                pass
+            
+            # Get root processes
+            for proc in psutil.process_iter(['pid', 'name', 'username']):
+                try:
+                    if proc.info['username'] == 'root':
+                        admins["elevated_processes"].append({
+                            "pid": proc.info['pid'],
+                            "name": proc.info['name'],
+                            "user": proc.info['username']
+                        })
+                except:
+                    pass
+        
+        return admins
+    
+    def detect_changes(self) -> List[dict]:
+        """Detect changes in admin privileges"""
+        current = self.get_current_admins()
+        changes = []
+        
+        current_admin_set = set(current.get("local_admins", []))
+        
+        # Check for new admins
+        new_admins = current_admin_set - self.baseline_admins
+        for admin in new_admins:
+            changes.append({
+                "type": "new_admin_user",
+                "severity": "critical",
+                "user": admin,
+                "message": f"New admin user detected: {admin}"
+            })
+        
+        # Update baseline
+        if not self.baseline_admins:
+            self.baseline_admins = current_admin_set
+        
+        return changes
+
+
+class AliasDetector:
+    """Detect shell aliases that could be malicious"""
+    
+    def __init__(self):
+        self.suspicious_alias_patterns = [
+            r'alias\s+sudo\s*=',       # Hijacking sudo
+            r'alias\s+ls\s*=.*rm',     # ls doing destructive actions
+            r'alias\s+cd\s*=',         # Hijacking cd
+            r'alias\s+.*curl.*http',   # Hidden network calls
+            r'alias\s+.*wget.*http',
+            r'alias\s+.*nc\s',         # Netcat aliases
+            r'alias\s+.*ncat\s',
+            r'alias\s+.*python.*-c',   # Python one-liners
+        ]
+    
+    def scan(self) -> List[dict]:
+        """Scan for suspicious aliases"""
+        findings = []
+        alias_files = []
+        
+        if os.name == 'posix':
+            home = os.path.expanduser('~')
+            alias_files = [
+                os.path.join(home, '.bashrc'),
+                os.path.join(home, '.bash_aliases'),
+                os.path.join(home, '.zshrc'),
+                os.path.join(home, '.profile'),
+                '/etc/bash.bashrc',
+                '/etc/profile',
+            ]
+        elif os.name == 'nt':
+            # Windows: Check PowerShell profiles
+            alias_files = [
+                os.path.join(os.environ.get('USERPROFILE', ''), 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'),
+                os.path.join(os.environ.get('USERPROFILE', ''), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'),
+            ]
+        
+        for alias_file in alias_files:
+            if not os.path.exists(alias_file):
+                continue
+            
+            try:
+                with open(alias_file, 'r') as f:
+                    content = f.read()
+                    
+                for pattern in self.suspicious_alias_patterns:
+                    matches = re.findall(pattern, content, re.IGNORECASE | re.MULTILINE)
+                    for match in matches:
+                        findings.append({
+                            "type": "suspicious_alias",
+                            "severity": "high",
+                            "file": alias_file,
+                            "alias": match[:100],
+                            "message": f"Suspicious alias in {os.path.basename(alias_file)}"
+                        })
+            except:
+                pass
+        
+        return findings
+
+
+class FileIndexer:
+    """Index and monitor files for threat detection"""
+    
+    def __init__(self):
+        self.file_index = {}
+        self.suspicious_extensions = [
+            '.exe', '.dll', '.bat', '.ps1', '.vbs', '.js', '.hta',
+            '.scr', '.pif', '.com', '.cmd', '.msi', '.jar',
+            '.encrypted', '.locked', '.crypt', '.crypto',
+        ]
+        self.hash_cache = {}
+    
+    def index_directory(self, path: str, max_depth: int = 3) -> dict:
+        """Index files in a directory"""
+        index = {
+            "total_files": 0,
+            "executable_files": [],
+            "recently_modified": [],
+            "large_files": [],
+            "suspicious_files": []
+        }
+        
+        try:
+            for root, dirs, files in os.walk(path):
+                depth = root.count(os.sep) - path.count(os.sep)
+                if depth > max_depth:
+                    continue
+                
+                for fname in files:
+                    index["total_files"] += 1
+                    fpath = os.path.join(root, fname)
+                    
+                    try:
+                        stat = os.stat(fpath)
+                        fsize = stat.st_size
+                        mtime = stat.st_mtime
+                        age_hours = (time.time() - mtime) / 3600
+                        
+                        # Check for executables
+                        ext = os.path.splitext(fname)[1].lower()
+                        if ext in self.suspicious_extensions:
+                            index["executable_files"].append({
+                                "path": fpath,
+                                "size": fsize,
+                                "extension": ext
+                            })
+                        
+                        # Recently modified
+                        if age_hours < 1:
+                            index["recently_modified"].append({
+                                "path": fpath,
+                                "age_minutes": round(age_hours * 60, 1)
+                            })
+                        
+                        # Large files
+                        if fsize > 100 * 1024 * 1024:  # 100MB
+                            index["large_files"].append({
+                                "path": fpath,
+                                "size_mb": round(fsize / 1024 / 1024, 1)
+                            })
+                        
+                        # Suspicious patterns in filename
+                        fname_lower = fname.lower()
+                        if any(s in fname_lower for s in ['mimikatz', 'lazagne', 'pwdump', 'backdoor', 'keylog', 'ransom']):
+                            index["suspicious_files"].append({
+                                "path": fpath,
+                                "reason": "suspicious_name"
+                            })
+                        
+                    except:
+                        pass
+        except:
+            pass
+        
+        return index
+    
+    def get_file_telemetry(self) -> dict:
+        """Get file system telemetry for graphing"""
+        telemetry = {
+            "timestamp": datetime.now().isoformat(),
+            "total_indexed": 0,
+            "executables": 0,
+            "recent_changes": 0,
+            "suspicious": 0,
+            "by_extension": {},
+            "by_directory": {}
+        }
+        
+        # Scan key directories
+        scan_paths = []
+        if os.name == 'nt':
+            scan_paths = [
+                os.environ.get('TEMP', 'C:\\Windows\\Temp'),
+                os.environ.get('APPDATA', ''),
+                os.path.expanduser('~\\Downloads'),
+            ]
+        else:
+            scan_paths = ['/tmp', '/var/tmp', os.path.expanduser('~/Downloads')]
+        
+        for path in scan_paths:
+            if path and os.path.exists(path):
+                idx = self.index_directory(path, max_depth=2)
+                telemetry["total_indexed"] += idx["total_files"]
+                telemetry["executables"] += len(idx["executable_files"])
+                telemetry["recent_changes"] += len(idx["recently_modified"])
+                telemetry["suspicious"] += len(idx["suspicious_files"])
+                telemetry["by_directory"][path] = idx["total_files"]
+        
+        return telemetry
+
+
+# Initialize advanced detectors
+rootkit_detector = RootkitDetector()
+hidden_folder_detector = HiddenFolderDetector()
+admin_monitor = AdminPrivilegesMonitor()
+alias_detector = AliasDetector()
+file_indexer = FileIndexer()
+
+
+# =============================================================================
 # REMEDIATION ENGINE
 # =============================================================================
 
