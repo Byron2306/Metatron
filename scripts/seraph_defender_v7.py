@@ -2045,6 +2045,10 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
         <div class="tabs">
             <div class="tab active" data-panel="threats">🎯 Active Threats</div>
             <div class="tab" data-panel="network">🌐 Network Monitor</div>
+            <div class="tab" data-panel="netscan">📡 Port/Router Scan</div>
+            <div class="tab" data-panel="wifi">📶 WiFi Networks</div>
+            <div class="tab" data-panel="bluetooth">🔵 Bluetooth</div>
+            <div class="tab" data-panel="vpn">🔒 VPN</div>
             <div class="tab" data-panel="processes">📊 Processes</div>
             <div class="tab" data-panel="files">📁 File Index</div>
             <div class="tab" data-panel="admin">👑 Admin Privileges</div>
