@@ -2857,6 +2857,81 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             </div>
         </div>
         
+        <div class="panel" id="panel-usb">
+            <div class="card">
+                <div class="card-header">🔌 USB Device Monitor</div>
+                <div class="card-body">
+                    <div style="background: rgba(6,182,212,0.1); padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid rgba(6,182,212,0.3);">
+                        <p style="color: var(--accent); font-weight: 600; margin-bottom: 8px;">⚡ Auto-Scan Enabled</p>
+                        <p style="color: var(--text-secondary); font-size: 14px;">New USB devices are automatically scanned for malware, autorun files, and BadUSB payloads.</p>
+                    </div>
+                    <button onclick="scanUSBDevices()" style="background: var(--accent); color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 16px;">🔍 Scan All USB Devices</button>
+                    <div id="usbScanStatus" style="color: var(--text-secondary); margin-bottom: 16px;">Last scan: Never</div>
+                    <h4 style="color: var(--accent); margin-bottom: 12px;">Connected USB Devices</h4>
+                    <div id="usbDeviceList" style="margin-bottom: 20px;"></div>
+                    <h4 style="color: var(--danger); margin-bottom: 12px;">USB Threats Detected</h4>
+                    <div id="usbThreatList"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-sandbox">
+            <div class="card">
+                <div class="card-header">🧪 Cuckoo Sandbox (VM Analysis)</div>
+                <div class="card-body">
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px;">
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px;">
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">Sandbox Status</div>
+                            <div id="sandboxStatus" style="font-size: 18px; font-weight: 600;">Checking...</div>
+                        </div>
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px;">
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">Analyses Completed</div>
+                            <div id="sandboxCount" style="font-size: 18px; font-weight: 600;">0</div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: var(--accent); margin-bottom: 12px;">Submit File for Analysis</h4>
+                        <input type="text" id="sandboxFilePath" placeholder="File path to analyze (e.g., /tmp/suspicious.exe)" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: #fff; margin-bottom: 8px;">
+                        <button onclick="submitToSandbox()" style="background: var(--warning); color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer;">🧪 Analyze File</button>
+                    </div>
+                    <h4 style="color: var(--accent); margin-bottom: 12px;">Recent Analyses</h4>
+                    <div id="sandboxAnalyses" style="max-height: 300px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-siem">
+            <div class="card">
+                <div class="card-header">📊 SIEM Integration</div>
+                <div class="card-body">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px;">
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">SIEM Status</div>
+                            <div id="siemStatus" style="font-size: 18px; font-weight: 600;">Checking...</div>
+                        </div>
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px;">
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">SIEM Type</div>
+                            <div id="siemType" style="font-size: 14px;">-</div>
+                        </div>
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px;">
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">Buffer Size</div>
+                            <div id="siemBuffer" style="font-size: 18px; font-weight: 600;">0</div>
+                        </div>
+                    </div>
+                    <div style="background: rgba(16,185,129,0.1); padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid rgba(16,185,129,0.3);">
+                        <p style="color: var(--success); font-weight: 600; margin-bottom: 8px;">📡 Event Streaming</p>
+                        <p style="color: var(--text-secondary); font-size: 14px;">All security events are automatically streamed to your SIEM. High-severity events are sent immediately.</p>
+                    </div>
+                    <h4 style="color: var(--accent); margin-bottom: 12px;">SIEM Configuration</h4>
+                    <div style="font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px;">
+                        <p><strong>Elasticsearch:</strong> Set ELASTICSEARCH_URL environment variable</p>
+                        <p><strong>Splunk HEC:</strong> Set SPLUNK_HEC_URL and SPLUNK_HEC_TOKEN</p>
+                        <p><strong>Syslog:</strong> Set SYSLOG_SERVER and SYSLOG_PORT</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <div class="panel" id="panel-processes">
             <div class="card">
                 <div class="card-header">Running Processes (Click to Kill)</div>
