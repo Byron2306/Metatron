@@ -2452,7 +2452,17 @@ class TelemetryStore:
             # Network scanning results
             "network_scans": network_scan_results.to_dict(),
             # VPN status
-            "vpn_status": wireguard_vpn.get_status()
+            "vpn_status": wireguard_vpn.get_status(),
+            # USB monitoring
+            "usb_devices": usb_scanner.to_dict(),
+            # Sandbox status
+            "sandbox": sandbox.to_dict(),
+            # SIEM status
+            "siem": {
+                "enabled": siem.enabled,
+                "type": getattr(siem, 'siem_type', None),
+                "buffer_size": len(siem.buffer)
+            }
         }
 
 
