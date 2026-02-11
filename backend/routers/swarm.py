@@ -530,6 +530,17 @@ async def download_agent(platform: str):
             media_type="text/x-python",
             filename="seraph_mobile_v7.py"
         )
+    elif platform == "windows-installer" or platform == "batch":
+        batch_path = "/app/scripts/install_seraph_windows.bat"
+        if not os.path.exists(batch_path):
+            raise HTTPException(status_code=404, detail="Windows installer not found")
+        return FileResponse(
+            batch_path,
+            media_type="application/x-bat",
+            filename="install_seraph_windows.bat"
+        )
+            filename="seraph_mobile_v7.py"
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
 
