@@ -2437,6 +2437,205 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             }
         }
         
+        // === NETWORK SCANNING FUNCTIONS ===
+        async function scanRouter() {
+            document.getElementById('routerScanStatus').textContent = 'Scanning router...';
+            try {
+                const res = await fetch('/api/scan/ports', { method: 'POST' });
+                const data = await res.json();
+                document.getElementById('routerScanStatus').textContent = 'Last scan: ' + new Date().toLocaleTimeString();
+                if (data.success) {
+                    const result = data.result;
+                    let vulnHtml = '';
+                    if (result.vulnerabilities && result.vulnerabilities.length > 0) {
+                        vulnHtml = '<h5 style="color: var(--danger); margin-top: 12px;">⚠️ Vulnerabilities</h5>' +
+                            result.vulnerabilities.map(v => `
+                                <div style="background: rgba(239,68,68,0.2); padding: 8px; margin: 4px 0; border-radius: 4px;">
+                                    <strong>${v.type}</strong>: ${v.message}
+                                </div>
+                            `).join('');
+                    }
+                    document.getElementById('routerResults').innerHTML = `
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px;">
+                            <strong>Gateway:</strong> ${result.ip || 'Unknown'}<br/>
+                            <strong>Open Ports:</strong> ${result.open_ports?.map(p => p.port + ' (' + p.service + ')').join(', ') || 'None found'}<br/>
+                            ${vulnHtml}
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('routerResults').innerHTML = '<p style="color: var(--danger);">Scan failed: ' + data.error + '</p>';
+                }
+            } catch (e) {
+                document.getElementById('routerScanStatus').textContent = 'Scan failed';
+            }
+        }
+        
+        async function scanNetwork() {
+            document.getElementById('routerScanStatus').textContent = 'Scanning local network (this may take a minute)...';
+            try {
+                const res = await fetch('/api/scan/network', { method: 'POST' });
+                const data = await res.json();
+                document.getElementById('routerScanStatus').textContent = 'Network scan complete: ' + new Date().toLocaleTimeString();
+                if (data.success) {
+                    document.getElementById('networkHosts').innerHTML = data.hosts.length === 0
+                        ? '<p>No hosts discovered</p>'
+                        : data.hosts.map(h => `
+                            <div style="display: flex; justify-content: space-between; padding: 8px; background: rgba(0,0,0,0.2); margin: 4px 0; border-radius: 4px;">
+                                <span style="font-family: monospace;">${h.ip}</span>
+                                <span style="color: ${h.alive ? 'var(--success)' : 'var(--text-secondary)'};">${h.alive ? '● Online' : '○ Offline'}</span>
+                            </div>
+                        `).join('');
+                }
+            } catch (e) {
+                document.getElementById('routerScanStatus').textContent = 'Scan failed';
+            }
+        }
+        
+        async function scanHost() {
+            const ip = document.getElementById('hostToScan').value;
+            if (!ip) { alert('Please enter an IP address'); return; }
+            document.getElementById('routerScanStatus').textContent = 'Scanning ' + ip + '...';
+            try {
+                const res = await fetch('/api/scan/host/' + ip, { method: 'POST' });
+                const data = await res.json();
+                document.getElementById('routerScanStatus').textContent = 'Host scan complete: ' + new Date().toLocaleTimeString();
+                if (data.success) {
+                    const result = data.result;
+                    document.getElementById('routerResults').innerHTML = `
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px;">
+                            <strong>Host:</strong> ${result.ip}<br/>
+                            <strong>Open Ports:</strong><br/>
+                            ${result.open_ports?.map(p => `
+                                <div style="padding: 4px 8px; margin: 2px 0; background: ${p.dangerous ? 'rgba(239,68,68,0.2)' : 'rgba(0,0,0,0.2)'}; border-radius: 4px;">
+                                    ${p.port} - ${p.service} ${p.dangerous ? '⚠️ DANGEROUS' : ''}
+                                </div>
+                            `).join('') || 'No open ports'}
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                document.getElementById('routerScanStatus').textContent = 'Scan failed';
+            }
+        }
+        
+        async function scanWiFi() {
+            document.getElementById('wifiScanStatus').textContent = 'Scanning WiFi networks...';
+            try {
+                const res = await fetch('/api/scan/wifi', { method: 'POST' });
+                const data = await res.json();
+                document.getElementById('wifiScanStatus').textContent = 'Last scan: ' + new Date().toLocaleTimeString() + ' (' + data.count + ' networks found)';
+                if (data.connected) {
+                    document.getElementById('wifiConnected').innerHTML = data.connected.error 
+                        ? '<span style="color: var(--text-secondary);">Not connected to WiFi</span>'
+                        : '<strong style="color: var(--success);">📶 Connected:</strong> ' + (data.connected.ssid || 'Unknown') + 
+                          ' | Signal: ' + (data.connected.signal || 'Unknown');
+                }
+                document.getElementById('wifiList').innerHTML = data.networks?.length === 0
+                    ? '<p>No networks found</p>'
+                    : data.networks.map(n => {
+                        const hasThreats = n.threats && n.threats.length > 0;
+                        return `
+                            <div style="padding: 12px; background: ${hasThreats ? 'rgba(239,68,68,0.2)' : 'rgba(0,0,0,0.2)'}; margin: 8px 0; border-radius: 8px; ${hasThreats ? 'border-left: 4px solid var(--danger);' : ''}">
+                                <strong>${n.ssid || '(Hidden Network)'}</strong>
+                                <span style="float: right; color: var(--text-secondary);">${n.signal || 'N/A'}</span><br/>
+                                <small style="color: var(--text-secondary);">BSSID: ${n.bssid || 'Unknown'} | Auth: ${n.auth || 'Unknown'} | Encryption: ${n.encryption || n.auth || 'Unknown'}</small>
+                                ${hasThreats ? '<div style="margin-top: 8px; color: var(--danger);">' + n.threats.map(t => '⚠️ ' + t.message).join('<br/>') + '</div>' : ''}
+                            </div>
+                        `;
+                    }).join('');
+            } catch (e) {
+                document.getElementById('wifiScanStatus').textContent = 'Scan failed: ' + e;
+            }
+        }
+        
+        async function scanBluetooth() {
+            document.getElementById('bluetoothScanStatus').textContent = 'Scanning Bluetooth devices...';
+            try {
+                const res = await fetch('/api/scan/bluetooth', { method: 'POST' });
+                const data = await res.json();
+                document.getElementById('bluetoothScanStatus').textContent = 'Last scan: ' + new Date().toLocaleTimeString() + ' (' + data.count + ' devices found)';
+                document.getElementById('bluetoothList').innerHTML = data.devices?.length === 0
+                    ? '<p style="color: var(--text-secondary);">No Bluetooth devices found</p>'
+                    : data.devices.map(d => {
+                        const hasThreats = d.threats && d.threats.length > 0;
+                        return `
+                            <div style="padding: 12px; background: ${hasThreats ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.1)'}; margin: 8px 0; border-radius: 8px;">
+                                <strong>🔵 ${d.name || 'Unknown Device'}</strong><br/>
+                                <small style="color: var(--text-secondary);">ID: ${d.id || d.address || 'Unknown'} | Type: ${d.type || 'Unknown'} | Status: ${d.status || 'Unknown'}</small>
+                                ${hasThreats ? '<div style="margin-top: 8px; color: var(--danger);">' + d.threats.map(t => '⚠️ ' + t.message).join('<br/>') + '</div>' : ''}
+                            </div>
+                        `;
+                    }).join('');
+            } catch (e) {
+                document.getElementById('bluetoothScanStatus').textContent = 'Scan failed: ' + e;
+            }
+        }
+        
+        // === VPN FUNCTIONS ===
+        async function configureVPN() {
+            const endpoint = document.getElementById('vpnEndpoint').value;
+            const pubkey = document.getElementById('vpnPubKey').value;
+            if (!endpoint || !pubkey) { alert('Please enter server endpoint and public key'); return; }
+            try {
+                const res = await fetch('/api/vpn/configure', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ server_endpoint: endpoint, server_public_key: pubkey })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('VPN configured successfully!\\nClient address: ' + data.client_address + '\\nYour public key (share with server):\\n' + data.client_public_key);
+                    fetchData();
+                } else {
+                    alert('Configuration failed: ' + data.error);
+                }
+            } catch (e) {
+                alert('Error: ' + e);
+            }
+        }
+        
+        async function connectVPN() {
+            try {
+                const res = await fetch('/api/vpn/connect', { method: 'POST' });
+                const data = await res.json();
+                alert(data.success ? 'VPN Connected!' : 'Connection failed: ' + data.error);
+                fetchData();
+            } catch (e) {
+                alert('Error: ' + e);
+            }
+        }
+        
+        async function disconnectVPN() {
+            try {
+                const res = await fetch('/api/vpn/disconnect', { method: 'POST' });
+                const data = await res.json();
+                alert(data.success ? 'VPN Disconnected' : 'Disconnect failed: ' + data.error);
+                fetchData();
+            } catch (e) {
+                alert('Error: ' + e);
+            }
+        }
+        
+        function updateVPNStatus(vpnStatus) {
+            if (!vpnStatus) return;
+            const statusEl = document.getElementById('vpnStatus');
+            const addressEl = document.getElementById('vpnAddress');
+            const detailsEl = document.getElementById('vpnDetails');
+            
+            if (vpnStatus.connected) {
+                statusEl.innerHTML = '<span style="color: var(--success);">● Connected</span>';
+            } else if (vpnStatus.configured) {
+                statusEl.innerHTML = '<span style="color: var(--warning);">○ Configured (Disconnected)</span>';
+            } else {
+                statusEl.innerHTML = '<span style="color: var(--text-secondary);">○ Not Configured</span>';
+            }
+            
+            addressEl.textContent = vpnStatus.address || '-';
+            detailsEl.innerHTML = vpnStatus.configured 
+                ? 'Interface: ' + vpnStatus.interface + '<br/>Server: ' + (vpnStatus.server_endpoint || 'N/A') + '<br/>Mode: ' + vpnStatus.mode + '<br/>Config: ' + (vpnStatus.config_path || 'N/A')
+                : 'VPN not configured. Enter server details above.';
+        }
+        
         async function killProcess(pid) {
             if (confirm('Kill process ' + pid + '?')) {
                 await fetch('/api/kill/' + pid, { method: 'POST' });
@@ -2467,6 +2666,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 const response = await fetch('/api/data');
                 const data = await response.json();
                 updateDashboard(data);
+                updateVPNStatus(data.vpn_status);
             } catch (e) {
                 console.error('Fetch error:', e);
             }
