@@ -187,9 +187,11 @@ const NetworkTopologyPage = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
         {[
           { label: 'Total Nodes', value: nodeStats.total, color: 'blue', icon: Server },
+          { label: 'Live Threats', value: nodeStats.liveThreats, color: 'red', icon: AlertOctagon },
+          { label: 'Critical Alerts', value: nodeStats.criticalAlerts, color: 'amber', icon: Zap },
           { label: 'Attackers', value: nodeStats.attackers, color: 'red', icon: AlertTriangle },
           { label: 'Compromised', value: nodeStats.compromised, color: 'red', icon: Shield },
           { label: 'Suspicious', value: nodeStats.suspicious, color: 'amber', icon: Wifi }
@@ -199,7 +201,11 @@ const NetworkTopologyPage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4"
+            className={`bg-slate-900/50 backdrop-blur-md border rounded p-4 ${
+              stat.label === 'Live Threats' && stat.value > 0 
+                ? 'border-red-500/50 animate-pulse' 
+                : 'border-slate-800'
+            }`}
           >
             <div className="flex items-center gap-2 mb-1">
               <stat.icon className={`w-4 h-4 text-${stat.color}-400`} />
