@@ -99,7 +99,7 @@ class TestDeploymentEndpoints:
             "password": "test123"
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     def test_deploy_single_device(self, auth_token):
@@ -148,7 +148,7 @@ class TestNetworkTopologyEndpoints:
             "password": "test123"
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     def test_get_network_topology(self, auth_token):
@@ -174,7 +174,7 @@ class TestSwarmOverviewEndpoints:
             "password": "test123"
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     def test_get_swarm_overview(self, auth_token):
@@ -200,7 +200,7 @@ class TestTelemetryEndpoints:
             "password": "test123"
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     def test_get_telemetry_critical(self, auth_token):
@@ -247,7 +247,7 @@ class TestAgentCommandsEndpoints:
             "password": "test123"
         })
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get("access_token")
         pytest.skip("Authentication failed")
     
     def test_get_pending_commands(self, auth_token):
