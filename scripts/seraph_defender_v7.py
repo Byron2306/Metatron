@@ -1688,6 +1688,98 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                     <span style="float: right; color: var(--text-secondary);">${new Date(e.timestamp).toLocaleTimeString()}</span>
                 </div>
             `).join('');
+            
+            // File telemetry
+            if (data.file_telemetry) {
+                document.getElementById('fileTotal').textContent = data.file_telemetry.total_indexed || 0;
+                document.getElementById('fileExec').textContent = data.file_telemetry.executables || 0;
+                document.getElementById('fileRecent').textContent = data.file_telemetry.recent_changes || 0;
+                document.getElementById('fileSuspicious').textContent = data.file_telemetry.suspicious || 0;
+            }
+            
+            // Admin privileges
+            if (data.admin_info) {
+                document.getElementById('adminList').innerHTML = 
+                    (data.admin_info.local_admins || []).map(a => `
+                        <div style="padding: 8px 12px; background: rgba(251,191,36,0.15); margin: 4px 0; border-radius: 4px; border-left: 3px solid #fbbf24;">${a}</div>
+                    `).join('') || '<p style="color: var(--text-secondary);">No admin users detected</p>';
+                    
+                document.getElementById('elevatedList').innerHTML = 
+                    (data.admin_info.elevated_processes || []).slice(0, 50).map(p => `
+                        <div style="padding: 6px 12px; background: rgba(239,68,68,0.1); margin: 2px 0; border-radius: 4px; font-family: monospace; font-size: 12px;">
+                            PID ${p.pid} | ${p.name} | ${p.user}
+                        </div>
+                    `).join('') || '<p style="color: var(--text-secondary);">No elevated processes</p>';
+            }
+        }
+        
+        async function runRootkitScan() {
+            document.getElementById('rootkitStatus').textContent = 'Scanning...';
+            try {
+                const res = await fetch('/api/scan/rootkit', { method: 'POST' });
+                const data = await res.json();
+                document.getElementById('rootkitStatus').textContent = 'Last scan: ' + new Date().toLocaleTimeString();
+                document.getElementById('rootkitList').innerHTML = 
+                    data.findings.length === 0 
+                        ? '<p style="color: var(--success);">✓ No rootkits detected</p>'
+                        : data.findings.map(f => `
+                            <div style="padding: 12px; background: rgba(239,68,68,0.2); margin: 8px 0; border-radius: 8px; border-left: 4px solid #ef4444;">
+                                <strong style="color: #ef4444;">[${f.severity.toUpperCase()}]</strong> ${f.type}<br/>
+                                <span style="color: var(--text-secondary);">${f.message}</span>
+                            </div>
+                        `).join('');
+            } catch (e) {
+                document.getElementById('rootkitStatus').textContent = 'Scan failed: ' + e;
+            }
+        }
+        
+        async function runHiddenScan() {
+            document.getElementById('hiddenStatus').textContent = 'Scanning...';
+            try {
+                const res = await fetch('/api/scan/hidden', { method: 'POST' });
+                const data = await res.json();
+                document.getElementById('hiddenStatus').textContent = 'Last scan: ' + new Date().toLocaleTimeString();
+                document.getElementById('hiddenList').innerHTML = 
+                    data.findings.length === 0 
+                        ? '<p style="color: var(--success);">✓ No suspicious hidden folders</p>'
+                        : data.findings.map(f => `
+                            <div style="padding: 12px; background: rgba(251,191,36,0.2); margin: 8px 0; border-radius: 8px; border-left: 4px solid #fbbf24;">
+                                <strong style="color: #fbbf24;">[${f.severity.toUpperCase()}]</strong> ${f.type}<br/>
+                                <span style="color: var(--text-secondary);">${f.path}</span><br/>
+                                <small style="color: var(--text-secondary);">${f.message}</small>
+                            </div>
+                        `).join('');
+            } catch (e) {
+                document.getElementById('hiddenStatus').textContent = 'Scan failed: ' + e;
+            }
+        }
+        
+        async function runAliasScan() {
+            document.getElementById('aliasStatus').textContent = 'Scanning...';
+            try {
+                const res = await fetch('/api/scan/aliases', { method: 'POST' });
+                const data = await res.json();
+                document.getElementById('aliasStatus').textContent = 'Last scan: ' + new Date().toLocaleTimeString();
+                document.getElementById('aliasList').innerHTML = 
+                    data.findings.length === 0 
+                        ? '<p style="color: var(--success);">✓ No suspicious aliases</p>'
+                        : data.findings.map(f => `
+                            <div style="padding: 12px; background: rgba(239,68,68,0.2); margin: 8px 0; border-radius: 8px; border-left: 4px solid #ef4444;">
+                                <strong style="color: #ef4444;">[${f.severity.toUpperCase()}]</strong><br/>
+                                <code style="background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px;">${f.alias}</code><br/>
+                                <small style="color: var(--text-secondary);">File: ${f.file}</small>
+                            </div>
+                        `).join('');
+            } catch (e) {
+                document.getElementById('aliasStatus').textContent = 'Scan failed: ' + e;
+            }
+        }
+        
+        async function killProcess(pid) {
+            if (confirm('Kill process ' + pid + '?')) {
+                await fetch('/api/kill/' + pid, { method: 'POST' });
+                fetchData();
+            }
         }
         
         async function approveThreat(threatId) {
