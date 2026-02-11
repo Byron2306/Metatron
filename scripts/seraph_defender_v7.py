@@ -1761,9 +1761,13 @@ class TelemetryStore:
             "processes": list(self.processes.values())[:50],
             "network_connections": self.network_connections[:50],
             "auto_kill_enabled": self.auto_kill_enabled,
-            # New advanced monitoring data
+            # Advanced monitoring data
             "file_telemetry": file_indexer.get_file_telemetry(),
-            "admin_info": admin_monitor.get_current_admins()
+            "admin_info": admin_monitor.get_current_admins(),
+            # Network scanning results
+            "network_scans": network_scan_results.to_dict(),
+            # VPN status
+            "vpn_status": wireguard_vpn.get_status()
         }
 
 
