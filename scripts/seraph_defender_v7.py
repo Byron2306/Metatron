@@ -2743,8 +2743,11 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             <div class="tab" data-panel="netscan">📡 Port/Router Scan</div>
             <div class="tab" data-panel="wifi">📶 WiFi Networks</div>
             <div class="tab" data-panel="bluetooth">🔵 Bluetooth</div>
+            <div class="tab" data-panel="usb">🔌 USB Devices</div>
+            <div class="tab" data-panel="sandbox">🧪 Sandbox</div>
             <div class="tab" data-panel="vpn">🔒 VPN</div>
-            <div class="tab" data-panel="processes">📊 Processes</div>
+            <div class="tab" data-panel="siem">📊 SIEM</div>
+            <div class="tab" data-panel="processes">⚙️ Processes</div>
             <div class="tab" data-panel="files">📁 File Index</div>
             <div class="tab" data-panel="admin">👑 Admin Privileges</div>
             <div class="tab" data-panel="rootkit">🔍 Rootkit Scan</div>
