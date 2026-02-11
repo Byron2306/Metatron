@@ -306,10 +306,10 @@ class TestDeploymentSimulation:
     
     def test_get_deployment_status(self):
         """Test getting deployment status"""
-        response = self.session.get(f"{BASE_URL}/api/swarm/deployments")
+        response = self.session.get(f"{BASE_URL}/api/swarm/deployment/status")
         assert response.status_code == 200
         data = response.json()
-        assert "deployments" in data or "tasks" in data or isinstance(data, list)
+        assert "tasks" in data or "deployments" in data or isinstance(data, list)
 
 
 class TestAgentDashboardTabs:
