@@ -539,6 +539,30 @@ async def download_agent(platform: str):
             media_type="application/x-bat",
             filename="install_seraph_windows.bat"
         )
+    elif platform == "browser-extension":
+        # Create zip of browser extension
+        import zipfile
+        import io
+        
+        extension_dir = "/app/scripts/browser_extension"
+        if not os.path.exists(extension_dir):
+            raise HTTPException(status_code=404, detail="Browser extension not found")
+        
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(extension_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arc_name = os.path.relpath(file_path, extension_dir)
+                    zf.write(file_path, arc_name)
+        
+        zip_buffer.seek(0)
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=seraph_browser_shield.zip"}
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
 
