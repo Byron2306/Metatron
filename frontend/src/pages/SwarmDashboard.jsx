@@ -7,7 +7,8 @@ import {
   RefreshCw, Play, AlertTriangle, CheckCircle, XCircle,
   Wifi, WifiOff, Eye, Zap, Activity, Cpu, HardDrive,
   Users, Globe, Lock, Unlock, ChevronRight, Search,
-  Download, Settings, Terminal, Radio
+  Download, Settings, Terminal, Radio, Tag, FolderPlus,
+  Usb, Palette, X, Plus
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -25,11 +26,19 @@ const SwarmDashboard = () => {
   const [telemetry, setTelemetry] = useState([]);
   const [telemetryStats, setTelemetryStats] = useState(null);
   const [deployments, setDeployments] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [allTags, setAllTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [selectedTag, setSelectedTag] = useState(null);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [showTagModal, setShowTagModal] = useState(null);
+  const [newGroup, setNewGroup] = useState({ name: '', description: '', color: '#06b6d4' });
+  const [newTags, setNewTags] = useState('');
 
   const headers = { Authorization: `Bearer ${token}` };
 
