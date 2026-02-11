@@ -3686,9 +3686,9 @@ class SeraphDefenderV7:
                 time.sleep(5)
     
     def _perform_network_scans(self):
-        """Perform periodic network infrastructure scans"""
+        """Perform periodic network infrastructure and USB scans"""
         try:
-            # Scan connected WiFi for threats
+            # ===== WIFI MONITORING =====
             connected_wifi = wifi_scanner.get_connected_network()
             if connected_wifi and not connected_wifi.get('error'):
                 # Check if connected to suspicious network
@@ -3703,26 +3703,60 @@ class SeraphDefenderV7:
                             "message": f"Connected to potentially unsafe WiFi: {connected_wifi.get('ssid')}"
                         }
                     })
+                    # Log to SIEM
+                    siem.log_event("network.suspicious_wifi", "medium", {
+                        "ssid": connected_wifi.get('ssid')
+                    })
             
-            # Check gateway for dangerous open ports
+            # ===== GATEWAY PORT MONITORING =====
             gateway = network_scanner.get_gateway()
             if gateway:
                 # Quick check for dangerous ports on gateway
                 dangerous_ports = [23, 445, 3389, 5900]  # Telnet, SMB, RDP, VNC
                 for port in dangerous_ports:
                     if network_scanner.scan_port(gateway, port, timeout=0.3):
+                        event_data = {
+                            "gateway": gateway,
+                            "port": port,
+                            "service": network_scanner._get_service_name(port),
+                            "message": f"Dangerous port {port} ({network_scanner._get_service_name(port)}) open on gateway"
+                        }
                         telemetry_store.add_event({
                             "event_type": "network.dangerous_port_open",
                             "severity": "high",
-                            "data": {
-                                "gateway": gateway,
-                                "port": port,
-                                "service": network_scanner._get_service_name(port),
-                                "message": f"Dangerous port {port} ({network_scanner._get_service_name(port)}) open on gateway"
-                            }
+                            "data": event_data
                         })
+                        # Log to SIEM
+                        siem.log_event("network.dangerous_port", "high", event_data)
+            
+            # ===== USB MONITORING =====
+            # Check for newly connected USB devices
+            new_usb_devices = usb_scanner.monitor_new_devices()
+            for device in new_usb_devices:
+                logger.info(f"🔌 New USB device: {device.get('name', 'Unknown')}")
+                siem.log_event("usb.new_device", "medium", {
+                    "device_id": device.get('id'),
+                    "device_name": device.get('name'),
+                    "path": device.get('path')
+                })
+                
+                # Check if threats were found
+                scan_result = device.get('scan_result', {})
+                if scan_result.get('threats'):
+                    for threat_info in scan_result['threats']:
+                        siem.log_event("usb.threat_detected", threat_info['severity'], {
+                            "device": device.get('name'),
+                            "threat_type": threat_info['type'],
+                            "path": threat_info['path']
+                        })
+            
+            # ===== SIEM BUFFER FLUSH =====
+            # Periodically flush SIEM buffer
+            if siem.enabled and siem.buffer:
+                siem._flush_buffer()
+                
         except Exception as e:
-            logger.debug(f"Network scan error: {e}")
+            logger.debug(f"Network/USB scan error: {e}")
     
     def _scan_network(self):
         """Enhanced network connection scanning with traffic analysis"""
