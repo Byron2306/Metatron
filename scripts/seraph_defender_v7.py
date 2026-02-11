@@ -697,16 +697,20 @@ class TelemetryStore:
                 "version": VERSION,
                 "uptime": int(time.time() - psutil.boot_time()) if psutil else 0,
                 "cpu_percent": psutil.cpu_percent() if psutil else 0,
-                "memory_percent": psutil.virtual_memory().percent if psutil else 0
+                "memory_percent": psutil.virtual_memory().percent if psutil else 0,
+                "disk_percent": psutil.disk_usage('/').percent if psutil else 0
             },
             "stats": self.stats,
             "events": list(self.events)[-100:],
             "threats": [t.to_dict() for t in self.threats][-50:],
             "pending_approvals": [t.to_dict() for t in self.pending_approvals.values()],
+            "auto_remediated": [t.to_dict() for t in self.auto_remediated][-20:],
+            "alarms": list(self.alarms)[-20:],
             "cli_commands": list(self.cli_commands)[-100:],
             "aatl_assessments": list(self.aatl_assessments)[-20:],
             "processes": list(self.processes.values())[:50],
-            "network_connections": self.network_connections[:50]
+            "network_connections": self.network_connections[:50],
+            "auto_kill_enabled": self.auto_kill_enabled
         }
 
 
