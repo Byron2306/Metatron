@@ -1431,7 +1431,26 @@ class SeraphDefenderV7:
         telemetry_store.stats["processes_monitored"] = len(processes)
     
     def _process_approved_remediations(self):
-        """Process any approved remediations"""
+        """Process any approved remediations including auto-remediated threats"""
+        # Process auto-remediated threats (critical - auto-kill)
+        for threat in list(telemetry_store.auto_remediated):
+            if threat.status == "auto_remediated" and not getattr(threat, 'executed', False):
+                success, msg = remediation_engine.execute(threat)
+                threat.executed = True
+                if success:
+                    threat.status = "resolved"
+                    telemetry_store.stats["threats_blocked"] += 1
+                    telemetry_store.stats["threats_auto_killed"] += 1
+                    logger.warning(f"🛡️ AUTO-KILL SUCCESS: {threat.title} - {msg}")
+                    
+                    # Send alert to server
+                    self._send_server_alert(threat, "AUTO_KILL_SUCCESS", msg)
+                else:
+                    threat.status = "auto_kill_failed"
+                    logger.error(f"❌ AUTO-KILL FAILED: {threat.title} - {msg}")
+                    self._send_server_alert(threat, "AUTO_KILL_FAILED", msg)
+        
+        # Process manually approved remediations
         for threat_id, threat in list(telemetry_store.pending_approvals.items()):
             if threat.user_approved:
                 success, msg = remediation_engine.execute(threat)
@@ -1441,6 +1460,37 @@ class SeraphDefenderV7:
                 del telemetry_store.pending_approvals[threat_id]
                 telemetry_store.stats["threats_pending"] -= 1
                 logger.info(f"Remediation: {msg}")
+                
+                # Send alert to server
+                self._send_server_alert(threat, "MANUAL_REMEDIATION", msg)
+    
+    def _send_server_alert(self, threat: Threat, alert_type: str, message: str):
+        """Send critical alert to server"""
+        if not self.api_url:
+            return
+        
+        try:
+            alert_data = {
+                "agent_id": AGENT_ID,
+                "host_id": HOSTNAME,
+                "alert_type": alert_type,
+                "severity": threat.severity.value,
+                "threat_id": threat.id,
+                "threat_title": threat.title,
+                "threat_type": threat.type,
+                "message": message,
+                "evidence": threat.evidence,
+                "remediation_action": threat.remediation_action,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            requests.post(
+                f"{self.api_url}/api/swarm/alerts/critical",
+                json=alert_data,
+                timeout=5
+            )
+        except Exception as e:
+            logger.debug(f"Failed to send server alert: {e}")
     
     def _process_server_commands(self):
         """Process commands from server"""
