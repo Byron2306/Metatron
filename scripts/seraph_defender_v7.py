@@ -1870,6 +1870,42 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"success": success, "message": msg}).encode())
         
+        elif self.path == '/api/scan/rootkit':
+            findings = rootkit_detector.scan()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"findings": findings}).encode())
+        
+        elif self.path == '/api/scan/hidden':
+            findings = hidden_folder_detector.scan()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"findings": findings}).encode())
+        
+        elif self.path == '/api/scan/aliases':
+            findings = alias_detector.scan()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"findings": findings}).encode())
+        
+        elif self.path.startswith('/api/kill/'):
+            pid = int(self.path.split('/')[-1])
+            try:
+                proc = psutil.Process(pid)
+                proc.terminate()
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "message": f"Process {pid} terminated"}).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "message": str(e)}).encode())
+        
         else:
             self.send_response(404)
             self.end_headers()
