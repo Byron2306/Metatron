@@ -566,27 +566,68 @@ class TelemetryStore:
         self.pending_approvals = {}  # Threats awaiting user approval
         self.aatl_assessments = deque(maxlen=100)
         self.cli_sessions = {}
+        self.auto_remediated = deque(maxlen=100)  # Auto-killed threats
+        self.alarms = deque(maxlen=50)  # Active alarms
         
         self.stats = {
             "events_total": 0,
             "threats_detected": 0,
             "threats_blocked": 0,
             "threats_pending": 0,
+            "threats_auto_killed": 0,
             "ai_sessions_detected": 0,
             "connections_monitored": 0,
-            "processes_monitored": 0
+            "processes_monitored": 0,
+            "bytes_sent": 0,
+            "bytes_recv": 0
         }
+        
+        # Auto-kill configuration
+        self.auto_kill_enabled = True
+        self.auto_kill_severities = {ThreatSeverity.CRITICAL}  # Auto-kill CRITICAL threats
+        
+        # Critical threat patterns that trigger auto-kill
+        self.critical_patterns = [
+            'mimikatz', 'lazagne', 'credential', 'lsass', 'sekurlsa',  # Credential theft
+            'ransomware', 'cryptolocker', 'wannacry', 'petya',  # Ransomware
+            'wiper', 'format', 'del /f /s /q', 'rm -rf',  # Destructive
+            'reverse shell', 'meterpreter', 'beacon', 'cobalt',  # C2/RAT
+        ]
     
-    def add_threat(self, threat: Threat):
-        """Add a detected threat"""
+    def add_threat(self, threat: Threat, auto_remediate: bool = True):
+        """Add a detected threat with optional auto-remediation"""
         self.threats.append(threat)
         self.stats["threats_detected"] += 1
         
-        if threat.remediation_available:
+        # Check if auto-kill should be triggered
+        should_auto_kill = False
+        if self.auto_kill_enabled and threat.remediation_available:
+            # Auto-kill for CRITICAL severity
+            if threat.severity in self.auto_kill_severities:
+                should_auto_kill = True
+            
+            # Auto-kill for critical patterns
+            threat_text = f"{threat.title} {threat.description}".lower()
+            for pattern in self.critical_patterns:
+                if pattern in threat_text:
+                    should_auto_kill = True
+                    break
+        
+        if should_auto_kill and auto_remediate:
+            # Trigger alarm
+            self.trigger_alarm(threat, "AUTO_KILL_TRIGGERED")
+            threat.status = "auto_remediated"
+            threat.user_approved = True
+            self.auto_remediated.append(threat)
+        elif threat.remediation_available:
             self.pending_approvals[threat.id] = threat
             self.stats["threats_pending"] += 1
+            
+            # Trigger alarm for high severity
+            if threat.severity in {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH}:
+                self.trigger_alarm(threat, "MANUAL_APPROVAL_REQUIRED")
         
-        # Add as event too
+        # Add as event
         self.add_event({
             "event_type": f"threat.{threat.type}",
             "severity": threat.severity.value,
@@ -594,9 +635,26 @@ class TelemetryStore:
                 "threat_id": threat.id,
                 "title": threat.title,
                 "description": threat.description,
-                "remediation_available": threat.remediation_available
+                "remediation_available": threat.remediation_available,
+                "auto_kill_triggered": should_auto_kill
             }
         })
+        
+        return should_auto_kill
+    
+    def trigger_alarm(self, threat: Threat, alarm_type: str):
+        """Trigger an alarm for critical threats"""
+        alarm = {
+            "id": f"alarm-{uuid.uuid4().hex[:8]}",
+            "type": alarm_type,
+            "threat_id": threat.id,
+            "threat_title": threat.title,
+            "severity": threat.severity.value,
+            "timestamp": datetime.now().isoformat(),
+            "acknowledged": False
+        }
+        self.alarms.append(alarm)
+        logger.warning(f"🚨 ALARM: {alarm_type} - {threat.title}")
     
     def add_event(self, event: dict):
         """Add a telemetry event"""
