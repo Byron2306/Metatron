@@ -1680,37 +1680,59 @@ class TelemetryStore:
         }
     
     def add_threat(self, threat: Threat, auto_remediate: bool = True):
-        """Add a detected threat with optional auto-remediation"""
+        """Add a detected threat with AGGRESSIVE auto-remediation"""
         self.threats.append(threat)
         self.stats["threats_detected"] += 1
         
-        # Check if auto-kill should be triggered
+        # AGGRESSIVE AUTO-KILL LOGIC
+        # Don't wait for humans - kill threats immediately
         should_auto_kill = False
+        kill_reason = None
+        
         if self.auto_kill_enabled and threat.remediation_available:
-            # Auto-kill for CRITICAL severity
+            # 1. Auto-kill for CRITICAL and HIGH severity
             if threat.severity in self.auto_kill_severities:
                 should_auto_kill = True
+                kill_reason = f"SEVERITY_{threat.severity.value.upper()}"
             
-            # Auto-kill for critical patterns
-            threat_text = f"{threat.title} {threat.description}".lower()
+            # 2. Auto-kill for any pattern match (even MEDIUM/LOW)
+            threat_text = f"{threat.title} {threat.description} {threat.remediation_command or ''}".lower()
             for pattern in self.critical_patterns:
                 if pattern in threat_text:
                     should_auto_kill = True
+                    kill_reason = f"PATTERN_MATCH_{pattern.upper()}"
                     break
+            
+            # 3. Check if process name is in instant-kill list
+            if hasattr(threat, 'process_name') and threat.process_name:
+                if threat.process_name.lower() in self.instant_kill_processes:
+                    should_auto_kill = True
+                    kill_reason = f"INSTANT_KILL_PROCESS_{threat.process_name}"
+            
+            # 4. Auto-kill medium threats if they match high-risk categories
+            if self.auto_kill_medium and threat.severity == ThreatSeverity.MEDIUM:
+                high_risk_types = ['credential', 'exfiltration', 'ransomware', 'backdoor', 
+                                   'rat', 'c2', 'injection', 'rootkit', 'miner']
+                if any(rt in threat.type.lower() for rt in high_risk_types):
+                    should_auto_kill = True
+                    kill_reason = f"HIGH_RISK_MEDIUM_{threat.type}"
         
         if should_auto_kill and auto_remediate:
-            # Trigger alarm
-            self.trigger_alarm(threat, "AUTO_KILL_TRIGGERED")
+            # IMMEDIATE KILL - Don't wait!
+            self.trigger_alarm(threat, f"AUTO_KILL_TRIGGERED:{kill_reason}")
             threat.status = "auto_remediated"
             threat.user_approved = True
+            threat.kill_reason = kill_reason
             self.auto_remediated.append(threat)
+            logger.warning(f"🔪 AUTO-KILL TRIGGERED: {threat.title} | Reason: {kill_reason}")
         elif threat.remediation_available:
+            # Only queue for approval if LOW severity and no pattern match
             self.pending_approvals[threat.id] = threat
             self.stats["threats_pending"] += 1
             
-            # Trigger alarm for high severity
-            if threat.severity in {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH}:
-                self.trigger_alarm(threat, "MANUAL_APPROVAL_REQUIRED")
+            # Still trigger alarm for awareness
+            if threat.severity in {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH, ThreatSeverity.MEDIUM}:
+                self.trigger_alarm(threat, "QUEUED_FOR_APPROVAL")
         
         # Add as event
         self.add_event({
@@ -1721,7 +1743,8 @@ class TelemetryStore:
                 "title": threat.title,
                 "description": threat.description,
                 "remediation_available": threat.remediation_available,
-                "auto_kill_triggered": should_auto_kill
+                "auto_kill_triggered": should_auto_kill,
+                "kill_reason": kill_reason
             }
         })
         
