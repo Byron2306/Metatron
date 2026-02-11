@@ -2485,6 +2485,157 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"success": False, "message": str(e)}).encode())
         
+        # === NETWORK SCANNING ENDPOINTS ===
+        elif self.path == '/api/scan/ports':
+            # Scan router/gateway for open ports
+            try:
+                network_scan_results.scan_in_progress = True
+                result = network_scanner.scan_router()
+                network_scan_results.router_scan_result = result
+                network_scan_results.last_router_scan = datetime.now().isoformat()
+                network_scan_results.scan_in_progress = False
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "result": result}).encode())
+            except Exception as e:
+                network_scan_results.scan_in_progress = False
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+        
+        elif self.path == '/api/scan/wifi':
+            # Scan WiFi networks
+            try:
+                network_scan_results.scan_in_progress = True
+                wifi_scanner.known_networks.clear()  # Reset for fresh scan
+                results = wifi_scanner.scan_networks()
+                connected = wifi_scanner.get_connected_network()
+                network_scan_results.wifi_scan_results = results
+                network_scan_results.last_wifi_scan = datetime.now().isoformat()
+                network_scan_results.scan_in_progress = False
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True, 
+                    "networks": results,
+                    "connected": connected,
+                    "count": len(results)
+                }).encode())
+            except Exception as e:
+                network_scan_results.scan_in_progress = False
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+        
+        elif self.path == '/api/scan/bluetooth':
+            # Scan Bluetooth devices
+            try:
+                network_scan_results.scan_in_progress = True
+                results = bluetooth_scanner.scan_devices()
+                network_scan_results.bluetooth_scan_results = results
+                network_scan_results.last_bluetooth_scan = datetime.now().isoformat()
+                network_scan_results.scan_in_progress = False
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True, 
+                    "devices": results,
+                    "count": len(results)
+                }).encode())
+            except Exception as e:
+                network_scan_results.scan_in_progress = False
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+        
+        elif self.path == '/api/scan/network':
+            # Full local network scan
+            try:
+                network_scan_results.scan_in_progress = True
+                hosts = network_scanner.scan_local_network()
+                network_scan_results.local_network_hosts = hosts
+                network_scan_results.last_network_scan = datetime.now().isoformat()
+                network_scan_results.scan_in_progress = False
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "hosts": hosts,
+                    "count": len(hosts)
+                }).encode())
+            except Exception as e:
+                network_scan_results.scan_in_progress = False
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+        
+        elif self.path.startswith('/api/scan/host/'):
+            # Scan specific host
+            target_ip = self.path.split('/')[-1]
+            try:
+                result = network_scanner.scan_host(target_ip)
+                network_scan_results.port_scan_results[target_ip] = result
+                network_scan_results.last_port_scan = datetime.now().isoformat()
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "result": result}).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+        
+        # === VPN ENDPOINTS ===
+        elif self.path == '/api/vpn/status':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(wireguard_vpn.get_status()).encode())
+        
+        elif self.path == '/api/vpn/connect':
+            result = wireguard_vpn.connect()
+            self.send_response(200 if result.get("success") else 500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode())
+        
+        elif self.path == '/api/vpn/disconnect':
+            result = wireguard_vpn.disconnect()
+            self.send_response(200 if result.get("success") else 500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode())
+        
+        elif self.path == '/api/vpn/configure':
+            # Read POST body for VPN config
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length).decode()
+            try:
+                config = json.loads(post_data)
+                result = wireguard_vpn.auto_configure(
+                    server_endpoint=config.get('server_endpoint'),
+                    server_public_key=config.get('server_public_key'),
+                    allowed_ips=config.get('allowed_ips', '10.200.200.0/24')
+                )
+                self.send_response(200 if result.get("success") else 500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+        
         else:
             self.send_response(404)
             self.end_headers()
