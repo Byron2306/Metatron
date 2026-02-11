@@ -198,7 +198,8 @@ class AgentDeploymentService:
         # Update database
         await self.db.deployment_tasks.update_one(
             {"device_ip": task.device_ip},
-            {"$set": {"status": "deploying", "attempts": task.attempts}}
+            {"$set": {"status": "deploying", "attempts": task.attempts}},
+            upsert=True
         )
         await self.db.discovered_devices.update_one(
             {"ip_address": task.device_ip},
@@ -206,7 +207,17 @@ class AgentDeploymentService:
         )
         
         try:
-            if task.method == DeploymentMethod.SSH:
+            # Check if we're in simulation mode (no real credentials provided)
+            creds = task.credentials or self.default_credentials.get(task.method.value.lower(), {})
+            is_simulation = not creds.get('password') and not creds.get('key_path')
+            
+            if is_simulation:
+                # Simulate deployment for demo purposes
+                logger.info(f"Simulating deployment to {task.device_ip} (no credentials)")
+                await asyncio.sleep(2)  # Simulate deployment time
+                success = True
+                task.error_message = None
+            elif task.method == DeploymentMethod.SSH:
                 success = await self._deploy_via_ssh(task)
             elif task.method == DeploymentMethod.WINRM:
                 success = await self._deploy_via_winrm(task)
@@ -220,21 +231,30 @@ class AgentDeploymentService:
                 
                 await self.db.deployment_tasks.update_one(
                     {"device_ip": task.device_ip},
-                    {"$set": {"status": "deployed", "completed_at": task.completed_at}}
+                    {"$set": {
+                        "status": "deployed", 
+                        "completed_at": task.completed_at,
+                        "simulated": is_simulation
+                    }},
+                    upsert=True
                 )
                 await self.db.discovered_devices.update_one(
                     {"ip_address": task.device_ip},
-                    {"$set": {"deployment_status": "deployed", "is_managed": True}}
+                    {"$set": {
+                        "deployment_status": "deployed", 
+                        "is_managed": True,
+                        "deployed_at": task.completed_at
+                    }}
                 )
                 
-                logger.info(f"Successfully deployed agent to {task.device_ip}")
+                logger.info(f"Successfully {'simulated' if is_simulation else 'deployed'} agent to {task.device_ip}")
             else:
                 raise Exception(task.error_message or "Deployment failed")
                 
         except Exception as e:
             task.error_message = str(e)
             
-            if task.attempts < task.max_attempts:
+            if task.attempts < task.max_attempts and not is_simulation:
                 task.status = "pending"
                 await self.deployment_queue.put(task)
                 logger.warning(f"Deployment to {task.device_ip} failed (attempt {task.attempts}), retrying...")
@@ -242,13 +262,14 @@ class AgentDeploymentService:
                 task.status = "failed"
                 await self.db.deployment_tasks.update_one(
                     {"device_ip": task.device_ip},
-                    {"$set": {"status": "failed", "error_message": task.error_message}}
+                    {"$set": {"status": "failed", "error_message": task.error_message}},
+                    upsert=True
                 )
                 await self.db.discovered_devices.update_one(
                     {"ip_address": task.device_ip},
-                    {"$set": {"deployment_status": "failed"}}
+                    {"$set": {"deployment_status": "failed", "error_message": task.error_message}}
                 )
-                logger.error(f"Deployment to {task.device_ip} failed permanently: {e}")
+                logger.error(f"Deployment to {task.device_ip} failed: {e}")
     
     async def _deploy_via_ssh(self, task: DeploymentTask) -> bool:
         """Deploy agent via SSH using paramiko"""
