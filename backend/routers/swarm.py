@@ -568,6 +568,105 @@ async def download_agent(platform: str):
 
 
 # =============================================================================
+# WIREGUARD VPN AUTO-CONFIGURATION FOR AGENTS
+# =============================================================================
+
+class VPNConfigRequest(BaseModel):
+    agent_id: str
+    agent_public_key: Optional[str] = None
+
+
+@router.get("/vpn/server-config")
+async def get_vpn_server_config():
+    """
+    Get VPN server configuration for agents.
+    Returns server public key and endpoint for split-tunnel VPN setup.
+    Agents only route Seraph network traffic - does NOT block internet.
+    """
+    import os
+    
+    # Read server public key if available
+    server_public_key = os.environ.get('WIREGUARD_PUBLIC_KEY', '')
+    server_endpoint = os.environ.get('WIREGUARD_ENDPOINT', '')
+    
+    # Try to read from WireGuard config if not in env
+    if not server_public_key:
+        try:
+            wg_pubkey_path = '/etc/wireguard/publickey'
+            if os.path.exists(wg_pubkey_path):
+                with open(wg_pubkey_path, 'r') as f:
+                    server_public_key = f.read().strip()
+        except:
+            pass
+    
+    # If still no config, provide placeholder
+    if not server_public_key:
+        return {
+            "configured": False,
+            "message": "VPN server not configured. Contact administrator.",
+            "split_tunnel": True,
+            "allowed_ips": "10.200.200.0/24",
+            "note": "Split tunnel mode - normal internet NOT affected"
+        }
+    
+    return {
+        "configured": True,
+        "server_public_key": server_public_key,
+        "server_endpoint": server_endpoint or "your-server:51820",
+        "allowed_ips": "10.200.200.0/24",
+        "dns": None,  # No DNS change = split tunnel
+        "split_tunnel": True,
+        "note": "Split tunnel mode - only Seraph traffic routed through VPN"
+    }
+
+
+@router.post("/vpn/register-agent")
+async def register_vpn_agent(request: VPNConfigRequest):
+    """
+    Register an agent for VPN access.
+    Agent provides its public key, server assigns an IP.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Assign IP based on agent_id hash
+    import hashlib
+    agent_hash = int(hashlib.md5(request.agent_id.encode()).hexdigest()[:8], 16)
+    client_num = (agent_hash % 200) + 10  # Range: 10-209
+    assigned_ip = f"10.200.200.{client_num}/32"
+    
+    # Store agent VPN registration
+    vpn_doc = {
+        "agent_id": request.agent_id,
+        "agent_public_key": request.agent_public_key,
+        "assigned_ip": assigned_ip,
+        "registered_at": now,
+        "last_seen": now,
+        "status": "registered"
+    }
+    
+    await db.vpn_agents.update_one(
+        {"agent_id": request.agent_id},
+        {"$set": vpn_doc},
+        upsert=True
+    )
+    
+    return {
+        "status": "registered",
+        "agent_id": request.agent_id,
+        "assigned_ip": assigned_ip,
+        "message": "VPN registration successful. Configure WireGuard with the provided IP."
+    }
+
+
+@router.get("/vpn/agents")
+async def list_vpn_agents(current_user: dict = Depends(get_current_user)):
+    """List all registered VPN agents"""
+    cursor = db.vpn_agents.find({}, {"_id": 0})
+    agents = await cursor.to_list(100)
+    return {"agents": agents, "count": len(agents)}
+
+
+# =============================================================================
 # AGENT DEPLOYMENT
 # =============================================================================
 
