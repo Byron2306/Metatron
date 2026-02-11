@@ -1481,6 +1481,633 @@ class NetworkScanResults:
 network_scan_results = NetworkScanResults()
 
 
+# =============================================================================
+# SIEM INTEGRATION (Elasticsearch / Splunk / Syslog)
+# =============================================================================
+
+class SIEMIntegration:
+    """Full SIEM integration for enterprise logging"""
+    
+    def __init__(self):
+        self.elasticsearch_url = os.environ.get('ELASTICSEARCH_URL', '')
+        self.elasticsearch_index = os.environ.get('SIEM_INDEX', 'seraph-security')
+        self.splunk_hec_url = os.environ.get('SPLUNK_HEC_URL', '')
+        self.splunk_hec_token = os.environ.get('SPLUNK_HEC_TOKEN', '')
+        self.syslog_server = os.environ.get('SYSLOG_SERVER', '')
+        self.syslog_port = int(os.environ.get('SYSLOG_PORT', '514'))
+        self.enabled = False
+        self.buffer = deque(maxlen=1000)
+        self.last_flush = time.time()
+        self.flush_interval = 5  # seconds
+        
+        # Auto-detect available SIEM
+        if self.elasticsearch_url:
+            self.enabled = True
+            self.siem_type = 'elasticsearch'
+            logger.info(f"SIEM: Elasticsearch enabled at {self.elasticsearch_url}")
+        elif self.splunk_hec_url:
+            self.enabled = True
+            self.siem_type = 'splunk'
+            logger.info(f"SIEM: Splunk HEC enabled at {self.splunk_hec_url}")
+        elif self.syslog_server:
+            self.enabled = True
+            self.siem_type = 'syslog'
+            logger.info(f"SIEM: Syslog enabled at {self.syslog_server}:{self.syslog_port}")
+    
+    def log_event(self, event_type: str, severity: str, data: dict, immediate: bool = False):
+        """Log a security event to SIEM"""
+        event = {
+            "@timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_id": AGENT_ID,
+            "hostname": HOSTNAME,
+            "os": OS_TYPE,
+            "event_type": event_type,
+            "severity": severity,
+            "data": data,
+            "source": "seraph_defender"
+        }
+        
+        if immediate or severity in ['critical', 'high']:
+            # Send immediately for high-priority events
+            self._send_event(event)
+        else:
+            # Buffer for batch sending
+            self.buffer.append(event)
+            if time.time() - self.last_flush >= self.flush_interval:
+                self._flush_buffer()
+    
+    def log_threat(self, threat: 'Threat', action: str = "detected"):
+        """Log a threat detection/remediation to SIEM"""
+        self.log_event(
+            event_type=f"threat.{action}",
+            severity=threat.severity.value,
+            data={
+                "threat_id": threat.id,
+                "threat_type": threat.type,
+                "title": threat.title,
+                "description": threat.description,
+                "remediation_action": threat.remediation_action,
+                "status": threat.status,
+                "auto_kill": getattr(threat, 'kill_reason', None)
+            },
+            immediate=threat.severity in {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH}
+        )
+    
+    def log_auto_kill(self, threat: 'Threat', success: bool, details: str):
+        """Log an auto-kill action to SIEM"""
+        self.log_event(
+            event_type="auto_kill.executed",
+            severity="critical",
+            data={
+                "threat_id": threat.id,
+                "threat_title": threat.title,
+                "kill_reason": getattr(threat, 'kill_reason', 'unknown'),
+                "success": success,
+                "details": details,
+                "remediation_command": threat.remediation_command
+            },
+            immediate=True
+        )
+    
+    def log_network_scan(self, scan_type: str, results: dict):
+        """Log network scan results to SIEM"""
+        self.log_event(
+            event_type=f"network_scan.{scan_type}",
+            severity="info",
+            data=results,
+            immediate=False
+        )
+    
+    def _send_event(self, event: dict):
+        """Send event to configured SIEM"""
+        if not self.enabled:
+            return
+        
+        try:
+            if self.siem_type == 'elasticsearch':
+                self._send_to_elasticsearch(event)
+            elif self.siem_type == 'splunk':
+                self._send_to_splunk(event)
+            elif self.siem_type == 'syslog':
+                self._send_to_syslog(event)
+        except Exception as e:
+            logger.debug(f"SIEM send error: {e}")
+    
+    def _send_to_elasticsearch(self, event: dict):
+        """Send to Elasticsearch"""
+        import urllib.request
+        url = f"{self.elasticsearch_url}/{self.elasticsearch_index}/_doc"
+        data = json.dumps(event).encode()
+        req = urllib.request.Request(
+            url, data=data,
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        urllib.request.urlopen(req, timeout=5)
+    
+    def _send_to_splunk(self, event: dict):
+        """Send to Splunk HEC"""
+        import urllib.request
+        data = json.dumps({"event": event}).encode()
+        req = urllib.request.Request(
+            self.splunk_hec_url, data=data,
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Splunk {self.splunk_hec_token}'
+            },
+            method='POST'
+        )
+        urllib.request.urlopen(req, timeout=5)
+    
+    def _send_to_syslog(self, event: dict):
+        """Send to Syslog server"""
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Format as CEF (Common Event Format)
+        severity_map = {'critical': 10, 'high': 7, 'medium': 5, 'low': 3, 'info': 1}
+        sev = severity_map.get(event.get('severity', 'info'), 1)
+        msg = f"CEF:0|Seraph|Defender|7.0|{event['event_type']}|{event.get('data', {}).get('title', 'Security Event')}|{sev}|src={HOSTNAME} suser={AGENT_ID}"
+        sock.sendto(msg.encode(), (self.syslog_server, self.syslog_port))
+        sock.close()
+    
+    def _flush_buffer(self):
+        """Flush buffered events to SIEM"""
+        while self.buffer:
+            event = self.buffer.popleft()
+            self._send_event(event)
+        self.last_flush = time.time()
+
+
+# Initialize SIEM
+siem = SIEMIntegration()
+
+
+# =============================================================================
+# USB SCANNER & MONITORING
+# =============================================================================
+
+class USBScanner:
+    """USB device monitoring and auto-scan"""
+    
+    def __init__(self):
+        self.known_devices = set()
+        self.scan_results = []
+        self.last_scan = None
+        self.auto_scan_enabled = True
+        
+        # Dangerous file patterns on USB
+        self.dangerous_patterns = [
+            # Autorun
+            'autorun.inf', 'autorun.bat', 'autorun.cmd',
+            # BadUSB / Rubber Ducky
+            'payload.txt', 'inject.bin', 'ducky.txt', 'hak5.txt',
+            # Executables
+            '*.exe', '*.bat', '*.cmd', '*.ps1', '*.vbs', '*.js', '*.jse',
+            '*.wsf', '*.wsh', '*.msi', '*.scr', '*.pif', '*.com',
+            # Scripts
+            '*.sh', '*.bash', '*.py', '*.pl', '*.rb',
+            # Office macros
+            '*.docm', '*.xlsm', '*.pptm', '*.dotm', '*.xltm',
+            # Shortcuts/Links (LNK attacks)
+            '*.lnk', '*.url',
+        ]
+    
+    def get_usb_devices(self) -> List[dict]:
+        """Get list of connected USB devices"""
+        devices = []
+        
+        if OS_TYPE == 'windows':
+            try:
+                # Use WMIC to get USB drives
+                result = subprocess.run(
+                    ['wmic', 'logicaldisk', 'where', 'drivetype=2', 'get', 
+                     'deviceid,volumename,size,freespace', '/format:list'],
+                    capture_output=True, text=True, timeout=10
+                )
+                current = {}
+                for line in result.stdout.split('\n'):
+                    line = line.strip()
+                    if '=' in line:
+                        key, val = line.split('=', 1)
+                        current[key.lower()] = val
+                    elif current:
+                        if current.get('deviceid'):
+                            devices.append({
+                                'id': current.get('deviceid'),
+                                'name': current.get('volumename', 'Unknown'),
+                                'path': current.get('deviceid') + '\\',
+                                'size': current.get('size', 'Unknown'),
+                                'type': 'removable'
+                            })
+                        current = {}
+            except Exception as e:
+                logger.debug(f"USB scan error: {e}")
+        else:
+            # Linux: Check /media and /mnt
+            for mount_base in ['/media', '/mnt', f'/run/media/{os.getenv("USER", "")}']:
+                if os.path.exists(mount_base):
+                    try:
+                        for item in os.listdir(mount_base):
+                            path = os.path.join(mount_base, item)
+                            if os.path.ismount(path):
+                                devices.append({
+                                    'id': item,
+                                    'name': item,
+                                    'path': path,
+                                    'type': 'removable'
+                                })
+                    except:
+                        pass
+            
+            # Also check lsblk for removable devices
+            try:
+                result = subprocess.run(
+                    ['lsblk', '-J', '-o', 'NAME,SIZE,TYPE,MOUNTPOINT,RM'],
+                    capture_output=True, text=True, timeout=10
+                )
+                data = json.loads(result.stdout)
+                for dev in data.get('blockdevices', []):
+                    if dev.get('rm') == '1' and dev.get('mountpoint'):  # Removable
+                        devices.append({
+                            'id': dev['name'],
+                            'name': dev['name'],
+                            'path': dev['mountpoint'],
+                            'size': dev.get('size', 'Unknown'),
+                            'type': 'removable'
+                        })
+            except:
+                pass
+        
+        return devices
+    
+    def scan_usb(self, device_path: str) -> dict:
+        """Scan a USB device for threats"""
+        result = {
+            'path': device_path,
+            'scanned_at': datetime.now().isoformat(),
+            'total_files': 0,
+            'threats': [],
+            'suspicious_files': [],
+            'dangerous_files': []
+        }
+        
+        if not os.path.exists(device_path):
+            result['error'] = 'Device not found'
+            return result
+        
+        try:
+            for root, dirs, files in os.walk(device_path):
+                for fname in files:
+                    result['total_files'] += 1
+                    fpath = os.path.join(root, fname)
+                    fname_lower = fname.lower()
+                    
+                    # Check for autorun (CRITICAL)
+                    if fname_lower == 'autorun.inf':
+                        result['threats'].append({
+                            'type': 'autorun',
+                            'severity': 'critical',
+                            'path': fpath,
+                            'message': 'Autorun file detected - potential malware vector'
+                        })
+                    
+                    # Check for dangerous file types
+                    for pattern in self.dangerous_patterns:
+                        if pattern.startswith('*'):
+                            if fname_lower.endswith(pattern[1:]):
+                                # Check if it's an executable in root (suspicious)
+                                if root == device_path:
+                                    result['dangerous_files'].append({
+                                        'path': fpath,
+                                        'type': pattern[2:],
+                                        'message': f'Executable in USB root: {fname}'
+                                    })
+                                else:
+                                    result['suspicious_files'].append({
+                                        'path': fpath,
+                                        'type': pattern[2:]
+                                    })
+                        elif fname_lower == pattern:
+                            result['threats'].append({
+                                'type': 'badusb',
+                                'severity': 'high',
+                                'path': fpath,
+                                'message': f'Potential BadUSB/Rubber Ducky file: {fname}'
+                            })
+                    
+                    # Check for hidden executables
+                    if fname_lower.endswith(('.exe', '.bat', '.ps1', '.vbs')):
+                        try:
+                            if OS_TYPE == 'windows':
+                                attrs = ctypes.windll.kernel32.GetFileAttributesW(fpath)
+                                if attrs != -1 and (attrs & 2):  # Hidden
+                                    result['threats'].append({
+                                        'type': 'hidden_executable',
+                                        'severity': 'high',
+                                        'path': fpath,
+                                        'message': f'Hidden executable: {fname}'
+                                    })
+                            else:
+                                if fname.startswith('.'):
+                                    result['threats'].append({
+                                        'type': 'hidden_executable',
+                                        'severity': 'high',
+                                        'path': fpath,
+                                        'message': f'Hidden executable: {fname}'
+                                    })
+                        except:
+                            pass
+                
+                # Limit scan depth
+                if root.count(os.sep) - device_path.count(os.sep) > 5:
+                    break
+        except PermissionError:
+            result['error'] = 'Permission denied'
+        except Exception as e:
+            result['error'] = str(e)
+        
+        self.scan_results.append(result)
+        self.last_scan = datetime.now().isoformat()
+        
+        # Log to SIEM
+        if siem.enabled:
+            siem.log_event(
+                event_type="usb_scan.completed",
+                severity="high" if result['threats'] else "info",
+                data={
+                    'device_path': device_path,
+                    'threats_found': len(result['threats']),
+                    'dangerous_files': len(result['dangerous_files'])
+                },
+                immediate=len(result['threats']) > 0
+            )
+        
+        return result
+    
+    def monitor_new_devices(self) -> List[dict]:
+        """Check for newly connected USB devices"""
+        new_devices = []
+        current_devices = self.get_usb_devices()
+        
+        for device in current_devices:
+            device_id = device.get('id', '')
+            if device_id and device_id not in self.known_devices:
+                self.known_devices.add(device_id)
+                new_devices.append(device)
+                
+                # Auto-scan new device
+                if self.auto_scan_enabled:
+                    logger.info(f"🔌 New USB detected: {device['name']} - Auto-scanning...")
+                    scan_result = self.scan_usb(device['path'])
+                    device['scan_result'] = scan_result
+                    
+                    # Create threats for dangerous findings
+                    for threat_info in scan_result.get('threats', []):
+                        threat = Threat(
+                            id=f"usb-{uuid.uuid4().hex[:8]}",
+                            type="usb_threat",
+                            title=f"USB Threat: {threat_info['type']}",
+                            description=threat_info['message'],
+                            severity=ThreatSeverity.CRITICAL if threat_info['severity'] == 'critical' else ThreatSeverity.HIGH,
+                            source=device['path'],
+                            remediation_available=True,
+                            remediation_action="quarantine_file",
+                            remediation_command=f"Quarantine: {threat_info['path']}",
+                            remediation_params={"file_path": threat_info['path']}
+                        )
+                        # This will trigger auto-kill due to severity
+                        telemetry_store.add_threat(threat)
+        
+        return new_devices
+    
+    def to_dict(self) -> dict:
+        return {
+            'devices': self.get_usb_devices(),
+            'scan_results': self.scan_results[-10:],
+            'last_scan': self.last_scan,
+            'auto_scan_enabled': self.auto_scan_enabled
+        }
+
+
+# Initialize USB scanner
+usb_scanner = USBScanner()
+
+
+# =============================================================================
+# CUCKOO SANDBOX INTEGRATION (VM-based analysis)
+# =============================================================================
+
+class CuckooSandbox:
+    """Integration with Cuckoo sandbox for safe malware analysis"""
+    
+    def __init__(self):
+        self.api_url = os.environ.get('CUCKOO_API_URL', '')
+        self.api_token = os.environ.get('CUCKOO_API_TOKEN', '')
+        self.enabled = bool(self.api_url)
+        self.pending_analyses = {}
+        self.completed_analyses = deque(maxlen=50)
+        
+        if self.enabled:
+            logger.info(f"Cuckoo Sandbox: Enabled at {self.api_url}")
+        else:
+            logger.info("Cuckoo Sandbox: Not configured (using local fallback)")
+    
+    def submit_file(self, file_path: str) -> dict:
+        """Submit a file to Cuckoo for analysis"""
+        if not os.path.exists(file_path):
+            return {"error": "File not found", "success": False}
+        
+        if self.enabled:
+            return self._submit_to_cuckoo(file_path)
+        else:
+            return self._local_analysis(file_path)
+    
+    def _submit_to_cuckoo(self, file_path: str) -> dict:
+        """Submit file to remote Cuckoo API"""
+        try:
+            import urllib.request
+            from urllib.parse import urlencode
+            
+            # Read file
+            with open(file_path, 'rb') as f:
+                file_data = f.read()
+            
+            # Create multipart form data
+            boundary = '----SeraphBoundary' + uuid.uuid4().hex[:16]
+            body = (
+                f'--{boundary}\r\n'
+                f'Content-Disposition: form-data; name="file"; filename="{os.path.basename(file_path)}"\r\n'
+                f'Content-Type: application/octet-stream\r\n\r\n'
+            ).encode() + file_data + f'\r\n--{boundary}--\r\n'.encode()
+            
+            headers = {
+                'Content-Type': f'multipart/form-data; boundary={boundary}',
+                'Authorization': f'Bearer {self.api_token}'
+            }
+            
+            req = urllib.request.Request(
+                f'{self.api_url}/tasks/create/file',
+                data=body,
+                headers=headers,
+                method='POST'
+            )
+            
+            response = urllib.request.urlopen(req, timeout=30)
+            result = json.loads(response.read().decode())
+            
+            task_id = result.get('task_id')
+            if task_id:
+                self.pending_analyses[task_id] = {
+                    'file_path': file_path,
+                    'submitted_at': datetime.now().isoformat(),
+                    'status': 'pending'
+                }
+                
+                return {
+                    "success": True,
+                    "task_id": task_id,
+                    "message": f"File submitted to Cuckoo sandbox (Task: {task_id})"
+                }
+            
+            return {"success": False, "error": "No task ID returned"}
+            
+        except Exception as e:
+            logger.error(f"Cuckoo submission error: {e}")
+            # Fallback to local analysis
+            return self._local_analysis(file_path)
+    
+    def _local_analysis(self, file_path: str) -> dict:
+        """Local file analysis (when Cuckoo not available)"""
+        analysis = {
+            "file_path": file_path,
+            "file_name": os.path.basename(file_path),
+            "file_size": os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+            "analyzed_at": datetime.now().isoformat(),
+            "method": "local",
+            "indicators": [],
+            "risk_score": 0,
+            "verdict": "unknown"
+        }
+        
+        try:
+            # Read file header
+            with open(file_path, 'rb') as f:
+                header = f.read(8192)
+            
+            # Check for PE header (Windows executable)
+            if header[:2] == b'MZ':
+                analysis['indicators'].append({
+                    "type": "pe_executable",
+                    "severity": "medium",
+                    "description": "Windows PE executable"
+                })
+                analysis['risk_score'] += 30
+            
+            # Check for script signatures
+            script_sigs = {
+                b'#!/': 'shell_script',
+                b'import ': 'python_script',
+                b'require ': 'ruby_script',
+                b'<script': 'javascript_html',
+                b'<?php': 'php_script',
+                b'powershell': 'powershell_script',
+                b'cmd.exe': 'cmd_invocation',
+            }
+            
+            header_lower = header.lower()
+            for sig, script_type in script_sigs.items():
+                if sig.lower() in header_lower:
+                    analysis['indicators'].append({
+                        "type": script_type,
+                        "severity": "medium",
+                        "description": f"Contains {script_type} signature"
+                    })
+                    analysis['risk_score'] += 20
+            
+            # Check for suspicious strings
+            suspicious_strings = [
+                b'invoke-expression', b'invoke-mimikatz', b'downloadstring',
+                b'hidden', b'bypass', b'unrestricted', b'encodedcommand',
+                b'frombase64', b'gzipstream', b'memorystream',
+                b'virtualalloc', b'createthread', b'shellcode',
+                b'password', b'credential', b'lsass', b'sekurlsa',
+            ]
+            
+            for sus in suspicious_strings:
+                if sus in header_lower:
+                    analysis['indicators'].append({
+                        "type": "suspicious_string",
+                        "severity": "high",
+                        "description": f"Contains suspicious string: {sus.decode()}"
+                    })
+                    analysis['risk_score'] += 40
+            
+            # Determine verdict
+            if analysis['risk_score'] >= 80:
+                analysis['verdict'] = 'malicious'
+            elif analysis['risk_score'] >= 40:
+                analysis['verdict'] = 'suspicious'
+            elif analysis['risk_score'] >= 20:
+                analysis['verdict'] = 'potentially_unwanted'
+            else:
+                analysis['verdict'] = 'clean'
+            
+            self.completed_analyses.append(analysis)
+            
+            return {
+                "success": True,
+                "analysis": analysis,
+                "message": f"Local analysis complete: {analysis['verdict']}"
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def get_task_status(self, task_id: str) -> dict:
+        """Get status of a Cuckoo analysis task"""
+        if not self.enabled:
+            return {"error": "Cuckoo not configured"}
+        
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                f'{self.api_url}/tasks/view/{task_id}',
+                headers={'Authorization': f'Bearer {self.api_token}'}
+            )
+            response = urllib.request.urlopen(req, timeout=10)
+            return json.loads(response.read().decode())
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def get_task_report(self, task_id: str) -> dict:
+        """Get full report for a completed Cuckoo analysis"""
+        if not self.enabled:
+            return {"error": "Cuckoo not configured"}
+        
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                f'{self.api_url}/tasks/report/{task_id}',
+                headers={'Authorization': f'Bearer {self.api_token}'}
+            )
+            response = urllib.request.urlopen(req, timeout=30)
+            return json.loads(response.read().decode())
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "api_url": self.api_url if self.enabled else None,
+            "pending_analyses": dict(self.pending_analyses),
+            "completed_analyses": list(self.completed_analyses)
+        }
+
+
+# Initialize Cuckoo sandbox
+sandbox = CuckooSandbox()
+
+
 # Initialize advanced detectors
 rootkit_detector = RootkitDetector()
 hidden_folder_detector = HiddenFolderDetector()
