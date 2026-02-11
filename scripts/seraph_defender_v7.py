@@ -2083,6 +2083,82 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             </div>
         </div>
         
+        <div class="panel" id="panel-netscan">
+            <div class="card">
+                <div class="card-header">📡 Port & Router Scanner</div>
+                <div class="card-body">
+                    <div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+                        <button onclick="scanRouter()" style="background: var(--accent); color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer;">🔍 Scan Router</button>
+                        <button onclick="scanNetwork()" style="background: #6366f1; color: #fff; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer;">🌐 Scan Local Network</button>
+                        <input type="text" id="hostToScan" placeholder="IP to scan (e.g., 192.168.1.1)" style="padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: #fff; width: 200px;">
+                        <button onclick="scanHost()" style="background: var(--warning); color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer;">🎯 Scan Host</button>
+                    </div>
+                    <div id="routerScanStatus" style="color: var(--text-secondary); margin-bottom: 16px;">Router scan: Never run</div>
+                    <div id="routerResults" style="margin-bottom: 20px;"></div>
+                    <h4 style="color: var(--accent); margin-bottom: 12px;">Discovered Hosts</h4>
+                    <div id="networkHosts" style="max-height: 300px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-wifi">
+            <div class="card">
+                <div class="card-header">📶 WiFi Network Scanner</div>
+                <div class="card-body">
+                    <button onclick="scanWiFi()" style="background: var(--accent); color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 16px;">🔍 Scan WiFi Networks</button>
+                    <div id="wifiConnected" style="background: rgba(16,185,129,0.2); padding: 16px; border-radius: 8px; margin-bottom: 20px;"></div>
+                    <div id="wifiScanStatus" style="color: var(--text-secondary); margin-bottom: 16px;">Last scan: Never</div>
+                    <h4 style="color: var(--accent); margin-bottom: 12px;">Available Networks</h4>
+                    <div id="wifiList" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-bluetooth">
+            <div class="card">
+                <div class="card-header">🔵 Bluetooth Device Scanner</div>
+                <div class="card-body">
+                    <button onclick="scanBluetooth()" style="background: #3b82f6; color: #fff; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 16px;">🔍 Scan Bluetooth Devices</button>
+                    <div id="bluetoothScanStatus" style="color: var(--text-secondary); margin-bottom: 16px;">Last scan: Never</div>
+                    <h4 style="color: var(--accent); margin-bottom: 12px;">Detected Devices</h4>
+                    <div id="bluetoothList" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-vpn">
+            <div class="card">
+                <div class="card-header">🔒 WireGuard VPN (Split Tunnel)</div>
+                <div class="card-body">
+                    <div style="background: rgba(6,182,212,0.1); padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid rgba(6,182,212,0.3);">
+                        <p style="color: var(--accent); font-weight: 600; margin-bottom: 8px;">ℹ️ Split Tunnel Mode</p>
+                        <p style="color: var(--text-secondary); font-size: 14px;">VPN only routes Seraph network traffic. Your normal internet access is NOT affected.</p>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px;">
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px;">
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">Status</div>
+                            <div id="vpnStatus" style="font-size: 18px; font-weight: 600;">Not Configured</div>
+                        </div>
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px;">
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">Client Address</div>
+                            <div id="vpnAddress" style="font-size: 14px; font-family: monospace;">-</div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: var(--accent); margin-bottom: 12px;">Configure VPN</h4>
+                        <input type="text" id="vpnEndpoint" placeholder="Server endpoint (e.g., server.com:51820)" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: #fff; margin-bottom: 8px;">
+                        <input type="text" id="vpnPubKey" placeholder="Server public key" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: #fff; margin-bottom: 8px;">
+                        <div style="display: flex; gap: 12px;">
+                            <button onclick="configureVPN()" style="background: var(--accent); color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer;">⚙️ Configure</button>
+                            <button onclick="connectVPN()" style="background: var(--success); color: #fff; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer;">🔗 Connect</button>
+                            <button onclick="disconnectVPN()" style="background: var(--danger); color: #fff; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer;">⛔ Disconnect</button>
+                        </div>
+                    </div>
+                    <div id="vpnDetails" style="font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px;"></div>
+                </div>
+            </div>
+        </div>
+        
         <div class="panel" id="panel-processes">
             <div class="card">
                 <div class="card-header">Running Processes (Click to Kill)</div>
