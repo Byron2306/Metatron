@@ -4,7 +4,7 @@ Swarm Management Router
 Manages the agent swarm - discovery, deployment, telemetry.
 """
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone
 import uuid
