@@ -278,8 +278,57 @@ const NetworkTopologyPage = () => {
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="space-y-4"
+          className="space-y-4 overflow-y-auto max-h-full"
         >
+          {/* Live Threats Panel */}
+          {liveThreats.length > 0 && (
+            <div className="bg-red-900/20 backdrop-blur-md border border-red-500/50 rounded p-4">
+              <h3 className="font-mono font-semibold text-red-400 mb-3 flex items-center gap-2">
+                <AlertOctagon className="w-4 h-4 animate-pulse" />
+                Live Threats
+              </h3>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {liveThreats.slice(0, 5).map((threat, idx) => (
+                  <div key={idx} className="p-2 bg-red-950/50 rounded text-sm">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-red-300 font-medium truncate">{threat.event_type}</span>
+                      <Badge className="bg-red-500/30 text-red-300 text-xs">{threat.severity}</Badge>
+                    </div>
+                    <p className="text-red-400/70 text-xs truncate">
+                      {threat.data?.message || threat.host_id || 'Unknown source'}
+                    </p>
+                    {(threat.data?.remote_ip || threat.data?.ip) && (
+                      <p className="text-red-400 text-xs font-mono mt-1">
+                        IP: {threat.data.remote_ip || threat.data.ip}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Critical Alerts Panel */}
+          {criticalAlerts.filter(a => !a.acknowledged).length > 0 && (
+            <div className="bg-amber-900/20 backdrop-blur-md border border-amber-500/50 rounded p-4">
+              <h3 className="font-mono font-semibold text-amber-400 mb-3 flex items-center gap-2">
+                <Zap className="w-4 h-4" />
+                Auto-Kill Alerts
+              </h3>
+              <div className="space-y-2 max-h-32 overflow-y-auto">
+                {criticalAlerts.filter(a => !a.acknowledged).slice(0, 3).map((alert, idx) => (
+                  <div key={idx} className="p-2 bg-amber-950/50 rounded text-sm">
+                    <div className="flex items-center gap-2">
+                      <Ban className="w-3 h-3 text-amber-400" />
+                      <span className="text-amber-300 truncate">{alert.threat_title}</span>
+                    </div>
+                    <p className="text-amber-400/70 text-xs mt-1">{alert.alert_type}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Legend */}
           <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4">
             <h3 className="font-mono font-semibold text-white mb-3">Legend</h3>
