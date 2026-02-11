@@ -596,7 +596,7 @@ async def get_vpn_server_config():
             if os.path.exists(wg_pubkey_path):
                 with open(wg_pubkey_path, 'r') as f:
                     server_public_key = f.read().strip()
-        except:
+        except Exception:
             pass
     
     # If still no config, provide placeholder
