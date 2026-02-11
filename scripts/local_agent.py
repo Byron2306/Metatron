@@ -88,7 +88,7 @@ except ImportError:
 
 CONFIG = {
     # Your Anti-AI Defense System API endpoint
-    "API_URL": "https://threat-guardian-10.preview.emergentagent.com/api",
+    "API_URL": "https://seraph-guardian.preview.emergentagent.com/api",
     
     # Agent authentication (get this from your dashboard)
     "AGENT_KEY": "local-agent-key-change-me",
