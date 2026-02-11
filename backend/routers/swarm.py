@@ -1259,3 +1259,503 @@ async def get_cli_sessions(
         enriched.append(session_data)
     
     return {"sessions": enriched, "host_id": host_id}
+
+
+
+# =============================================================================
+# DEVICE GROUPING AND TAGGING
+# =============================================================================
+
+class DeviceGroupRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    color: Optional[str] = "#06b6d4"
+
+
+class DeviceTagRequest(BaseModel):
+    tags: List[str]
+
+
+@router.post("/groups")
+async def create_device_group(
+    group: DeviceGroupRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Create a new device group"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    group_doc = {
+        "group_id": f"grp-{uuid.uuid4().hex[:8]}",
+        "name": group.name,
+        "description": group.description,
+        "color": group.color,
+        "device_count": 0,
+        "created_by": current_user.get("email"),
+        "created_at": now
+    }
+    
+    await db.device_groups.insert_one(group_doc)
+    
+    return {"status": "created", "group": {k: v for k, v in group_doc.items() if k != "_id"}}
+
+
+@router.get("/groups")
+async def list_device_groups(current_user: dict = Depends(get_current_user)):
+    """List all device groups with device counts"""
+    groups = await db.device_groups.find({}, {"_id": 0}).to_list(100)
+    
+    # Count devices per group
+    for group in groups:
+        count = await db.discovered_devices.count_documents({"group_id": group.get("group_id")})
+        group["device_count"] = count
+    
+    return {"groups": groups}
+
+
+@router.put("/groups/{group_id}")
+async def update_device_group(
+    group_id: str,
+    group: DeviceGroupRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Update a device group"""
+    result = await db.device_groups.update_one(
+        {"group_id": group_id},
+        {"$set": {
+            "name": group.name,
+            "description": group.description,
+            "color": group.color,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    return {"status": "updated"}
+
+
+@router.delete("/groups/{group_id}")
+async def delete_device_group(
+    group_id: str,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Delete a device group"""
+    # Remove group from all devices first
+    await db.discovered_devices.update_many(
+        {"group_id": group_id},
+        {"$unset": {"group_id": ""}}
+    )
+    
+    result = await db.device_groups.delete_one({"group_id": group_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    return {"status": "deleted"}
+
+
+@router.put("/devices/{device_ip}/group")
+async def assign_device_to_group(
+    device_ip: str,
+    group_id: str,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Assign a device to a group"""
+    result = await db.discovered_devices.update_one(
+        {"ip_address": device_ip},
+        {"$set": {"group_id": group_id}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    return {"status": "assigned", "device_ip": device_ip, "group_id": group_id}
+
+
+@router.put("/devices/{device_ip}/tags")
+async def update_device_tags(
+    device_ip: str,
+    tags: DeviceTagRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Update tags for a device"""
+    result = await db.discovered_devices.update_one(
+        {"ip_address": device_ip},
+        {"$set": {"tags": tags.tags}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    return {"status": "updated", "device_ip": device_ip, "tags": tags.tags}
+
+
+@router.get("/tags")
+async def list_all_tags(current_user: dict = Depends(get_current_user)):
+    """List all unique tags across devices"""
+    pipeline = [
+        {"$unwind": "$tags"},
+        {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    
+    tags = await db.discovered_devices.aggregate(pipeline).to_list(100)
+    
+    return {"tags": [{"name": t["_id"], "count": t["count"]} for t in tags if t["_id"]]}
+
+
+# =============================================================================
+# USB SCAN
+# =============================================================================
+
+class USBScanRequest(BaseModel):
+    host_id: str
+    device_path: str
+    device_name: Optional[str] = None
+
+
+@router.post("/usb/scan")
+async def initiate_usb_scan(
+    request: USBScanRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Initiate USB device scan on an agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Create scan task
+    scan_id = f"usb-{uuid.uuid4().hex[:8]}"
+    
+    scan_doc = {
+        "scan_id": scan_id,
+        "host_id": request.host_id,
+        "device_path": request.device_path,
+        "device_name": request.device_name,
+        "status": "pending",
+        "created_by": current_user.get("email"),
+        "created_at": now,
+        "results": None
+    }
+    
+    await db.usb_scans.insert_one(scan_doc)
+    
+    # Queue command to agent
+    command_doc = {
+        "command_id": f"cmd-{uuid.uuid4().hex[:8]}",
+        "agent_id": request.host_id,
+        "command_type": "usb_scan",
+        "parameters": {
+            "scan_id": scan_id,
+            "device_path": request.device_path
+        },
+        "status": "pending",
+        "created_at": now
+    }
+    
+    await db.command_queue.insert_one(command_doc)
+    
+    return {"status": "queued", "scan_id": scan_id}
+
+
+@router.get("/usb/scans")
+async def list_usb_scans(
+    host_id: Optional[str] = None,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """List USB scan results"""
+    query = {}
+    if host_id:
+        query["host_id"] = host_id
+    
+    scans = await db.usb_scans.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    return {"scans": scans}
+
+
+@router.post("/usb/scan/{scan_id}/results")
+async def submit_usb_scan_results(
+    scan_id: str,
+    results: Dict[str, Any]
+):
+    """Agent submits USB scan results"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Calculate threat level based on results
+    files_scanned = results.get("files_scanned", 0)
+    threats_found = results.get("threats_found", [])
+    malware_detected = len([t for t in threats_found if t.get("type") == "malware"])
+    
+    threat_level = "safe"
+    if malware_detected > 0:
+        threat_level = "critical"
+    elif len(threats_found) > 0:
+        threat_level = "suspicious"
+    
+    await db.usb_scans.update_one(
+        {"scan_id": scan_id},
+        {"$set": {
+            "status": "completed",
+            "completed_at": now,
+            "results": results,
+            "files_scanned": files_scanned,
+            "threats_found": len(threats_found),
+            "malware_detected": malware_detected,
+            "threat_level": threat_level
+        }}
+    )
+    
+    # Create alert if threats found
+    if threat_level in ("critical", "suspicious"):
+        await db.alerts.insert_one({
+            "type": "usb_threat",
+            "severity": "critical" if threat_level == "critical" else "high",
+            "source": results.get("host_id", "unknown"),
+            "event_type": "usb_scan_complete",
+            "message": f"USB scan detected {len(threats_found)} threats ({malware_detected} malware)",
+            "data": {"scan_id": scan_id, "threats": threats_found},
+            "timestamp": now,
+            "status": "open"
+        })
+    
+    return {"status": "recorded", "threat_level": threat_level}
+
+
+# =============================================================================
+# AI THREAT PRIORITIZATION WITH MITRE ATT&CK
+# =============================================================================
+
+MITRE_ATTACK_TACTICS = {
+    "TA0001": {"name": "Initial Access", "severity_weight": 0.8},
+    "TA0002": {"name": "Execution", "severity_weight": 0.9},
+    "TA0003": {"name": "Persistence", "severity_weight": 0.85},
+    "TA0004": {"name": "Privilege Escalation", "severity_weight": 0.95},
+    "TA0005": {"name": "Defense Evasion", "severity_weight": 0.7},
+    "TA0006": {"name": "Credential Access", "severity_weight": 1.0},
+    "TA0007": {"name": "Discovery", "severity_weight": 0.5},
+    "TA0008": {"name": "Lateral Movement", "severity_weight": 0.9},
+    "TA0009": {"name": "Collection", "severity_weight": 0.75},
+    "TA0010": {"name": "Exfiltration", "severity_weight": 1.0},
+    "TA0011": {"name": "Command and Control", "severity_weight": 0.95},
+    "TA0040": {"name": "Impact", "severity_weight": 1.0},
+}
+
+THREAT_KEYWORDS_TO_TACTICS = {
+    # Credential Access (TA0006) - HIGHEST PRIORITY
+    "mimikatz": "TA0006", "lazagne": "TA0006", "credential": "TA0006",
+    "password": "TA0006", "lsass": "TA0006", "sekurlsa": "TA0006",
+    "dump": "TA0006", "ntlm": "TA0006", "kerberos": "TA0006",
+    
+    # Exfiltration (TA0010) - HIGHEST PRIORITY
+    "exfil": "TA0010", "upload": "TA0010", "transfer": "TA0010",
+    "compress": "TA0010", "archive": "TA0010",
+    
+    # Impact (TA0040) - HIGHEST PRIORITY
+    "ransomware": "TA0040", "encrypt": "TA0040", "wiper": "TA0040",
+    "delete": "TA0040", "destroy": "TA0040", "format": "TA0040",
+    
+    # Privilege Escalation (TA0004)
+    "privilege": "TA0004", "escalat": "TA0004", "sudo": "TA0004",
+    "admin": "TA0004", "root": "TA0004", "uac": "TA0004",
+    
+    # Execution (TA0002)
+    "powershell": "TA0002", "cmd": "TA0002", "script": "TA0002",
+    "execute": "TA0002", "invoke": "TA0002", "spawn": "TA0002",
+    
+    # C2 (TA0011)
+    "beacon": "TA0011", "callback": "TA0011", "reverse": "TA0011",
+    "shell": "TA0011", "c2": "TA0011", "cobalt": "TA0011",
+    
+    # Lateral Movement (TA0008)
+    "lateral": "TA0008", "pivot": "TA0008", "psexec": "TA0008",
+    "wmi": "TA0008", "remote": "TA0008",
+    
+    # Persistence (TA0003)
+    "persist": "TA0003", "startup": "TA0003", "scheduled": "TA0003",
+    "registry": "TA0003", "service": "TA0003",
+}
+
+
+@router.post("/threats/prioritize")
+async def prioritize_threats(
+    limit: int = 50,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """
+    AI-powered threat prioritization using MITRE ATT&CK framework.
+    Returns threats sorted by priority score.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Fetch recent critical/high alerts
+    alerts = await db.alerts.find(
+        {"status": "open", "severity": {"$in": ["critical", "high", "medium"]}},
+        {"_id": 0}
+    ).sort("timestamp", -1).limit(limit).to_list(limit)
+    
+    # Fetch recent critical telemetry
+    telemetry = await db.agent_telemetry.find(
+        {"severity": {"$in": ["critical", "high"]}},
+        {"_id": 0}
+    ).sort("timestamp", -1).limit(limit).to_list(limit)
+    
+    # Combine and prioritize
+    all_threats = []
+    
+    for alert in alerts:
+        threat_text = f"{alert.get('message', '')} {alert.get('event_type', '')}".lower()
+        priority_data = calculate_threat_priority(threat_text, alert.get('severity', 'medium'))
+        
+        all_threats.append({
+            "id": alert.get("id", str(uuid.uuid4())[:8]),
+            "type": "alert",
+            "source": alert.get("source"),
+            "message": alert.get("message"),
+            "severity": alert.get("severity"),
+            "timestamp": alert.get("timestamp"),
+            "mitre_tactic": priority_data["tactic"],
+            "mitre_tactic_name": priority_data["tactic_name"],
+            "priority_score": priority_data["score"],
+            "priority_level": priority_data["level"],
+            "recommended_action": priority_data["action"]
+        })
+    
+    for event in telemetry:
+        threat_text = f"{event.get('event_type', '')} {event.get('data', {})}".lower()
+        priority_data = calculate_threat_priority(threat_text, event.get('severity', 'medium'))
+        
+        all_threats.append({
+            "id": event.get("id", str(uuid.uuid4())[:8]),
+            "type": "telemetry",
+            "source": event.get("host_id"),
+            "message": event.get("event_type"),
+            "severity": event.get("severity"),
+            "timestamp": event.get("timestamp"),
+            "mitre_tactic": priority_data["tactic"],
+            "mitre_tactic_name": priority_data["tactic_name"],
+            "priority_score": priority_data["score"],
+            "priority_level": priority_data["level"],
+            "recommended_action": priority_data["action"]
+        })
+    
+    # Sort by priority score (highest first)
+    all_threats.sort(key=lambda x: x["priority_score"], reverse=True)
+    
+    # Calculate summary
+    summary = {
+        "total_threats": len(all_threats),
+        "critical_priority": len([t for t in all_threats if t["priority_level"] == "critical"]),
+        "high_priority": len([t for t in all_threats if t["priority_level"] == "high"]),
+        "medium_priority": len([t for t in all_threats if t["priority_level"] == "medium"]),
+        "top_tactics": get_top_tactics(all_threats)
+    }
+    
+    return {
+        "prioritized_threats": all_threats[:limit],
+        "summary": summary,
+        "analyzed_at": now
+    }
+
+
+def calculate_threat_priority(threat_text: str, severity: str) -> dict:
+    """Calculate threat priority using MITRE ATT&CK mapping"""
+    # Base severity scores
+    severity_scores = {
+        "critical": 90,
+        "high": 70,
+        "medium": 50,
+        "low": 30,
+        "info": 10
+    }
+    
+    base_score = severity_scores.get(severity, 50)
+    
+    # Find matching MITRE tactic
+    tactic_id = None
+    for keyword, tactic in THREAT_KEYWORDS_TO_TACTICS.items():
+        if keyword in threat_text:
+            tactic_id = tactic
+            break
+    
+    # Calculate final score
+    if tactic_id and tactic_id in MITRE_ATTACK_TACTICS:
+        tactic_info = MITRE_ATTACK_TACTICS[tactic_id]
+        weight = tactic_info["severity_weight"]
+        final_score = min(100, base_score * (1 + weight * 0.2))
+        tactic_name = tactic_info["name"]
+    else:
+        final_score = base_score
+        tactic_id = "UNKNOWN"
+        tactic_name = "Unclassified"
+    
+    # Determine priority level
+    if final_score >= 90:
+        level = "critical"
+        action = "IMMEDIATE: Auto-kill or manual intervention required"
+    elif final_score >= 70:
+        level = "high"
+        action = "URGENT: Review and remediate within 1 hour"
+    elif final_score >= 50:
+        level = "medium"
+        action = "REVIEW: Investigate within 4 hours"
+    else:
+        level = "low"
+        action = "MONITOR: Track for patterns"
+    
+    return {
+        "tactic": tactic_id,
+        "tactic_name": tactic_name,
+        "score": round(final_score, 1),
+        "level": level,
+        "action": action
+    }
+
+
+def get_top_tactics(threats: list) -> list:
+    """Get most common MITRE tactics from threats"""
+    tactic_counts = {}
+    for t in threats:
+        tactic = t.get("mitre_tactic")
+        if tactic and tactic != "UNKNOWN":
+            tactic_counts[tactic] = tactic_counts.get(tactic, 0) + 1
+    
+    sorted_tactics = sorted(tactic_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    return [
+        {
+            "tactic_id": tactic_id,
+            "tactic_name": MITRE_ATTACK_TACTICS.get(tactic_id, {}).get("name", "Unknown"),
+            "count": count
+        }
+        for tactic_id, count in sorted_tactics
+    ]
+
+
+@router.get("/threats/mitre-mapping")
+async def get_mitre_mapping(current_user: dict = Depends(get_current_user)):
+    """Get MITRE ATT&CK tactic mapping and threat distribution"""
+    # Get recent threats and map to tactics
+    alerts = await db.alerts.find(
+        {"status": "open"},
+        {"_id": 0, "message": 1, "event_type": 1, "severity": 1}
+    ).limit(200).to_list(200)
+    
+    tactic_distribution = {tactic_id: {"count": 0, "name": info["name"], "severity_weight": info["severity_weight"]} 
+                          for tactic_id, info in MITRE_ATTACK_TACTICS.items()}
+    
+    for alert in alerts:
+        text = f"{alert.get('message', '')} {alert.get('event_type', '')}".lower()
+        for keyword, tactic_id in THREAT_KEYWORDS_TO_TACTICS.items():
+            if keyword in text:
+                tactic_distribution[tactic_id]["count"] += 1
+                break
+    
+    # Filter to only tactics with threats
+    active_tactics = {k: v for k, v in tactic_distribution.items() if v["count"] > 0}
+    
+    return {
+        "all_tactics": MITRE_ATTACK_TACTICS,
+        "active_tactics": active_tactics,
+        "keyword_mappings": len(THREAT_KEYWORDS_TO_TACTICS)
+    }
+
