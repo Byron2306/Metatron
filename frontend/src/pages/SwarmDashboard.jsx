@@ -140,11 +140,66 @@ const SwarmDashboard = () => {
     }
   };
 
-  const filteredDevices = devices.filter(d => 
-    !searchQuery || 
-    d.ip_address?.includes(searchQuery) || 
-    d.hostname?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Group management
+  const createGroup = async () => {
+    if (!newGroup.name.trim()) {
+      toast.error('Group name is required');
+      return;
+    }
+    try {
+      await axios.post(`${API}/swarm/groups`, newGroup, { headers });
+      toast.success('Group created');
+      setShowGroupModal(false);
+      setNewGroup({ name: '', description: '', color: '#06b6d4' });
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to create group');
+    }
+  };
+
+  const assignToGroup = async (deviceIp, groupId) => {
+    try {
+      await axios.put(`${API}/swarm/devices/${deviceIp}/group?group_id=${groupId}`, {}, { headers });
+      toast.success('Device assigned to group');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to assign device');
+    }
+  };
+
+  const updateDeviceTags = async (deviceIp) => {
+    const tagsArray = newTags.split(',').map(t => t.trim()).filter(t => t);
+    try {
+      await axios.put(`${API}/swarm/devices/${deviceIp}/tags`, { tags: tagsArray }, { headers });
+      toast.success('Tags updated');
+      setShowTagModal(null);
+      setNewTags('');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to update tags');
+    }
+  };
+
+  const deleteGroup = async (groupId) => {
+    try {
+      await axios.delete(`${API}/swarm/groups/${groupId}`, { headers });
+      toast.success('Group deleted');
+      setSelectedGroup(null);
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to delete group');
+    }
+  };
+
+  // Filter devices by search, group, and tag
+  const filteredDevices = devices.filter(d => {
+    const matchesSearch = !searchQuery || 
+      d.ip_address?.includes(searchQuery) || 
+      d.hostname?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesGroup = !selectedGroup || d.group_id === selectedGroup;
+    const matchesTag = !selectedTag || (d.tags && d.tags.includes(selectedTag));
+    return matchesSearch && matchesGroup && matchesTag;
+  });
 
   if (loading) {
     return (
