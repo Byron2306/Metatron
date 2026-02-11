@@ -906,6 +906,408 @@ class FileIndexer:
         return telemetry
 
 
+class NetworkScanner:
+    """Scan ports, routers, and network infrastructure"""
+    
+    def __init__(self):
+        self.common_ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 993, 995, 3306, 3389, 5432, 8080, 8443]
+        self.dangerous_ports = [23, 445, 1433, 3389, 5900]  # Telnet, SMB, MSSQL, RDP, VNC
+        self.scan_results = {}
+    
+    def get_gateway(self) -> str:
+        """Get default gateway IP"""
+        try:
+            if os.name == 'nt':
+                result = subprocess.run(['ipconfig'], capture_output=True, text=True)
+                for line in result.stdout.split('\n'):
+                    if 'Default Gateway' in line:
+                        parts = line.split(':')
+                        if len(parts) > 1:
+                            ip = parts[1].strip()
+                            if ip:
+                                return ip
+            else:
+                result = subprocess.run(['ip', 'route'], capture_output=True, text=True)
+                for line in result.stdout.split('\n'):
+                    if 'default' in line:
+                        parts = line.split()
+                        for i, p in enumerate(parts):
+                            if p == 'via' and i + 1 < len(parts):
+                                return parts[i + 1]
+        except:
+            pass
+        return None
+    
+    def scan_port(self, ip: str, port: int, timeout: float = 0.5) -> bool:
+        """Check if a port is open"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            result = sock.connect_ex((ip, port))
+            sock.close()
+            return result == 0
+        except:
+            return False
+    
+    def scan_host(self, ip: str, ports: List[int] = None) -> dict:
+        """Scan a host for open ports"""
+        if ports is None:
+            ports = self.common_ports
+        
+        open_ports = []
+        for port in ports:
+            if self.scan_port(ip, port):
+                open_ports.append({
+                    "port": port,
+                    "service": self._get_service_name(port),
+                    "dangerous": port in self.dangerous_ports
+                })
+        
+        return {
+            "ip": ip,
+            "open_ports": open_ports,
+            "scan_time": datetime.now().isoformat()
+        }
+    
+    def scan_router(self) -> dict:
+        """Scan the default gateway/router"""
+        gateway = self.get_gateway()
+        if not gateway:
+            return {"error": "Could not determine gateway"}
+        
+        router_ports = [80, 443, 8080, 22, 23, 53]  # Common router admin ports
+        result = self.scan_host(gateway, router_ports)
+        result["is_gateway"] = True
+        
+        # Check for common vulnerabilities
+        vulnerabilities = []
+        if any(p["port"] == 23 for p in result["open_ports"]):
+            vulnerabilities.append({"type": "telnet_open", "severity": "high", "message": "Telnet is enabled on router"})
+        if any(p["port"] == 80 for p in result["open_ports"]):
+            vulnerabilities.append({"type": "http_admin", "severity": "medium", "message": "HTTP admin interface exposed"})
+        
+        result["vulnerabilities"] = vulnerabilities
+        return result
+    
+    def scan_local_network(self, subnet: str = None) -> List[dict]:
+        """Scan local network for hosts"""
+        if subnet is None:
+            # Get local IP and derive subnet
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+                subnet = '.'.join(local_ip.split('.')[:-1])
+            except:
+                return []
+        
+        hosts = []
+        for i in range(1, 255):
+            ip = f"{subnet}.{i}"
+            # Quick ping check
+            try:
+                if os.name == 'nt':
+                    result = subprocess.run(['ping', '-n', '1', '-w', '100', ip], capture_output=True)
+                else:
+                    result = subprocess.run(['ping', '-c', '1', '-W', '1', ip], capture_output=True)
+                
+                if result.returncode == 0:
+                    hosts.append({"ip": ip, "alive": True})
+            except:
+                pass
+        
+        return hosts
+    
+    def _get_service_name(self, port: int) -> str:
+        """Get common service name for port"""
+        services = {
+            21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS",
+            80: "HTTP", 110: "POP3", 143: "IMAP", 443: "HTTPS", 445: "SMB",
+            993: "IMAPS", 995: "POP3S", 3306: "MySQL", 3389: "RDP",
+            5432: "PostgreSQL", 5900: "VNC", 8080: "HTTP-Alt", 8443: "HTTPS-Alt"
+        }
+        return services.get(port, "Unknown")
+
+
+class WiFiScanner:
+    """Scan WiFi networks and detect rogue access points"""
+    
+    def __init__(self):
+        self.known_networks = set()
+        self.trusted_bssids = set()
+    
+    def scan_networks(self) -> List[dict]:
+        """Scan for available WiFi networks"""
+        networks = []
+        
+        try:
+            if os.name == 'nt':
+                # Windows: Use netsh
+                result = subprocess.run(
+                    ['netsh', 'wlan', 'show', 'networks', 'mode=bssid'],
+                    capture_output=True, text=True
+                )
+                
+                current_network = {}
+                for line in result.stdout.split('\n'):
+                    line = line.strip()
+                    if line.startswith('SSID'):
+                        if current_network and current_network.get('ssid'):
+                            networks.append(current_network)
+                        current_network = {}
+                        parts = line.split(':', 1)
+                        if len(parts) > 1:
+                            current_network['ssid'] = parts[1].strip()
+                    elif line.startswith('BSSID'):
+                        parts = line.split(':', 1)
+                        if len(parts) > 1:
+                            current_network['bssid'] = parts[1].strip()
+                    elif line.startswith('Signal'):
+                        parts = line.split(':', 1)
+                        if len(parts) > 1:
+                            current_network['signal'] = parts[1].strip()
+                    elif line.startswith('Authentication'):
+                        parts = line.split(':', 1)
+                        if len(parts) > 1:
+                            current_network['auth'] = parts[1].strip()
+                    elif line.startswith('Encryption'):
+                        parts = line.split(':', 1)
+                        if len(parts) > 1:
+                            current_network['encryption'] = parts[1].strip()
+                
+                if current_network and current_network.get('ssid'):
+                    networks.append(current_network)
+                    
+            else:
+                # Linux: Use iwlist or nmcli
+                try:
+                    result = subprocess.run(
+                        ['nmcli', '-t', '-f', 'SSID,BSSID,SIGNAL,SECURITY', 'device', 'wifi', 'list'],
+                        capture_output=True, text=True
+                    )
+                    for line in result.stdout.strip().split('\n'):
+                        if line:
+                            parts = line.split(':')
+                            if len(parts) >= 4:
+                                networks.append({
+                                    'ssid': parts[0],
+                                    'bssid': parts[1],
+                                    'signal': parts[2] + '%',
+                                    'auth': parts[3]
+                                })
+                except:
+                    pass
+        except Exception as e:
+            pass
+        
+        # Analyze for threats
+        for network in networks:
+            network['threats'] = self._analyze_network(network)
+        
+        return networks
+    
+    def _analyze_network(self, network: dict) -> List[dict]:
+        """Analyze a network for potential threats"""
+        threats = []
+        
+        # Check for open networks
+        auth = network.get('auth', '').lower()
+        encryption = network.get('encryption', '').lower()
+        
+        if 'open' in auth or 'none' in encryption:
+            threats.append({
+                "type": "open_network",
+                "severity": "high",
+                "message": "Network has no encryption"
+            })
+        
+        # Check for weak encryption
+        if 'wep' in encryption or 'wep' in auth:
+            threats.append({
+                "type": "weak_encryption",
+                "severity": "critical",
+                "message": "WEP encryption is easily cracked"
+            })
+        
+        # Check for evil twin (same SSID, different BSSID)
+        ssid = network.get('ssid', '')
+        if ssid in self.known_networks:
+            threats.append({
+                "type": "potential_evil_twin",
+                "severity": "high",
+                "message": "Multiple networks with same SSID detected"
+            })
+        else:
+            self.known_networks.add(ssid)
+        
+        # Check for suspicious SSIDs
+        suspicious_patterns = ['free', 'public', 'guest', 'airport', 'hotel']
+        if any(p in ssid.lower() for p in suspicious_patterns):
+            threats.append({
+                "type": "suspicious_ssid",
+                "severity": "medium",
+                "message": "Network name suggests public/untrusted network"
+            })
+        
+        return threats
+    
+    def get_connected_network(self) -> dict:
+        """Get currently connected WiFi network info"""
+        try:
+            if os.name == 'nt':
+                result = subprocess.run(
+                    ['netsh', 'wlan', 'show', 'interfaces'],
+                    capture_output=True, text=True
+                )
+                info = {}
+                for line in result.stdout.split('\n'):
+                    line = line.strip()
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        info[key.strip().lower()] = value.strip()
+                
+                return {
+                    "ssid": info.get('ssid', 'Unknown'),
+                    "bssid": info.get('bssid', 'Unknown'),
+                    "signal": info.get('signal', 'Unknown'),
+                    "state": info.get('state', 'Unknown')
+                }
+            else:
+                result = subprocess.run(['iwgetid', '-r'], capture_output=True, text=True)
+                return {"ssid": result.stdout.strip()}
+        except:
+            return {"error": "Could not get connected network"}
+
+
+class BluetoothScanner:
+    """Scan for Bluetooth devices"""
+    
+    def __init__(self):
+        self.known_devices = {}
+        self.trusted_devices = set()
+    
+    def scan_devices(self) -> List[dict]:
+        """Scan for nearby Bluetooth devices"""
+        devices = []
+        
+        try:
+            if os.name == 'nt':
+                # Windows: Use PowerShell
+                ps_script = '''
+                Get-PnpDevice -Class Bluetooth | Where-Object {$_.Status -eq 'OK'} | 
+                Select-Object FriendlyName, DeviceID, Status | ConvertTo-Json
+                '''
+                result = subprocess.run(
+                    ['powershell', '-Command', ps_script],
+                    capture_output=True, text=True
+                )
+                if result.stdout:
+                    try:
+                        data = json.loads(result.stdout)
+                        if isinstance(data, dict):
+                            data = [data]
+                        for d in data:
+                            devices.append({
+                                "name": d.get('FriendlyName', 'Unknown'),
+                                "id": d.get('DeviceID', ''),
+                                "status": d.get('Status', 'Unknown'),
+                                "type": "paired"
+                            })
+                    except:
+                        pass
+            else:
+                # Linux: Use hcitool or bluetoothctl
+                try:
+                    result = subprocess.run(['hcitool', 'scan'], capture_output=True, text=True, timeout=10)
+                    for line in result.stdout.strip().split('\n')[1:]:
+                        parts = line.strip().split('\t')
+                        if len(parts) >= 2:
+                            devices.append({
+                                "address": parts[0],
+                                "name": parts[1] if len(parts) > 1 else "Unknown",
+                                "type": "discovered"
+                            })
+                except:
+                    pass
+        except:
+            pass
+        
+        # Analyze for threats
+        for device in devices:
+            device['threats'] = self._analyze_device(device)
+        
+        return devices
+    
+    def _analyze_device(self, device: dict) -> List[dict]:
+        """Analyze Bluetooth device for threats"""
+        threats = []
+        
+        name = device.get('name', '').lower()
+        
+        # Check for suspicious device names
+        suspicious_names = ['keylogger', 'hak', 'pwn', 'evil', 'attack']
+        if any(s in name for s in suspicious_names):
+            threats.append({
+                "type": "suspicious_device",
+                "severity": "high",
+                "message": "Suspicious Bluetooth device name"
+            })
+        
+        # Check for unknown devices
+        device_id = device.get('id') or device.get('address')
+        if device_id and device_id not in self.trusted_devices:
+            threats.append({
+                "type": "unknown_device",
+                "severity": "low",
+                "message": "Unknown Bluetooth device nearby"
+            })
+        
+        return threats
+
+
+# Initialize scanners
+network_scanner = NetworkScanner()
+wifi_scanner = WiFiScanner()
+bluetooth_scanner = BluetoothScanner()
+        
+        return index
+    
+    def get_file_telemetry(self) -> dict:
+        """Get file system telemetry for graphing"""
+        telemetry = {
+            "timestamp": datetime.now().isoformat(),
+            "total_indexed": 0,
+            "executables": 0,
+            "recent_changes": 0,
+            "suspicious": 0,
+            "by_extension": {},
+            "by_directory": {}
+        }
+        
+        # Scan key directories
+        scan_paths = []
+        if os.name == 'nt':
+            scan_paths = [
+                os.environ.get('TEMP', 'C:\\Windows\\Temp'),
+                os.environ.get('APPDATA', ''),
+                os.path.expanduser('~\\Downloads'),
+            ]
+        else:
+            scan_paths = ['/tmp', '/var/tmp', os.path.expanduser('~/Downloads')]
+        
+        for path in scan_paths:
+            if path and os.path.exists(path):
+                idx = self.index_directory(path, max_depth=2)
+                telemetry["total_indexed"] += idx["total_files"]
+                telemetry["executables"] += len(idx["executable_files"])
+                telemetry["recent_changes"] += len(idx["recently_modified"])
+                telemetry["suspicious"] += len(idx["suspicious_files"])
+                telemetry["by_directory"][path] = idx["total_files"]
+        
+        return telemetry
+
+
 # Initialize advanced detectors
 rootkit_detector = RootkitDetector()
 hidden_folder_detector = HiddenFolderDetector()
