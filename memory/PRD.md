@@ -27,7 +27,91 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v5.4.0**: Real Network Scanner & Mobile Agent Support (Feb 2026)
 - **v5.5.0**: UI Branding Overhaul + Deploy All Fix + Documentation (Feb 2026)
 - **v5.6.0**: Auto-Kill Defense + Command Center + Network Threat Map (Feb 2026)
-- **v5.7.0**: Advanced Agent Detection + Browser Extension + Bug Fixes (Feb 2026) - CURRENT
+- **v5.7.0**: Advanced Agent Detection + Browser Extension + Bug Fixes (Feb 2026)
+- **v5.8.0**: Network Infrastructure Scanning + Split-Tunnel VPN (Feb 2026) - CURRENT
+
+## v5.8.0 Network Infrastructure Scanning + Split-Tunnel VPN (Feb 2026) - COMPLETED
+
+### New Features
+
+#### 1. Network Infrastructure Scanning (seraph_defender_v7.py)
+- **NetworkScanner Class**: Port scanning, router scanning, local network host discovery
+  - `scan_port(ip, port)` - Check if specific port is open
+  - `scan_host(ip)` - Scan all common ports on a host
+  - `scan_router()` - Scan default gateway for open ports and vulnerabilities
+  - `scan_local_network()` - Discover all hosts on local subnet
+  - `get_gateway()` - Detect default gateway IP
+- **WiFiScanner Class**: WiFi network scanning and threat detection
+  - Scan available WiFi networks (Windows netsh, Linux nmcli)
+  - Evil twin detection (same SSID, different BSSID)
+  - Weak encryption detection (WEP, Open networks)
+  - Suspicious SSID detection (free, public, hotel, etc.)
+- **BluetoothScanner Class**: Bluetooth device scanning
+  - Scan paired and nearby Bluetooth devices
+  - Suspicious device name detection
+  - Unknown device warnings
+
+#### 2. WireGuard VPN Auto-Configuration (SPLIT TUNNEL MODE)
+- **WireGuardVPN Class**: Auto-configure VPN without blocking internet
+  - `auto_configure(server_endpoint, server_public_key)` - Configure VPN
+  - `connect()` / `disconnect()` - Connect/disconnect VPN
+  - `get_status()` - Get current VPN status
+  - **SPLIT TUNNEL**: AllowedIPs = 10.200.200.0/24 (NOT 0.0.0.0/0)
+  - **DNS unchanged**: Normal internet access preserved
+  - Key generation using `wg genkey/pubkey` or Python fallback
+
+#### 3. Agent Dashboard New Tabs
+- **Port/Router Scan Tab**: Scan router, scan local network, scan specific host
+- **WiFi Networks Tab**: Scan WiFi, show connected network, threat warnings
+- **Bluetooth Tab**: Scan Bluetooth devices, show paired devices
+- **VPN Tab**: Configure VPN, connect/disconnect, show status
+
+#### 4. Integrated Network Monitoring
+- New `_perform_network_scans()` method in monitoring loop
+- Runs every 30 seconds (10 iterations)
+- Checks connected WiFi for suspicious patterns
+- Checks gateway for dangerous open ports (Telnet, SMB, RDP, VNC)
+- Creates events for suspicious networks and ports
+
+#### 5. Mobile Agent Network Scanning (seraph_mobile_v7.py)
+- **MobileWiFiScanner Class**: WiFi scanning for Android/Termux
+  - Uses `termux-wifi-scaninfo` for network list
+  - Uses `termux-wifi-connectioninfo` for connected network
+  - Evil twin and open network detection
+- **MobileBluetoothScanner Class**: Bluetooth scanning for Android
+  - Uses `termux-bluetooth-scaninfo` or `hcitool scan`
+  - Suspicious device detection
+
+### New Backend Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/swarm/vpn/server-config` | Get VPN server config (split_tunnel=true) |
+| POST | `/api/swarm/vpn/register-agent` | Register agent for VPN access |
+| GET | `/api/swarm/vpn/agents` | List registered VPN agents |
+
+### Agent Dashboard API Endpoints (Local HTTP Server)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/scan/ports` | Scan router for open ports |
+| POST | `/api/scan/wifi` | Scan WiFi networks |
+| POST | `/api/scan/bluetooth` | Scan Bluetooth devices |
+| POST | `/api/scan/network` | Scan local network hosts |
+| POST | `/api/scan/host/{ip}` | Scan specific host |
+| GET | `/api/vpn/status` | Get VPN status |
+| POST | `/api/vpn/configure` | Configure VPN (server_endpoint, server_public_key) |
+| POST | `/api/vpn/connect` | Connect to VPN |
+| POST | `/api/vpn/disconnect` | Disconnect from VPN |
+
+### Testing Results (iteration_22.json)
+- **Backend**: 100% pass rate (20/20 tests)
+- **Frontend**: 100% pass rate
+- All network scanning classes verified
+- VPN split tunnel mode verified (AllowedIPs = 10.200.200.0/24)
+- Dashboard tabs verified
+
+---
 
 ## v5.7.0 Advanced Agent Detection + Browser Extension + Bug Fixes (Feb 2026) - COMPLETED
 
