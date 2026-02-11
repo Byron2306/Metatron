@@ -539,8 +539,6 @@ async def download_agent(platform: str):
             media_type="application/x-bat",
             filename="install_seraph_windows.bat"
         )
-            filename="seraph_mobile_v7.py"
-        )
     else:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
 
