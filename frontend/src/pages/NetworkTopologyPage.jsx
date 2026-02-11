@@ -155,7 +155,9 @@ const NetworkTopologyPage = () => {
     total: graphData.nodes.length,
     compromised: graphData.nodes.filter(n => n.status === 'compromised').length,
     suspicious: graphData.nodes.filter(n => n.status === 'suspicious').length,
-    attackers: graphData.nodes.filter(n => n.type === 'attacker').length
+    attackers: graphData.nodes.filter(n => n.type === 'attacker').length,
+    liveThreats: liveThreats.length,
+    criticalAlerts: criticalAlerts.filter(a => !a.acknowledged).length
   };
 
   return (
