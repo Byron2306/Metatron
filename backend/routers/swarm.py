@@ -894,6 +894,87 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
     }
 
 
+@router.post("/alerts/critical")
+async def receive_critical_alert(alert: Dict[str, Any]):
+    """Receive critical alerts from agents (auto-kill notifications, etc.)"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Store the alert
+    alert_doc = {
+        "type": "agent_critical",
+        "alert_type": alert.get("alert_type", "UNKNOWN"),
+        "severity": alert.get("severity", "critical"),
+        "agent_id": alert.get("agent_id"),
+        "host_id": alert.get("host_id"),
+        "threat_id": alert.get("threat_id"),
+        "threat_title": alert.get("threat_title"),
+        "threat_type": alert.get("threat_type"),
+        "message": alert.get("message"),
+        "evidence": alert.get("evidence"),
+        "remediation_action": alert.get("remediation_action"),
+        "timestamp": alert.get("timestamp", now),
+        "received_at": now,
+        "status": "open",
+        "acknowledged": False
+    }
+    
+    await db.critical_alerts.insert_one(alert_doc)
+    
+    # Also add to regular alerts for dashboard visibility
+    await db.alerts.insert_one({
+        "type": "auto_remediation",
+        "severity": alert.get("severity", "critical"),
+        "source": alert.get("host_id", "unknown"),
+        "event_type": alert.get("alert_type"),
+        "message": f"{alert.get('alert_type')}: {alert.get('threat_title')} - {alert.get('message')}",
+        "data": alert,
+        "timestamp": now,
+        "status": "open"
+    })
+    
+    logger.warning(f"🚨 CRITICAL ALERT from {alert.get('host_id')}: {alert.get('alert_type')} - {alert.get('threat_title')}")
+    
+    return {"status": "received", "alert_type": alert.get("alert_type")}
+
+
+@router.get("/alerts/critical")
+async def get_critical_alerts(
+    limit: int = 50,
+    acknowledged: Optional[bool] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get critical alerts from agents"""
+    query = {}
+    if acknowledged is not None:
+        query["acknowledged"] = acknowledged
+    
+    cursor = db.critical_alerts.find(query, {"_id": 0}).sort("received_at", -1).limit(limit)
+    alerts = await cursor.to_list(limit)
+    
+    return {"alerts": alerts, "count": len(alerts)}
+
+
+@router.post("/alerts/critical/{alert_id}/acknowledge")
+async def acknowledge_critical_alert(
+    alert_id: str,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Acknowledge a critical alert"""
+    result = await db.critical_alerts.update_one(
+        {"threat_id": alert_id},
+        {"$set": {
+            "acknowledged": True,
+            "acknowledged_by": current_user.get("email"),
+            "acknowledged_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    return {"status": "acknowledged"}
+
+
 @router.get("/telemetry")
 async def get_telemetry(
     host_id: Optional[str] = None,
