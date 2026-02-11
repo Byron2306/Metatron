@@ -44,12 +44,14 @@ const SwarmDashboard = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const [overviewRes, devicesRes, telemetryRes, statsRes, deploymentsRes] = await Promise.all([
+      const [overviewRes, devicesRes, telemetryRes, statsRes, deploymentsRes, groupsRes, tagsRes] = await Promise.all([
         axios.get(`${API}/swarm/overview`, { headers }),
         axios.get(`${API}/swarm/devices`, { headers }),
         axios.get(`${API}/swarm/telemetry?limit=50`, { headers }),
         axios.get(`${API}/swarm/telemetry/stats`, { headers }),
-        axios.get(`${API}/swarm/deployment/status`, { headers })
+        axios.get(`${API}/swarm/deployment/status`, { headers }),
+        axios.get(`${API}/swarm/groups`, { headers }),
+        axios.get(`${API}/swarm/tags`, { headers })
       ]);
       
       setOverview(overviewRes.data);
@@ -57,6 +59,8 @@ const SwarmDashboard = () => {
       setTelemetry(telemetryRes.data.events || []);
       setTelemetryStats(statsRes.data);
       setDeployments(deploymentsRes.data.tasks || []);
+      setGroups(groupsRes.data.groups || []);
+      setAllTags(tagsRes.data.tags || []);
     } catch (err) {
       console.error('Failed to fetch swarm data:', err);
     } finally {
