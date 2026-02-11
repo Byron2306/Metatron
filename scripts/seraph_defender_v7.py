@@ -1632,17 +1632,52 @@ class TelemetryStore:
             "bytes_recv": 0
         }
         
-        # Auto-kill configuration
+        # AGGRESSIVE AUTO-KILL CONFIGURATION
+        # Kill threats immediately - don't wait for human approval
         self.auto_kill_enabled = True
-        self.auto_kill_severities = {ThreatSeverity.CRITICAL}  # Auto-kill CRITICAL threats
+        self.auto_kill_severities = {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH}  # Auto-kill CRITICAL AND HIGH
+        self.auto_kill_medium = True  # Also auto-kill medium if pattern matches
         
-        # Critical threat patterns that trigger auto-kill
+        # Critical threat patterns that ALWAYS trigger auto-kill (even if medium severity)
         self.critical_patterns = [
-            'mimikatz', 'lazagne', 'credential', 'lsass', 'sekurlsa',  # Credential theft
-            'ransomware', 'cryptolocker', 'wannacry', 'petya',  # Ransomware
-            'wiper', 'format', 'del /f /s /q', 'rm -rf',  # Destructive
-            'reverse shell', 'meterpreter', 'beacon', 'cobalt',  # C2/RAT
+            # Credential theft
+            'mimikatz', 'lazagne', 'credential', 'lsass', 'sekurlsa', 'procdump', 
+            'gsecdump', 'pwdump', 'fgdump', 'wce', 'ntdsutil', 'secretsdump',
+            # Ransomware families
+            'ransomware', 'cryptolocker', 'wannacry', 'petya', 'locky', 'cerber',
+            'ryuk', 'sodinokibi', 'revil', 'lockbit', 'conti', 'blackmatter',
+            'encrypt', '.crypt', '.locked', '.encrypted',
+            # Destructive commands
+            'wiper', 'format c:', 'del /f /s /q', 'rm -rf', 'dd if=/dev/zero',
+            'diskpart', 'clean all', 'cipher /w',
+            # C2/RAT/Backdoors
+            'reverse shell', 'meterpreter', 'beacon', 'cobalt', 'covenant',
+            'empire', 'sliver', 'brute ratel', 'havoc', 'mythic', 'nighthawk',
+            'netcat', 'nc -e', 'ncat -e', 'socat exec',
+            # Lateral movement
+            'psexec', 'wmiexec', 'smbexec', 'atexec', 'dcomexec', 'pass the hash',
+            'pass-the-hash', 'pth-', 'overpass', 'golden ticket', 'silver ticket',
+            # Privilege escalation
+            'getsystem', 'privilege::debug', 'token::elevate', 'uac bypass',
+            'fodhelper', 'eventvwr', 'sdclt', 'cmstp',
+            # Data exfiltration
+            'exfiltrat', 'megasync', 'rclone', 'winscp -script', 'ftp -s:',
+            # Keyloggers
+            'keylog', 'keyboard hook', 'getasynckeystate', 'rawinputdevice',
+            # Process injection
+            'process hollowing', 'dll injection', 'reflective', 'shellcode',
+            'createremotethread', 'ntqueueapcthread', 'setwindowshookex',
+            # Mining/Cryptojacking
+            'xmrig', 'cryptonight', 'stratum+tcp', 'minerd', 'cgminer', 'bfgminer',
         ]
+        
+        # Process names to IMMEDIATELY kill (no questions asked)
+        self.instant_kill_processes = {
+            'mimikatz.exe', 'lazagne.exe', 'procdump.exe', 'gsecdump.exe',
+            'pwdump.exe', 'wce.exe', 'xmrig.exe', 'minerd.exe', 'cgminer.exe',
+            'netcat.exe', 'nc.exe', 'ncat.exe', 'psexec.exe', 'paexec.exe',
+            'cobaltstrike.exe', 'beacon.exe', 'meterpreter.exe',
+        }
     
     def add_threat(self, threat: Threat, auto_remediate: bool = True):
         """Add a detected threat with optional auto-remediation"""
