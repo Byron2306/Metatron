@@ -116,6 +116,9 @@ const NetworkTopologyPage = () => {
 
   useEffect(() => {
     fetchTopology();
+    // Auto-refresh for live threats
+    const interval = setInterval(fetchTopology, 10000);
+    return () => clearInterval(interval);
   }, [fetchTopology]);
 
   const getNodeColor = (status, type) => {
