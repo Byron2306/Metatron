@@ -67,12 +67,41 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **GET /api/swarm/alerts/critical** - List critical alerts
 - **POST /api/swarm/alerts/critical/{id}/acknowledge** - Acknowledge alert
 
-### Testing Results (iteration_19.json)
-- **Backend**: 100% pass rate (15/15 tests)
+#### 6. Device Grouping & Tagging
+- **POST /api/swarm/groups** - Create device groups with name, description, color
+- **GET /api/swarm/groups** - List groups with device counts
+- **PUT /api/swarm/devices/{ip}/group** - Assign device to group
+- **PUT /api/swarm/devices/{ip}/tags** - Update device tags
+- **GET /api/swarm/tags** - List all unique tags across devices
+
+#### 7. USB Scan Feature
+- **POST /api/swarm/usb/scan** - Initiate USB device scan on agent
+- **GET /api/swarm/usb/scans** - List USB scan results
+- **POST /api/swarm/usb/scan/{scan_id}/results** - Agent submits scan results
+- Automatic threat level calculation (safe/suspicious/critical)
+
+#### 8. AI Threat Prioritization with MITRE ATT&CK
+- **POST /api/swarm/threats/prioritize** - AI-powered threat prioritization
+- **GET /api/swarm/threats/mitre-mapping** - Get MITRE ATT&CK mapping
+- **12 MITRE ATT&CK Tactics** implemented:
+  - TA0006 Credential Access (weight: 1.0) - HIGHEST
+  - TA0010 Exfiltration (weight: 1.0) - HIGHEST
+  - TA0040 Impact (weight: 1.0) - HIGHEST
+  - TA0004 Privilege Escalation (weight: 0.95)
+  - TA0011 C2 (weight: 0.95)
+  - And 7 more...
+- **40+ keyword mappings** to tactics (mimikatz, ransomware, powershell, psexec, etc.)
+- Priority levels: CRITICAL, HIGH, MEDIUM, LOW with recommended actions
+
+#### 9. Windows Batch Installer
+- **`/app/scripts/install_seraph_windows.bat`** - One-click Windows installation
+- **GET /api/swarm/agent/download/windows-installer** - Download installer
+- Features: Python check, pip install, agent download, auto-start on login, desktop shortcut
+
+### Testing Results (iteration_19.json, iteration_20.json)
+- **Backend**: 100% pass rate (31+ tests)
 - **Frontend**: 100% pass rate
-- Command Center with 69 Pending Commands, 4 Active Threats
-- Network Topology showing 4 Live Threats, 2 Critical Alerts
-- Auto-kill functionality verified in both agent scripts
+- All features verified working via API testing and UI verification
 
 ---
 
