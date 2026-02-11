@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import ForceGraph2D from 'react-force-graph-2d';
 import { 
   Network, 
@@ -12,7 +12,11 @@ import {
   Wifi,
   Cloud,
   Monitor,
-  Lock
+  Lock,
+  Zap,
+  Activity,
+  AlertOctagon,
+  Ban
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -25,23 +29,75 @@ const NetworkTopologyPage = () => {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [liveThreats, setLiveThreats] = useState([]);
+  const [criticalAlerts, setCriticalAlerts] = useState([]);
+  const [threatNodes, setThreatNodes] = useState(new Map());
   const graphRef = useRef();
 
   const fetchTopology = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API}/network/topology`, {
-        headers: getAuthHeaders()
+      const [topoRes, threatsRes, alertsRes] = await Promise.all([
+        axios.get(`${API}/network/topology`, { headers: getAuthHeaders() }),
+        axios.get(`${API}/swarm/telemetry?severity=critical&limit=30`, { headers: getAuthHeaders() }),
+        axios.get(`${API}/swarm/alerts/critical?limit=20`, { headers: getAuthHeaders() })
+      ]);
+      
+      // Get threats and map them to nodes
+      const threats = threatsRes.data.events || [];
+      setLiveThreats(threats);
+      
+      const alerts = alertsRes.data.alerts || [];
+      setCriticalAlerts(alerts);
+      
+      // Map threats to node IPs
+      const threatMap = new Map();
+      threats.forEach(t => {
+        const ip = t.data?.remote_ip || t.data?.ip || t.host_id;
+        if (ip) {
+          if (!threatMap.has(ip)) {
+            threatMap.set(ip, []);
+          }
+          threatMap.get(ip).push(t);
+        }
+      });
+      setThreatNodes(threatMap);
+      
+      // Transform data for force graph with threat overlay
+      const nodes = topoRes.data.nodes.map(node => {
+        const hasThreats = threatMap.has(node.ip);
+        const threatCount = hasThreats ? threatMap.get(node.ip).length : 0;
+        
+        return {
+          ...node,
+          val: node.type === 'attacker' ? 15 : hasThreats ? 14 : node.type === 'firewall' ? 12 : 10,
+          color: hasThreats ? '#EF4444' : getNodeColor(node.status, node.type),
+          hasThreats,
+          threatCount,
+          pulsing: hasThreats
+        };
       });
       
-      // Transform data for force graph
-      const nodes = response.data.nodes.map(node => ({
-        ...node,
-        val: node.type === 'attacker' ? 15 : node.type === 'firewall' ? 12 : 10,
-        color: getNodeColor(node.status, node.type)
-      }));
+      // Add dynamic threat nodes from telemetry
+      const existingIps = new Set(nodes.map(n => n.ip));
+      threatMap.forEach((threats, ip) => {
+        if (!existingIps.has(ip) && ip && !ip.startsWith('127.')) {
+          nodes.push({
+            id: `threat-${ip}`,
+            label: `Threat: ${ip}`,
+            ip: ip,
+            type: 'attacker',
+            status: 'compromised',
+            val: 15,
+            color: '#EF4444',
+            hasThreats: true,
+            threatCount: threats.length,
+            pulsing: true
+          });
+        }
+      });
       
-      const links = response.data.links.map(link => ({
+      const links = topoRes.data.links.map(link => ({
         source: link.source,
         target: link.target,
         type: link.type,
