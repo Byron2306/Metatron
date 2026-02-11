@@ -440,12 +440,14 @@ class MobileRemediationEngine:
 # =============================================================================
 
 class MobileTelemetryStore:
-    """Local telemetry storage"""
+    """Local telemetry storage with auto-kill capabilities"""
     
     def __init__(self):
         self.events = deque(maxlen=1000)
         self.threats = deque(maxlen=200)
         self.pending_approvals = {}
+        self.auto_remediated = deque(maxlen=100)  # Auto-killed threats
+        self.alarms = deque(maxlen=50)
         self.network_connections = []
         self.installed_apps = []
         
@@ -454,23 +456,92 @@ class MobileTelemetryStore:
             "threats_detected": 0,
             "threats_blocked": 0,
             "threats_pending": 0,
+            "threats_auto_killed": 0,
             "apps_scanned": 0,
             "connections_monitored": 0
         }
+        
+        # Auto-kill configuration for mobile
+        self.auto_kill_enabled = True
+        self.auto_kill_severities = {ThreatSeverity.CRITICAL}
+        
+        # Critical patterns for mobile
+        self.critical_patterns = [
+            'malicious', 'spyware', 'stalkerware', 'keylogger',
+            'banking', 'credential', 'phishing', 'ransomware'
+        ]
     
-    def add_threat(self, threat: MobileThreat):
+    def add_threat(self, threat: MobileThreat, auto_remediate: bool = True):
         self.threats.append(threat)
         self.stats["threats_detected"] += 1
         
-        if threat.remediation_available:
+        # Check if auto-kill should be triggered
+        should_auto_kill = False
+        if self.auto_kill_enabled and threat.remediation_available:
+            if threat.severity in self.auto_kill_severities:
+                should_auto_kill = True
+            
+            # Check critical patterns
+            threat_text = f"{threat.title} {threat.description}".lower()
+            for pattern in self.critical_patterns:
+                if pattern in threat_text:
+                    should_auto_kill = True
+                    break
+        
+        if should_auto_kill and auto_remediate:
+            self.trigger_alarm(threat, "MOBILE_AUTO_KILL")
+            threat.status = "auto_remediated"
+            threat.user_approved = True
+            self.auto_remediated.append(threat)
+        elif threat.remediation_available:
             self.pending_approvals[threat.id] = threat
             self.stats["threats_pending"] += 1
+            
+            if threat.severity in {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH}:
+                self.trigger_alarm(threat, "MOBILE_MANUAL_REQUIRED")
         
         self.add_event({
             "event_type": f"threat.{threat.type}",
             "severity": threat.severity.value,
-            "data": {"title": threat.title, "description": threat.description}
+            "data": {
+                "title": threat.title, 
+                "description": threat.description,
+                "auto_kill_triggered": should_auto_kill
+            }
         })
+        
+        return should_auto_kill
+    
+    def trigger_alarm(self, threat: MobileThreat, alarm_type: str):
+        """Trigger mobile alarm with notification"""
+        alarm = {
+            "id": f"alarm-{uuid.uuid4().hex[:8]}",
+            "type": alarm_type,
+            "threat_id": threat.id,
+            "threat_title": threat.title,
+            "severity": threat.severity.value,
+            "timestamp": datetime.now().isoformat(),
+            "acknowledged": False
+        }
+        self.alarms.append(alarm)
+        logger.warning(f"🚨 MOBILE ALARM: {alarm_type} - {threat.title}")
+        
+        # Send mobile notification
+        self._send_notification(f"⚠️ {alarm_type}", threat.title)
+    
+    def _send_notification(self, title: str, message: str):
+        """Send mobile notification"""
+        if IS_ANDROID and ANDROID_HELPER:
+            try:
+                ANDROID_HELPER.notify(title, message)
+            except:
+                pass
+        elif IS_IOS:
+            try:
+                import notification
+                notification.schedule(title, delay=0, message=message)
+            except:
+                pass
     
     def add_event(self, event: dict):
         event["id"] = uuid.uuid4().hex[:8]
