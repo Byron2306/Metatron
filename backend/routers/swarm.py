@@ -6,7 +6,7 @@ Manages the agent swarm - discovery, deployment, telemetry.
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
 
 from .dependencies import get_current_user, check_permission, db
