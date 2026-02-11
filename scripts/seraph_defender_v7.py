@@ -2685,13 +2685,20 @@ class SeraphDefenderV7:
     
     def _monitor_loop(self):
         """Main monitoring loop"""
+        scan_counter = 0
         while self.running:
             try:
-                # Monitor network
+                # Monitor network connections
                 self._scan_network()
                 
                 # Monitor processes
                 self._scan_processes()
+                
+                # Periodic advanced network scanning (every 10 iterations = ~30 seconds)
+                scan_counter += 1
+                if scan_counter >= 10:
+                    self._perform_network_scans()
+                    scan_counter = 0
                 
                 # Process pending remediations
                 self._process_approved_remediations()
@@ -2712,6 +2719,45 @@ class SeraphDefenderV7:
             except Exception as e:
                 logger.error(f"Error: {e}")
                 time.sleep(5)
+    
+    def _perform_network_scans(self):
+        """Perform periodic network infrastructure scans"""
+        try:
+            # Scan connected WiFi for threats
+            connected_wifi = wifi_scanner.get_connected_network()
+            if connected_wifi and not connected_wifi.get('error'):
+                # Check if connected to suspicious network
+                ssid = connected_wifi.get('ssid', '').lower()
+                suspicious_patterns = ['free', 'public', 'guest', 'airport', 'hotel', 'open']
+                if any(p in ssid for p in suspicious_patterns):
+                    telemetry_store.add_event({
+                        "event_type": "network.suspicious_wifi",
+                        "severity": "medium",
+                        "data": {
+                            "ssid": connected_wifi.get('ssid'),
+                            "message": f"Connected to potentially unsafe WiFi: {connected_wifi.get('ssid')}"
+                        }
+                    })
+            
+            # Check gateway for dangerous open ports
+            gateway = network_scanner.get_gateway()
+            if gateway:
+                # Quick check for dangerous ports on gateway
+                dangerous_ports = [23, 445, 3389, 5900]  # Telnet, SMB, RDP, VNC
+                for port in dangerous_ports:
+                    if network_scanner.scan_port(gateway, port, timeout=0.3):
+                        telemetry_store.add_event({
+                            "event_type": "network.dangerous_port_open",
+                            "severity": "high",
+                            "data": {
+                                "gateway": gateway,
+                                "port": port,
+                                "service": network_scanner._get_service_name(port),
+                                "message": f"Dangerous port {port} ({network_scanner._get_service_name(port)}) open on gateway"
+                            }
+                        })
+        except Exception as e:
+            logger.debug(f"Network scan error: {e}")
     
     def _scan_network(self):
         """Enhanced network connection scanning with traffic analysis"""
