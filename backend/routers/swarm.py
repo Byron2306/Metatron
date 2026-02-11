@@ -970,6 +970,345 @@ async def receive_critical_alert(alert: Dict[str, Any]):
     return {"status": "received", "alert_type": alert.get("alert_type")}
 
 
+# =============================================================================
+# SERVER-SIDE AUTO-KILL FUNCTIONALITY
+# =============================================================================
+
+class AutoKillRequest(BaseModel):
+    agent_id: str
+    target_type: str  # process, ip, file, connection
+    target: str  # pid, ip address, filepath, etc.
+    reason: str
+    priority: str = "critical"
+
+
+@router.post("/auto-kill/process")
+async def auto_kill_process(
+    agent_id: str,
+    pid: int,
+    reason: str = "Server-initiated kill",
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Server-initiated process kill on agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_id = f"kill-{uuid.uuid4().hex[:8]}"
+    
+    # Create kill command
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "kill_process",
+        "command_name": "Server Auto-Kill Process",
+        "parameters": {"pid": pid, "reason": reason},
+        "status": "approved",  # Auto-approved for kill commands
+        "priority": "critical",
+        "risk_level": "high",
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    
+    # Also add to command queue for immediate pickup
+    await db.command_queue.insert_one({
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "kill_process",
+        "parameters": {"pid": pid, "reason": reason},
+        "status": "pending",
+        "created_at": now
+    })
+    
+    logger.warning(f"🔥 AUTO-KILL: Process {pid} on agent {agent_id} - {reason}")
+    
+    return {
+        "status": "queued",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "target": f"PID {pid}",
+        "message": f"Kill command sent to agent {agent_id}"
+    }
+
+
+@router.post("/auto-kill/ip")
+async def auto_kill_ip(
+    agent_id: str,
+    ip_address: str,
+    reason: str = "Server-initiated block",
+    duration_hours: int = 24,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Server-initiated IP block on agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_id = f"block-{uuid.uuid4().hex[:8]}"
+    
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "block_ip",
+        "command_name": "Server Auto-Block IP",
+        "parameters": {
+            "ip_address": ip_address,
+            "reason": reason,
+            "duration_hours": duration_hours
+        },
+        "status": "approved",
+        "priority": "critical",
+        "risk_level": "medium",
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    await db.command_queue.insert_one({
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "block_ip",
+        "parameters": {"ip_address": ip_address, "duration_hours": duration_hours},
+        "status": "pending",
+        "created_at": now
+    })
+    
+    logger.warning(f"🔥 AUTO-KILL: Blocking IP {ip_address} on agent {agent_id} - {reason}")
+    
+    return {
+        "status": "queued",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "target": ip_address,
+        "message": f"IP block command sent to agent {agent_id}"
+    }
+
+
+@router.post("/auto-kill/file")
+async def auto_kill_file(
+    agent_id: str,
+    file_path: str,
+    reason: str = "Server-initiated quarantine",
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Server-initiated file quarantine on agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_id = f"quar-{uuid.uuid4().hex[:8]}"
+    
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "quarantine_file",
+        "command_name": "Server Auto-Quarantine File",
+        "parameters": {"file_path": file_path, "reason": reason},
+        "status": "approved",
+        "priority": "critical",
+        "risk_level": "high",
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    await db.command_queue.insert_one({
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "quarantine_file",
+        "parameters": {"file_path": file_path},
+        "status": "pending",
+        "created_at": now
+    })
+    
+    logger.warning(f"🔥 AUTO-KILL: Quarantining {file_path} on agent {agent_id} - {reason}")
+    
+    return {
+        "status": "queued",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "target": file_path,
+        "message": f"Quarantine command sent to agent {agent_id}"
+    }
+
+
+@router.post("/auto-kill/isolate")
+async def auto_kill_isolate_host(
+    agent_id: str,
+    reason: str = "Server-initiated isolation",
+    duration_hours: int = 1,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Server-initiated host isolation (block all network)"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_id = f"iso-{uuid.uuid4().hex[:8]}"
+    
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "isolate_host",
+        "command_name": "Server Auto-Isolate Host",
+        "parameters": {"reason": reason, "duration_hours": duration_hours},
+        "status": "approved",
+        "priority": "critical",
+        "risk_level": "critical",
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    await db.command_queue.insert_one({
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "isolate_host",
+        "parameters": {"duration_hours": duration_hours},
+        "status": "pending",
+        "created_at": now
+    })
+    
+    logger.warning(f"🔥 AUTO-KILL: Isolating host {agent_id} - {reason}")
+    
+    return {
+        "status": "queued",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "target": "full_network_isolation",
+        "message": f"Host isolation command sent to agent {agent_id}"
+    }
+
+
+@router.post("/auto-kill/batch")
+async def auto_kill_batch(
+    targets: List[Dict[str, Any]],
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Send multiple kill commands at once"""
+    now = datetime.now(timezone.utc).isoformat()
+    results = []
+    
+    for target in targets:
+        command_id = f"batch-{uuid.uuid4().hex[:8]}"
+        agent_id = target.get("agent_id")
+        command_type = target.get("type")
+        params = target.get("parameters", {})
+        
+        command_doc = {
+            "command_id": command_id,
+            "agent_id": agent_id,
+            "command_type": command_type,
+            "command_name": f"Batch Auto-Kill: {command_type}",
+            "parameters": params,
+            "status": "approved",
+            "priority": "critical",
+            "risk_level": "high",
+            "created_by": current_user.get("email", "system"),
+            "created_at": now,
+            "auto_kill": True,
+            "batch": True
+        }
+        
+        await db.agent_commands.insert_one(command_doc)
+        await db.command_queue.insert_one({
+            "command_id": command_id,
+            "agent_id": agent_id,
+            "command_type": command_type,
+            "parameters": params,
+            "status": "pending",
+            "created_at": now
+        })
+        
+        results.append({
+            "command_id": command_id,
+            "agent_id": agent_id,
+            "type": command_type,
+            "status": "queued"
+        })
+    
+    logger.warning(f"🔥 BATCH AUTO-KILL: {len(results)} commands queued")
+    
+    return {
+        "status": "queued",
+        "count": len(results),
+        "commands": results
+    }
+
+
+# Browser extension command endpoint
+@router.post("/browser-shield/kill")
+async def browser_kill_command(command: Dict[str, Any]):
+    """
+    Send kill command to browser extension.
+    Extensions poll this endpoint to receive commands.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_doc = {
+        "command_id": f"browser-{uuid.uuid4().hex[:8]}",
+        "type": "browser_kill",
+        "action": command.get("action"),  # block_domain, block_url, kill_tab, clear_cache
+        "target": command.get("target"),
+        "reason": command.get("reason", "Server command"),
+        "created_at": now,
+        "status": "pending",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    }
+    
+    await db.browser_commands.insert_one(command_doc)
+    
+    return {"status": "queued", "command_id": command_doc["command_id"]}
+
+
+@router.get("/browser-shield/commands")
+async def get_browser_commands():
+    """Browser extensions poll this to get pending commands"""
+    now = datetime.now(timezone.utc)
+    
+    # Get pending commands that haven't expired
+    cursor = db.browser_commands.find({
+        "status": "pending",
+        "expires_at": {"$gt": now.isoformat()}
+    }, {"_id": 0})
+    
+    commands = await cursor.to_list(50)
+    
+    # Mark as delivered
+    for cmd in commands:
+        await db.browser_commands.update_one(
+            {"command_id": cmd["command_id"]},
+            {"$set": {"status": "delivered", "delivered_at": now.isoformat()}}
+        )
+    
+    return {"commands": commands}
+
+
+@router.get("/browser-shield/blocklist")
+async def get_browser_blocklist():
+    """Get domain blocklist for browser extension"""
+    # Static blocklist + dynamic from threats
+    static_domains = [
+        "malware-test.com", "phishing-example.org", "evil-download.net",
+        "credential-steal.xyz", "cryptominer.io", "ransomware-delivery.com"
+    ]
+    
+    # Get domains from recent threats
+    cursor = db.alerts.find({
+        "severity": {"$in": ["critical", "high"]},
+        "data.domain": {"$exists": True}
+    }, {"data.domain": 1}).limit(100)
+    
+    threat_domains = []
+    async for alert in cursor:
+        domain = alert.get("data", {}).get("domain")
+        if domain:
+            threat_domains.append(domain)
+    
+    return {
+        "domains": list(set(static_domains + threat_domains)),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+
+
 @router.get("/alerts/critical")
 async def get_critical_alerts(
     limit: int = 50,
