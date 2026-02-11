@@ -1464,6 +1464,11 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             <div class="tab active" data-panel="threats">🎯 Active Threats</div>
             <div class="tab" data-panel="network">🌐 Network Monitor</div>
             <div class="tab" data-panel="processes">📊 Processes</div>
+            <div class="tab" data-panel="files">📁 File Index</div>
+            <div class="tab" data-panel="admin">👑 Admin Privileges</div>
+            <div class="tab" data-panel="rootkit">🔍 Rootkit Scan</div>
+            <div class="tab" data-panel="hidden">📂 Hidden Folders</div>
+            <div class="tab" data-panel="aliases">⚡ Shell Aliases</div>
             <div class="tab" data-panel="aatl">🤖 AI Detection</div>
             <div class="tab" data-panel="events">📋 All Events</div>
         </div>
@@ -1494,8 +1499,80 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
         
         <div class="panel" id="panel-processes">
             <div class="card">
-                <div class="card-header">Running Processes</div>
+                <div class="card-header">Running Processes (Click to Kill)</div>
                 <div class="card-body" id="processList" style="max-height: 500px; overflow-y: auto;"></div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-files">
+            <div class="card">
+                <div class="card-header">📁 File System Telemetry</div>
+                <div class="card-body">
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px;">
+                        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 24px; font-weight: bold; color: var(--accent);" id="fileTotal">0</div>
+                            <div style="color: var(--text-secondary);">Total Files</div>
+                        </div>
+                        <div style="background: rgba(239,68,68,0.2); padding: 16px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 24px; font-weight: bold; color: #ef4444;" id="fileExec">0</div>
+                            <div style="color: var(--text-secondary);">Executables</div>
+                        </div>
+                        <div style="background: rgba(251,191,36,0.2); padding: 16px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 24px; font-weight: bold; color: #fbbf24;" id="fileRecent">0</div>
+                            <div style="color: var(--text-secondary);">Recent Changes</div>
+                        </div>
+                        <div style="background: rgba(239,68,68,0.3); padding: 16px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 24px; font-weight: bold; color: #ef4444;" id="fileSuspicious">0</div>
+                            <div style="color: var(--text-secondary);">Suspicious</div>
+                        </div>
+                    </div>
+                    <div id="fileList" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-admin">
+            <div class="card">
+                <div class="card-header">👑 Admin Privileges Monitor</div>
+                <div class="card-body">
+                    <h4 style="margin-bottom: 12px; color: var(--accent);">Local Administrators</h4>
+                    <div id="adminList" style="margin-bottom: 20px;"></div>
+                    <h4 style="margin-bottom: 12px; color: var(--warning);">Elevated Processes (SYSTEM/root)</h4>
+                    <div id="elevatedList" style="max-height: 300px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-rootkit">
+            <div class="card">
+                <div class="card-header">🔍 Rootkit Detection</div>
+                <div class="card-body">
+                    <button onclick="runRootkitScan()" style="background: var(--accent); color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 16px;">Run Deep Scan</button>
+                    <div id="rootkitStatus" style="color: var(--success); margin-bottom: 16px;">Last scan: Never</div>
+                    <div id="rootkitList"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-hidden">
+            <div class="card">
+                <div class="card-header">📂 Hidden Folder Detection</div>
+                <div class="card-body">
+                    <button onclick="runHiddenScan()" style="background: var(--accent); color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 16px;">Scan Hidden Folders</button>
+                    <div id="hiddenStatus" style="color: var(--text-secondary); margin-bottom: 16px;">Last scan: Never</div>
+                    <div id="hiddenList"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-aliases">
+            <div class="card">
+                <div class="card-header">⚡ Shell Alias Detection</div>
+                <div class="card-body">
+                    <button onclick="runAliasScan()" style="background: var(--accent); color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 16px;">Scan Aliases</button>
+                    <div id="aliasStatus" style="color: var(--text-secondary); margin-bottom: 16px;">Last scan: Never</div>
+                    <div id="aliasList"></div>
+                </div>
             </div>
         </div>
         
