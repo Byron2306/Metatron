@@ -3409,6 +3409,119 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 : 'VPN not configured. Enter server details above.';
         }
         
+        // === USB FUNCTIONS ===
+        async function scanUSBDevices() {
+            document.getElementById('usbScanStatus').textContent = 'Scanning USB devices...';
+            try {
+                const res = await fetch('/api/scan/usb', { method: 'POST' });
+                const data = await res.json();
+                document.getElementById('usbScanStatus').textContent = 'Last scan: ' + new Date().toLocaleTimeString();
+                updateUSBDisplay(data);
+            } catch (e) {
+                document.getElementById('usbScanStatus').textContent = 'Scan failed: ' + e;
+            }
+        }
+        
+        function updateUSBDisplay(usbData) {
+            if (!usbData) return;
+            
+            // Update device list
+            const devices = usbData.devices || [];
+            document.getElementById('usbDeviceList').innerHTML = devices.length === 0
+                ? '<p style="color: var(--text-secondary);">No USB devices connected</p>'
+                : devices.map(d => `
+                    <div style="padding: 12px; background: rgba(0,0,0,0.3); margin: 8px 0; border-radius: 8px;">
+                        <strong style="color: var(--accent);">🔌 ${d.name || 'Unknown Device'}</strong><br/>
+                        <small style="color: var(--text-secondary);">Path: ${d.path || 'Unknown'} | Size: ${d.size || 'Unknown'}</small>
+                    </div>
+                `).join('');
+            
+            // Update threat list
+            const results = usbData.scan_results || [];
+            let threats = [];
+            results.forEach(r => {
+                if (r.threats) threats = threats.concat(r.threats);
+            });
+            
+            document.getElementById('usbThreatList').innerHTML = threats.length === 0
+                ? '<p style="color: var(--success);">✓ No threats detected on USB devices</p>'
+                : threats.map(t => `
+                    <div style="padding: 12px; background: rgba(239,68,68,0.2); margin: 8px 0; border-radius: 8px; border-left: 4px solid #ef4444;">
+                        <strong style="color: #ef4444;">[${(t.severity || 'high').toUpperCase()}] ${t.type}</strong><br/>
+                        <span style="color: var(--text-secondary);">${t.message}</span><br/>
+                        <small style="font-family: monospace;">${t.path}</small>
+                    </div>
+                `).join('');
+        }
+        
+        // === SANDBOX FUNCTIONS ===
+        async function submitToSandbox() {
+            const filePath = document.getElementById('sandboxFilePath').value;
+            if (!filePath) { alert('Please enter a file path'); return; }
+            
+            try {
+                const res = await fetch('/api/sandbox/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Analysis submitted!\\n' + data.message);
+                    fetchData();
+                } else {
+                    alert('Analysis failed: ' + data.error);
+                }
+            } catch (e) {
+                alert('Error: ' + e);
+            }
+        }
+        
+        function updateSandboxDisplay(sandboxData) {
+            if (!sandboxData) return;
+            
+            document.getElementById('sandboxStatus').innerHTML = sandboxData.enabled
+                ? '<span style="color: var(--success);">● Connected</span>'
+                : '<span style="color: var(--warning);">○ Local Mode</span>';
+            
+            const analyses = sandboxData.completed_analyses || [];
+            document.getElementById('sandboxCount').textContent = analyses.length;
+            
+            document.getElementById('sandboxAnalyses').innerHTML = analyses.length === 0
+                ? '<p style="color: var(--text-secondary);">No analyses completed yet</p>'
+                : analyses.slice(-10).reverse().map(a => {
+                    const verdictColor = {
+                        'malicious': 'var(--danger)',
+                        'suspicious': 'var(--warning)',
+                        'potentially_unwanted': '#fbbf24',
+                        'clean': 'var(--success)'
+                    }[a.verdict] || 'var(--text-secondary)';
+                    return `
+                        <div style="padding: 12px; background: rgba(0,0,0,0.3); margin: 8px 0; border-radius: 8px;">
+                            <strong style="color: ${verdictColor};">${(a.verdict || 'unknown').toUpperCase()}</strong>
+                            <span style="float: right; color: var(--text-secondary);">Score: ${a.risk_score || 0}</span><br/>
+                            <small style="font-family: monospace;">${a.file_name || a.file_path}</small><br/>
+                            <small style="color: var(--text-secondary);">Indicators: ${(a.indicators || []).length}</small>
+                        </div>
+                    `;
+                }).join('');
+        }
+        
+        // === SIEM FUNCTIONS ===
+        function updateSIEMDisplay(siemData) {
+            if (!siemData) return;
+            
+            document.getElementById('siemStatus').innerHTML = siemData.enabled
+                ? '<span style="color: var(--success);">● Connected</span>'
+                : '<span style="color: var(--text-secondary);">○ Disabled</span>';
+            
+            document.getElementById('siemType').textContent = siemData.type
+                ? siemData.type.charAt(0).toUpperCase() + siemData.type.slice(1)
+                : 'Not configured';
+            
+            document.getElementById('siemBuffer').textContent = siemData.buffer_size || 0;
+        }
+        
         async function killProcess(pid) {
             if (confirm('Kill process ' + pid + '?')) {
                 await fetch('/api/kill/' + pid, { method: 'POST' });
@@ -3440,6 +3553,9 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 const data = await response.json();
                 updateDashboard(data);
                 updateVPNStatus(data.vpn_status);
+                updateUSBDisplay(data.usb_devices);
+                updateSandboxDisplay(data.sandbox);
+                updateSIEMDisplay(data.siem);
             } catch (e) {
                 console.error('Fetch error:', e);
             }
