@@ -667,6 +667,45 @@ async def list_vpn_agents(current_user: dict = Depends(get_current_user)):
 
 
 # =============================================================================
+# SIEM INTEGRATION
+# =============================================================================
+
+@router.get("/siem/status")
+async def get_siem_status(current_user: dict = Depends(get_current_user)):
+    """Get SIEM integration status"""
+    from services.siem import siem_service
+    return siem_service.get_status()
+
+
+@router.post("/siem/test")
+async def test_siem_connection(current_user: dict = Depends(check_permission("write"))):
+    """Send test event to SIEM"""
+    from services.siem import siem_service
+    
+    if not siem_service.enabled:
+        return {
+            "success": False,
+            "message": "SIEM not configured. Set ELASTICSEARCH_URL, SPLUNK_HEC_URL, or SYSLOG_SERVER"
+        }
+    
+    siem_service.log_event(
+        event_type="test.connection",
+        severity="info",
+        data={
+            "message": "Test event from Seraph AI",
+            "test_timestamp": datetime.now(timezone.utc).isoformat()
+        },
+        immediate=True
+    )
+    
+    return {
+        "success": True,
+        "message": f"Test event sent to {siem_service.siem_type}",
+        "siem_type": siem_service.siem_type
+    }
+
+
+# =============================================================================
 # AGENT DEPLOYMENT
 # =============================================================================
 
