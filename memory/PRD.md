@@ -31,7 +31,86 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v5.8.0**: Network Infrastructure Scanning + Split-Tunnel VPN (Feb 2026)
 - **v5.9.0**: Enterprise Security Layer + Aggressive Auto-Kill + SIEM + USB + Sandbox (Feb 2026)
 - **v6.0.0**: Advanced Security Services - MCP, Vector Memory, VNS, Quantum, AI Reasoning (Mar 2026)
-- **v6.1.0**: Full Feature Completion - Cuckoo Sandbox, VNS Alerts, Tactical Heatmap, PDF Fix (Mar 2026) - CURRENT
+- **v6.1.0**: Full Feature Completion - Cuckoo Sandbox, VNS Alerts, Tactical Heatmap, PDF Fix (Mar 2026)
+- **v6.2.0**: Metatron/Seraph Unified Agent Integration + MITRE Threat Hunting (Mar 2026) - CURRENT
+
+## v6.2.0 Metatron/Seraph Unified Agent Integration (Mar 2026) - CURRENT
+
+### Major Features Implemented
+
+#### 1. Metatron/Seraph Unified Agent v2.0
+- **File**: `/app/unified_agent/core/agent.py`
+- **Cross-platform support**: Windows, macOS, Linux, Android (Termux), iOS (Pythonista)
+- **Features merged from both agents**:
+  - Clean modular architecture from Metatron
+  - Advanced security features from seraph_defender_v7
+- **Monitoring Modules**:
+  - Process Monitor with aggressive detection
+  - Network Monitor with threat intelligence
+  - Port Scanner with router vulnerability detection
+  - WiFi Scanner with open network detection
+  - Bluetooth Scanner
+- **Security Features**:
+  - SIEM Integration (Elasticsearch, Splunk HEC, Syslog)
+  - VNS Sync for network flow analysis
+  - AI Analysis integration
+  - Aggressive Auto-Kill for CRITICAL/HIGH threats
+  - Remediation Engine (kill process, block IP, quarantine file)
+- **Threat Intelligence**:
+  - Malicious IP ranges
+  - Suspicious ports (Metasploit, botnets, backdoors)
+  - Malicious process names (mimikatz, xmrig, etc.)
+  - Critical command patterns (credential theft, ransomware, C2)
+
+#### 2. Unified Agent API Integration
+- **Router**: `/app/backend/routers/unified_agent.py`
+- **Integrated into**: `/app/backend/server.py`
+- **Endpoints**:
+  - `POST /api/unified/agents/register` - Register new agent
+  - `POST /api/unified/agents/{agent_id}/heartbeat` - Agent heartbeat with telemetry
+  - `GET /api/unified/agents` - List all agents
+  - `GET /api/unified/agents/{agent_id}` - Get agent details
+  - `POST /api/unified/agents/{agent_id}/command` - Send command to agent
+  - `GET /api/unified/stats` - Get unified agent statistics
+
+#### 3. MITRE ATT&CK Threat Hunting Service
+- **Service**: `/app/backend/services/threat_hunting.py`
+- **Router**: `/app/backend/routers/hunting.py`
+- **20 Hunting Rules covering 8 MITRE Tactics**:
+  - TA0006 Credential Access: T1003.001, T1003.002, T1558.003
+  - TA0002 Execution: T1059.001, T1059.003, T1047
+  - TA0003 Persistence: T1547.001, T1053.005
+  - TA0005 Defense Evasion: T1562.001, T1070.001, T1218.010
+  - TA0008 Lateral Movement: T1021.002, T1021.001, T1570
+  - TA0011 Command and Control: T1071.001, T1095
+  - TA0010 Exfiltration: T1567, T1048
+  - TA0007 Discovery: T1087, T1083
+- **Endpoints**:
+  - `GET /api/hunting/status` - Hunting engine status
+  - `GET /api/hunting/rules` - List all rules
+  - `POST /api/hunting/hunt` - Execute hunt on telemetry
+  - `GET /api/hunting/matches` - Get recent matches
+  - `GET /api/hunting/matches/high-severity` - High severity matches
+  - `GET /api/hunting/tactics` - Get tactics coverage
+  - `GET /api/hunting/techniques` - Get technique mappings
+  - `PUT /api/hunting/rules/{rule_id}/toggle` - Enable/disable rule
+
+#### 4. Threat Hunting Frontend
+- **Page**: `/app/frontend/src/pages/ThreatHuntingPage.jsx`
+- **Features**:
+  - 5 Stat Cards: Rules Loaded, Hunts Executed, Matches Found, Tactics Covered, Techniques
+  - 4 Tabs: Overview, Hunting Rules, Matches, ATT&CK Matrix
+  - Expandable rule details with toggle switches
+  - Severity-coded match display
+  - MITRE ATT&CK coverage matrix visualization
+
+### Testing Results (100% Pass)
+- 18 backend tests passed
+- Frontend fully functional
+- Detections verified: mimikatz (T1003.001), encoded PowerShell (T1059.001), suspicious ports (T1095)
+
+### Deprecation Note
+- `/app/scripts/seraph_defender_v7.py` is still functional but the new unified agent in `/app/unified_agent/` is the recommended agent going forward
 
 ## v6.1.0 Full Feature Completion (Mar 2026) - CURRENT
 
