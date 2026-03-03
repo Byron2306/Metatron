@@ -106,6 +106,12 @@ from routers.sandbox import router as sandbox_router
 from routers.browser_isolation import router as browser_isolation_router
 from routers.kibana import router as kibana_router
 
+# Import Browser Extension router
+from routers.extension import router as extension_router
+
+# Import Multi-Tenant router
+from routers.multi_tenant import router as multi_tenant_router
+
 # Initialize ML service with database
 from ml_threat_prediction import ml_predictor
 ml_predictor.set_database(db)
@@ -144,6 +150,12 @@ app.include_router(ml_router, prefix="/api")
 app.include_router(sandbox_router, prefix="/api")
 app.include_router(browser_isolation_router, prefix="/api")
 app.include_router(kibana_router, prefix="/api")
+
+# Register Browser Extension router
+app.include_router(extension_router, prefix="/api")
+
+# Register Multi-Tenant router
+app.include_router(multi_tenant_router, prefix="/api")
 
 # Import agent commands router
 from routers.agent_commands import router as agent_commands_router

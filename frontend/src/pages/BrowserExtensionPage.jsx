@@ -27,6 +27,12 @@ export default function BrowserExtensionPage() {
   const { token } = useAuth();
   const [activeTab, setActiveTab] = useState("overview");
 
+  const downloadExtension = () => {
+    // Direct download from backend
+    window.open(`${API_URL}/api/extension/download`, '_blank');
+    toast.success("Extension download started!");
+  };
+
   const features = [
     {
       icon: Shield,
@@ -425,50 +431,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const copyToClipboard = (text, name) => {
     navigator.clipboard.writeText(text);
     toast.success(`${name} copied to clipboard`);
-  };
-
-  const downloadExtension = () => {
-    const files = {
-      'manifest.json': manifestCode,
-      'background.js': backgroundCode,
-      'content.js': contentCode,
-      'popup.html': popupHtml,
-      'popup.js': popupJs
-    };
-    
-    // Create a simple text file with instructions
-    const instructions = `
-SERAPH AI BROWSER EXTENSION
-===========================
-
-Installation Instructions:
-1. Create a new folder called "seraph-extension"
-2. Copy each file below into the folder
-3. Open Chrome and go to chrome://extensions
-4. Enable "Developer mode" (top right)
-5. Click "Load unpacked"
-6. Select the "seraph-extension" folder
-
-Files to create:
-- manifest.json
-- background.js
-- content.js
-- popup.html
-- popup.js
-- icons/ (create folder with 16x16, 48x48, 128x128 PNG icons)
-
-Note: Replace the API URL in background.js with your Seraph AI server URL.
-`;
-
-    const blob = new Blob([instructions], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'seraph-extension-instructions.txt';
-    a.click();
-    URL.revokeObjectURL(url);
-    
-    toast.success("Download started! Check the instructions file.");
   };
 
   return (

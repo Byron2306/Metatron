@@ -36,7 +36,7 @@ def safe_str(value, max_length=50, default="N/A"):
         if len(result) > max_length:
             return result[:max_length-3] + "..."
         return result
-    except:
+    except Exception:
         return default
 
 
@@ -371,3 +371,130 @@ Keep the summary professional and actionable."""
     except Exception as e:
         logger.error(f"AI summary generation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate summary: {str(e)}")
+
+
+
+@router.get("/stress-test")
+async def stress_test_reports(
+    iterations: int = Query(default=10, le=100, ge=1),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Stress test PDF report generation.
+    Generates multiple reports to verify stability.
+    """
+    results = {
+        "total_iterations": iterations,
+        "successful": 0,
+        "failed": 0,
+        "errors": [],
+        "timing_ms": []
+    }
+    
+    # Generate test data
+    test_threats = [
+        {
+            "id": f"threat_{i}",
+            "name": f"Test Threat {i}",
+            "severity": ["critical", "high", "medium", "low"][i % 4],
+            "type": ["malware", "phishing", "ransomware", "credential_theft"][i % 4],
+            "status": "active",
+            "detected_at": datetime.now(timezone.utc).isoformat(),
+            "description": f"This is test threat number {i} for stress testing the PDF generation system."
+        }
+        for i in range(50)
+    ]
+    
+    test_alerts = [
+        {
+            "id": f"alert_{i}",
+            "message": f"Test alert message {i}",
+            "severity": ["critical", "high", "medium", "low"][i % 4],
+            "acknowledged": i % 2 == 0,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        for i in range(100)
+    ]
+    
+    test_stats = {
+        "critical_threats": 10,
+        "high_threats": 15,
+        "medium_threats": 20,
+        "low_threats": 5,
+        "total_alerts": 100,
+        "acknowledged_alerts": 50,
+        "active_agents": 5
+    }
+    
+    import time
+    
+    for i in range(iterations):
+        start_time = time.time()
+        try:
+            pdf_buffer = generate_threat_report_pdf(
+                test_threats,
+                test_alerts,
+                test_stats,
+                include_charts=True
+            )
+            
+            # Verify PDF is valid
+            pdf_data = pdf_buffer.getvalue()
+            if pdf_data[:4] != b'%PDF':
+                raise ValueError("Invalid PDF header")
+            
+            results["successful"] += 1
+            
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append({
+                "iteration": i + 1,
+                "error": str(e),
+                "traceback": traceback.format_exc()[:500]
+            })
+        
+        elapsed_ms = (time.time() - start_time) * 1000
+        results["timing_ms"].append(round(elapsed_ms, 2))
+    
+    # Calculate statistics
+    if results["timing_ms"]:
+        results["avg_time_ms"] = round(sum(results["timing_ms"]) / len(results["timing_ms"]), 2)
+        results["min_time_ms"] = min(results["timing_ms"])
+        results["max_time_ms"] = max(results["timing_ms"])
+    
+    results["success_rate"] = f"{(results['successful'] / iterations) * 100:.1f}%"
+    
+    # Only keep first 5 errors to avoid huge response
+    results["errors"] = results["errors"][:5]
+    # Remove individual timings if too many
+    if len(results["timing_ms"]) > 20:
+        results["timing_ms"] = results["timing_ms"][:20] + ["..."]
+    
+    return results
+
+
+@router.get("/health")
+async def report_health():
+    """Check PDF generation health"""
+    try:
+        # Generate a minimal PDF
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        styles = getSampleStyleSheet()
+        story = [Paragraph("Health Check", styles['Heading1'])]
+        doc.build(story)
+        
+        pdf_data = buffer.getvalue()
+        
+        return {
+            "status": "healthy",
+            "pdf_generation": "working",
+            "pdf_size_bytes": len(pdf_data),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
