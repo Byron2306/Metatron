@@ -133,7 +133,11 @@ const AlertsPage = () => {
         headers: getAuthHeaders(),
         params
       });
-      setAlerts(response.data);
+      // Handle both array and object response formats
+      const alertsData = Array.isArray(response.data) 
+        ? response.data 
+        : (response.data.alerts || []);
+      setAlerts(alertsData);
     } catch (error) {
       toast.error('Failed to fetch alerts');
     } finally {
