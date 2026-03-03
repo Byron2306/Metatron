@@ -28,7 +28,127 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v5.5.0**: UI Branding Overhaul + Deploy All Fix + Documentation (Feb 2026)
 - **v5.6.0**: Auto-Kill Defense + Command Center + Network Threat Map (Feb 2026)
 - **v5.7.0**: Advanced Agent Detection + Browser Extension + Bug Fixes (Feb 2026)
-- **v5.8.0**: Network Infrastructure Scanning + Split-Tunnel VPN (Feb 2026) - CURRENT
+- **v5.8.0**: Network Infrastructure Scanning + Split-Tunnel VPN (Feb 2026)
+- **v5.9.0**: Enterprise Security Layer + Aggressive Auto-Kill + SIEM + USB + Sandbox (Feb 2026) - CURRENT
+
+## v5.9.0 Enterprise Security Layer (Feb 2026) - COMPLETED
+
+### Major Features Implemented
+
+#### 1. Aggressive Auto-Kill System (seraph_defender_v7.py)
+- **Auto-kills CRITICAL + HIGH severity threats immediately** - no human approval needed
+- **Pattern matching auto-kill** - matches 50+ dangerous patterns regardless of severity:
+  - Credential theft: mimikatz, lazagne, lsass, sekurlsa, procdump, etc.
+  - Ransomware families: cryptolocker, wannacry, petya, ryuk, revil, lockbit, etc.
+  - C2/RAT: meterpreter, beacon, cobalt, empire, sliver, mythic, etc.
+  - Lateral movement: psexec, wmiexec, pass-the-hash, golden ticket, etc.
+  - Data exfiltration: rclone, megasync, winscp, etc.
+- **Instant-kill processes**: mimikatz.exe, lazagne.exe, xmrig.exe, netcat.exe, etc.
+- **Kill reason tracking**: Logs why each threat was auto-killed
+
+#### 2. Full SIEM Integration
+- **Agent-side SIEMIntegration class**: Elasticsearch, Splunk HEC, Syslog
+- **Server-side siem.py service**: Centralized SIEM management
+- **Features**:
+  - Event buffering with 5-second flush
+  - Immediate send for critical/high events
+  - CEF format for Syslog
+  - Environment-based configuration
+
+#### 3. USB Scanner & Auto-Scan
+- **USBScanner class**: Monitors USB devices
+- **Auto-scan on connect**: New USB devices scanned immediately
+- **Threat detection**:
+  - Autorun files (critical)
+  - BadUSB/Rubber Ducky payloads
+  - Hidden executables
+  - Suspicious file types
+- **Dashboard tab**: USB Devices panel with scan results
+
+#### 4. Cuckoo Sandbox Integration
+- **CuckooSandbox class**: VM-based malware analysis
+- **Local fallback**: When Cuckoo not available, performs static analysis
+- **Features**:
+  - PE header detection
+  - Script signature detection
+  - Suspicious string scanning
+  - Risk scoring (0-100)
+  - Verdict: malicious/suspicious/potentially_unwanted/clean
+
+#### 5. Identity & Attestation Service
+- **SPIFFE-style workload identity**: `spiffe://seraph.local/agent/{agent_id}`
+- **Remote attestation**: Agent version hash, OS build, secure boot, TPM
+- **Trust scoring (0-100)** based on:
+  - Secure boot (20 points)
+  - TPM available (15 points)
+  - Key isolation (20 points)
+  - Posture score (up to 25 points)
+  - Historical signals
+- **Trust states**: `trusted`, `degraded`, `unknown`, `quarantined`
+
+#### 6. Policy & Permissions Engine (Policy Decision Point)
+- **Action categories**: observe, collect, contain, remediate, credential, deception
+- **Approval tiers**: auto, suggest, require_approval, two_person
+- **Rate limiting**: Per principal/action with configurable limits
+- **Blast-radius caps**: Prevent mass operations
+- **High-risk action escalation**: credential_revoke, mass_isolate, wipe → two-person
+
+#### 7. Token Broker / Secrets Vault
+- **Capability tokens**: Short-lived, scoped, principal-bound
+- **Never exposes secrets**: Agents/LLMs never see raw refresh tokens
+- **Token validation**: Signature, expiry, principal, action, target checks
+- **Auto-revocation**: On trust degradation
+
+#### 8. CLI Tool Gateway (Policy Enforcement Point)
+- **Governed execution**: No raw shell access
+- **Allowlisted tools**: 7 pre-registered tools
+  - process_list, process_kill, network_connections
+  - firewall_block, file_hash, memory_dump, suricata_reload_rules
+- **Parameter validation**: Schema-based, deny patterns
+- **Execution auditing**: Full command history with redacted outputs
+
+#### 9. Tamper-Evident Telemetry
+- **Hash chains**: Genesis → event → event → ...
+- **Signed events**: HMAC signatures
+- **Chain integrity verification**: Detects tampering
+- **OpenTelemetry-style tracing**: trace_id, span_id, parent_span_id
+- **Audit trail**: Court-admissible action records
+
+### New Backend Services
+
+| Service | File | Purpose |
+|---------|------|---------|
+| Identity | `/app/backend/services/identity.py` | SPIFFE IDs, attestation, trust scoring |
+| Policy | `/app/backend/services/policy_engine.py` | PDP, action gates, approvals |
+| Tokens | `/app/backend/services/token_broker.py` | Capability tokens, secrets vault |
+| Tools | `/app/backend/services/tool_gateway.py` | PEP, governed CLI execution |
+| Telemetry | `/app/backend/services/telemetry_chain.py` | Hash chains, audit trail |
+| SIEM | `/app/backend/services/siem.py` | Server-side SIEM integration |
+
+### New API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/enterprise/status` | GET | Enterprise security dashboard |
+| `/api/enterprise/identity/attest` | POST | Submit agent attestation |
+| `/api/enterprise/identity/nonce` | GET | Get one-time nonce |
+| `/api/enterprise/policy/evaluate` | POST | Evaluate policy decision |
+| `/api/enterprise/policy/approve/{id}` | POST | Approve pending decision |
+| `/api/enterprise/token/issue` | POST | Issue capability token |
+| `/api/enterprise/token/validate` | POST | Validate token |
+| `/api/enterprise/tools` | GET | List available tools |
+| `/api/enterprise/tools/execute` | POST | Execute tool |
+| `/api/enterprise/telemetry/event` | POST | Ingest event to chain |
+| `/api/enterprise/telemetry/verify` | GET | Verify chain integrity |
+| `/api/swarm/siem/status` | GET | Get SIEM status |
+| `/api/swarm/siem/test` | POST | Test SIEM connection |
+
+### Testing Results (iteration_23.json)
+- **Backend**: 100% pass rate (26/26 tests)
+- All enterprise services verified
+- All API endpoints working
+
+---
 
 ## v5.8.0 Network Infrastructure Scanning + Split-Tunnel VPN (Feb 2026) - COMPLETED
 
