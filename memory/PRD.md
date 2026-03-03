@@ -34,9 +34,65 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v6.1.0**: Full Feature Completion - Cuckoo Sandbox, VNS Alerts, Tactical Heatmap, PDF Fix (Mar 2026)
 - **v6.2.0**: Metatron/Seraph Unified Agent Integration + MITRE Threat Hunting (Mar 2026)
 - **v6.3.0**: P1/P2 Feature Completion - VNS Alerts, Browser Extension, Setup Guide, SOAR Templates, Multi-Tenant (Mar 2026)
-- **v6.4.0**: Infrastructure Builder, Extension Download, PDF Stress Testing, Multi-Tenant API (Mar 2026) - CURRENT
+- **v6.4.0**: Infrastructure Builder, Extension Download, PDF Stress Testing, Multi-Tenant API (Mar 2026)
+- **v6.5.0**: System-Wide Hardening - All UI Features, SOAR Templates Visibility, Complete Builder (Mar 2026) - CURRENT
 
-## v6.4.0 Infrastructure & Production Readiness (Mar 2026) - CURRENT
+## v6.5.0 System-Wide Hardening (Mar 2026) - CURRENT
+
+### Major Fixes & Additions
+
+#### 1. SOAR Templates Now Visible
+- **Added Templates Tab** to SOARPage.jsx with all 14 templates displayed
+- Tabs: All (playbooks), Templates (14), AI Defense (6)
+- Each template shows: name, description, category, steps count, tags, deploy button
+
+#### 2. New UI Pages Added
+- **TenantsPage.jsx**: Multi-tenant management with CRUD, tier comparison, API key generation
+- **UnifiedAgentPage.jsx**: Agent dashboard with stats, agent list, commands, installation guide
+
+#### 3. Sidebar Updated
+- 38 navigation items total
+- New items: VNS Alerts, Browser Extension, Tenants, Unified Agent, Setup Guide
+
+#### 4. Builder Script Enhanced
+- **setup_slack_notifications()**: Helper script for Slack webhook alerts
+- **setup_email_notifications()**: Helper script for email/SMTP alerts  
+- **verify_installation()**: Checks all services (Docker, MongoDB, ES, WireGuard, Cuckoo, liboqs, Ollama)
+
+### All 14 SOAR Templates
+1. Data Breach Response (incident_response)
+2. Credential Theft Response (identity)
+3. Insider Threat Response (insider)
+4. Compliance Violation Alert (compliance)
+5. Ransomware Response (malware)
+6. Cryptomining Detection (malware)
+7. Phishing Attack Response (email_security) - NEW
+8. APT Detection Response (advanced_threats) - NEW
+9. Lateral Movement Detection (network) - NEW
+10. Privilege Escalation Response (identity) - NEW
+11. Zero-Day Exploit Response (vulnerability) - NEW
+12. Supply Chain Attack Response (advanced_threats) - NEW
+13. DNS Tunneling Detection (network) - NEW
+14. Cloud Infrastructure Breach (cloud_security) - NEW
+
+### Testing Results (100% Pass)
+- 20 backend API tests passed
+- All 6 new UI pages verified
+- 38 sidebar navigation items confirmed
+- Builder script complete with all functions
+
+### Auto-Install Components (via seraph_builder.sh)
+- Docker & Docker Compose
+- MongoDB, Redis, Elasticsearch, Kibana
+- WireGuard VPN with key generation
+- Cuckoo Sandbox (Docker-based)
+- liboqs Post-Quantum Cryptography
+- Kali Linux security tools
+- Ollama local AI
+- Slack/Email notification helpers
+- Systemd services for auto-start
+
+## v6.4.0 Infrastructure & Production Readiness (Mar 2026)
 
 ### Major Features Implemented
 
