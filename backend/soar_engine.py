@@ -633,6 +633,142 @@ class SOAREngine:
                 ],
                 "tags": ["malware", "cryptominer", "resource_abuse"],
                 "is_official": True
+            },
+            # NEW TEMPLATES - P2 Expansion
+            {
+                "id": "tpl_phishing_response",
+                "name": "Phishing Attack Response",
+                "description": "Automated response to detected phishing attempts",
+                "category": "email_security",
+                "trigger": PlaybookTrigger.THREAT_DETECTED,
+                "trigger_conditions": {"type": ["phishing"], "severity": ["high", "critical"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.BLOCK_IP, {"duration": 604800}, 30),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"email_headers": True, "url_analysis": True}, 60),
+                    PlaybookStep(PlaybookAction.DISABLE_USER, {"notify": True, "reason": "potential_compromise"}, 10),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack", "email"], "priority": "high"}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "phishing", "include_indicators": True}, 30)
+                ],
+                "tags": ["phishing", "email", "social_engineering"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_apt_detection",
+                "name": "APT Detection Response",
+                "description": "Response to Advanced Persistent Threat indicators",
+                "category": "advanced_threats",
+                "trigger": PlaybookTrigger.IOC_MATCH,
+                "trigger_conditions": {"ioc_type": ["apt"], "confidence": ["high"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.ISOLATE_ENDPOINT, {"network": True, "preserve_state": True}, 30),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"full_memory": True, "network_capture": True, "registry": True}, 600),
+                    PlaybookStep(PlaybookAction.UPDATE_FIREWALL, {"rule_type": "apt_block"}, 30),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack", "email"], "priority": "critical", "escalate": True}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "apt", "incident_response": True, "sla": "1h"}, 30)
+                ],
+                "tags": ["apt", "advanced_threat", "nation_state"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_lateral_movement",
+                "name": "Lateral Movement Detection",
+                "description": "Response to detected lateral movement activity",
+                "category": "network",
+                "trigger": PlaybookTrigger.ANOMALY_DETECTED,
+                "trigger_conditions": {"anomaly_type": ["lateral_movement"], "confidence": ["high"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.ISOLATE_ENDPOINT, {"network": True}, 15),
+                    PlaybookStep(PlaybookAction.BLOCK_IP, {"internal": True, "duration": 3600}, 30),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"auth_logs": True, "network_flows": True}, 120),
+                    PlaybookStep(PlaybookAction.DISABLE_USER, {"source_user": True}, 10),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack"], "priority": "critical"}, 30)
+                ],
+                "tags": ["lateral_movement", "network", "authentication"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_privilege_escalation",
+                "name": "Privilege Escalation Response",
+                "description": "Response to privilege escalation attempts",
+                "category": "identity",
+                "trigger": PlaybookTrigger.SUSPICIOUS_PROCESS,
+                "trigger_conditions": {"technique": ["privilege_escalation"], "severity": ["high", "critical"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.KILL_PROCESS, {"force": True}, 10),
+                    PlaybookStep(PlaybookAction.DISABLE_USER, {"preserve_session": True}, 10),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"process_tree": True, "tokens": True}, 60),
+                    PlaybookStep(PlaybookAction.SCAN_ENDPOINT, {"privilege_audit": True}, 120),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack", "email"], "priority": "high"}, 30)
+                ],
+                "tags": ["privilege_escalation", "identity", "persistence"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_zero_day_exploit",
+                "name": "Zero-Day Exploit Response",
+                "description": "Emergency response to potential zero-day exploitation",
+                "category": "vulnerability",
+                "trigger": PlaybookTrigger.ANOMALY_DETECTED,
+                "trigger_conditions": {"anomaly_type": ["unknown_exploit"], "severity": ["critical"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.ISOLATE_ENDPOINT, {"network": True, "preserve_state": True}, 15),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"full_memory": True, "crash_dumps": True}, 300),
+                    PlaybookStep(PlaybookAction.UPDATE_FIREWALL, {"emergency_block": True}, 30),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack", "email", "sms"], "priority": "critical", "escalate_to_ciso": True}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "zero_day", "incident_response": True, "sla": "30m"}, 30)
+                ],
+                "tags": ["zero_day", "exploit", "vulnerability", "emergency"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_supply_chain_attack",
+                "name": "Supply Chain Attack Response",
+                "description": "Response to suspected supply chain compromise",
+                "category": "advanced_threats",
+                "trigger": PlaybookTrigger.MALWARE_FOUND,
+                "trigger_conditions": {"source": ["trusted_vendor", "update_mechanism"], "severity": ["critical"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.ISOLATE_ENDPOINT, {"network": True}, 15),
+                    PlaybookStep(PlaybookAction.UPDATE_FIREWALL, {"block_vendor_ips": True}, 30),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"software_inventory": True, "signature_check": True}, 300),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack", "email"], "priority": "critical", "notify_vendor": True}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "supply_chain", "legal_notification": True}, 30)
+                ],
+                "tags": ["supply_chain", "vendor", "third_party"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_dns_tunneling",
+                "name": "DNS Tunneling Detection",
+                "description": "Response to DNS tunneling/exfiltration",
+                "category": "network",
+                "trigger": PlaybookTrigger.ANOMALY_DETECTED,
+                "trigger_conditions": {"anomaly_type": ["dns_tunneling"], "confidence": ["high"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.UPDATE_FIREWALL, {"block_dns_domain": True}, 30),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"dns_logs": True, "process_network": True}, 120),
+                    PlaybookStep(PlaybookAction.KILL_PROCESS, {"dns_client": True}, 10),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack"], "priority": "high"}, 30)
+                ],
+                "tags": ["dns", "exfiltration", "tunneling"],
+                "is_official": True
+            },
+            {
+                "id": "tpl_cloud_breach",
+                "name": "Cloud Infrastructure Breach",
+                "description": "Response to cloud infrastructure compromise",
+                "category": "cloud_security",
+                "trigger": PlaybookTrigger.THREAT_DETECTED,
+                "trigger_conditions": {"environment": ["cloud", "aws", "azure", "gcp"], "severity": ["critical"]},
+                "steps": [
+                    PlaybookStep(PlaybookAction.DISABLE_USER, {"cloud_iam": True}, 10),
+                    PlaybookStep(PlaybookAction.UPDATE_FIREWALL, {"cloud_security_groups": True}, 30),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"cloud_trail": True, "api_logs": True}, 180),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack", "email"], "priority": "critical"}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "cloud_breach", "cloud_provider_notification": True}, 30)
+                ],
+                "tags": ["cloud", "aws", "azure", "gcp", "infrastructure"],
+                "is_official": True
             }
         ]
         

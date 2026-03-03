@@ -37,6 +37,9 @@ import AIThreatIntelligence from "./pages/AIThreatIntelligence";
 import CommandCenterPage from "./pages/CommandCenterPage";
 import AdvancedServicesPage from "./pages/AdvancedServicesPage";
 import TacticalHeatmapPage from "./pages/TacticalHeatmapPage";
+import VNSAlertsPage from "./pages/VNSAlertsPage";
+import BrowserExtensionPage from "./pages/BrowserExtensionPage";
+import SetupGuidePage from "./pages/SetupGuidePage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -111,6 +114,9 @@ function App() {
               <Route path="command-center" element={<CommandCenterPage />} />
               <Route path="advanced" element={<AdvancedServicesPage />} />
               <Route path="heatmap" element={<TacticalHeatmapPage />} />
+              <Route path="vns-alerts" element={<VNSAlertsPage />} />
+              <Route path="browser-extension" element={<BrowserExtensionPage />} />
+              <Route path="setup-guide" element={<SetupGuidePage />} />
             </Route>
           </Routes>
         </BrowserRouter>
