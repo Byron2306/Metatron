@@ -159,7 +159,7 @@ class IdentityService:
             age = (datetime.now(timezone.utc) - ts).total_seconds()
             if age > 300:  # 5 minutes max
                 return False, "Attestation timestamp too old"
-        except:
+        except Exception:
             return False, "Invalid timestamp format"
         
         return True, "Attestation verified"
