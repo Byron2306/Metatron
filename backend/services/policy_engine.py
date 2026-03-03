@@ -186,7 +186,6 @@ class PolicyEngine:
     
     def _get_action_category(self, action: str) -> ActionCategory:
         """Determine action category from action name"""
-        observe_actions = ['list', 'query', 'read', 'get', 'status', 'scan']
         collect_actions = ['dump', 'capture', 'export', 'download', 'acquire']
         contain_actions = ['isolate', 'block', 'quarantine', 'suspend', 'disable']
         remediate_actions = ['kill', 'delete', 'remove', 'patch', 'clean', 'terminate']
