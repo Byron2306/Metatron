@@ -7,7 +7,8 @@ import {
   RefreshCw, Play, AlertTriangle, CheckCircle, XCircle,
   Wifi, WifiOff, Eye, Zap, Activity, Cpu, HardDrive,
   Users, Globe, Lock, Unlock, ChevronRight, Search,
-  Download, Settings, Terminal, Radio
+  Download, Settings, Terminal, Radio, Tag, FolderPlus,
+  Usb, Palette, X, Plus
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -25,22 +26,32 @@ const SwarmDashboard = () => {
   const [telemetry, setTelemetry] = useState([]);
   const [telemetryStats, setTelemetryStats] = useState(null);
   const [deployments, setDeployments] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [allTags, setAllTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [selectedTag, setSelectedTag] = useState(null);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [showTagModal, setShowTagModal] = useState(null);
+  const [newGroup, setNewGroup] = useState({ name: '', description: '', color: '#06b6d4' });
+  const [newTags, setNewTags] = useState('');
 
   const headers = { Authorization: `Bearer ${token}` };
 
   const fetchData = useCallback(async () => {
     try {
-      const [overviewRes, devicesRes, telemetryRes, statsRes, deploymentsRes] = await Promise.all([
+      const [overviewRes, devicesRes, telemetryRes, statsRes, deploymentsRes, groupsRes, tagsRes] = await Promise.all([
         axios.get(`${API}/swarm/overview`, { headers }),
         axios.get(`${API}/swarm/devices`, { headers }),
         axios.get(`${API}/swarm/telemetry?limit=50`, { headers }),
         axios.get(`${API}/swarm/telemetry/stats`, { headers }),
-        axios.get(`${API}/swarm/deployment/status`, { headers })
+        axios.get(`${API}/swarm/deployment/status`, { headers }),
+        axios.get(`${API}/swarm/groups`, { headers }),
+        axios.get(`${API}/swarm/tags`, { headers })
       ]);
       
       setOverview(overviewRes.data);
@@ -48,6 +59,8 @@ const SwarmDashboard = () => {
       setTelemetry(telemetryRes.data.events || []);
       setTelemetryStats(statsRes.data);
       setDeployments(deploymentsRes.data.tasks || []);
+      setGroups(groupsRes.data.groups || []);
+      setAllTags(tagsRes.data.tags || []);
     } catch (err) {
       console.error('Failed to fetch swarm data:', err);
     } finally {
@@ -127,11 +140,66 @@ const SwarmDashboard = () => {
     }
   };
 
-  const filteredDevices = devices.filter(d => 
-    !searchQuery || 
-    d.ip_address?.includes(searchQuery) || 
-    d.hostname?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Group management
+  const createGroup = async () => {
+    if (!newGroup.name.trim()) {
+      toast.error('Group name is required');
+      return;
+    }
+    try {
+      await axios.post(`${API}/swarm/groups`, newGroup, { headers });
+      toast.success('Group created');
+      setShowGroupModal(false);
+      setNewGroup({ name: '', description: '', color: '#06b6d4' });
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to create group');
+    }
+  };
+
+  const assignToGroup = async (deviceIp, groupId) => {
+    try {
+      await axios.put(`${API}/swarm/devices/${deviceIp}/group?group_id=${groupId}`, {}, { headers });
+      toast.success('Device assigned to group');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to assign device');
+    }
+  };
+
+  const updateDeviceTags = async (deviceIp) => {
+    const tagsArray = newTags.split(',').map(t => t.trim()).filter(t => t);
+    try {
+      await axios.put(`${API}/swarm/devices/${deviceIp}/tags`, { tags: tagsArray }, { headers });
+      toast.success('Tags updated');
+      setShowTagModal(null);
+      setNewTags('');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to update tags');
+    }
+  };
+
+  const deleteGroup = async (groupId) => {
+    try {
+      await axios.delete(`${API}/swarm/groups/${groupId}`, { headers });
+      toast.success('Group deleted');
+      setSelectedGroup(null);
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to delete group');
+    }
+  };
+
+  // Filter devices by search, group, and tag
+  const filteredDevices = devices.filter(d => {
+    const matchesSearch = !searchQuery || 
+      d.ip_address?.includes(searchQuery) || 
+      d.hostname?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesGroup = !selectedGroup || d.group_id === selectedGroup;
+    const matchesTag = !selectedTag || (d.tags && d.tags.includes(selectedTag));
+    return matchesSearch && matchesGroup && matchesTag;
+  });
 
   if (loading) {
     return (

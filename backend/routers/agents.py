@@ -239,6 +239,15 @@ async def get_agents(current_user: dict = Depends(get_current_user)):
     for agent in agents:
         if agent.get("last_heartbeat", "") < cutoff:
             agent["status"] = "offline"
-        result.append(AgentInfo(**agent))
+        # Handle both 'id' and 'agent_id' field names
+        if "agent_id" in agent and "id" not in agent:
+            agent["id"] = agent["agent_id"]
+        # Ensure name field exists
+        if "name" not in agent:
+            agent["name"] = agent.get("hostname", agent.get("id", "Unknown"))
+        try:
+            result.append(AgentInfo(**agent))
+        except Exception as e:
+            logger.warning(f"Skipping invalid agent record: {e}")
     
     return result

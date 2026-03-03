@@ -41,7 +41,7 @@ from collections import deque
 
 # Default configuration - will be overridden by config.json if exists
 DEFAULT_CONFIG = {
-    "api_url": "https://threat-guardian-10.preview.emergentagent.com/api",
+    "api_url": "https://agent-swarm-hub-1.preview.emergentagent.com/api",
     "agent_key": "local-agent",
     "agent_name": platform.node() or "local-agent",
     "local_dashboard_port": 5000,

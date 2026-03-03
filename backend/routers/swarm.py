@@ -4,9 +4,9 @@ Swarm Management Router
 Manages the agent swarm - discovery, deployment, telemetry.
 """
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
 
 from .dependencies import get_current_user, check_permission, db
@@ -530,8 +530,179 @@ async def download_agent(platform: str):
             media_type="text/x-python",
             filename="seraph_mobile_v7.py"
         )
+    elif platform == "windows-installer" or platform == "batch":
+        batch_path = "/app/scripts/install_seraph_windows.bat"
+        if not os.path.exists(batch_path):
+            raise HTTPException(status_code=404, detail="Windows installer not found")
+        return FileResponse(
+            batch_path,
+            media_type="application/x-bat",
+            filename="install_seraph_windows.bat"
+        )
+    elif platform == "browser-extension":
+        # Create zip of browser extension
+        import zipfile
+        import io
+        
+        extension_dir = "/app/scripts/browser_extension"
+        if not os.path.exists(extension_dir):
+            raise HTTPException(status_code=404, detail="Browser extension not found")
+        
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(extension_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arc_name = os.path.relpath(file_path, extension_dir)
+                    zf.write(file_path, arc_name)
+        
+        zip_buffer.seek(0)
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=seraph_browser_shield.zip"}
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
+
+
+# =============================================================================
+# WIREGUARD VPN AUTO-CONFIGURATION FOR AGENTS
+# =============================================================================
+
+class VPNConfigRequest(BaseModel):
+    agent_id: str
+    agent_public_key: Optional[str] = None
+
+
+@router.get("/vpn/server-config")
+async def get_vpn_server_config():
+    """
+    Get VPN server configuration for agents.
+    Returns server public key and endpoint for split-tunnel VPN setup.
+    Agents only route Seraph network traffic - does NOT block internet.
+    """
+    import os
+    
+    # Read server public key if available
+    server_public_key = os.environ.get('WIREGUARD_PUBLIC_KEY', '')
+    server_endpoint = os.environ.get('WIREGUARD_ENDPOINT', '')
+    
+    # Try to read from WireGuard config if not in env
+    if not server_public_key:
+        try:
+            wg_pubkey_path = '/etc/wireguard/publickey'
+            if os.path.exists(wg_pubkey_path):
+                with open(wg_pubkey_path, 'r') as f:
+                    server_public_key = f.read().strip()
+        except Exception:
+            pass
+    
+    # If still no config, provide placeholder
+    if not server_public_key:
+        return {
+            "configured": False,
+            "message": "VPN server not configured. Contact administrator.",
+            "split_tunnel": True,
+            "allowed_ips": "10.200.200.0/24",
+            "note": "Split tunnel mode - normal internet NOT affected"
+        }
+    
+    return {
+        "configured": True,
+        "server_public_key": server_public_key,
+        "server_endpoint": server_endpoint or "your-server:51820",
+        "allowed_ips": "10.200.200.0/24",
+        "dns": None,  # No DNS change = split tunnel
+        "split_tunnel": True,
+        "note": "Split tunnel mode - only Seraph traffic routed through VPN"
+    }
+
+
+@router.post("/vpn/register-agent")
+async def register_vpn_agent(request: VPNConfigRequest):
+    """
+    Register an agent for VPN access.
+    Agent provides its public key, server assigns an IP.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Assign IP based on agent_id hash
+    import hashlib
+    agent_hash = int(hashlib.md5(request.agent_id.encode()).hexdigest()[:8], 16)
+    client_num = (agent_hash % 200) + 10  # Range: 10-209
+    assigned_ip = f"10.200.200.{client_num}/32"
+    
+    # Store agent VPN registration
+    vpn_doc = {
+        "agent_id": request.agent_id,
+        "agent_public_key": request.agent_public_key,
+        "assigned_ip": assigned_ip,
+        "registered_at": now,
+        "last_seen": now,
+        "status": "registered"
+    }
+    
+    await db.vpn_agents.update_one(
+        {"agent_id": request.agent_id},
+        {"$set": vpn_doc},
+        upsert=True
+    )
+    
+    return {
+        "status": "registered",
+        "agent_id": request.agent_id,
+        "assigned_ip": assigned_ip,
+        "message": "VPN registration successful. Configure WireGuard with the provided IP."
+    }
+
+
+@router.get("/vpn/agents")
+async def list_vpn_agents(current_user: dict = Depends(get_current_user)):
+    """List all registered VPN agents"""
+    cursor = db.vpn_agents.find({}, {"_id": 0})
+    agents = await cursor.to_list(100)
+    return {"agents": agents, "count": len(agents)}
+
+
+# =============================================================================
+# SIEM INTEGRATION
+# =============================================================================
+
+@router.get("/siem/status")
+async def get_siem_status(current_user: dict = Depends(get_current_user)):
+    """Get SIEM integration status"""
+    from services.siem import siem_service
+    return siem_service.get_status()
+
+
+@router.post("/siem/test")
+async def test_siem_connection(current_user: dict = Depends(check_permission("write"))):
+    """Send test event to SIEM"""
+    from services.siem import siem_service
+    
+    if not siem_service.enabled:
+        return {
+            "success": False,
+            "message": "SIEM not configured. Set ELASTICSEARCH_URL, SPLUNK_HEC_URL, or SYSLOG_SERVER"
+        }
+    
+    siem_service.log_event(
+        event_type="test.connection",
+        severity="info",
+        data={
+            "message": "Test event from Seraph AI",
+            "test_timestamp": datetime.now(timezone.utc).isoformat()
+        },
+        immediate=True
+    )
+    
+    return {
+        "success": True,
+        "message": f"Test event sent to {siem_service.siem_type}",
+        "siem_type": siem_service.siem_type
+    }
 
 
 # =============================================================================
@@ -894,6 +1065,426 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
     }
 
 
+@router.post("/alerts/critical")
+async def receive_critical_alert(alert: Dict[str, Any]):
+    """Receive critical alerts from agents (auto-kill notifications, etc.)"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Store the alert
+    alert_doc = {
+        "type": "agent_critical",
+        "alert_type": alert.get("alert_type", "UNKNOWN"),
+        "severity": alert.get("severity", "critical"),
+        "agent_id": alert.get("agent_id"),
+        "host_id": alert.get("host_id"),
+        "threat_id": alert.get("threat_id"),
+        "threat_title": alert.get("threat_title"),
+        "threat_type": alert.get("threat_type"),
+        "message": alert.get("message"),
+        "evidence": alert.get("evidence"),
+        "remediation_action": alert.get("remediation_action"),
+        "timestamp": alert.get("timestamp", now),
+        "received_at": now,
+        "status": "open",
+        "acknowledged": False
+    }
+    
+    await db.critical_alerts.insert_one(alert_doc)
+    
+    # Also add to regular alerts for dashboard visibility
+    await db.alerts.insert_one({
+        "type": "auto_remediation",
+        "severity": alert.get("severity", "critical"),
+        "source": alert.get("host_id", "unknown"),
+        "event_type": alert.get("alert_type"),
+        "message": f"{alert.get('alert_type')}: {alert.get('threat_title')} - {alert.get('message')}",
+        "data": alert,
+        "timestamp": now,
+        "status": "open"
+    })
+    
+    logger.warning(f"🚨 CRITICAL ALERT from {alert.get('host_id')}: {alert.get('alert_type')} - {alert.get('threat_title')}")
+    
+    return {"status": "received", "alert_type": alert.get("alert_type")}
+
+
+# =============================================================================
+# SERVER-SIDE AUTO-KILL FUNCTIONALITY
+# =============================================================================
+
+class AutoKillRequest(BaseModel):
+    agent_id: str
+    target_type: str  # process, ip, file, connection
+    target: str  # pid, ip address, filepath, etc.
+    reason: str
+    priority: str = "critical"
+
+
+@router.post("/auto-kill/process")
+async def auto_kill_process(
+    agent_id: str,
+    pid: int,
+    reason: str = "Server-initiated kill",
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Server-initiated process kill on agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_id = f"kill-{uuid.uuid4().hex[:8]}"
+    
+    # Create kill command
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "kill_process",
+        "command_name": "Server Auto-Kill Process",
+        "parameters": {"pid": pid, "reason": reason},
+        "status": "approved",  # Auto-approved for kill commands
+        "priority": "critical",
+        "risk_level": "high",
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    
+    # Also add to command queue for immediate pickup
+    await db.command_queue.insert_one({
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "kill_process",
+        "parameters": {"pid": pid, "reason": reason},
+        "status": "pending",
+        "created_at": now
+    })
+    
+    logger.warning(f"🔥 AUTO-KILL: Process {pid} on agent {agent_id} - {reason}")
+    
+    return {
+        "status": "queued",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "target": f"PID {pid}",
+        "message": f"Kill command sent to agent {agent_id}"
+    }
+
+
+@router.post("/auto-kill/ip")
+async def auto_kill_ip(
+    agent_id: str,
+    ip_address: str,
+    reason: str = "Server-initiated block",
+    duration_hours: int = 24,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Server-initiated IP block on agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_id = f"block-{uuid.uuid4().hex[:8]}"
+    
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "block_ip",
+        "command_name": "Server Auto-Block IP",
+        "parameters": {
+            "ip_address": ip_address,
+            "reason": reason,
+            "duration_hours": duration_hours
+        },
+        "status": "approved",
+        "priority": "critical",
+        "risk_level": "medium",
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    await db.command_queue.insert_one({
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "block_ip",
+        "parameters": {"ip_address": ip_address, "duration_hours": duration_hours},
+        "status": "pending",
+        "created_at": now
+    })
+    
+    logger.warning(f"🔥 AUTO-KILL: Blocking IP {ip_address} on agent {agent_id} - {reason}")
+    
+    return {
+        "status": "queued",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "target": ip_address,
+        "message": f"IP block command sent to agent {agent_id}"
+    }
+
+
+@router.post("/auto-kill/file")
+async def auto_kill_file(
+    agent_id: str,
+    file_path: str,
+    reason: str = "Server-initiated quarantine",
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Server-initiated file quarantine on agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_id = f"quar-{uuid.uuid4().hex[:8]}"
+    
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "quarantine_file",
+        "command_name": "Server Auto-Quarantine File",
+        "parameters": {"file_path": file_path, "reason": reason},
+        "status": "approved",
+        "priority": "critical",
+        "risk_level": "high",
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    await db.command_queue.insert_one({
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "quarantine_file",
+        "parameters": {"file_path": file_path},
+        "status": "pending",
+        "created_at": now
+    })
+    
+    logger.warning(f"🔥 AUTO-KILL: Quarantining {file_path} on agent {agent_id} - {reason}")
+    
+    return {
+        "status": "queued",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "target": file_path,
+        "message": f"Quarantine command sent to agent {agent_id}"
+    }
+
+
+@router.post("/auto-kill/isolate")
+async def auto_kill_isolate_host(
+    agent_id: str,
+    reason: str = "Server-initiated isolation",
+    duration_hours: int = 1,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Server-initiated host isolation (block all network)"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_id = f"iso-{uuid.uuid4().hex[:8]}"
+    
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "isolate_host",
+        "command_name": "Server Auto-Isolate Host",
+        "parameters": {"reason": reason, "duration_hours": duration_hours},
+        "status": "approved",
+        "priority": "critical",
+        "risk_level": "critical",
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True
+    }
+    
+    await db.agent_commands.insert_one(command_doc)
+    await db.command_queue.insert_one({
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": "isolate_host",
+        "parameters": {"duration_hours": duration_hours},
+        "status": "pending",
+        "created_at": now
+    })
+    
+    logger.warning(f"🔥 AUTO-KILL: Isolating host {agent_id} - {reason}")
+    
+    return {
+        "status": "queued",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "target": "full_network_isolation",
+        "message": f"Host isolation command sent to agent {agent_id}"
+    }
+
+
+@router.post("/auto-kill/batch")
+async def auto_kill_batch(
+    targets: List[Dict[str, Any]],
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Send multiple kill commands at once"""
+    now = datetime.now(timezone.utc).isoformat()
+    results = []
+    
+    for target in targets:
+        command_id = f"batch-{uuid.uuid4().hex[:8]}"
+        agent_id = target.get("agent_id")
+        command_type = target.get("type")
+        params = target.get("parameters", {})
+        
+        command_doc = {
+            "command_id": command_id,
+            "agent_id": agent_id,
+            "command_type": command_type,
+            "command_name": f"Batch Auto-Kill: {command_type}",
+            "parameters": params,
+            "status": "approved",
+            "priority": "critical",
+            "risk_level": "high",
+            "created_by": current_user.get("email", "system"),
+            "created_at": now,
+            "auto_kill": True,
+            "batch": True
+        }
+        
+        await db.agent_commands.insert_one(command_doc)
+        await db.command_queue.insert_one({
+            "command_id": command_id,
+            "agent_id": agent_id,
+            "command_type": command_type,
+            "parameters": params,
+            "status": "pending",
+            "created_at": now
+        })
+        
+        results.append({
+            "command_id": command_id,
+            "agent_id": agent_id,
+            "type": command_type,
+            "status": "queued"
+        })
+    
+    logger.warning(f"🔥 BATCH AUTO-KILL: {len(results)} commands queued")
+    
+    return {
+        "status": "queued",
+        "count": len(results),
+        "commands": results
+    }
+
+
+# Browser extension command endpoint
+@router.post("/browser-shield/kill")
+async def browser_kill_command(command: Dict[str, Any]):
+    """
+    Send kill command to browser extension.
+    Extensions poll this endpoint to receive commands.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    
+    command_doc = {
+        "command_id": f"browser-{uuid.uuid4().hex[:8]}",
+        "type": "browser_kill",
+        "action": command.get("action"),  # block_domain, block_url, kill_tab, clear_cache
+        "target": command.get("target"),
+        "reason": command.get("reason", "Server command"),
+        "created_at": now,
+        "status": "pending",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    }
+    
+    await db.browser_commands.insert_one(command_doc)
+    
+    return {"status": "queued", "command_id": command_doc["command_id"]}
+
+
+@router.get("/browser-shield/commands")
+async def get_browser_commands():
+    """Browser extensions poll this to get pending commands"""
+    now = datetime.now(timezone.utc)
+    
+    # Get pending commands that haven't expired
+    cursor = db.browser_commands.find({
+        "status": "pending",
+        "expires_at": {"$gt": now.isoformat()}
+    }, {"_id": 0})
+    
+    commands = await cursor.to_list(50)
+    
+    # Mark as delivered
+    for cmd in commands:
+        await db.browser_commands.update_one(
+            {"command_id": cmd["command_id"]},
+            {"$set": {"status": "delivered", "delivered_at": now.isoformat()}}
+        )
+    
+    return {"commands": commands}
+
+
+@router.get("/browser-shield/blocklist")
+async def get_browser_blocklist():
+    """Get domain blocklist for browser extension"""
+    # Static blocklist + dynamic from threats
+    static_domains = [
+        "malware-test.com", "phishing-example.org", "evil-download.net",
+        "credential-steal.xyz", "cryptominer.io", "ransomware-delivery.com"
+    ]
+    
+    # Get domains from recent threats
+    cursor = db.alerts.find({
+        "severity": {"$in": ["critical", "high"]},
+        "data.domain": {"$exists": True}
+    }, {"data.domain": 1}).limit(100)
+    
+    threat_domains = []
+    async for alert in cursor:
+        domain = alert.get("data", {}).get("domain")
+        if domain:
+            threat_domains.append(domain)
+    
+    return {
+        "domains": list(set(static_domains + threat_domains)),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@router.get("/alerts/critical")
+async def get_critical_alerts(
+    limit: int = 50,
+    acknowledged: Optional[bool] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get critical alerts from agents"""
+    query = {}
+    if acknowledged is not None:
+        query["acknowledged"] = acknowledged
+    
+    cursor = db.critical_alerts.find(query, {"_id": 0}).sort("received_at", -1).limit(limit)
+    alerts = await cursor.to_list(limit)
+    
+    return {"alerts": alerts, "count": len(alerts)}
+
+
+@router.post("/alerts/critical/{alert_id}/acknowledge")
+async def acknowledge_critical_alert(
+    alert_id: str,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Acknowledge a critical alert"""
+    result = await db.critical_alerts.update_one(
+        {"threat_id": alert_id},
+        {"$set": {
+            "acknowledged": True,
+            "acknowledged_by": current_user.get("email"),
+            "acknowledged_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    return {"status": "acknowledged"}
+
+
 @router.get("/telemetry")
 async def get_telemetry(
     host_id: Optional[str] = None,
@@ -1178,3 +1769,503 @@ async def get_cli_sessions(
         enriched.append(session_data)
     
     return {"sessions": enriched, "host_id": host_id}
+
+
+
+# =============================================================================
+# DEVICE GROUPING AND TAGGING
+# =============================================================================
+
+class DeviceGroupRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    color: Optional[str] = "#06b6d4"
+
+
+class DeviceTagRequest(BaseModel):
+    tags: List[str]
+
+
+@router.post("/groups")
+async def create_device_group(
+    group: DeviceGroupRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Create a new device group"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    group_doc = {
+        "group_id": f"grp-{uuid.uuid4().hex[:8]}",
+        "name": group.name,
+        "description": group.description,
+        "color": group.color,
+        "device_count": 0,
+        "created_by": current_user.get("email"),
+        "created_at": now
+    }
+    
+    await db.device_groups.insert_one(group_doc)
+    
+    return {"status": "created", "group": {k: v for k, v in group_doc.items() if k != "_id"}}
+
+
+@router.get("/groups")
+async def list_device_groups(current_user: dict = Depends(get_current_user)):
+    """List all device groups with device counts"""
+    groups = await db.device_groups.find({}, {"_id": 0}).to_list(100)
+    
+    # Count devices per group
+    for group in groups:
+        count = await db.discovered_devices.count_documents({"group_id": group.get("group_id")})
+        group["device_count"] = count
+    
+    return {"groups": groups}
+
+
+@router.put("/groups/{group_id}")
+async def update_device_group(
+    group_id: str,
+    group: DeviceGroupRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Update a device group"""
+    result = await db.device_groups.update_one(
+        {"group_id": group_id},
+        {"$set": {
+            "name": group.name,
+            "description": group.description,
+            "color": group.color,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    return {"status": "updated"}
+
+
+@router.delete("/groups/{group_id}")
+async def delete_device_group(
+    group_id: str,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Delete a device group"""
+    # Remove group from all devices first
+    await db.discovered_devices.update_many(
+        {"group_id": group_id},
+        {"$unset": {"group_id": ""}}
+    )
+    
+    result = await db.device_groups.delete_one({"group_id": group_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    return {"status": "deleted"}
+
+
+@router.put("/devices/{device_ip}/group")
+async def assign_device_to_group(
+    device_ip: str,
+    group_id: str,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Assign a device to a group"""
+    result = await db.discovered_devices.update_one(
+        {"ip_address": device_ip},
+        {"$set": {"group_id": group_id}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    return {"status": "assigned", "device_ip": device_ip, "group_id": group_id}
+
+
+@router.put("/devices/{device_ip}/tags")
+async def update_device_tags(
+    device_ip: str,
+    tags: DeviceTagRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Update tags for a device"""
+    result = await db.discovered_devices.update_one(
+        {"ip_address": device_ip},
+        {"$set": {"tags": tags.tags}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    return {"status": "updated", "device_ip": device_ip, "tags": tags.tags}
+
+
+@router.get("/tags")
+async def list_all_tags(current_user: dict = Depends(get_current_user)):
+    """List all unique tags across devices"""
+    pipeline = [
+        {"$unwind": "$tags"},
+        {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    
+    tags = await db.discovered_devices.aggregate(pipeline).to_list(100)
+    
+    return {"tags": [{"name": t["_id"], "count": t["count"]} for t in tags if t["_id"]]}
+
+
+# =============================================================================
+# USB SCAN
+# =============================================================================
+
+class USBScanRequest(BaseModel):
+    host_id: str
+    device_path: str
+    device_name: Optional[str] = None
+
+
+@router.post("/usb/scan")
+async def initiate_usb_scan(
+    request: USBScanRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Initiate USB device scan on an agent"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Create scan task
+    scan_id = f"usb-{uuid.uuid4().hex[:8]}"
+    
+    scan_doc = {
+        "scan_id": scan_id,
+        "host_id": request.host_id,
+        "device_path": request.device_path,
+        "device_name": request.device_name,
+        "status": "pending",
+        "created_by": current_user.get("email"),
+        "created_at": now,
+        "results": None
+    }
+    
+    await db.usb_scans.insert_one(scan_doc)
+    
+    # Queue command to agent
+    command_doc = {
+        "command_id": f"cmd-{uuid.uuid4().hex[:8]}",
+        "agent_id": request.host_id,
+        "command_type": "usb_scan",
+        "parameters": {
+            "scan_id": scan_id,
+            "device_path": request.device_path
+        },
+        "status": "pending",
+        "created_at": now
+    }
+    
+    await db.command_queue.insert_one(command_doc)
+    
+    return {"status": "queued", "scan_id": scan_id}
+
+
+@router.get("/usb/scans")
+async def list_usb_scans(
+    host_id: Optional[str] = None,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """List USB scan results"""
+    query = {}
+    if host_id:
+        query["host_id"] = host_id
+    
+    scans = await db.usb_scans.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    return {"scans": scans}
+
+
+@router.post("/usb/scan/{scan_id}/results")
+async def submit_usb_scan_results(
+    scan_id: str,
+    results: Dict[str, Any]
+):
+    """Agent submits USB scan results"""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Calculate threat level based on results
+    files_scanned = results.get("files_scanned", 0)
+    threats_found = results.get("threats_found", [])
+    malware_detected = len([t for t in threats_found if t.get("type") == "malware"])
+    
+    threat_level = "safe"
+    if malware_detected > 0:
+        threat_level = "critical"
+    elif len(threats_found) > 0:
+        threat_level = "suspicious"
+    
+    await db.usb_scans.update_one(
+        {"scan_id": scan_id},
+        {"$set": {
+            "status": "completed",
+            "completed_at": now,
+            "results": results,
+            "files_scanned": files_scanned,
+            "threats_found": len(threats_found),
+            "malware_detected": malware_detected,
+            "threat_level": threat_level
+        }}
+    )
+    
+    # Create alert if threats found
+    if threat_level in ("critical", "suspicious"):
+        await db.alerts.insert_one({
+            "type": "usb_threat",
+            "severity": "critical" if threat_level == "critical" else "high",
+            "source": results.get("host_id", "unknown"),
+            "event_type": "usb_scan_complete",
+            "message": f"USB scan detected {len(threats_found)} threats ({malware_detected} malware)",
+            "data": {"scan_id": scan_id, "threats": threats_found},
+            "timestamp": now,
+            "status": "open"
+        })
+    
+    return {"status": "recorded", "threat_level": threat_level}
+
+
+# =============================================================================
+# AI THREAT PRIORITIZATION WITH MITRE ATT&CK
+# =============================================================================
+
+MITRE_ATTACK_TACTICS = {
+    "TA0001": {"name": "Initial Access", "severity_weight": 0.8},
+    "TA0002": {"name": "Execution", "severity_weight": 0.9},
+    "TA0003": {"name": "Persistence", "severity_weight": 0.85},
+    "TA0004": {"name": "Privilege Escalation", "severity_weight": 0.95},
+    "TA0005": {"name": "Defense Evasion", "severity_weight": 0.7},
+    "TA0006": {"name": "Credential Access", "severity_weight": 1.0},
+    "TA0007": {"name": "Discovery", "severity_weight": 0.5},
+    "TA0008": {"name": "Lateral Movement", "severity_weight": 0.9},
+    "TA0009": {"name": "Collection", "severity_weight": 0.75},
+    "TA0010": {"name": "Exfiltration", "severity_weight": 1.0},
+    "TA0011": {"name": "Command and Control", "severity_weight": 0.95},
+    "TA0040": {"name": "Impact", "severity_weight": 1.0},
+}
+
+THREAT_KEYWORDS_TO_TACTICS = {
+    # Credential Access (TA0006) - HIGHEST PRIORITY
+    "mimikatz": "TA0006", "lazagne": "TA0006", "credential": "TA0006",
+    "password": "TA0006", "lsass": "TA0006", "sekurlsa": "TA0006",
+    "dump": "TA0006", "ntlm": "TA0006", "kerberos": "TA0006",
+    
+    # Exfiltration (TA0010) - HIGHEST PRIORITY
+    "exfil": "TA0010", "upload": "TA0010", "transfer": "TA0010",
+    "compress": "TA0010", "archive": "TA0010",
+    
+    # Impact (TA0040) - HIGHEST PRIORITY
+    "ransomware": "TA0040", "encrypt": "TA0040", "wiper": "TA0040",
+    "delete": "TA0040", "destroy": "TA0040", "format": "TA0040",
+    
+    # Privilege Escalation (TA0004)
+    "privilege": "TA0004", "escalat": "TA0004", "sudo": "TA0004",
+    "admin": "TA0004", "root": "TA0004", "uac": "TA0004",
+    
+    # Execution (TA0002)
+    "powershell": "TA0002", "cmd": "TA0002", "script": "TA0002",
+    "execute": "TA0002", "invoke": "TA0002", "spawn": "TA0002",
+    
+    # C2 (TA0011)
+    "beacon": "TA0011", "callback": "TA0011", "reverse": "TA0011",
+    "shell": "TA0011", "c2": "TA0011", "cobalt": "TA0011",
+    
+    # Lateral Movement (TA0008)
+    "lateral": "TA0008", "pivot": "TA0008", "psexec": "TA0008",
+    "wmi": "TA0008", "remote": "TA0008",
+    
+    # Persistence (TA0003)
+    "persist": "TA0003", "startup": "TA0003", "scheduled": "TA0003",
+    "registry": "TA0003", "service": "TA0003",
+}
+
+
+@router.post("/threats/prioritize")
+async def prioritize_threats(
+    limit: int = 50,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """
+    AI-powered threat prioritization using MITRE ATT&CK framework.
+    Returns threats sorted by priority score.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Fetch recent critical/high alerts
+    alerts = await db.alerts.find(
+        {"status": "open", "severity": {"$in": ["critical", "high", "medium"]}},
+        {"_id": 0}
+    ).sort("timestamp", -1).limit(limit).to_list(limit)
+    
+    # Fetch recent critical telemetry
+    telemetry = await db.agent_telemetry.find(
+        {"severity": {"$in": ["critical", "high"]}},
+        {"_id": 0}
+    ).sort("timestamp", -1).limit(limit).to_list(limit)
+    
+    # Combine and prioritize
+    all_threats = []
+    
+    for alert in alerts:
+        threat_text = f"{alert.get('message', '')} {alert.get('event_type', '')}".lower()
+        priority_data = calculate_threat_priority(threat_text, alert.get('severity', 'medium'))
+        
+        all_threats.append({
+            "id": alert.get("id", str(uuid.uuid4())[:8]),
+            "type": "alert",
+            "source": alert.get("source"),
+            "message": alert.get("message"),
+            "severity": alert.get("severity"),
+            "timestamp": alert.get("timestamp"),
+            "mitre_tactic": priority_data["tactic"],
+            "mitre_tactic_name": priority_data["tactic_name"],
+            "priority_score": priority_data["score"],
+            "priority_level": priority_data["level"],
+            "recommended_action": priority_data["action"]
+        })
+    
+    for event in telemetry:
+        threat_text = f"{event.get('event_type', '')} {event.get('data', {})}".lower()
+        priority_data = calculate_threat_priority(threat_text, event.get('severity', 'medium'))
+        
+        all_threats.append({
+            "id": event.get("id", str(uuid.uuid4())[:8]),
+            "type": "telemetry",
+            "source": event.get("host_id"),
+            "message": event.get("event_type"),
+            "severity": event.get("severity"),
+            "timestamp": event.get("timestamp"),
+            "mitre_tactic": priority_data["tactic"],
+            "mitre_tactic_name": priority_data["tactic_name"],
+            "priority_score": priority_data["score"],
+            "priority_level": priority_data["level"],
+            "recommended_action": priority_data["action"]
+        })
+    
+    # Sort by priority score (highest first)
+    all_threats.sort(key=lambda x: x["priority_score"], reverse=True)
+    
+    # Calculate summary
+    summary = {
+        "total_threats": len(all_threats),
+        "critical_priority": len([t for t in all_threats if t["priority_level"] == "critical"]),
+        "high_priority": len([t for t in all_threats if t["priority_level"] == "high"]),
+        "medium_priority": len([t for t in all_threats if t["priority_level"] == "medium"]),
+        "top_tactics": get_top_tactics(all_threats)
+    }
+    
+    return {
+        "prioritized_threats": all_threats[:limit],
+        "summary": summary,
+        "analyzed_at": now
+    }
+
+
+def calculate_threat_priority(threat_text: str, severity: str) -> dict:
+    """Calculate threat priority using MITRE ATT&CK mapping"""
+    # Base severity scores
+    severity_scores = {
+        "critical": 90,
+        "high": 70,
+        "medium": 50,
+        "low": 30,
+        "info": 10
+    }
+    
+    base_score = severity_scores.get(severity, 50)
+    
+    # Find matching MITRE tactic
+    tactic_id = None
+    for keyword, tactic in THREAT_KEYWORDS_TO_TACTICS.items():
+        if keyword in threat_text:
+            tactic_id = tactic
+            break
+    
+    # Calculate final score
+    if tactic_id and tactic_id in MITRE_ATTACK_TACTICS:
+        tactic_info = MITRE_ATTACK_TACTICS[tactic_id]
+        weight = tactic_info["severity_weight"]
+        final_score = min(100, base_score * (1 + weight * 0.2))
+        tactic_name = tactic_info["name"]
+    else:
+        final_score = base_score
+        tactic_id = "UNKNOWN"
+        tactic_name = "Unclassified"
+    
+    # Determine priority level
+    if final_score >= 90:
+        level = "critical"
+        action = "IMMEDIATE: Auto-kill or manual intervention required"
+    elif final_score >= 70:
+        level = "high"
+        action = "URGENT: Review and remediate within 1 hour"
+    elif final_score >= 50:
+        level = "medium"
+        action = "REVIEW: Investigate within 4 hours"
+    else:
+        level = "low"
+        action = "MONITOR: Track for patterns"
+    
+    return {
+        "tactic": tactic_id,
+        "tactic_name": tactic_name,
+        "score": round(final_score, 1),
+        "level": level,
+        "action": action
+    }
+
+
+def get_top_tactics(threats: list) -> list:
+    """Get most common MITRE tactics from threats"""
+    tactic_counts = {}
+    for t in threats:
+        tactic = t.get("mitre_tactic")
+        if tactic and tactic != "UNKNOWN":
+            tactic_counts[tactic] = tactic_counts.get(tactic, 0) + 1
+    
+    sorted_tactics = sorted(tactic_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    return [
+        {
+            "tactic_id": tactic_id,
+            "tactic_name": MITRE_ATTACK_TACTICS.get(tactic_id, {}).get("name", "Unknown"),
+            "count": count
+        }
+        for tactic_id, count in sorted_tactics
+    ]
+
+
+@router.get("/threats/mitre-mapping")
+async def get_mitre_mapping(current_user: dict = Depends(get_current_user)):
+    """Get MITRE ATT&CK tactic mapping and threat distribution"""
+    # Get recent threats and map to tactics
+    alerts = await db.alerts.find(
+        {"status": "open"},
+        {"_id": 0, "message": 1, "event_type": 1, "severity": 1}
+    ).limit(200).to_list(200)
+    
+    tactic_distribution = {tactic_id: {"count": 0, "name": info["name"], "severity_weight": info["severity_weight"]} 
+                          for tactic_id, info in MITRE_ATTACK_TACTICS.items()}
+    
+    for alert in alerts:
+        text = f"{alert.get('message', '')} {alert.get('event_type', '')}".lower()
+        for keyword, tactic_id in THREAT_KEYWORDS_TO_TACTICS.items():
+            if keyword in text:
+                tactic_distribution[tactic_id]["count"] += 1
+                break
+    
+    # Filter to only tactics with threats
+    active_tactics = {k: v for k, v in tactic_distribution.items() if v["count"] > 0}
+    
+    return {
+        "all_tactics": MITRE_ATTACK_TACTICS,
+        "active_tactics": active_tactics,
+        "keyword_mappings": len(THREAT_KEYWORDS_TO_TACTICS)
+    }
+

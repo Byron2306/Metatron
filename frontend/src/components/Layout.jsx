@@ -31,7 +31,8 @@ import {
   Globe,
   BarChart3,
   Terminal,
-  Radio
+  Radio,
+  Map
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -51,6 +52,8 @@ const Layout = () => {
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/command-center', icon: ShieldAlert, label: 'Command Center' },
     { path: '/swarm', icon: Radio, label: 'Swarm Command' },
+    { path: '/advanced', icon: Cpu, label: 'Advanced Services' },
+    { path: '/heatmap', icon: Map, label: 'Threat Heatmap' },
     { path: '/ai-threats', icon: Brain, label: 'AI Threats (AATL)' },
     { path: '/agents', icon: Monitor, label: 'Agents' },
     { path: '/cli-sessions', icon: Brain, label: 'AI Detection' },

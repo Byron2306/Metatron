@@ -162,7 +162,7 @@ async def get_pending_commands(current_user: dict = Depends(get_current_user)):
 async def approve_command(
     command_id: str,
     approval: CommandApproval,
-    current_user: dict = Depends(check_permission("manage_users"))
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Approve or reject a pending command"""
     db = get_db()
@@ -186,9 +186,21 @@ async def approve_command(
         }}
     )
     
-    # If approved, try to send to agent
+    # If approved, queue for agent pickup or send via WebSocket if connected
     if approval.approved:
         agent_id = command["agent_id"]
+        
+        # Add to command queue for agent to poll
+        await db.command_queue.insert_one({
+            "command_id": command_id,
+            "agent_id": agent_id,
+            "command_type": command["command_type"],
+            "parameters": command["parameters"],
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+        # Try to send via WebSocket if agent is connected
         if agent_id in connected_agents:
             try:
                 ws = connected_agents[agent_id]
@@ -203,9 +215,15 @@ async def approve_command(
                     {"$set": {"status": "sent_to_agent"}}
                 )
             except Exception as e:
-                pass  # Agent might be disconnected
+                logger.debug(f"Could not send to agent {agent_id} via WS: {e}")
+        else:
+            # Update status to indicate command is queued for pickup
+            await db.agent_commands.update_one(
+                {"command_id": command_id},
+                {"$set": {"status": "queued_for_pickup"}}
+            )
     
-    return {"command_id": command_id, "status": new_status}
+    return {"command_id": command_id, "status": new_status, "message": "Command approved and queued for agent"}
 
 
 @router.get("/history")

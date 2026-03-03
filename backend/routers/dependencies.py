@@ -249,9 +249,9 @@ class AgentInfo(BaseModel):
     ip: Optional[str] = None
     os: Optional[str] = None
     status: str = "online"
-    last_heartbeat: str
+    last_heartbeat: Optional[str] = None
     system_info: Dict[str, Any] = {}
-    created_at: str
+    created_at: Optional[str] = None
 
 class RoleUpdate(BaseModel):
     role: str

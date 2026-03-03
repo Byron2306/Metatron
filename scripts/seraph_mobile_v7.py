@@ -336,6 +336,229 @@ class MobileThreatEngine:
 
 
 # =============================================================================
+# MOBILE NETWORK SCANNING (WiFi, Bluetooth)
+# =============================================================================
+
+class MobileWiFiScanner:
+    """WiFi network scanner for mobile devices"""
+    
+    def __init__(self):
+        self.known_networks = set()
+        self.scan_results = []
+        self.last_scan = None
+    
+    def scan_networks(self) -> List[dict]:
+        """Scan for available WiFi networks"""
+        networks = []
+        
+        if IS_ANDROID:
+            try:
+                # Use Android's wifi manager via termux-wifi-scaninfo
+                result = subprocess.run(
+                    ['termux-wifi-scaninfo'],
+                    capture_output=True, text=True, timeout=30
+                )
+                if result.returncode == 0:
+                    try:
+                        wifi_data = json.loads(result.stdout)
+                        for net in wifi_data:
+                            network = {
+                                'ssid': net.get('ssid', '(Hidden)'),
+                                'bssid': net.get('bssid', 'Unknown'),
+                                'signal': str(net.get('rssi', 'N/A')) + ' dBm',
+                                'frequency': net.get('frequency_mhz', 'Unknown'),
+                                'auth': 'WPA2' if 'WPA2' in str(net.get('capabilities', '')) else 'Open',
+                                'threats': []
+                            }
+                            # Analyze for threats
+                            network['threats'] = self._analyze_network(network)
+                            networks.append(network)
+                    except json.JSONDecodeError:
+                        pass
+            except FileNotFoundError:
+                # termux-api not installed, try alternative
+                try:
+                    result = subprocess.run(
+                        ['iwlist', 'wlan0', 'scan'],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    # Parse iwlist output (basic)
+                    current = {}
+                    for line in result.stdout.split('\n'):
+                        if 'ESSID:' in line:
+                            if current:
+                                networks.append(current)
+                            ssid = line.split('ESSID:')[1].strip().strip('"')
+                            current = {'ssid': ssid, 'threats': []}
+                        elif 'Address:' in line:
+                            current['bssid'] = line.split('Address:')[1].strip()
+                        elif 'Signal level' in line:
+                            current['signal'] = line.split('Signal level')[1].split()[0]
+                    if current:
+                        networks.append(current)
+                except:
+                    pass
+            except Exception as e:
+                logger.debug(f"WiFi scan error: {e}")
+        
+        self.scan_results = networks
+        self.last_scan = datetime.now().isoformat()
+        return networks
+    
+    def _analyze_network(self, network: dict) -> List[dict]:
+        """Analyze network for threats"""
+        threats = []
+        auth = network.get('auth', '').lower()
+        ssid = network.get('ssid', '').lower()
+        
+        # Open network warning
+        if 'open' in auth or not auth:
+            threats.append({
+                "type": "open_network",
+                "severity": "high",
+                "message": "Network has no encryption - data can be intercepted"
+            })
+        
+        # Suspicious SSID
+        suspicious = ['free', 'public', 'airport', 'hotel', 'starbucks', 'mcdonalds']
+        if any(s in ssid for s in suspicious):
+            threats.append({
+                "type": "suspicious_ssid",
+                "severity": "medium", 
+                "message": "Public network - use VPN for sensitive activities"
+            })
+        
+        # Evil twin detection
+        if network.get('ssid') in self.known_networks:
+            threats.append({
+                "type": "evil_twin",
+                "severity": "critical",
+                "message": "Multiple networks with same name - possible evil twin attack"
+            })
+        else:
+            self.known_networks.add(network.get('ssid', ''))
+        
+        return threats
+    
+    def get_connected_network(self) -> dict:
+        """Get currently connected WiFi"""
+        if IS_ANDROID:
+            try:
+                result = subprocess.run(
+                    ['termux-wifi-connectioninfo'],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    return json.loads(result.stdout)
+            except:
+                pass
+        return {"error": "Cannot get WiFi info"}
+    
+    def to_dict(self) -> dict:
+        return {
+            "networks": self.scan_results,
+            "last_scan": self.last_scan,
+            "count": len(self.scan_results)
+        }
+
+
+class MobileBluetoothScanner:
+    """Bluetooth device scanner for mobile"""
+    
+    def __init__(self):
+        self.devices = []
+        self.last_scan = None
+        self.trusted_devices = set()
+    
+    def scan_devices(self) -> List[dict]:
+        """Scan for Bluetooth devices"""
+        devices = []
+        
+        if IS_ANDROID:
+            try:
+                # Use termux-bluetooth-scan
+                result = subprocess.run(
+                    ['termux-bluetooth-scaninfo'],
+                    capture_output=True, text=True, timeout=30
+                )
+                if result.returncode == 0:
+                    try:
+                        bt_data = json.loads(result.stdout)
+                        for dev in bt_data:
+                            device = {
+                                'name': dev.get('name', 'Unknown'),
+                                'address': dev.get('address', 'Unknown'),
+                                'type': dev.get('type', 'Unknown'),
+                                'rssi': dev.get('rssi', 'N/A'),
+                                'threats': []
+                            }
+                            device['threats'] = self._analyze_device(device)
+                            devices.append(device)
+                    except json.JSONDecodeError:
+                        pass
+            except FileNotFoundError:
+                # Try hcitool
+                try:
+                    result = subprocess.run(
+                        ['hcitool', 'scan'],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    for line in result.stdout.strip().split('\n')[1:]:
+                        parts = line.strip().split('\t')
+                        if len(parts) >= 2:
+                            devices.append({
+                                'address': parts[0],
+                                'name': parts[1] if len(parts) > 1 else 'Unknown',
+                                'threats': []
+                            })
+                except:
+                    pass
+            except Exception as e:
+                logger.debug(f"Bluetooth scan error: {e}")
+        
+        self.devices = devices
+        self.last_scan = datetime.now().isoformat()
+        return devices
+    
+    def _analyze_device(self, device: dict) -> List[dict]:
+        """Analyze device for threats"""
+        threats = []
+        name = device.get('name', '').lower()
+        
+        # Suspicious device names
+        suspicious = ['keylogger', 'hak', 'pwn', 'attack', 'flipper', 'badusb']
+        if any(s in name for s in suspicious):
+            threats.append({
+                "type": "suspicious_device",
+                "severity": "high",
+                "message": "Potentially malicious Bluetooth device"
+            })
+        
+        # Unknown device warning
+        addr = device.get('address', '')
+        if addr and addr not in self.trusted_devices:
+            threats.append({
+                "type": "unknown_device",
+                "severity": "low",
+                "message": "Unknown device - verify if expected"
+            })
+        
+        return threats
+    
+    def to_dict(self) -> dict:
+        return {
+            "devices": self.devices,
+            "last_scan": self.last_scan,
+            "count": len(self.devices)
+        }
+
+
+# Initialize mobile scanners
+mobile_wifi_scanner = MobileWiFiScanner()
+mobile_bluetooth_scanner = MobileBluetoothScanner()
+
+
+# =============================================================================
 # REMEDIATION ENGINE
 # =============================================================================
 
@@ -440,12 +663,14 @@ class MobileRemediationEngine:
 # =============================================================================
 
 class MobileTelemetryStore:
-    """Local telemetry storage"""
+    """Local telemetry storage with auto-kill capabilities"""
     
     def __init__(self):
         self.events = deque(maxlen=1000)
         self.threats = deque(maxlen=200)
         self.pending_approvals = {}
+        self.auto_remediated = deque(maxlen=100)  # Auto-killed threats
+        self.alarms = deque(maxlen=50)
         self.network_connections = []
         self.installed_apps = []
         
@@ -454,23 +679,92 @@ class MobileTelemetryStore:
             "threats_detected": 0,
             "threats_blocked": 0,
             "threats_pending": 0,
+            "threats_auto_killed": 0,
             "apps_scanned": 0,
             "connections_monitored": 0
         }
+        
+        # Auto-kill configuration for mobile
+        self.auto_kill_enabled = True
+        self.auto_kill_severities = {ThreatSeverity.CRITICAL}
+        
+        # Critical patterns for mobile
+        self.critical_patterns = [
+            'malicious', 'spyware', 'stalkerware', 'keylogger',
+            'banking', 'credential', 'phishing', 'ransomware'
+        ]
     
-    def add_threat(self, threat: MobileThreat):
+    def add_threat(self, threat: MobileThreat, auto_remediate: bool = True):
         self.threats.append(threat)
         self.stats["threats_detected"] += 1
         
-        if threat.remediation_available:
+        # Check if auto-kill should be triggered
+        should_auto_kill = False
+        if self.auto_kill_enabled and threat.remediation_available:
+            if threat.severity in self.auto_kill_severities:
+                should_auto_kill = True
+            
+            # Check critical patterns
+            threat_text = f"{threat.title} {threat.description}".lower()
+            for pattern in self.critical_patterns:
+                if pattern in threat_text:
+                    should_auto_kill = True
+                    break
+        
+        if should_auto_kill and auto_remediate:
+            self.trigger_alarm(threat, "MOBILE_AUTO_KILL")
+            threat.status = "auto_remediated"
+            threat.user_approved = True
+            self.auto_remediated.append(threat)
+        elif threat.remediation_available:
             self.pending_approvals[threat.id] = threat
             self.stats["threats_pending"] += 1
+            
+            if threat.severity in {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH}:
+                self.trigger_alarm(threat, "MOBILE_MANUAL_REQUIRED")
         
         self.add_event({
             "event_type": f"threat.{threat.type}",
             "severity": threat.severity.value,
-            "data": {"title": threat.title, "description": threat.description}
+            "data": {
+                "title": threat.title, 
+                "description": threat.description,
+                "auto_kill_triggered": should_auto_kill
+            }
         })
+        
+        return should_auto_kill
+    
+    def trigger_alarm(self, threat: MobileThreat, alarm_type: str):
+        """Trigger mobile alarm with notification"""
+        alarm = {
+            "id": f"alarm-{uuid.uuid4().hex[:8]}",
+            "type": alarm_type,
+            "threat_id": threat.id,
+            "threat_title": threat.title,
+            "severity": threat.severity.value,
+            "timestamp": datetime.now().isoformat(),
+            "acknowledged": False
+        }
+        self.alarms.append(alarm)
+        logger.warning(f"🚨 MOBILE ALARM: {alarm_type} - {threat.title}")
+        
+        # Send mobile notification
+        self._send_notification(f"⚠️ {alarm_type}", threat.title)
+    
+    def _send_notification(self, title: str, message: str):
+        """Send mobile notification"""
+        if IS_ANDROID and ANDROID_HELPER:
+            try:
+                ANDROID_HELPER.notify(title, message)
+            except:
+                pass
+        elif IS_IOS:
+            try:
+                import notification
+                notification.schedule(title, delay=0, message=message)
+            except:
+                pass
     
     def add_event(self, event: dict):
         event["id"] = uuid.uuid4().hex[:8]
