@@ -696,3 +696,144 @@ async def get_advanced_dashboard(current_user: dict = Depends(get_current_user))
         "quantum": quantum_security.get_quantum_status(),
         "ai": ai_reasoning.get_reasoning_stats()
     }
+
+
+# =============================================================================
+# VNS ALERTS ENDPOINTS
+# =============================================================================
+
+class AlertConfigRequest(BaseModel):
+    slack_webhook_url: Optional[str] = None
+    email_config: Optional[Dict[str, Any]] = None
+
+
+class TestAlertRequest(BaseModel):
+    channel: str = "all"  # all, slack, email
+
+
+@router.get("/alerts/status")
+async def get_alert_status(current_user: dict = Depends(get_current_user)):
+    """Get VNS alert service status"""
+    from services.vns_alerts import vns_alert_service
+    
+    return vns_alert_service.get_status()
+
+
+@router.post("/alerts/configure")
+async def configure_alerts(
+    request: AlertConfigRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Configure VNS alert channels"""
+    from services.vns_alerts import vns_alert_service
+    
+    result = vns_alert_service.configure(
+        slack_webhook=request.slack_webhook_url,
+        email_config=request.email_config
+    )
+    
+    return {"status": "configured", **result}
+
+
+@router.post("/alerts/test")
+async def test_alert(
+    request: TestAlertRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Send a test alert"""
+    from services.vns_alerts import vns_alert_service
+    
+    results = vns_alert_service.test_alert(request.channel)
+    return {"status": "sent", "results": results}
+
+
+# =============================================================================
+# CUCKOO SANDBOX ENDPOINTS
+# =============================================================================
+
+class SandboxSubmitRequest(BaseModel):
+    file_path: Optional[str] = None
+    file_base64: Optional[str] = None
+    file_name: Optional[str] = None
+    url: Optional[str] = None
+    options: Optional[Dict[str, Any]] = None
+
+
+@router.get("/sandbox/status")
+async def get_sandbox_status(current_user: dict = Depends(get_current_user)):
+    """Get Cuckoo sandbox status"""
+    from services.cuckoo_sandbox import cuckoo_sandbox
+    
+    return cuckoo_sandbox.get_status()
+
+
+@router.post("/sandbox/submit/file")
+async def submit_file_to_sandbox(
+    request: SandboxSubmitRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Submit a file for sandbox analysis"""
+    from services.cuckoo_sandbox import cuckoo_sandbox
+    import tempfile
+    import base64
+    
+    if request.file_base64:
+        # Decode base64 file
+        file_data = base64.b64decode(request.file_base64)
+        file_name = request.file_name or "sample.bin"
+        
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file_name}") as f:
+            f.write(file_data)
+            temp_path = f.name
+        
+        result = cuckoo_sandbox.submit_file(temp_path, request.options)
+        
+        # Clean up
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        
+        return result
+    elif request.file_path:
+        return cuckoo_sandbox.submit_file(request.file_path, request.options)
+    else:
+        raise HTTPException(status_code=400, detail="file_path or file_base64 required")
+
+
+@router.post("/sandbox/submit/url")
+async def submit_url_to_sandbox(
+    request: SandboxSubmitRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Submit a URL for sandbox analysis"""
+    from services.cuckoo_sandbox import cuckoo_sandbox
+    
+    if not request.url:
+        raise HTTPException(status_code=400, detail="url required")
+    
+    return cuckoo_sandbox.submit_url(request.url, request.options)
+
+
+@router.get("/sandbox/task/{task_id}")
+async def get_sandbox_task_status(
+    task_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get sandbox task status"""
+    from services.cuckoo_sandbox import cuckoo_sandbox
+    
+    return cuckoo_sandbox.get_task_status(task_id)
+
+
+@router.get("/sandbox/report/{task_id}")
+async def get_sandbox_report(
+    task_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get full sandbox analysis report"""
+    from services.cuckoo_sandbox import cuckoo_sandbox
+    
+    return cuckoo_sandbox.get_report(task_id)
+

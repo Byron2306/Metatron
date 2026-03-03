@@ -1,15 +1,23 @@
 """
 Reports Router
+==============
+Enhanced PDF reporting with multiple report types and robust error handling.
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 import io
+import traceback
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, LETTER
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
+from reportlab.graphics.shapes import Drawing, Rect
+from reportlab.graphics.charts.piecharts import Pie
+from reportlab.graphics.charts.barcharts import VerticalBarChart
 
 from .dependencies import (
     get_current_user, get_db, check_permission, logger
@@ -18,135 +26,268 @@ from .ai_analysis import call_openai
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
-def generate_threat_report_pdf(threats: list, alerts: list, stats: dict) -> io.BytesIO:
-    """Generate PDF threat intelligence report"""
+
+def safe_str(value, max_length=50, default="N/A"):
+    """Safely convert value to string with length limit"""
+    try:
+        if value is None:
+            return default
+        result = str(value)
+        if len(result) > max_length:
+            return result[:max_length-3] + "..."
+        return result
+    except:
+        return default
+
+
+def create_pie_chart(data: dict, width=200, height=150):
+    """Create a pie chart drawing"""
+    try:
+        drawing = Drawing(width, height)
+        pie = Pie()
+        pie.x = 50
+        pie.y = 25
+        pie.width = 100
+        pie.height = 100
+        
+        values = list(data.values())
+        labels = list(data.keys())
+        
+        if sum(values) == 0:
+            return None
+        
+        pie.data = values
+        pie.labels = labels
+        pie.slices.strokeWidth = 0.5
+        
+        # Color scheme
+        chart_colors = [
+            colors.HexColor('#EF4444'),  # Red
+            colors.HexColor('#F97316'),  # Orange
+            colors.HexColor('#FBBF24'),  # Yellow
+            colors.HexColor('#22C55E'),  # Green
+            colors.HexColor('#3B82F6'),  # Blue
+        ]
+        
+        for i, _ in enumerate(values):
+            if i < len(chart_colors):
+                pie.slices[i].fillColor = chart_colors[i]
+        
+        drawing.add(pie)
+        return drawing
+    except Exception as e:
+        logger.warning(f"Chart creation failed: {e}")
+        return None
+
+
+def generate_threat_report_pdf(threats: list, alerts: list, stats: dict, 
+                                include_charts: bool = True) -> io.BytesIO:
+    """Generate PDF threat intelligence report with enhanced formatting"""
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=72)
     
-    styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(
-        name='TitleStyle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        spaceAfter=30,
-        textColor=colors.HexColor('#3B82F6')
-    ))
-    styles.add(ParagraphStyle(
-        name='SectionTitle',
-        parent=styles['Heading2'],
-        fontSize=14,
-        spaceAfter=12,
-        spaceBefore=20,
-        textColor=colors.HexColor('#1E293B')
-    ))
-    styles.add(ParagraphStyle(
-        name='CustomBody',
-        parent=styles['Normal'],
-        fontSize=10,
-        spaceAfter=8
-    ))
-    
-    elements = []
-    
-    # Title
-    elements.append(Paragraph("THREAT INTELLIGENCE REPORT", styles['TitleStyle']))
-    elements.append(Paragraph(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", styles['CustomBody']))
-    elements.append(Spacer(1, 20))
-    
-    # Executive Summary
-    elements.append(Paragraph("EXECUTIVE SUMMARY", styles['SectionTitle']))
-    summary_data = [
-        ['Metric', 'Value'],
-        ['Total Threats', str(stats.get('total_threats', 0))],
-        ['Active Threats', str(stats.get('active_threats', 0))],
-        ['Contained Threats', str(stats.get('contained_threats', 0))],
-        ['Resolved Threats', str(stats.get('resolved_threats', 0))],
-        ['Critical Alerts', str(stats.get('critical_alerts', 0))],
-        ['System Health', f"{stats.get('system_health', 100):.1f}%"]
-    ]
-    
-    summary_table = Table(summary_data, colWidths=[200, 150])
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3B82F6')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 11),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8FAFC')),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor('#1E293B')),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E2E8F0')),
-        ('ROWHEIGHT', (0, 0), (-1, -1), 25)
-    ]))
-    elements.append(summary_table)
-    elements.append(Spacer(1, 20))
-    
-    # Active Threats Section
-    elements.append(Paragraph("ACTIVE THREATS", styles['SectionTitle']))
-    active_threats = [t for t in threats if t.get('status') == 'active']
-    
-    if active_threats:
-        threat_data = [['Name', 'Type', 'Severity', 'Source IP']]
-        for threat in active_threats[:10]:
-            threat_data.append([
-                threat.get('name', 'Unknown')[:30],
-                threat.get('type', 'Unknown'),
-                threat.get('severity', 'Unknown').upper(),
-                threat.get('source_ip', 'N/A')
-            ])
+    try:
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=A4, 
+            rightMargin=50, 
+            leftMargin=50, 
+            topMargin=50, 
+            bottomMargin=50
+        )
         
-        threat_table = Table(threat_data, colWidths=[150, 80, 80, 100])
-        threat_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EF4444')),
+        styles = getSampleStyleSheet()
+        
+        # Define custom styles
+        styles.add(ParagraphStyle(
+            name='TitleStyle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            spaceAfter=30,
+            textColor=colors.HexColor('#3B82F6'),
+            alignment=1  # Center
+        ))
+        styles.add(ParagraphStyle(
+            name='SubtitleStyle',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=20,
+            textColor=colors.HexColor('#64748B'),
+            alignment=1  # Center
+        ))
+        styles.add(ParagraphStyle(
+            name='SectionTitle',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceAfter=12,
+            spaceBefore=20,
+            textColor=colors.HexColor('#1E293B')
+        ))
+        styles.add(ParagraphStyle(
+            name='CustomBody',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=8
+        ))
+        styles.add(ParagraphStyle(
+            name='FooterStyle',
+            parent=styles['Normal'],
+            fontSize=8,
+            textColor=colors.HexColor('#94A3B8'),
+            alignment=1
+        ))
+        
+        elements = []
+        
+        # Title Page
+        elements.append(Spacer(1, 100))
+        elements.append(Paragraph("SERAPH AI", styles['TitleStyle']))
+        elements.append(Paragraph("THREAT INTELLIGENCE REPORT", styles['TitleStyle']))
+        elements.append(Spacer(1, 30))
+        elements.append(Paragraph(
+            f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", 
+            styles['SubtitleStyle']
+        ))
+        elements.append(Paragraph("Classification: CONFIDENTIAL", styles['SubtitleStyle']))
+        elements.append(PageBreak())
+        
+        # Executive Summary
+        elements.append(Paragraph("EXECUTIVE SUMMARY", styles['SectionTitle']))
+        
+        summary_data = [
+            ['Metric', 'Value', 'Status'],
+            ['Total Threats', str(stats.get('total_threats', 0)), 
+             'Critical' if stats.get('total_threats', 0) > 50 else 'Normal'],
+            ['Active Threats', str(stats.get('active_threats', 0)),
+             'Critical' if stats.get('active_threats', 0) > 10 else 'Normal'],
+            ['Contained Threats', str(stats.get('contained_threats', 0)), 'Resolved'],
+            ['Resolved Threats', str(stats.get('resolved_threats', 0)), 'Resolved'],
+            ['Critical Alerts', str(stats.get('critical_alerts', 0)),
+             'Critical' if stats.get('critical_alerts', 0) > 0 else 'Normal'],
+            ['System Health', f"{stats.get('system_health', 100):.1f}%",
+             'Good' if stats.get('system_health', 100) >= 80 else 'Degraded']
+        ]
+        
+        summary_table = Table(summary_data, colWidths=[180, 100, 80])
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3B82F6')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('TOPPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8FAFC')),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor('#1E293B')),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
             ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E2E8F0')),
-            ('ROWHEIGHT', (0, 0), (-1, -1), 22)
+            ('ROWHEIGHT', (0, 0), (-1, -1), 28),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
-        elements.append(threat_table)
-    else:
-        elements.append(Paragraph("No active threats at this time.", styles['CustomBody']))
-    
-    elements.append(Spacer(1, 20))
-    
-    # Recent Alerts Section
-    elements.append(Paragraph("RECENT ALERTS", styles['SectionTitle']))
-    if alerts:
-        alert_data = [['Title', 'Type', 'Severity', 'Status']]
-        for alert in alerts[:10]:
-            alert_data.append([
-                alert.get('title', 'Unknown')[:35],
-                alert.get('type', 'Unknown'),
-                alert.get('severity', 'Unknown').upper(),
-                alert.get('status', 'Unknown')
-            ])
+        elements.append(summary_table)
+        elements.append(Spacer(1, 30))
         
-        alert_table = Table(alert_data, colWidths=[170, 80, 80, 80])
-        alert_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F59E0B')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E2E8F0')),
-            ('ROWHEIGHT', (0, 0), (-1, -1), 22)
-        ]))
-        elements.append(alert_table)
-    else:
-        elements.append(Paragraph("No recent alerts.", styles['CustomBody']))
-    
-    elements.append(Spacer(1, 30))
-    
-    # Footer
-    elements.append(Paragraph("--- End of Report ---", styles['CustomBody']))
-    elements.append(Paragraph("Generated by Anti-AI Defense System", styles['CustomBody']))
-    
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
+        # Severity Distribution Chart
+        if include_charts:
+            severity_data = {
+                'Critical': len([t for t in threats if t.get('severity') == 'critical']),
+                'High': len([t for t in threats if t.get('severity') == 'high']),
+                'Medium': len([t for t in threats if t.get('severity') == 'medium']),
+                'Low': len([t for t in threats if t.get('severity') == 'low']),
+            }
+            
+            if sum(severity_data.values()) > 0:
+                elements.append(Paragraph("THREAT SEVERITY DISTRIBUTION", styles['SectionTitle']))
+                chart = create_pie_chart(severity_data)
+                if chart:
+                    elements.append(chart)
+                elements.append(Spacer(1, 20))
+        
+        # Active Threats Section
+        elements.append(Paragraph("ACTIVE THREATS", styles['SectionTitle']))
+        active_threats = [t for t in threats if t.get('status') == 'active']
+        
+        if active_threats:
+            threat_data = [['Name', 'Type', 'Severity', 'Source']]
+            for threat in active_threats[:15]:
+                threat_data.append([
+                    safe_str(threat.get('name', 'Unknown'), 35),
+                    safe_str(threat.get('type', 'Unknown'), 20),
+                    safe_str(threat.get('severity', 'Unknown'), 10).upper(),
+                    safe_str(threat.get('source_ip', 'N/A'), 15)
+                ])
+            
+            threat_table = Table(threat_data, colWidths=[150, 100, 70, 100])
+            threat_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EF4444')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E2E8F0')),
+                ('ROWHEIGHT', (0, 0), (-1, -1), 24),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                # Alternate row colors
+                *[('BACKGROUND', (0, i), (-1, i), colors.HexColor('#FEF2F2' if i % 2 == 0 else '#FFFFFF')) 
+                  for i in range(1, len(threat_data))]
+            ]))
+            elements.append(threat_table)
+        else:
+            elements.append(Paragraph("No active threats at this time.", styles['CustomBody']))
+        
+        elements.append(Spacer(1, 30))
+        
+        # Recent Alerts Section
+        elements.append(Paragraph("RECENT ALERTS", styles['SectionTitle']))
+        if alerts:
+            alert_data = [['Title', 'Type', 'Severity', 'Status']]
+            for alert in alerts[:15]:
+                alert_data.append([
+                    safe_str(alert.get('title', 'Unknown'), 40),
+                    safe_str(alert.get('type', 'Unknown'), 20),
+                    safe_str(alert.get('severity', 'Unknown'), 10).upper(),
+                    safe_str(alert.get('status', 'Unknown'), 15)
+                ])
+            
+            alert_table = Table(alert_data, colWidths=[170, 100, 70, 80])
+            alert_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F59E0B')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E2E8F0')),
+                ('ROWHEIGHT', (0, 0), (-1, -1), 24),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            elements.append(alert_table)
+        else:
+            elements.append(Paragraph("No recent alerts.", styles['CustomBody']))
+        
+        elements.append(Spacer(1, 50))
+        
+        # Footer
+        elements.append(Paragraph("--- End of Report ---", styles['FooterStyle']))
+        elements.append(Paragraph("Generated by Seraph AI Defense System", styles['FooterStyle']))
+        elements.append(Paragraph("This report is confidential and intended for authorized personnel only.", styles['FooterStyle']))
+        
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
+        
+    except Exception as e:
+        logger.error(f"PDF generation error: {e}\n{traceback.format_exc()}")
+        # Return a simple error PDF
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        styles = getSampleStyleSheet()
+        elements = [
+            Paragraph("Error Generating Report", styles['Heading1']),
+            Paragraph(f"An error occurred: {safe_str(str(e), 200)}", styles['Normal']),
+            Paragraph(f"Generated: {datetime.now(timezone.utc).isoformat()}", styles['Normal']),
+        ]
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
 
 @router.get("/threat-intelligence")
 async def generate_threat_report(current_user: dict = Depends(check_permission("export_reports"))):

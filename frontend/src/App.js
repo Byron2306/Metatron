@@ -36,6 +36,7 @@ import SwarmDashboard from "./pages/SwarmDashboard";
 import AIThreatIntelligence from "./pages/AIThreatIntelligence";
 import CommandCenterPage from "./pages/CommandCenterPage";
 import AdvancedServicesPage from "./pages/AdvancedServicesPage";
+import TacticalHeatmapPage from "./pages/TacticalHeatmapPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -109,6 +110,7 @@ function App() {
               <Route path="ai-threats" element={<AIThreatIntelligence />} />
               <Route path="command-center" element={<CommandCenterPage />} />
               <Route path="advanced" element={<AdvancedServicesPage />} />
+              <Route path="heatmap" element={<TacticalHeatmapPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
