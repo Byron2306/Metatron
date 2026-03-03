@@ -38,7 +38,7 @@ class TestEnterpriseStatus:
         })
         
         if login_response.status_code == 200:
-            token = login_response.json().get("token")
+            token = login_response.json().get("access_token")
             self.session.headers.update({"Authorization": f"Bearer {token}"})
         else:
             pytest.skip("Authentication failed - skipping authenticated tests")
@@ -96,7 +96,7 @@ class TestCLIToolGateway:
         })
         
         if login_response.status_code == 200:
-            token = login_response.json().get("token")
+            token = login_response.json().get("access_token")
             self.session.headers.update({"Authorization": f"Bearer {token}"})
         else:
             pytest.skip("Authentication failed")
@@ -185,7 +185,7 @@ class TestPolicyEngine:
         })
         
         if login_response.status_code == 200:
-            token = login_response.json().get("token")
+            token = login_response.json().get("access_token")
             self.session.headers.update({"Authorization": f"Bearer {token}"})
         else:
             pytest.skip("Authentication failed")
@@ -312,7 +312,7 @@ class TestTelemetryChain:
         })
         
         if login_response.status_code == 200:
-            token = login_response.json().get("token")
+            token = login_response.json().get("access_token")
             self.session.headers.update({"Authorization": f"Bearer {token}"})
         else:
             pytest.skip("Authentication failed")
@@ -402,7 +402,7 @@ class TestIdentityService:
         })
         
         if login_response.status_code == 200:
-            token = login_response.json().get("token")
+            token = login_response.json().get("access_token")
             self.session.headers.update({"Authorization": f"Bearer {token}"})
         else:
             pytest.skip("Authentication failed")
@@ -526,7 +526,7 @@ class TestTokenBroker:
         })
         
         if login_response.status_code == 200:
-            token = login_response.json().get("token")
+            token = login_response.json().get("access_token")
             self.session.headers.update({"Authorization": f"Bearer {token}"})
         else:
             pytest.skip("Authentication failed")
