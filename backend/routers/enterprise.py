@@ -449,27 +449,6 @@ async def execute_tool(
     }
 
 
-@router.get("/tools/history")
-async def get_execution_history(
-    principal: str = None,
-    tool_id: str = None,
-    limit: int = 100,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get tool execution history"""
-    from services.tool_gateway import tool_gateway
-    
-    return {"executions": tool_gateway.get_execution_history(principal, tool_id, limit)}
-
-
-@router.get("/tools/status")
-async def get_gateway_status(current_user: dict = Depends(get_current_user)):
-    """Get tool gateway status"""
-    from services.tool_gateway import tool_gateway
-    
-    return tool_gateway.get_gateway_status()
-
-
 # =============================================================================
 # TAMPER-EVIDENT TELEMETRY ENDPOINTS
 # =============================================================================
