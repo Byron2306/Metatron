@@ -32,7 +32,10 @@ import {
   BarChart3,
   Terminal,
   Radio,
-  Map
+  Map,
+  Mail,
+  Chrome,
+  Server
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -59,6 +62,7 @@ const Layout = () => {
     { path: '/cli-sessions', icon: Brain, label: 'AI Detection' },
     { path: '/threats', icon: AlertTriangle, label: 'Threats' },
     { path: '/alerts', icon: Bell, label: 'Alerts' },
+    { path: '/vns-alerts', icon: Mail, label: 'VNS Alerts' },
     { path: '/quarantine', icon: ShieldAlert, label: 'Quarantine' },
     { path: '/response', icon: Zap, label: 'Auto Response' },
     { path: '/timeline', icon: Clock, label: 'Timeline' },
@@ -77,10 +81,14 @@ const Layout = () => {
     { path: '/ml-prediction', icon: Brain, label: 'ML Prediction' },
     { path: '/sandbox', icon: Box, label: 'Sandbox' },
     { path: '/browser-isolation', icon: Globe, label: 'Browser Isolation' },
+    { path: '/browser-extension', icon: Chrome, label: 'Browser Extension' },
     { path: '/kibana', icon: BarChart3, label: 'Kibana' },
     { path: '/agent-commands', icon: Terminal, label: 'Agent Commands' },
     { path: '/reports', icon: FileText, label: 'Reports' },
     { path: '/audit', icon: ScrollText, label: 'Audit Logs' },
+    { path: '/tenants', icon: Globe, label: 'Tenants' },
+    { path: '/unified-agent', icon: Cpu, label: 'Unified Agent' },
+    { path: '/setup-guide', icon: Server, label: 'Setup Guide' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 

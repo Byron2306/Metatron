@@ -31,7 +31,324 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v5.8.0**: Network Infrastructure Scanning + Split-Tunnel VPN (Feb 2026)
 - **v5.9.0**: Enterprise Security Layer + Aggressive Auto-Kill + SIEM + USB + Sandbox (Feb 2026)
 - **v6.0.0**: Advanced Security Services - MCP, Vector Memory, VNS, Quantum, AI Reasoning (Mar 2026)
-- **v6.1.0**: Full Feature Completion - Cuckoo Sandbox, VNS Alerts, Tactical Heatmap, PDF Fix (Mar 2026) - CURRENT
+- **v6.1.0**: Full Feature Completion - Cuckoo Sandbox, VNS Alerts, Tactical Heatmap, PDF Fix (Mar 2026)
+- **v6.2.0**: Metatron/Seraph Unified Agent Integration + MITRE Threat Hunting (Mar 2026)
+- **v6.3.0**: P1/P2 Feature Completion - VNS Alerts, Browser Extension, Setup Guide, SOAR Templates, Multi-Tenant (Mar 2026)
+- **v6.4.0**: Infrastructure Builder, Extension Download, PDF Stress Testing, Multi-Tenant API (Mar 2026)
+- **v6.5.0**: System-Wide Hardening - All UI Features, SOAR Templates Visibility, Complete Builder (Mar 2026)
+- **v6.6.0**: Full System Audit & Agent Installer Endpoints (Mar 2026) - CURRENT
+
+## v6.6.0 Full System Audit & Agent Installer Endpoints (Mar 2026) - CURRENT
+
+### Major Fixes & Additions
+
+#### 1. Agent Download/Install API Endpoints
+- **`GET /api/unified/agent/download`**: Downloads agent package as tarball (.tar.gz)
+- **`GET /api/unified/agent/install-script`**: Returns Linux installation script with server URL
+- **`GET /api/unified/agent/install-windows`**: Returns PowerShell installation script for Windows
+- One-liner deployment: `curl -sSL SERVER/api/unified/agent/install-script | sudo bash`
+
+#### 2. Builder Script Enhancement
+- Fixed agent service ExecStart path: `python -m core.agent --server URL`
+- Added PYTHONPATH environment variable
+- Created standalone `install-agent.sh` script
+
+#### 3. Alerts Endpoint Fix (by Testing Agent)
+- Fixed `/api/alerts` returning 500 error
+- Now normalizes legacy telemetry alerts with required fields
+- Returns `{"alerts": [...], "count": N}` format
+
+#### 4. AlertsPage.jsx Fix (by Testing Agent)
+- Fixed frontend to handle both array and object API responses
+- `const alertsData = Array.isArray(response.data) ? response.data : (response.data.alerts || [])`
+
+### Comprehensive System Testing Results (iteration_30.json)
+
+#### Backend (83% Pass Rate - 24/29)
+- All major endpoints working
+- Minor 404 on `/api/intel/feeds` (correct route is `/api/threat-intel/feeds`)
+- Minor 404 on `/api/reports/` list endpoint
+
+#### Frontend (100% Pass Rate)
+All 14+ pages verified working:
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Swarm Dashboard | WORKING | 303 devices, 32 agents, 48343 telemetry events, 76 deployments |
+| SOAR Page | WORKING | 5 playbooks, 14 templates, 6 AI Defense playbooks |
+| VNS Alerts | WORKING | Slack/Email configuration tabs |
+| Threat Hunting | WORKING | Rules and matches |
+| Network Topology | WORKING | Visual node display |
+| Command Center | WORKING | Agent commands interface |
+| Agents Page | WORKING | Agent list |
+| Alerts Page | WORKING (fixed) | Normalized alerts display |
+| Reports Page | WORKING | PDF generation, stress test 100% pass |
+| Browser Extension | WORKING | ZIP download verified |
+| Multi-Tenants | WORKING | CRUD operations |
+| Threat Intel | WORKING | Intelligence feeds |
+
+### API Verification Summary
+
+| Endpoint | Status |
+|----------|--------|
+| `/api/swarm/scanner/report` | WORKING - Scanner report ingestion |
+| `/api/swarm/deploy/batch` | WORKING - Batch deployment |
+| `/api/soar/templates` | WORKING - 14 templates returned |
+| `/api/advanced/alerts/status` | WORKING - VNS alerts status |
+| `/api/hunting/status` | WORKING - Threat hunting |
+| `/api/reports/stress-test` | WORKING - 100% success, avg 6.88ms |
+| `/api/reports/health` | WORKING - PDF generation verified |
+| `/api/extension/download` | WORKING - Browser extension ZIP |
+| `/api/unified/agent/download` | WORKING - Agent tarball |
+| `/api/unified/agent/install-script` | WORKING - Install script |
+
+## v6.5.0 System-Wide Hardening (Mar 2026)
+
+### Major Fixes & Additions
+
+#### 1. SOAR Templates Now Visible
+- **Added Templates Tab** to SOARPage.jsx with all 14 templates displayed
+- Tabs: All (playbooks), Templates (14), AI Defense (6)
+- Each template shows: name, description, category, steps count, tags, deploy button
+
+#### 2. New UI Pages Added
+- **TenantsPage.jsx**: Multi-tenant management with CRUD, tier comparison, API key generation
+- **UnifiedAgentPage.jsx**: Agent dashboard with stats, agent list, commands, installation guide
+
+#### 3. Sidebar Updated
+- 38 navigation items total
+- New items: VNS Alerts, Browser Extension, Tenants, Unified Agent, Setup Guide
+
+#### 4. Builder Script Enhanced
+- **setup_slack_notifications()**: Helper script for Slack webhook alerts
+- **setup_email_notifications()**: Helper script for email/SMTP alerts  
+- **verify_installation()**: Checks all services (Docker, MongoDB, ES, WireGuard, Cuckoo, liboqs, Ollama)
+
+### All 14 SOAR Templates
+1. Data Breach Response (incident_response)
+2. Credential Theft Response (identity)
+3. Insider Threat Response (insider)
+4. Compliance Violation Alert (compliance)
+5. Ransomware Response (malware)
+6. Cryptomining Detection (malware)
+7. Phishing Attack Response (email_security) - NEW
+8. APT Detection Response (advanced_threats) - NEW
+9. Lateral Movement Detection (network) - NEW
+10. Privilege Escalation Response (identity) - NEW
+11. Zero-Day Exploit Response (vulnerability) - NEW
+12. Supply Chain Attack Response (advanced_threats) - NEW
+13. DNS Tunneling Detection (network) - NEW
+14. Cloud Infrastructure Breach (cloud_security) - NEW
+
+### Testing Results (100% Pass)
+- 20 backend API tests passed
+- All 6 new UI pages verified
+- 38 sidebar navigation items confirmed
+- Builder script complete with all functions
+
+### Auto-Install Components (via seraph_builder.sh)
+- Docker & Docker Compose
+- MongoDB, Redis, Elasticsearch, Kibana
+- WireGuard VPN with key generation
+- Cuckoo Sandbox (Docker-based)
+- liboqs Post-Quantum Cryptography
+- Kali Linux security tools
+- Ollama local AI
+- Slack/Email notification helpers
+- Systemd services for auto-start
+
+## v6.4.0 Infrastructure & Production Readiness (Mar 2026)
+
+### Major Features Implemented
+
+#### 1. Complete Browser Extension Package
+- **Download**: `/api/extension/download` returns ready-to-install ZIP (688KB)
+- **Contents**: manifest.json, background.js, content.js, popup.html, popup.js, icons/
+- **Domain Check API**: `/api/extension/check-domain` for safe/malicious detection
+- **Alert Reporting**: `/api/extension/report-alerts` for extension telemetry
+
+#### 2. Seraph AI Infrastructure Builder Script
+- **Location**: `/app/scripts/seraph_builder.sh`
+- **Modes**: `--full`, `--minimal`, `--dev`
+- **Installs**:
+  - Docker & Docker Compose
+  - MongoDB, Redis, Elasticsearch, Kibana
+  - WireGuard VPN with automatic key generation
+  - Cuckoo Sandbox via Docker
+  - liboqs Post-Quantum Cryptography (KYBER, DILITHIUM)
+  - Kali Linux security tools (nmap, metasploit, volatility3, etc.)
+  - Ollama for local AI
+  - Python dependencies (FastAPI, ML libraries, security tools)
+  - Systemd services for automatic startup
+
+#### 3. PDF Reporting Enhancements
+- **Stress Test Endpoint**: `/api/reports/stress-test?iterations=N`
+- **Health Check**: `/api/reports/health`
+- **Results**: 100% success rate at 10 iterations, avg 6.49ms per PDF
+
+#### 4. Multi-Tenant API Routes
+- **Endpoints**:
+  - `GET /api/tenants/` - List all tenants
+  - `POST /api/tenants/` - Create tenant
+  - `GET /api/tenants/stats` - Multi-tenant statistics
+  - `GET /api/tenants/tiers` - Available tiers with quotas
+  - `GET /api/tenants/{id}` - Get tenant details
+  - `PUT /api/tenants/{id}` - Update tenant
+  - `DELETE /api/tenants/{id}` - Suspend tenant
+  - `POST /api/tenants/{id}/api-key` - Generate API key
+  - `POST /api/tenants/{id}/check-quota` - Check resource quota
+  - `POST /api/tenants/{id}/has-feature` - Check feature access
+
+### Testing Results (100% Pass)
+- 12 backend tests passed
+- Extension ZIP validated with correct structure
+- PDF stress test: 100% success, 10/10 iterations
+- All multi-tenant CRUD operations working
+
+## v6.3.0 P1/P2 Feature Completion (Mar 2026)
+
+### Major Features Implemented
+
+#### 1. VNS Alerting Pipeline
+- **Page**: `/app/frontend/src/pages/VNSAlertsPage.jsx`
+- **Features**:
+  - Slack Webhook configuration with test functionality
+  - SMTP Email configuration (Gmail, custom SMTP servers)
+  - Alert severity filtering (low/medium/high/critical)
+  - Cooldown period to prevent duplicate alerts
+  - Quick setup guides for Slack and Email
+- **API**: `/api/advanced/alerts/status`, `/api/advanced/alerts/configure`, `/api/advanced/alerts/test`
+
+#### 2. Browser Extension
+- **Page**: `/app/frontend/src/pages/BrowserExtensionPage.jsx`
+- **Features**:
+  - Real-time threat detection (XSS, suspicious scripts)
+  - Phishing protection with domain checking
+  - Privacy guard (tracking scripts, fingerprinting)
+  - Session monitoring and cookie protection
+  - AI-powered script analysis via Seraph AI backend
+- **Extension Files**: manifest.json, background.js, content.js, popup.html/js
+- **Supports**: Chrome, Edge, Brave (Manifest V3)
+
+#### 3. Setup Guide (Cuckoo + liboqs)
+- **Page**: `/app/frontend/src/pages/SetupGuidePage.jsx`
+- **Cuckoo Sandbox Setup**:
+  - Docker Compose deployment (recommended)
+  - Native installation guide
+  - Environment configuration
+  - Verification endpoint
+- **Post-Quantum Crypto (liboqs)**:
+  - Native Ubuntu/Debian installation
+  - Docker integration
+  - Supported algorithms: KYBER (KEM), DILITHIUM (signatures), SHA3-256
+  - Verification endpoint
+
+#### 4. SOAR Playbook Templates Expansion (14 Total)
+- **New Templates (8)**:
+  - Phishing Attack Response (email_security)
+  - APT Detection Response (advanced_threats)
+  - Lateral Movement Detection (network)
+  - Privilege Escalation Response (identity)
+  - Zero-Day Exploit Response (vulnerability)
+  - Supply Chain Attack Response (advanced_threats)
+  - DNS Tunneling Detection (network)
+  - Cloud Infrastructure Breach (cloud_security)
+- **Categories**: incident_response, identity, network, insider, compliance, malware, email_security, advanced_threats, vulnerability, cloud_security
+
+#### 5. Multi-Tenant Architecture
+- **Service**: `/app/backend/services/multi_tenant.py`
+- **Tiers**: FREE, STARTER, PROFESSIONAL, ENTERPRISE
+- **Features**:
+  - Tenant CRUD operations
+  - Resource quota management (agents, users, playbooks, API calls)
+  - Usage tracking and limits
+  - Feature gating per tier
+  - API key generation and validation
+- **Note**: Service layer only, API routes pending integration
+
+### Testing Results (100% Pass)
+- 13 backend tests passed
+- All frontend pages verified
+- SOAR templates: 14 total (6 original + 8 new)
+- Multi-tenant service fully functional
+
+## v6.2.0 Metatron/Seraph Unified Agent Integration (Mar 2026)
+
+### Major Features Implemented
+
+#### 1. Metatron/Seraph Unified Agent v2.0
+- **File**: `/app/unified_agent/core/agent.py`
+- **Cross-platform support**: Windows, macOS, Linux, Android (Termux), iOS (Pythonista)
+- **Features merged from both agents**:
+  - Clean modular architecture from Metatron
+  - Advanced security features from seraph_defender_v7
+- **Monitoring Modules**:
+  - Process Monitor with aggressive detection
+  - Network Monitor with threat intelligence
+  - Port Scanner with router vulnerability detection
+  - WiFi Scanner with open network detection
+  - Bluetooth Scanner
+- **Security Features**:
+  - SIEM Integration (Elasticsearch, Splunk HEC, Syslog)
+  - VNS Sync for network flow analysis
+  - AI Analysis integration
+  - Aggressive Auto-Kill for CRITICAL/HIGH threats
+  - Remediation Engine (kill process, block IP, quarantine file)
+- **Threat Intelligence**:
+  - Malicious IP ranges
+  - Suspicious ports (Metasploit, botnets, backdoors)
+  - Malicious process names (mimikatz, xmrig, etc.)
+  - Critical command patterns (credential theft, ransomware, C2)
+
+#### 2. Unified Agent API Integration
+- **Router**: `/app/backend/routers/unified_agent.py`
+- **Integrated into**: `/app/backend/server.py`
+- **Endpoints**:
+  - `POST /api/unified/agents/register` - Register new agent
+  - `POST /api/unified/agents/{agent_id}/heartbeat` - Agent heartbeat with telemetry
+  - `GET /api/unified/agents` - List all agents
+  - `GET /api/unified/agents/{agent_id}` - Get agent details
+  - `POST /api/unified/agents/{agent_id}/command` - Send command to agent
+  - `GET /api/unified/stats` - Get unified agent statistics
+
+#### 3. MITRE ATT&CK Threat Hunting Service
+- **Service**: `/app/backend/services/threat_hunting.py`
+- **Router**: `/app/backend/routers/hunting.py`
+- **20 Hunting Rules covering 8 MITRE Tactics**:
+  - TA0006 Credential Access: T1003.001, T1003.002, T1558.003
+  - TA0002 Execution: T1059.001, T1059.003, T1047
+  - TA0003 Persistence: T1547.001, T1053.005
+  - TA0005 Defense Evasion: T1562.001, T1070.001, T1218.010
+  - TA0008 Lateral Movement: T1021.002, T1021.001, T1570
+  - TA0011 Command and Control: T1071.001, T1095
+  - TA0010 Exfiltration: T1567, T1048
+  - TA0007 Discovery: T1087, T1083
+- **Endpoints**:
+  - `GET /api/hunting/status` - Hunting engine status
+  - `GET /api/hunting/rules` - List all rules
+  - `POST /api/hunting/hunt` - Execute hunt on telemetry
+  - `GET /api/hunting/matches` - Get recent matches
+  - `GET /api/hunting/matches/high-severity` - High severity matches
+  - `GET /api/hunting/tactics` - Get tactics coverage
+  - `GET /api/hunting/techniques` - Get technique mappings
+  - `PUT /api/hunting/rules/{rule_id}/toggle` - Enable/disable rule
+
+#### 4. Threat Hunting Frontend
+- **Page**: `/app/frontend/src/pages/ThreatHuntingPage.jsx`
+- **Features**:
+  - 5 Stat Cards: Rules Loaded, Hunts Executed, Matches Found, Tactics Covered, Techniques
+  - 4 Tabs: Overview, Hunting Rules, Matches, ATT&CK Matrix
+  - Expandable rule details with toggle switches
+  - Severity-coded match display
+  - MITRE ATT&CK coverage matrix visualization
+
+### Testing Results (100% Pass)
+- 18 backend tests passed
+- Frontend fully functional
+- Detections verified: mimikatz (T1003.001), encoded PowerShell (T1059.001), suspicious ports (T1095)
+
+### Deprecation Note
+- `/app/scripts/seraph_defender_v7.py` is still functional but the new unified agent in `/app/unified_agent/` is the recommended agent going forward
 
 ## v6.1.0 Full Feature Completion (Mar 2026) - CURRENT
 

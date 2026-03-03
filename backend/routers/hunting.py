@@ -1,197 +1,208 @@
 """
 Threat Hunting Router
+=====================
+API endpoints for MITRE ATT&CK-based automated threat hunting.
 """
-from fastapi import APIRouter, HTTPException, Depends
-from datetime import datetime, timezone
-from typing import List, Optional
-import uuid
-import json
 
-from .dependencies import (
-    HuntingHypothesis, HuntingRequest, get_current_user, get_db, logger
-)
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel
+from datetime import datetime, timezone
+
+from .dependencies import get_current_user, check_permission, get_db
 
 router = APIRouter(prefix="/hunting", tags=["Threat Hunting"])
 
-# Import AI helper
-from .ai_analysis import call_openai
 
-@router.post("/generate", response_model=List[HuntingHypothesis])
-async def generate_hunting_hypotheses(request: HuntingRequest, current_user: dict = Depends(get_current_user)):
-    """AI-powered threat hunting hypothesis generation"""
-    db = get_db()
+class HuntRequest(BaseModel):
+    telemetry: Dict[str, Any]
+
+
+class RuleToggleRequest(BaseModel):
+    enabled: bool
+
+
+@router.get("/status")
+async def get_hunting_status(current_user: dict = Depends(get_current_user)):
+    """Get threat hunting engine status"""
+    from services.threat_hunting import threat_hunting_engine
     
-    # Get recent threats and alerts for context
-    threats = await db.threats.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
-    alerts = await db.alerts.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    return {
+        "status": "operational",
+        **threat_hunting_engine.get_stats()
+    }
+
+
+@router.get("/rules")
+async def get_hunting_rules(
+    tactic: Optional[str] = None,
+    technique: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all hunting rules"""
+    from services.threat_hunting import threat_hunting_engine
     
-    # Build context for AI
-    context = f"""Recent Threats: {len(threats)} detected
-Threat Types: {', '.join(set(t.get('type', 'unknown') for t in threats))}
-Active Threats: {len([t for t in threats if t.get('status') == 'active'])}
-Recent Alerts: {len(alerts)}
-Focus Area: {request.focus_area or 'all'}
-Time Range: Last {request.time_range_hours} hours"""
-
-    try:
-        system_message = """You are an elite threat hunting AI. Generate threat hunting hypotheses based on the security context provided.
-For each hypothesis, provide:
-1. A clear title
-2. Detailed description of what to look for
-3. Category (ai_behavior, malware, lateral_movement, data_exfil, persistence)
-4. Confidence score (0-100)
-5. Specific indicators to search for
-6. Recommended investigation actions
-
-Return exactly 3-5 hypotheses in a structured format. Be specific and actionable."""
-
-        user_prompt = f"""Based on this security context, generate threat hunting hypotheses:
-
-{context}
-
-Threat Details:
-{json.dumps([{'name': t.get('name'), 'type': t.get('type'), 'severity': t.get('severity'), 'indicators': t.get('indicators', [])} for t in threats[:5]], indent=2)}
-
-Generate hunting hypotheses that would help discover hidden threats or validate existing detections."""
-        
-        ai_response = await call_openai(system_message, user_prompt)
-        logger.info(f"AI generated hunting response: {ai_response[:200]}...")
-        
-        # Generate structured hypotheses based on context and AI response
-        hypotheses = []
-        
-        # AI Agent Detection Hypothesis
-        if not request.focus_area or request.focus_area in ["ai_agents", "all"]:
-            ai_threats = [t for t in threats if t.get("type") == "ai_agent"]
-            hypotheses.append(HuntingHypothesis(
-                id=str(uuid.uuid4()),
-                title="Undetected AI Agent Activity",
-                description="Hunt for AI agents that may be evading current detection by analyzing API request patterns, timing distributions, and behavioral signatures that indicate non-human operators.",
-                category="ai_behavior",
-                confidence=75.0 if ai_threats else 50.0,
-                indicators=[
-                    "Requests with sub-millisecond timing precision",
-                    "Perfect distribution of request intervals",
-                    "Adaptive payload modifications",
-                    "Sequential endpoint enumeration patterns"
-                ],
-                recommended_actions=[
-                    "Analyze API logs for timing anomalies",
-                    "Review authentication patterns for automated behavior",
-                    "Check for systematic data access patterns",
-                    "Monitor for adversarial ML inputs"
-                ],
-                related_threats=[t.get("id", "") for t in ai_threats[:3]],
-                status="pending",
-                created_at=datetime.now(timezone.utc).isoformat()
-            ))
-        
-        # Lateral Movement Hypothesis
-        if not request.focus_area or request.focus_area in ["network", "all"]:
-            hypotheses.append(HuntingHypothesis(
-                id=str(uuid.uuid4()),
-                title="Internal Lateral Movement Detection",
-                description="Hunt for signs of lateral movement within the network by analyzing internal traffic patterns, unusual authentication sequences, and cross-system access that deviates from baseline behavior.",
-                category="lateral_movement",
-                confidence=60.0,
-                indicators=[
-                    "Unusual internal SSH/RDP connections",
-                    "Service account usage anomalies",
-                    "Sequential system access patterns",
-                    "Off-hours administrative actions"
-                ],
-                recommended_actions=[
-                    "Review internal firewall logs",
-                    "Analyze authentication logs for pass-the-hash indicators",
-                    "Check for unusual service account activity",
-                    "Map internal connection patterns"
-                ],
-                related_threats=[],
-                status="pending",
-                created_at=datetime.now(timezone.utc).isoformat()
-            ))
-        
-        # Malware Persistence Hypothesis  
-        if not request.focus_area or request.focus_area in ["malware", "all"]:
-            malware_threats = [t for t in threats if t.get("type") in ["malware", "ransomware"]]
-            hypotheses.append(HuntingHypothesis(
-                id=str(uuid.uuid4()),
-                title="Hidden Persistence Mechanisms",
-                description="Hunt for malware persistence mechanisms that may have been established during previous compromises, including registry modifications, scheduled tasks, and startup entries.",
-                category="persistence",
-                confidence=70.0 if malware_threats else 45.0,
-                indicators=[
-                    "Modified startup registry keys",
-                    "Unusual scheduled tasks",
-                    "Hidden services or drivers",
-                    "Modified system binaries"
-                ],
-                recommended_actions=[
-                    "Run autoruns analysis on critical systems",
-                    "Compare current state to known-good baselines",
-                    "Check for unsigned drivers or services",
-                    "Review scheduled task creation logs"
-                ],
-                related_threats=[t.get("id", "") for t in malware_threats[:3]],
-                status="pending",
-                created_at=datetime.now(timezone.utc).isoformat()
-            ))
-        
-        # Data Exfiltration Hypothesis
-        hypotheses.append(HuntingHypothesis(
-            id=str(uuid.uuid4()),
-            title="Covert Data Exfiltration Channels",
-            description="Hunt for potential data exfiltration activities including DNS tunneling, encrypted channels to unknown destinations, and unusual outbound data volumes.",
-            category="data_exfil",
-            confidence=55.0,
-            indicators=[
-                "High-entropy DNS queries",
-                "Large outbound data to new destinations",
-                "Connections to known bad IPs/domains",
-                "Unusual protocol usage on standard ports"
-            ],
-            recommended_actions=[
-                "Analyze DNS query logs for tunneling patterns",
-                "Review NetFlow data for volume anomalies",
-                "Check TLS certificate validity for outbound connections",
-                "Monitor cloud storage API access patterns"
-            ],
-            related_threats=[],
-            status="pending",
-            created_at=datetime.now(timezone.utc).isoformat()
-        ))
-        
-        # Store hypotheses
-        for h in hypotheses:
-            await db.hunting_hypotheses.insert_one(h.model_dump())
-        
-        return hypotheses
-        
-    except Exception as e:
-        logger.error(f"Hunting hypothesis generation error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate hypotheses: {str(e)}")
-
-@router.get("/hypotheses", response_model=List[HuntingHypothesis])
-async def get_hunting_hypotheses(status: Optional[str] = None, current_user: dict = Depends(get_current_user)):
-    """Get all hunting hypotheses"""
-    db = get_db()
-    query = {}
-    if status:
-        query["status"] = status
-    hypotheses = await db.hunting_hypotheses.find(query, {"_id": 0}).sort("created_at", -1).to_list(50)
-    return [HuntingHypothesis(**h) for h in hypotheses]
-
-@router.patch("/hypotheses/{hypothesis_id}/status")
-async def update_hypothesis_status(hypothesis_id: str, status: str, current_user: dict = Depends(get_current_user)):
-    """Update hunting hypothesis status"""
-    db = get_db()
-    if status not in ["pending", "investigating", "confirmed", "dismissed"]:
-        raise HTTPException(status_code=400, detail="Invalid status")
+    if tactic:
+        rules = threat_hunting_engine.get_rules_by_tactic(tactic)
+    elif technique:
+        rules = threat_hunting_engine.get_rules_by_technique(technique)
+    else:
+        rules = list(threat_hunting_engine.rules.values())
     
-    result = await db.hunting_hypotheses.update_one(
-        {"id": hypothesis_id},
-        {"$set": {"status": status}}
-    )
-    if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Hypothesis not found")
-    return {"message": "Status updated", "status": status}
+    return {
+        "rules": [
+            {
+                "rule_id": r.rule_id,
+                "name": r.name,
+                "description": r.description,
+                "mitre_technique": r.mitre_technique,
+                "mitre_tactic": r.mitre_tactic,
+                "severity": r.severity,
+                "enabled": r.enabled,
+                "data_sources": r.data_sources,
+                "response_actions": r.response_actions
+            }
+            for r in rules
+        ],
+        "total": len(rules)
+    }
+
+
+@router.get("/rules/{rule_id}")
+async def get_hunting_rule(
+    rule_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get a specific hunting rule"""
+    from services.threat_hunting import threat_hunting_engine
+    from dataclasses import asdict
+    
+    rule = threat_hunting_engine.rules.get(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    
+    return asdict(rule)
+
+
+@router.put("/rules/{rule_id}/toggle")
+async def toggle_rule(
+    rule_id: str,
+    request: RuleToggleRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Enable or disable a hunting rule"""
+    from services.threat_hunting import threat_hunting_engine
+    
+    rule = threat_hunting_engine.rules.get(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    
+    rule.enabled = request.enabled
+    
+    return {"rule_id": rule_id, "enabled": rule.enabled}
+
+
+@router.post("/hunt")
+async def execute_hunt(
+    request: HuntRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Execute threat hunting on provided telemetry"""
+    from services.threat_hunting import threat_hunting_engine
+    from dataclasses import asdict
+    
+    matches = threat_hunting_engine.hunt_all(request.telemetry)
+    
+    # Store matches in MongoDB
+    db = get_db()
+    if matches and db is not None:
+        await db.hunting_matches.insert_many([asdict(m) for m in matches])
+    
+    return {
+        "matches": [asdict(m) for m in matches],
+        "total_matches": len(matches),
+        "high_severity": len([m for m in matches if m.severity in ['critical', 'high']])
+    }
+
+
+@router.get("/matches")
+async def get_recent_matches(
+    severity: Optional[str] = None,
+    technique: Optional[str] = None,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get recent hunting matches"""
+    from services.threat_hunting import threat_hunting_engine
+    from dataclasses import asdict
+    
+    # Get from in-memory first
+    matches = threat_hunting_engine.matches[-limit:]
+    
+    if severity:
+        matches = [m for m in matches if m.severity == severity]
+    
+    if technique:
+        matches = [m for m in matches if m.mitre_technique == technique]
+    
+    return {
+        "matches": [asdict(m) for m in matches],
+        "total": len(matches)
+    }
+
+
+@router.get("/matches/high-severity")
+async def get_high_severity_matches(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get critical and high severity matches"""
+    from services.threat_hunting import threat_hunting_engine
+    from dataclasses import asdict
+    
+    matches = threat_hunting_engine.get_high_severity_matches()
+    
+    return {
+        "matches": [asdict(m) for m in matches[-50:]],
+        "total": len(matches)
+    }
+
+
+@router.get("/tactics")
+async def get_mitre_tactics(current_user: dict = Depends(get_current_user)):
+    """Get covered MITRE ATT&CK tactics"""
+    from services.threat_hunting import threat_hunting_engine
+    
+    tactics = {}
+    for rule in threat_hunting_engine.rules.values():
+        tactic = rule.mitre_tactic
+        if tactic not in tactics:
+            tactics[tactic] = {"tactic_id": tactic, "techniques": [], "rule_count": 0}
+        tactics[tactic]["techniques"].append(rule.mitre_technique)
+        tactics[tactic]["rule_count"] += 1
+    
+    # Deduplicate techniques
+    for t in tactics.values():
+        t["techniques"] = list(set(t["techniques"]))
+    
+    return {"tactics": list(tactics.values())}
+
+
+@router.get("/techniques")
+async def get_mitre_techniques(current_user: dict = Depends(get_current_user)):
+    """Get all covered MITRE ATT&CK techniques"""
+    from services.threat_hunting import threat_hunting_engine
+    
+    techniques = {}
+    for rule in threat_hunting_engine.rules.values():
+        tech = rule.mitre_technique
+        if tech not in techniques:
+            techniques[tech] = {
+                "technique_id": tech,
+                "name": rule.name,
+                "tactic": rule.mitre_tactic,
+                "severity": rule.severity,
+                "rules": []
+            }
+        techniques[tech]["rules"].append(rule.rule_id)
+    
+    return {"techniques": list(techniques.values())}
