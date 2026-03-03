@@ -33,9 +33,58 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v6.0.0**: Advanced Security Services - MCP, Vector Memory, VNS, Quantum, AI Reasoning (Mar 2026)
 - **v6.1.0**: Full Feature Completion - Cuckoo Sandbox, VNS Alerts, Tactical Heatmap, PDF Fix (Mar 2026)
 - **v6.2.0**: Metatron/Seraph Unified Agent Integration + MITRE Threat Hunting (Mar 2026)
-- **v6.3.0**: P1/P2 Feature Completion - VNS Alerts, Browser Extension, Setup Guide, SOAR Templates, Multi-Tenant (Mar 2026) - CURRENT
+- **v6.3.0**: P1/P2 Feature Completion - VNS Alerts, Browser Extension, Setup Guide, SOAR Templates, Multi-Tenant (Mar 2026)
+- **v6.4.0**: Infrastructure Builder, Extension Download, PDF Stress Testing, Multi-Tenant API (Mar 2026) - CURRENT
 
-## v6.3.0 P1/P2 Feature Completion (Mar 2026) - CURRENT
+## v6.4.0 Infrastructure & Production Readiness (Mar 2026) - CURRENT
+
+### Major Features Implemented
+
+#### 1. Complete Browser Extension Package
+- **Download**: `/api/extension/download` returns ready-to-install ZIP (688KB)
+- **Contents**: manifest.json, background.js, content.js, popup.html, popup.js, icons/
+- **Domain Check API**: `/api/extension/check-domain` for safe/malicious detection
+- **Alert Reporting**: `/api/extension/report-alerts` for extension telemetry
+
+#### 2. Seraph AI Infrastructure Builder Script
+- **Location**: `/app/scripts/seraph_builder.sh`
+- **Modes**: `--full`, `--minimal`, `--dev`
+- **Installs**:
+  - Docker & Docker Compose
+  - MongoDB, Redis, Elasticsearch, Kibana
+  - WireGuard VPN with automatic key generation
+  - Cuckoo Sandbox via Docker
+  - liboqs Post-Quantum Cryptography (KYBER, DILITHIUM)
+  - Kali Linux security tools (nmap, metasploit, volatility3, etc.)
+  - Ollama for local AI
+  - Python dependencies (FastAPI, ML libraries, security tools)
+  - Systemd services for automatic startup
+
+#### 3. PDF Reporting Enhancements
+- **Stress Test Endpoint**: `/api/reports/stress-test?iterations=N`
+- **Health Check**: `/api/reports/health`
+- **Results**: 100% success rate at 10 iterations, avg 6.49ms per PDF
+
+#### 4. Multi-Tenant API Routes
+- **Endpoints**:
+  - `GET /api/tenants/` - List all tenants
+  - `POST /api/tenants/` - Create tenant
+  - `GET /api/tenants/stats` - Multi-tenant statistics
+  - `GET /api/tenants/tiers` - Available tiers with quotas
+  - `GET /api/tenants/{id}` - Get tenant details
+  - `PUT /api/tenants/{id}` - Update tenant
+  - `DELETE /api/tenants/{id}` - Suspend tenant
+  - `POST /api/tenants/{id}/api-key` - Generate API key
+  - `POST /api/tenants/{id}/check-quota` - Check resource quota
+  - `POST /api/tenants/{id}/has-feature` - Check feature access
+
+### Testing Results (100% Pass)
+- 12 backend tests passed
+- Extension ZIP validated with correct structure
+- PDF stress test: 100% success, 10/10 iterations
+- All multi-tenant CRUD operations working
+
+## v6.3.0 P1/P2 Feature Completion (Mar 2026)
 
 ### Major Features Implemented
 
