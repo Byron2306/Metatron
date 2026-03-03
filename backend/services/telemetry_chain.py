@@ -12,7 +12,7 @@ import hmac
 import base64
 import logging
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, asdict, field
 from collections import deque
 import uuid
