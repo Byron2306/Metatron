@@ -30,9 +30,95 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v5.7.0**: Advanced Agent Detection + Browser Extension + Bug Fixes (Feb 2026)
 - **v5.8.0**: Network Infrastructure Scanning + Split-Tunnel VPN (Feb 2026)
 - **v5.9.0**: Enterprise Security Layer + Aggressive Auto-Kill + SIEM + USB + Sandbox (Feb 2026)
-- **v6.0.0**: Advanced Security Services - MCP, Vector Memory, VNS, Quantum, AI Reasoning (Mar 2026) - CURRENT
+- **v6.0.0**: Advanced Security Services - MCP, Vector Memory, VNS, Quantum, AI Reasoning (Mar 2026)
+- **v6.1.0**: Full Feature Completion - Cuckoo Sandbox, VNS Alerts, Tactical Heatmap, PDF Fix (Mar 2026) - CURRENT
 
-## v6.0.0 Advanced Security Services (Mar 2026) - CURRENT
+## v6.1.0 Full Feature Completion (Mar 2026) - CURRENT
+
+### Major Features Implemented
+
+#### 1. Full VM-Based Cuckoo Sandbox Integration
+- **Service**: `/app/backend/services/cuckoo_sandbox.py`
+- **Cuckoo 2.x and 3.x API support**
+- **File and URL submission**
+- **Full analysis report retrieval**
+- **Behavioral analysis extraction**
+- **YARA rule matching**
+- **Network traffic analysis**
+- **Fallback to static analysis when Cuckoo unavailable**
+- **Endpoints**: 
+  - `GET /api/advanced/sandbox/status`
+  - `POST /api/advanced/sandbox/submit/file`
+  - `POST /api/advanced/sandbox/submit/url`
+  - `GET /api/advanced/sandbox/task/{task_id}`
+  - `GET /api/advanced/sandbox/report/{task_id}`
+
+#### 2. Production Quantum Crypto (liboqs)
+- **Enhanced**: `/app/backend/services/quantum_security.py`
+- **Automatic detection of liboqs library**
+- **Production mode** when liboqs installed (`pip install liboqs-python`)
+- **Simulation mode** fallback for testing
+- **Real KYBER/DILITHIUM key generation with liboqs**
+- **Status shows mode**: simulation or liboqs
+
+#### 3. Tactical Threat Heatmap
+- **Page**: `/app/frontend/src/pages/TacticalHeatmapPage.jsx`
+- **Canvas-based heat visualization**
+- **Threat type clustering** (malware, ai_agent, ids_alert, botnet, phishing)
+- **Severity color coding** (Critical=Red, High=Orange, Medium/Low=Green)
+- **Stat cards**: Total, Critical, High, Medium, Low counts
+- **Threat Type Analysis** breakdown
+- **Controls**: Time range, severity filter, refresh, export PNG
+- **Route**: `/heatmap`
+
+#### 4. PDF Reporting Stability Fix
+- **Enhanced**: `/app/backend/routers/reports.py`
+- **Safe string handling** with `safe_str()` function
+- **Pie chart generation** for severity distribution
+- **Professional title page** with branding
+- **Alternate row colors** for tables
+- **Error handling** with fallback error PDF
+- **Charts optional** via parameter
+- **Classification footer** (CONFIDENTIAL)
+
+#### 5. VNS Alerting Pipeline (Slack/Email)
+- **Service**: `/app/backend/services/vns_alerts.py`
+- **Slack webhook integration**
+- **Email SMTP integration**
+- **Alert types**:
+  - Suspicious network flows
+  - C2 beacon detections
+  - DNS anomalies
+  - Canary triggers
+  - Threat analysis results
+- **Cooldown/deduplication** to prevent spam
+- **Severity filtering**
+- **Endpoints**:
+  - `GET /api/advanced/alerts/status`
+  - `POST /api/advanced/alerts/configure`
+  - `POST /api/advanced/alerts/test`
+
+#### 6. Comprehensive README
+- **File**: `/app/README.md`
+- **Complete system documentation**
+- **Architecture diagram**
+- **Installation guide**
+- **Configuration reference**
+- **API reference**
+- **Agent reference**
+- **Deployment checklist**
+- **Security considerations**
+- **Troubleshooting guide**
+- **Version history**
+
+#### 7. Unified Agent Updates
+- **File**: `/app/scripts/seraph_defender_v7.py`
+- **VNS flow sync**: Sends network flows to VNS for analysis
+- **AI analysis sync**: Sends high-severity threats to AI
+- **Advanced Services dashboard tab** in local UI
+- **All services integrated into monitoring loop**
+
+## v6.0.0 Advanced Security Services (Mar 2026)
 
 ### Major Features Implemented
 
