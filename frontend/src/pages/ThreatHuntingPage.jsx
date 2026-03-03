@@ -1,386 +1,476 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
-import { motion } from 'framer-motion';
-import { 
-  Crosshair, 
-  Search, 
-  Brain, 
+import { useState, useEffect } from "react";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { Switch } from "../components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { useAuth } from "../context/AuthContext";
+import { toast } from "sonner";
+import {
+  Search,
   Shield,
   AlertTriangle,
-  Eye,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Zap,
+  Activity,
   RefreshCw,
-  ChevronRight
-} from 'lucide-react';
-import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
-import { ScrollArea } from '../components/ui/scroll-area';
-import { Progress } from '../components/ui/progress';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select';
-import { toast } from 'sonner';
+  Target,
+  Crosshair,
+  FileSearch,
+  ChevronRight,
+  ChevronDown,
+  Check,
+  X
+} from "lucide-react";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API_URL = process.env.REACT_APP_BACKEND_URL;
 
-const categoryIcons = {
-  ai_behavior: Brain,
-  malware: Shield,
-  lateral_movement: Crosshair,
-  data_exfil: AlertTriangle,
-  persistence: Eye
-};
-
-const categoryColors = {
-  ai_behavior: 'purple',
-  malware: 'red',
-  lateral_movement: 'amber',
-  data_exfil: 'cyan',
-  persistence: 'green'
-};
-
-const HypothesisCard = ({ hypothesis, onStatusChange }) => {
-  const Icon = categoryIcons[hypothesis.category] || AlertTriangle;
-  const color = categoryColors[hypothesis.category] || 'blue';
-
-  const statusConfig = {
-    pending: { color: 'slate', icon: Clock, label: 'Pending' },
-    investigating: { color: 'amber', icon: Search, label: 'Investigating' },
-    confirmed: { color: 'red', icon: CheckCircle, label: 'Confirmed' },
-    dismissed: { color: 'green', icon: XCircle, label: 'Dismissed' }
-  };
-
-  const status = statusConfig[hypothesis.status] || statusConfig.pending;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded overflow-hidden hover:border-slate-700 transition-all"
-    >
-      {/* Header */}
-      <div className={`p-4 bg-${color}-500/10 border-b border-slate-800`}>
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-3">
-            <div className={`w-10 h-10 rounded bg-${color}-500/20 flex items-center justify-center`}>
-              <Icon className={`w-5 h-5 text-${color}-400`} />
-            </div>
-            <div>
-              <h3 className="font-medium text-white">{hypothesis.title}</h3>
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant="outline" className={`text-${color}-400 border-${color}-500/50 text-xs capitalize`}>
-                  {hypothesis.category.replace('_', ' ')}
-                </Badge>
-                <Badge variant="outline" className={`text-${status.color}-400 border-${status.color}-500/50 text-xs`}>
-                  <status.icon className="w-3 h-3 mr-1" />
-                  {status.label}
-                </Badge>
-              </div>
-            </div>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-slate-500">Confidence</p>
-            <p className={`text-lg font-mono font-bold text-${hypothesis.confidence >= 70 ? 'green' : hypothesis.confidence >= 50 ? 'amber' : 'slate'}-400`}>
-              {hypothesis.confidence.toFixed(0)}%
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="p-4 space-y-4">
-        <p className="text-sm text-slate-400">{hypothesis.description}</p>
-
-        {/* Confidence Bar */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-slate-500">Confidence Level</span>
-            <span className="text-xs text-slate-400">{hypothesis.confidence.toFixed(0)}%</span>
-          </div>
-          <Progress value={hypothesis.confidence} className="h-2" />
-        </div>
-
-        {/* Indicators */}
-        <div>
-          <p className="text-xs text-slate-500 mb-2">Hunt Indicators</p>
-          <div className="flex flex-wrap gap-1">
-            {hypothesis.indicators.slice(0, 4).map((indicator, i) => (
-              <Badge key={i} variant="outline" className="text-xs text-slate-400 border-slate-700">
-                {indicator}
-              </Badge>
-            ))}
-          </div>
-        </div>
-
-        {/* Recommended Actions */}
-        <div>
-          <p className="text-xs text-slate-500 mb-2">Recommended Actions</p>
-          <ul className="space-y-1">
-            {hypothesis.recommended_actions.slice(0, 3).map((action, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs text-slate-400">
-                <ChevronRight className="w-3 h-3 mt-0.5 text-blue-400 flex-shrink-0" />
-                {action}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="p-4 border-t border-slate-800 flex items-center justify-between">
-        <span className="text-xs text-slate-500">
-          {new Date(hypothesis.created_at).toLocaleString()}
-        </span>
-        <div className="flex items-center gap-2">
-          {hypothesis.status === 'pending' && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-xs border-amber-700 text-amber-400 hover:bg-amber-500/10"
-              onClick={() => onStatusChange(hypothesis.id, 'investigating')}
-              data-testid={`investigate-${hypothesis.id}`}
-            >
-              <Search className="w-3 h-3 mr-1" />
-              Investigate
-            </Button>
-          )}
-          {hypothesis.status === 'investigating' && (
-            <>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-xs border-red-700 text-red-400 hover:bg-red-500/10"
-                onClick={() => onStatusChange(hypothesis.id, 'confirmed')}
-                data-testid={`confirm-${hypothesis.id}`}
-              >
-                <CheckCircle className="w-3 h-3 mr-1" />
-                Confirm
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-xs border-green-700 text-green-400 hover:bg-green-500/10"
-                onClick={() => onStatusChange(hypothesis.id, 'dismissed')}
-                data-testid={`dismiss-${hypothesis.id}`}
-              >
-                <XCircle className="w-3 h-3 mr-1" />
-                Dismiss
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-const ThreatHuntingPage = () => {
-  const { getAuthHeaders } = useAuth();
-  const [hypotheses, setHypotheses] = useState([]);
+export default function ThreatHuntingPage() {
+  const { token } = useAuth();
+  const [status, setStatus] = useState(null);
+  const [rules, setRules] = useState([]);
+  const [matches, setMatches] = useState([]);
+  const [tactics, setTactics] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [focusArea, setFocusArea] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-
-  const fetchHypotheses = async () => {
-    try {
-      const params = {};
-      if (statusFilter !== 'all') params.status = statusFilter;
-      
-      const response = await axios.get(`${API}/hunting/hypotheses`, {
-        headers: getAuthHeaders(),
-        params
-      });
-      setHypotheses(response.data);
-    } catch (error) {
-      console.error('Failed to fetch hypotheses:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [activeTab, setActiveTab] = useState("overview");
+  const [expandedRules, setExpandedRules] = useState({});
 
   useEffect(() => {
-    fetchHypotheses();
-  }, [statusFilter]);
+    fetchAll();
+  }, []);
 
-  const handleGenerate = async () => {
-    setGenerating(true);
+  const fetchAll = async () => {
+    await Promise.all([
+      fetchStatus(),
+      fetchRules(),
+      fetchMatches(),
+      fetchTactics()
+    ]);
+    setLoading(false);
+  };
+
+  const fetchStatus = async () => {
     try {
-      const response = await axios.post(
-        `${API}/hunting/generate`,
-        { focus_area: focusArea === 'all' ? null : focusArea, time_range_hours: 24 },
-        { headers: getAuthHeaders() }
-      );
-      toast.success(`Generated ${response.data.length} hunting hypotheses`);
-      fetchHypotheses();
+      const response = await fetch(`${API_URL}/api/hunting/status`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      setStatus(data);
     } catch (error) {
-      toast.error('Failed to generate hypotheses');
-    } finally {
-      setGenerating(false);
+      toast.error("Failed to fetch hunting status");
     }
   };
 
-  const handleStatusChange = async (hypothesisId, newStatus) => {
+  const fetchRules = async () => {
     try {
-      await axios.patch(
-        `${API}/hunting/hypotheses/${hypothesisId}/status?status=${newStatus}`,
-        {},
-        { headers: getAuthHeaders() }
-      );
-      toast.success(`Hypothesis ${newStatus}`);
-      fetchHypotheses();
+      const response = await fetch(`${API_URL}/api/hunting/rules`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      setRules(data.rules || []);
     } catch (error) {
-      toast.error('Failed to update status');
+      toast.error("Failed to fetch rules");
     }
   };
 
-  const stats = {
-    total: hypotheses.length,
-    pending: hypotheses.filter(h => h.status === 'pending').length,
-    investigating: hypotheses.filter(h => h.status === 'investigating').length,
-    confirmed: hypotheses.filter(h => h.status === 'confirmed').length,
-    dismissed: hypotheses.filter(h => h.status === 'dismissed').length
+  const fetchMatches = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/hunting/matches/high-severity`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      setMatches(data.matches || []);
+    } catch (error) {
+      toast.error("Failed to fetch matches");
+    }
   };
+
+  const fetchTactics = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/hunting/tactics`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      setTactics(data.tactics || []);
+    } catch (error) {
+      toast.error("Failed to fetch tactics");
+    }
+  };
+
+  const toggleRule = async (ruleId, enabled) => {
+    try {
+      const response = await fetch(`${API_URL}/api/hunting/rules/${ruleId}/toggle`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ enabled })
+      });
+      
+      if (response.ok) {
+        setRules(rules.map(r => 
+          r.rule_id === ruleId ? { ...r, enabled } : r
+        ));
+        toast.success(`Rule ${enabled ? 'enabled' : 'disabled'}`);
+      }
+    } catch (error) {
+      toast.error("Failed to toggle rule");
+    }
+  };
+
+  const getSeverityColor = (severity) => {
+    const colors = {
+      critical: "bg-red-500",
+      high: "bg-orange-500",
+      medium: "bg-yellow-500",
+      low: "bg-green-500"
+    };
+    return colors[severity] || "bg-slate-500";
+  };
+
+  const getTacticName = (tacticId) => {
+    const names = {
+      "TA0001": "Initial Access",
+      "TA0002": "Execution",
+      "TA0003": "Persistence",
+      "TA0004": "Privilege Escalation",
+      "TA0005": "Defense Evasion",
+      "TA0006": "Credential Access",
+      "TA0007": "Discovery",
+      "TA0008": "Lateral Movement",
+      "TA0009": "Collection",
+      "TA0010": "Exfiltration",
+      "TA0011": "Command and Control",
+      "TA0040": "Impact"
+    };
+    return names[tacticId] || tacticId;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-cyan-400 animate-pulse">Loading Threat Hunting...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 lg:p-8 space-y-6" data-testid="threat-hunting-page">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-mono font-bold text-white flex items-center gap-3">
-            <Crosshair className="w-7 h-7 text-purple-400" />
-            Threat Hunting
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <Crosshair className="w-6 h-6 text-red-500" />
+            MITRE ATT&CK Threat Hunting
           </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            AI-powered threat hunting hypothesis generation
-          </p>
+          <p className="text-slate-400">Automated threat detection based on MITRE ATT&CK framework</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Select value={focusArea} onValueChange={setFocusArea}>
-            <SelectTrigger className="w-40 bg-slate-950 border-slate-700" data-testid="focus-area-select">
-              <SelectValue placeholder="Focus Area" />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-900 border-slate-700">
-              <SelectItem value="all">All Areas</SelectItem>
-              <SelectItem value="ai_agents">AI Agents</SelectItem>
-              <SelectItem value="malware">Malware</SelectItem>
-              <SelectItem value="network">Network</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="bg-purple-600 hover:bg-purple-500 shadow-glow-purple"
-            data-testid="generate-hypotheses-btn"
-          >
-            {generating ? (
-              <span className="flex items-center gap-2">
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Generating...
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <Brain className="w-4 h-4" />
-                Generate Hypotheses
-              </span>
-            )}
-          </Button>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        {[
-          { label: 'Total', value: stats.total, color: 'blue' },
-          { label: 'Pending', value: stats.pending, color: 'slate' },
-          { label: 'Investigating', value: stats.investigating, color: 'amber' },
-          { label: 'Confirmed', value: stats.confirmed, color: 'red' },
-          { label: 'Dismissed', value: stats.dismissed, color: 'green' }
-        ].map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4"
-          >
-            <p className="text-slate-400 text-sm">{stat.label}</p>
-            <p className={`text-2xl font-mono font-bold text-${stat.color}-400`}>{stat.value}</p>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div className="flex items-center gap-4 bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4">
-        <span className="text-sm text-slate-400">Filter by status:</span>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40 bg-slate-950 border-slate-700" data-testid="status-filter-select">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent className="bg-slate-900 border-slate-700">
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="investigating">Investigating</SelectItem>
-            <SelectItem value="confirmed">Confirmed</SelectItem>
-            <SelectItem value="dismissed">Dismissed</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto border-slate-700 text-slate-400"
-          onClick={fetchHypotheses}
-          data-testid="refresh-hypotheses-btn"
-        >
+        <Button onClick={fetchAll} variant="outline" size="sm">
           <RefreshCw className="w-4 h-4 mr-2" />
           Refresh
         </Button>
       </div>
 
-      {/* Hypotheses Grid */}
-      {loading ? (
-        <div className="p-12 text-center text-slate-400">
-          <div className="w-8 h-8 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-4" />
-          Loading hypotheses...
-        </div>
-      ) : hypotheses.length > 0 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {hypotheses.map((hypothesis) => (
-            <HypothesisCard
-              key={hypothesis.id}
-              hypothesis={hypothesis}
-              onStatusChange={handleStatusChange}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-12 text-center">
-          <Brain className="w-12 h-12 mx-auto mb-4 text-slate-600" />
-          <h3 className="text-lg font-medium text-slate-400 mb-2">No Hypotheses Found</h3>
-          <p className="text-sm text-slate-500 mb-4">
-            Generate AI-powered hunting hypotheses to discover hidden threats
-          </p>
-          <Button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="bg-purple-600 hover:bg-purple-500"
-            data-testid="generate-empty-btn"
-          >
-            <Zap className="w-4 h-4 mr-2" />
-            Generate Hypotheses
-          </Button>
-        </div>
-      )}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <Card className="bg-slate-900/50 border-slate-800" data-testid="stat-rules">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">Rules Loaded</p>
+                <p className="text-2xl font-bold text-cyan-400">{status?.rules_loaded || 0}</p>
+              </div>
+              <FileSearch className="w-8 h-8 text-cyan-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/50 border-slate-800" data-testid="stat-hunts">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">Hunts Executed</p>
+                <p className="text-2xl font-bold text-purple-400">{status?.hunts_executed || 0}</p>
+              </div>
+              <Search className="w-8 h-8 text-purple-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/50 border-red-900/50" data-testid="stat-matches">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">Matches Found</p>
+                <p className="text-2xl font-bold text-red-400">{status?.matches_found || 0}</p>
+              </div>
+              <AlertTriangle className="w-8 h-8 text-red-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/50 border-slate-800" data-testid="stat-tactics">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">Tactics Covered</p>
+                <p className="text-2xl font-bold text-green-400">{status?.tactics_covered || 0}</p>
+              </div>
+              <Target className="w-8 h-8 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/50 border-slate-800" data-testid="stat-techniques">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-400">Techniques</p>
+                <p className="text-2xl font-bold text-yellow-400">{status?.techniques_covered || 0}</p>
+              </div>
+              <Shield className="w-8 h-8 text-yellow-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="bg-slate-900/50 border border-slate-800">
+          <TabsTrigger value="overview" data-testid="tab-overview">
+            <Activity className="w-4 h-4 mr-2" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="rules" data-testid="tab-rules">
+            <FileSearch className="w-4 h-4 mr-2" />
+            Hunting Rules
+          </TabsTrigger>
+          <TabsTrigger value="matches" data-testid="tab-matches">
+            <AlertTriangle className="w-4 h-4 mr-2" />
+            Matches
+          </TabsTrigger>
+          <TabsTrigger value="matrix" data-testid="tab-matrix">
+            <Target className="w-4 h-4 mr-2" />
+            ATT&CK Matrix
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-white">Recent Critical Matches</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {matches.filter(m => m.severity === 'critical').length === 0 ? (
+                  <p className="text-slate-400 text-center py-4">No critical matches</p>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {matches.filter(m => m.severity === 'critical').slice(0, 5).map((match, i) => (
+                      <div key={i} className="p-3 bg-red-900/20 border border-red-900/50 rounded">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-white">{match.rule_name}</span>
+                          <Badge variant="destructive">{match.mitre_technique}</Badge>
+                        </div>
+                        <div className="text-xs text-slate-400 mt-1">
+                          Confidence: {(match.confidence * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-white">Tactics Coverage</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {tactics.map((tactic) => (
+                    <div key={tactic.tactic_id} className="flex items-center justify-between p-2 bg-slate-800/50 rounded">
+                      <div>
+                        <span className="text-white">{getTacticName(tactic.tactic_id)}</span>
+                        <span className="text-xs text-slate-400 ml-2">({tactic.tactic_id})</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{tactic.techniques.length} techniques</Badge>
+                        <Badge variant="secondary">{tactic.rule_count} rules</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Rules Tab */}
+        <TabsContent value="rules" className="space-y-4">
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white">Hunting Rules ({rules.length})</CardTitle>
+              <CardDescription>Click to expand rule details</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {rules.map((rule) => (
+                  <div key={rule.rule_id} className="border border-slate-700 rounded-lg overflow-hidden">
+                    <div 
+                      className="flex items-center justify-between p-3 bg-slate-800/50 cursor-pointer hover:bg-slate-800"
+                      onClick={() => setExpandedRules(prev => ({ ...prev, [rule.rule_id]: !prev[rule.rule_id] }))}
+                    >
+                      <div className="flex items-center gap-3">
+                        {expandedRules[rule.rule_id] ? (
+                          <ChevronDown className="w-4 h-4 text-slate-400" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-slate-400" />
+                        )}
+                        <div className={`w-2 h-2 rounded-full ${getSeverityColor(rule.severity)}`} />
+                        <span className="font-medium text-white">{rule.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{rule.mitre_technique}</Badge>
+                        <Switch
+                          checked={rule.enabled}
+                          onCheckedChange={(checked) => toggleRule(rule.rule_id, checked)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    </div>
+                    {expandedRules[rule.rule_id] && (
+                      <div className="p-4 bg-slate-900/50 border-t border-slate-700">
+                        <p className="text-slate-300 mb-3">{rule.description}</p>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <span className="text-slate-400">Tactic:</span>
+                            <span className="text-white ml-2">{getTacticName(rule.mitre_tactic)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Severity:</span>
+                            <Badge className={`ml-2 ${getSeverityColor(rule.severity)}`}>{rule.severity}</Badge>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Data Sources:</span>
+                            <div className="flex gap-1 mt-1">
+                              {rule.data_sources?.map((ds, i) => (
+                                <Badge key={i} variant="secondary" className="text-xs">{ds}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Response Actions:</span>
+                            <div className="flex gap-1 mt-1 flex-wrap">
+                              {rule.response_actions?.slice(0, 3).map((action, i) => (
+                                <Badge key={i} variant="outline" className="text-xs">{action}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Matches Tab */}
+        <TabsContent value="matches" className="space-y-4">
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white">High Severity Matches ({matches.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {matches.length === 0 ? (
+                <div className="text-center py-8">
+                  <Check className="w-12 h-12 text-green-500 mx-auto mb-2" />
+                  <p className="text-slate-400">No high-severity threats detected</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                  {matches.map((match, i) => (
+                    <div 
+                      key={i} 
+                      className={`p-4 rounded-lg border ${
+                        match.severity === 'critical' ? 'bg-red-900/20 border-red-900/50' : 'bg-orange-900/20 border-orange-900/50'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h3 className="font-medium text-white">{match.rule_name}</h3>
+                          <p className="text-sm text-slate-400">{match.rule_id}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Badge variant={match.severity === 'critical' ? 'destructive' : 'secondary'}>
+                            {match.severity}
+                          </Badge>
+                          <Badge variant="outline">{match.mitre_technique}</Badge>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 text-sm mt-3">
+                        <div>
+                          <span className="text-slate-400">Tactic:</span>
+                          <span className="text-white ml-2">{getTacticName(match.mitre_tactic)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Confidence:</span>
+                          <span className="text-white ml-2">{(match.confidence * 100).toFixed(0)}%</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-slate-400">Matched Indicators:</span>
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {match.matched_indicators?.map((ind, j) => (
+                              <Badge key={j} variant="secondary" className="text-xs font-mono">{ind}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-2">
+                        Detected: {new Date(match.timestamp).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ATT&CK Matrix Tab */}
+        <TabsContent value="matrix" className="space-y-4">
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white">MITRE ATT&CK Coverage Matrix</CardTitle>
+              <CardDescription>Tactics and techniques covered by hunting rules</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {tactics.map((tactic) => (
+                  <div key={tactic.tactic_id} className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-medium text-white">{getTacticName(tactic.tactic_id)}</h3>
+                      <Badge variant="outline" className="text-xs">{tactic.tactic_id}</Badge>
+                    </div>
+                    <div className="space-y-1">
+                      {tactic.techniques.map((tech, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm">
+                          <div className="w-2 h-2 rounded-full bg-green-500" />
+                          <span className="text-slate-300 font-mono">{tech}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-slate-700 text-xs text-slate-400">
+                      {tactic.rule_count} hunting rules active
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
-};
-
-export default ThreatHuntingPage;
+}

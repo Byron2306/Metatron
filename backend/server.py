@@ -170,6 +170,10 @@ app.include_router(enterprise_router, prefix="/api")
 from routers.advanced import router as advanced_router
 app.include_router(advanced_router, prefix="/api")
 
+# Import Unified Agent router (Metatron integration)
+from routers.unified_agent import router as unified_agent_router
+app.include_router(unified_agent_router, prefix="/api")
+
 # ============ WEBSOCKET ENDPOINTS ============
 
 from routers.honeypots import ws_manager
