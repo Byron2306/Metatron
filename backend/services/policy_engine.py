@@ -429,7 +429,7 @@ class PolicyEngine:
             self.approval_votes[decision_id].append(approver)
             
             if len(self.approval_votes[decision_id]) < 2:
-                return True, f"Approval recorded (1/2). Need one more approver."
+                return True, "Approval recorded (1/2). Need one more approver."
             
             # Two approvals received
             del self.pending_approvals[decision_id]
