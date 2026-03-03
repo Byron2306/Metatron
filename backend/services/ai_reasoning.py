@@ -275,12 +275,12 @@ class LocalAIReasoningEngine:
         
         analysis_id = f"analysis-{uuid.uuid4().hex[:8]}"
         
-        # Extract information
-        title = threat_data.get("title", "").lower()
-        description = threat_data.get("description", "").lower()
-        command_line = threat_data.get("command_line", "").lower()
-        process_name = threat_data.get("process_name", "").lower()
-        indicators = threat_data.get("indicators", [])
+        # Extract information (handle None values)
+        title = (threat_data.get("title") or "").lower()
+        description = (threat_data.get("description") or "").lower()
+        command_line = (threat_data.get("command_line") or "").lower()
+        process_name = (threat_data.get("process_name") or "").lower()
+        indicators = threat_data.get("indicators") or []
         
         # Combine all text for analysis
         all_text = f"{title} {description} {command_line} {process_name}"
@@ -603,15 +603,163 @@ class LocalAIReasoningEngine:
         return result
     
     # =========================================================================
+    # OLLAMA INTEGRATION
+    # =========================================================================
+    
+    def configure_ollama(self, base_url: str = "http://localhost:11434", 
+                        model: str = "mistral") -> Dict:
+        """Configure Ollama for local AI reasoning"""
+        self.ollama_url = base_url
+        self.ollama_model = model
+        os.environ['OLLAMA_URL'] = base_url
+        os.environ['OLLAMA_MODEL'] = model
+        
+        # Test connection
+        try:
+            import requests
+            resp = requests.get(f"{base_url}/api/tags", timeout=5)
+            if resp.status_code == 200:
+                self.use_local_llm = True
+                os.environ['LOCAL_LLM_ENABLED'] = 'true'
+                models = resp.json().get("models", [])
+                return {
+                    "status": "connected",
+                    "base_url": base_url,
+                    "model": model,
+                    "available_models": [m.get("name") for m in models]
+                }
+        except Exception as e:
+            return {
+                "status": "connection_failed",
+                "error": str(e),
+                "note": f"Ollama not reachable at {base_url}. Ensure Ollama is running on your server at {base_url}"
+            }
+        
+        return {"status": "configured", "note": "Using rule-based reasoning until Ollama connected"}
+    
+    async def ollama_generate(self, prompt: str, model: str = None,
+                              system_prompt: str = None) -> Dict:
+        """Generate response using Ollama"""
+        import requests
+        
+        model = model or getattr(self, 'ollama_model', 'mistral')
+        
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False
+        }
+        
+        if system_prompt:
+            payload["system"] = system_prompt
+        
+        try:
+            resp = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json=payload,
+                timeout=120
+            )
+            
+            if resp.status_code == 200:
+                return resp.json()
+            else:
+                return {"error": f"Ollama returned status {resp.status_code}"}
+        except requests.exceptions.ConnectionError:
+            return {
+                "error": f"Cannot connect to Ollama at {self.ollama_url}",
+                "note": "Ensure Ollama is running on your server"
+            }
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def ollama_analyze_threat(self, threat_data: Dict[str, Any]) -> Dict:
+        """
+        Analyze threat using Ollama LLM for enhanced reasoning.
+        Falls back to rule-based analysis if Ollama unavailable.
+        """
+        if not self.use_local_llm:
+            # Use rule-based analysis
+            analysis = self.analyze_threat(threat_data)
+            return {
+                "analysis": analysis,
+                "method": "rule_based",
+                "note": "Ollama not configured. Using rule-based analysis."
+            }
+        
+        # Build security analysis prompt
+        system_prompt = """You are Seraph AI, an expert security analyst. Analyze the following threat data and provide:
+1. Threat classification (credential_theft, ransomware, c2_activity, lateral_movement, exfiltration, etc.)
+2. Severity assessment (critical, high, medium, low)
+3. MITRE ATT&CK technique mapping
+4. Risk score (0-100)
+5. Recommended response actions
+6. Confidence level (0-1)
+
+Respond in JSON format with keys: threat_type, severity, mitre_techniques, risk_score, recommendations, confidence, reasoning_chain"""
+        
+        prompt = f"""Analyze this security threat:
+
+Title: {threat_data.get('title', 'Unknown')}
+Description: {threat_data.get('description', 'N/A')}
+Process: {threat_data.get('process_name', 'N/A')}
+Command Line: {threat_data.get('command_line', 'N/A')}
+Indicators: {', '.join(threat_data.get('indicators', []))}
+
+Provide a comprehensive threat analysis."""
+        
+        ollama_response = await self.ollama_generate(prompt, system_prompt=system_prompt)
+        
+        if "error" in ollama_response:
+            # Fallback to rule-based
+            analysis = self.analyze_threat(threat_data)
+            return {
+                "analysis": analysis,
+                "method": "rule_based_fallback",
+                "ollama_error": ollama_response.get("error")
+            }
+        
+        return {
+            "analysis": ollama_response.get("response", ""),
+            "method": "ollama_llm",
+            "model": getattr(self, 'ollama_model', 'mistral'),
+            "eval_count": ollama_response.get("eval_count", 0)
+        }
+    
+    def get_ollama_status(self) -> Dict:
+        """Get Ollama connection status"""
+        import requests
+        
+        try:
+            resp = requests.get(f"{self.ollama_url}/api/tags", timeout=5)
+            if resp.status_code == 200:
+                models = resp.json().get("models", [])
+                return {
+                    "status": "connected",
+                    "url": self.ollama_url,
+                    "models": [m.get("name") for m in models],
+                    "configured_model": getattr(self, 'ollama_model', 'mistral')
+                }
+        except:
+            pass
+        
+        return {
+            "status": "disconnected",
+            "url": self.ollama_url,
+            "note": "Ollama not reachable. Install with: curl -fsSL https://ollama.com/install.sh | sh"
+        }
+    
+    # =========================================================================
     # STATUS
     # =========================================================================
     
     def get_reasoning_stats(self) -> Dict:
         """Get reasoning engine statistics"""
+        ollama_status = self.get_ollama_status()
+        
         return {
             "model_name": self.model_name,
             "local_llm_enabled": self.use_local_llm,
-            "ollama_url": self.ollama_url if self.use_local_llm else None,
+            "ollama": ollama_status,
             "mitre_techniques_loaded": len(self.mitre_techniques),
             "threat_patterns_loaded": len(self.threat_patterns),
             "playbooks_mapped": len(self.playbook_mappings),

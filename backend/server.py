@@ -166,6 +166,10 @@ app.include_router(ai_threats_router, prefix="/api")
 from routers.enterprise import router as enterprise_router
 app.include_router(enterprise_router, prefix="/api")
 
+# Import Advanced Security router (MCP, Vector Memory, VNS, Quantum, AI)
+from routers.advanced import router as advanced_router
+app.include_router(advanced_router, prefix="/api")
+
 # ============ WEBSOCKET ENDPOINTS ============
 
 from routers.honeypots import ws_manager

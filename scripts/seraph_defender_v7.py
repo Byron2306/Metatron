@@ -2462,8 +2462,48 @@ class TelemetryStore:
                 "enabled": siem.enabled,
                 "type": getattr(siem, 'siem_type', None),
                 "buffer_size": len(siem.buffer)
-            }
+            },
+            # Advanced services status (fetched from server when available)
+            "advanced_services": self._get_advanced_services_data()
         }
+    
+    def _get_advanced_services_data(self) -> dict:
+        """Get advanced services data from server or return cached/mock data"""
+        # Return cached data if available and recent
+        if hasattr(self, '_adv_cache') and hasattr(self, '_adv_cache_time'):
+            if time.time() - self._adv_cache_time < 30:  # Cache for 30 seconds
+                return self._adv_cache
+        
+        # Default mock data structure
+        adv_data = {
+            "mcp": {"tools_registered": 6, "total_executions": 0},
+            "memory": {"total_entries": 0},
+            "vns": {"total_flows": 0, "suspicious_flows": 0},
+            "quantum": {"keypairs": {"total": 0}},
+            "ai": {"analyses_performed": 0, "ollama": {"status": "disconnected"}},
+            "ai_analyses": [],
+            "vns_suspicious": []
+        }
+        
+        # Try to get AI analyses from local threats
+        ai_analyses = []
+        for threat in list(self.threats)[-20:]:
+            t_dict = threat.to_dict() if hasattr(threat, 'to_dict') else threat
+            if t_dict.get('ai_analysis'):
+                ai_analyses.append({
+                    "threat_type": t_dict['ai_analysis'].get('threat_type'),
+                    "severity": t_dict.get('severity'),
+                    "risk_score": t_dict['ai_analysis'].get('risk_score'),
+                    "mitre_techniques": t_dict['ai_analysis'].get('mitre_techniques', [])
+                })
+        
+        adv_data["ai_analyses"] = ai_analyses
+        
+        # Cache the data
+        self._adv_cache = adv_data
+        self._adv_cache_time = time.time()
+        
+        return adv_data
 
 
 # Global store
@@ -2754,6 +2794,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             <div class="tab" data-panel="hidden">📂 Hidden Folders</div>
             <div class="tab" data-panel="aliases">⚡ Shell Aliases</div>
             <div class="tab" data-panel="aatl">🤖 AI Detection</div>
+            <div class="tab" data-panel="advanced">🧠 Advanced Services</div>
             <div class="tab" data-panel="events">📋 All Events</div>
         </div>
         
@@ -3015,6 +3056,49 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             <div class="card">
                 <div class="card-header">🤖 AI Threat Detection (AATL)</div>
                 <div class="card-body" id="aatlList"></div>
+            </div>
+        </div>
+        
+        <div class="panel" id="panel-advanced">
+            <div class="card">
+                <div class="card-header">🧠 Advanced Security Services</div>
+                <div class="card-body">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                        <div class="stat-card">
+                            <h3>MCP Server</h3>
+                            <div class="value" id="mcpStatus" style="color: var(--accent);">--</div>
+                            <div style="color: var(--text-secondary); font-size: 12px;" id="mcpTools">Loading...</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Vector Memory</h3>
+                            <div class="value" id="memoryEntries" style="color: #a855f7;">--</div>
+                            <div style="color: var(--text-secondary); font-size: 12px;">Entries stored</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>VNS Flows</h3>
+                            <div class="value" id="vnsFlows" style="color: var(--success);">--</div>
+                            <div style="color: var(--text-secondary); font-size: 12px;" id="vnsSuspicious">Suspicious: --</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Quantum Keys</h3>
+                            <div class="value" id="quantumKeys" style="color: #eab308;">--</div>
+                            <div style="color: var(--text-secondary); font-size: 12px;">Post-quantum crypto</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>AI Reasoning</h3>
+                            <div class="value" id="aiAnalyses" style="color: #ec4899;">--</div>
+                            <div style="color: var(--text-secondary); font-size: 12px;" id="ollamaStatus">Status: --</div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 16px;">
+                        <h4 style="color: var(--accent); margin-bottom: 8px;">Recent AI Analyses</h4>
+                        <div id="aiAnalysisList" style="max-height: 300px; overflow-y: auto;"></div>
+                    </div>
+                    <div>
+                        <h4 style="color: var(--accent); margin-bottom: 8px;">VNS Suspicious Connections</h4>
+                        <div id="vnsSuspiciousList" style="max-height: 200px; overflow-y: auto;"></div>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -3556,8 +3640,73 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 updateUSBDisplay(data.usb_devices);
                 updateSandboxDisplay(data.sandbox);
                 updateSIEMDisplay(data.siem);
+                
+                // Update advanced services if data exists
+                if (data.advanced_services) {
+                    updateAdvancedServices(data.advanced_services);
+                }
             } catch (e) {
                 console.error('Fetch error:', e);
+            }
+        }
+        
+        function updateAdvancedServices(adv) {
+            if (!adv) return;
+            
+            // MCP Status
+            if (adv.mcp) {
+                document.getElementById('mcpStatus').textContent = adv.mcp.tools_registered || 0;
+                document.getElementById('mcpTools').textContent = `${adv.mcp.total_executions || 0} executions`;
+            }
+            
+            // Vector Memory
+            if (adv.memory) {
+                document.getElementById('memoryEntries').textContent = adv.memory.total_entries || 0;
+            }
+            
+            // VNS
+            if (adv.vns) {
+                document.getElementById('vnsFlows').textContent = adv.vns.total_flows || 0;
+                document.getElementById('vnsSuspicious').textContent = `Suspicious: ${adv.vns.suspicious_flows || 0}`;
+            }
+            
+            // Quantum
+            if (adv.quantum) {
+                document.getElementById('quantumKeys').textContent = adv.quantum.keypairs?.total || 0;
+            }
+            
+            // AI
+            if (adv.ai) {
+                document.getElementById('aiAnalyses').textContent = adv.ai.analyses_performed || 0;
+                document.getElementById('ollamaStatus').textContent = `Ollama: ${adv.ai.ollama?.status || 'disconnected'}`;
+            }
+            
+            // AI Analyses List
+            if (adv.ai_analyses && adv.ai_analyses.length > 0) {
+                document.getElementById('aiAnalysisList').innerHTML = adv.ai_analyses.slice(0, 10).map(a => `
+                    <div style="background: rgba(236, 72, 153, 0.1); border-left: 3px solid #ec4899; padding: 12px; margin-bottom: 8px; border-radius: 4px;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <strong style="color: #fff;">${a.threat_type?.replace(/_/g, ' ') || 'Unknown'}</strong>
+                            <span style="color: ${a.severity === 'critical' ? 'var(--danger)' : 'var(--warning)'};">${a.severity}</span>
+                        </div>
+                        <div style="margin-top: 6px; color: var(--text-secondary); font-size: 12px;">
+                            Risk: ${a.risk_score}/100 | MITRE: ${(a.mitre_techniques || []).slice(0, 3).join(', ')}
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                document.getElementById('aiAnalysisList').innerHTML = '<p style="color: var(--text-secondary);">No AI analyses yet</p>';
+            }
+            
+            // VNS Suspicious List
+            if (adv.vns_suspicious && adv.vns_suspicious.length > 0) {
+                document.getElementById('vnsSuspiciousList').innerHTML = adv.vns_suspicious.slice(0, 10).map(f => `
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 8px 12px; margin-bottom: 6px; border-radius: 4px; font-family: monospace; font-size: 12px;">
+                        ${f.src_ip}:${f.src_port} → ${f.dst_ip}:${f.dst_port} | Score: ${f.threat_score}
+                    </div>
+                `).join('');
+            } else {
+                document.getElementById('vnsSuspiciousList').innerHTML = '<p style="color: var(--text-secondary);">No suspicious flows detected</p>';
             }
         }
         
@@ -4240,8 +4389,9 @@ class SeraphDefenderV7:
                 self.command_queue.ack_command(cmd_id, result)
     
     def _sync_to_cloud(self):
-        """Sync to cloud server"""
+        """Sync to cloud server with advanced services integration"""
         try:
+            # Basic agent registration
             requests.post(
                 f"{self.api_url}/api/swarm/agents/register",
                 json={
@@ -4252,8 +4402,87 @@ class SeraphDefenderV7:
                 },
                 timeout=5
             )
-        except:
-            pass
+            
+            # Send network flows to VNS
+            self._sync_vns_flows()
+            
+            # Send high-severity threats to AI for analysis
+            self._sync_ai_analysis()
+            
+        except Exception as e:
+            logger.debug(f"Cloud sync error: {e}")
+    
+    def _sync_vns_flows(self):
+        """Send network flows to Virtual Network Sensor"""
+        try:
+            recent_conns = list(telemetry_store.connections)[-20:]  # Last 20 connections
+            
+            for conn in recent_conns:
+                if not conn.get('_vns_synced'):
+                    flow_data = {
+                        "src_ip": conn.get('local_ip', '0.0.0.0'),
+                        "src_port": conn.get('local_port', 0),
+                        "dst_ip": conn.get('remote_ip', '0.0.0.0'),
+                        "dst_port": conn.get('remote_port', 0),
+                        "protocol": conn.get('type', 'TCP'),
+                        "service": conn.get('process_name', 'unknown'),
+                        "bytes_sent": conn.get('bytes_sent', 0),
+                        "bytes_recv": conn.get('bytes_recv', 0)
+                    }
+                    
+                    resp = requests.post(
+                        f"{self.api_url}/api/advanced/vns/flow",
+                        json=flow_data,
+                        timeout=3
+                    )
+                    
+                    if resp.status_code == 200:
+                        conn['_vns_synced'] = True
+                        result = resp.json()
+                        
+                        # If VNS flagged as suspicious, create local alert
+                        if result.get('threat_score', 0) > 70:
+                            logger.warning(f"🚨 VNS Alert: {conn.get('remote_ip')}:{conn.get('remote_port')} - Score: {result['threat_score']}")
+                            
+        except Exception as e:
+            logger.debug(f"VNS sync error: {e}")
+    
+    def _sync_ai_analysis(self):
+        """Send high-severity threats to AI for analysis"""
+        try:
+            # Get unanalyzed high-severity threats
+            for threat in list(telemetry_store.threats)[-10:]:
+                if threat.get('severity') in ['high', 'critical'] and not threat.get('_ai_analyzed'):
+                    analysis_data = {
+                        "title": threat.get('title', 'Unknown Threat'),
+                        "description": threat.get('description', ''),
+                        "process_name": threat.get('evidence', {}).get('process_name'),
+                        "command_line": threat.get('evidence', {}).get('command_line'),
+                        "indicators": threat.get('evidence', {}).get('indicators', [])
+                    }
+                    
+                    resp = requests.post(
+                        f"{self.api_url}/api/advanced/ai/analyze",
+                        json=analysis_data,
+                        timeout=10
+                    )
+                    
+                    if resp.status_code == 200:
+                        threat['_ai_analyzed'] = True
+                        ai_result = resp.json()
+                        
+                        # Enrich threat with AI analysis
+                        threat['ai_analysis'] = {
+                            "threat_type": ai_result.get('threat_type'),
+                            "mitre_techniques": ai_result.get('mitre_techniques', []),
+                            "risk_score": ai_result.get('risk_score'),
+                            "recommended_actions": ai_result.get('recommended_actions', [])[:3]
+                        }
+                        
+                        logger.info(f"🧠 AI Analysis: {ai_result.get('threat_type')} - Risk {ai_result.get('risk_score')}/100")
+                        
+        except Exception as e:
+            logger.debug(f"AI sync error: {e}")
 
 
 def main():

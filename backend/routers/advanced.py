@@ -607,6 +607,76 @@ async def get_ai_stats(current_user: dict = Depends(get_current_user)):
 
 
 # =============================================================================
+# OLLAMA INTEGRATION ENDPOINTS
+# =============================================================================
+
+class OllamaConfigRequest(BaseModel):
+    base_url: str = "http://localhost:11434"
+    model: str = "mistral"
+
+
+class OllamaGenerateRequest(BaseModel):
+    prompt: str
+    model: Optional[str] = None
+    system_prompt: Optional[str] = None
+
+
+@router.post("/ai/ollama/configure")
+async def configure_ollama(
+    request: OllamaConfigRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Configure Ollama for local AI reasoning"""
+    from services.ai_reasoning import ai_reasoning
+    
+    result = ai_reasoning.configure_ollama(request.base_url, request.model)
+    return result
+
+
+@router.get("/ai/ollama/status")
+async def get_ollama_status(current_user: dict = Depends(get_current_user)):
+    """Get Ollama connection status"""
+    from services.ai_reasoning import ai_reasoning
+    
+    return ai_reasoning.get_ollama_status()
+
+
+@router.post("/ai/ollama/generate")
+async def ollama_generate(
+    request: OllamaGenerateRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Generate response using Ollama"""
+    from services.ai_reasoning import ai_reasoning
+    
+    result = await ai_reasoning.ollama_generate(
+        request.prompt, 
+        request.model,
+        request.system_prompt
+    )
+    return result
+
+
+@router.post("/ai/ollama/analyze")
+async def ollama_analyze_threat(
+    request: ThreatAnalysisRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Analyze threat using Ollama LLM"""
+    from services.ai_reasoning import ai_reasoning
+    
+    result = await ai_reasoning.ollama_analyze_threat({
+        "title": request.title,
+        "description": request.description,
+        "source": request.source,
+        "indicators": request.indicators,
+        "process_name": request.process_name,
+        "command_line": request.command_line
+    })
+    return result
+
+
+# =============================================================================
 # UNIFIED DASHBOARD DATA
 # =============================================================================
 
