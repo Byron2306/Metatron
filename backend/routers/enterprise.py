@@ -379,6 +379,27 @@ async def list_tools(current_user: dict = Depends(get_current_user)):
     return {"tools": tool_gateway.list_tools()}
 
 
+@router.get("/tools/status")
+async def get_gateway_status(current_user: dict = Depends(get_current_user)):
+    """Get tool gateway status"""
+    from services.tool_gateway import tool_gateway
+    
+    return tool_gateway.get_gateway_status()
+
+
+@router.get("/tools/history")
+async def get_execution_history(
+    principal: str = None,
+    tool_id: str = None,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get tool execution history"""
+    from services.tool_gateway import tool_gateway
+    
+    return {"executions": tool_gateway.get_execution_history(principal, tool_id, limit)}
+
+
 @router.get("/tools/{tool_id}")
 async def get_tool(tool_id: str, current_user: dict = Depends(get_current_user)):
     """Get tool definition"""
