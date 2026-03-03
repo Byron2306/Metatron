@@ -162,6 +162,10 @@ app.include_router(swarm_router, prefix="/api")
 from routers.ai_threats import router as ai_threats_router
 app.include_router(ai_threats_router, prefix="/api")
 
+# Import Enterprise Security router (Identity, Policy, Tokens, Tools, Telemetry)
+from routers.enterprise import router as enterprise_router
+app.include_router(enterprise_router, prefix="/api")
+
 # ============ WEBSOCKET ENDPOINTS ============
 
 from routers.honeypots import ws_manager
