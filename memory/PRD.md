@@ -29,7 +29,82 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v5.6.0**: Auto-Kill Defense + Command Center + Network Threat Map (Feb 2026)
 - **v5.7.0**: Advanced Agent Detection + Browser Extension + Bug Fixes (Feb 2026)
 - **v5.8.0**: Network Infrastructure Scanning + Split-Tunnel VPN (Feb 2026)
-- **v5.9.0**: Enterprise Security Layer + Aggressive Auto-Kill + SIEM + USB + Sandbox (Feb 2026) - CURRENT
+- **v5.9.0**: Enterprise Security Layer + Aggressive Auto-Kill + SIEM + USB + Sandbox (Feb 2026)
+- **v6.0.0**: Advanced Security Services - MCP, Vector Memory, VNS, Quantum, AI Reasoning (Mar 2026) - CURRENT
+
+## v6.0.0 Advanced Security Services (Mar 2026) - CURRENT
+
+### Major Features Implemented
+
+#### 1. MCP Server (Model Context Protocol)
+- **Governed tool bus for agent operations**
+- **6 built-in tools**: Network Scanner, Process Killer, Firewall Block IP, SOAR Playbook, Memory Dump, Deploy Honeypot
+- **Signed messages**: All tool invocations are signed and auditable
+- **Tool execution history**: Complete audit trail of all operations
+- **Rate limiting**: Per-tool configurable limits
+
+#### 2. Vector Memory Database (MongoDB-backed)
+- **Semantic search with 128-dimension embeddings**
+- **6 namespaces**: verified_knowledge, observations, threat_intel, host_profiles, incident_cases, unverified
+- **Trust levels**: verified, high, medium, low, untrusted
+- **Incident case management**: Create, retrieve, and find similar cases
+- **Threat intelligence storage**: IOCs with MITRE technique mapping
+- **PII redaction**: Automatic redaction of sensitive data before storage
+
+#### 3. VNS (Virtual Network Sensor)
+- **Independent network truth source**
+- **Network flow logging**: Captures and analyzes all network flows
+- **DNS telemetry**: Monitors DNS queries for suspicious domains
+- **TLS fingerprinting (JA3)**: Identifies malicious TLS fingerprints
+- **C2 beacon detection**: Detects periodic beaconing patterns
+- **Canary IPs/domains/ports**: Deception triggers for intrusion detection
+
+#### 4. Quantum Security (Post-Quantum Cryptography)
+- **KYBER KEM**: Key encapsulation (512/768/1024 security levels)
+- **DILITHIUM signatures**: Digital signatures (2/3/5 security levels)
+- **SHA3-256 hash**: Quantum-resistant hashing
+- **Hybrid encryption**: Classical + post-quantum encryption
+- **Mode**: Simulation (production requires liboqs/PQCrypto library)
+
+#### 5. AI Reasoning Engine with Ollama Integration
+- **Rule-based threat analysis**: 37 MITRE techniques, 8 threat patterns, 8 playbook mappings
+- **Threat classification**: credential_theft, ransomware, c2_activity, lateral_movement, exfiltration, etc.
+- **Risk scoring**: 0-100 risk score with severity assessment
+- **MITRE ATT&CK mapping**: Automatic technique identification
+- **Ollama integration**: Local LLM reasoning on user's server (161.35.129.192:11434)
+- **Security queries**: Ask about MITRE techniques, threats, and recommended responses
+
+### Frontend: Advanced Services Page
+- **6 tabs**: Overview, MCP Server, Vector Memory, VNS, Quantum, AI Reasoning
+- **Overview dashboard**: Status cards for all 5 services
+- **MCP Server tab**: Tool registry with execution history
+- **Vector Memory tab**: Semantic search, memory statistics, case management
+- **VNS tab**: Suspicious flows, C2 beacon detections, statistics
+- **Quantum tab**: Key generation (Kyber/Dilithium), algorithm status
+- **AI Reasoning tab**: Ollama configuration, security queries, threat analysis
+
+### Agent Integration
+- **VNS sync**: Agent sends network flows to VNS for independent analysis
+- **AI analysis sync**: High-severity threats sent to AI for enhanced analysis
+- **Local dashboard**: Advanced Services tab added to agent dashboard
+
+### API Endpoints
+All endpoints require authentication and are prefixed with `/api/advanced/`:
+- `GET /dashboard` - Combined dashboard data
+- `GET /mcp/tools` - MCP tool registry
+- `POST /mcp/execute` - Execute MCP tool
+- `POST /memory/store` - Store memory entry
+- `POST /memory/search` - Semantic search
+- `POST /memory/case` - Create incident case
+- `POST /vns/flow` - Record network flow
+- `POST /vns/dns` - Record DNS query
+- `GET /vns/beacons` - Get C2 beacon detections
+- `GET /quantum/status` - Quantum crypto status
+- `POST /quantum/keypair/kyber` - Generate Kyber keypair
+- `POST /quantum/keypair/dilithium` - Generate Dilithium keypair
+- `POST /ai/analyze` - Analyze threat
+- `POST /ai/query` - Query AI about security topics
+- `POST /ai/ollama/configure` - Configure Ollama endpoint
 
 ## v5.9.0 Enterprise Security Layer (Feb 2026) - COMPLETED
 
