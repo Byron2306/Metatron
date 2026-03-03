@@ -21,6 +21,7 @@ const SOARPage = () => {
   const { token } = useAuth();
   const [stats, setStats] = useState(null);
   const [playbooks, setPlaybooks] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [aiPlaybooks, setAiPlaybooks] = useState([]);
   const [executions, setExecutions] = useState([]);
   const [selectedPlaybook, setSelectedPlaybook] = useState(null);
@@ -106,13 +107,15 @@ const SOARPage = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [statsRes, playbooksRes, executionsRes] = await Promise.all([
+      const [statsRes, playbooksRes, templatesRes, executionsRes] = await Promise.all([
         axios.get(`${API}/soar/stats`, { headers }),
         axios.get(`${API}/soar/playbooks`, { headers }),
+        axios.get(`${API}/soar/templates`, { headers }),
         axios.get(`${API}/soar/executions?limit=20`, { headers })
       ]);
       setStats(statsRes.data);
       setPlaybooks(playbooksRes.data.playbooks || []);
+      setTemplates(templatesRes.data.templates || []);
       setAiPlaybooks(AI_PLAYBOOK_DEFINITIONS);
       setExecutions(executionsRes.data.executions || []);
     } catch (err) {
@@ -292,6 +295,9 @@ const SOARPage = () => {
                 <TabsTrigger value="all" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400">
                   All ({playbooks.length})
                 </TabsTrigger>
+                <TabsTrigger value="templates" className="data-[state=active]:bg-green-500/20 data-[state=active]:text-green-400">
+                  Templates ({templates.length})
+                </TabsTrigger>
                 <TabsTrigger value="ai" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400">
                   <Brain className="w-4 h-4 mr-1" />
                   AI Defense ({aiPlaybooks.length})
@@ -366,6 +372,91 @@ const SOARPage = () => {
                   </div>
                 </motion.div>
               ))}
+            </div>
+          )}
+
+          {/* Templates Library */}
+          {activeTab === 'templates' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg mb-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <Shield className="w-6 h-6 text-green-400" />
+                  <div>
+                    <h3 className="text-white font-semibold">Playbook Templates Library</h3>
+                    <p className="text-slate-400 text-sm">Pre-built response templates for common security scenarios</p>
+                  </div>
+                </div>
+                <p className="text-green-300 text-xs">
+                  Click "Deploy" to create a new playbook from any template. Templates include data breach, credential theft, APT detection, and more.
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {templates.map((tpl, idx) => (
+                  <motion.div
+                    key={tpl.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="p-4 rounded-lg bg-slate-800/50 border border-slate-700 hover:border-green-500/50 transition-all"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+                          <Shield className="w-5 h-5 text-green-400" />
+                        </div>
+                        <div>
+                          <h3 className="text-white font-medium">{tpl.name}</h3>
+                          <p className="text-slate-400 text-xs mt-1 line-clamp-2">{tpl.description}</p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <Badge variant="outline" className="text-xs text-cyan-400 border-cyan-500/30">
+                        {tpl.category?.replace(/_/g, ' ')}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs text-purple-400 border-purple-500/30">
+                        {tpl.steps?.length || 0} steps
+                      </Badge>
+                      {tpl.is_official && (
+                        <Badge variant="outline" className="text-xs text-green-400 border-green-500/30">
+                          Official
+                        </Badge>
+                      )}
+                    </div>
+
+                    {tpl.tags && tpl.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {tpl.tags.slice(0, 4).map((tag, i) => (
+                          <span key={i} className="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">
+                            {tag}
+                          </span>
+                        ))}
+                        {tpl.tags.length > 4 && (
+                          <span className="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-400">
+                            +{tpl.tags.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-700">
+                      <span className="text-xs text-slate-500">{tpl.id}</span>
+                      <Button 
+                        size="sm" 
+                        className="h-7 bg-green-500/20 hover:bg-green-500/30 text-green-400"
+                        onClick={() => {
+                          toast.success(`Template "${tpl.name}" ready to deploy`);
+                        }}
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        Deploy
+                      </Button>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
             </div>
           )}
 

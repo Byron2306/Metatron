@@ -86,6 +86,8 @@ const Layout = () => {
     { path: '/agent-commands', icon: Terminal, label: 'Agent Commands' },
     { path: '/reports', icon: FileText, label: 'Reports' },
     { path: '/audit', icon: ScrollText, label: 'Audit Logs' },
+    { path: '/tenants', icon: Globe, label: 'Tenants' },
+    { path: '/unified-agent', icon: Cpu, label: 'Unified Agent' },
     { path: '/setup-guide', icon: Server, label: 'Setup Guide' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];

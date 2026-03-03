@@ -624,6 +624,178 @@ create_user() {
     log "User $SERAPH_USER configured"
 }
 
+setup_slack_notifications() {
+    log "Configuring Slack notifications..."
+    
+    # Create Slack notification helper script
+    cat > "$SERAPH_HOME/scripts/slack_notify.sh" << 'SLACK_EOF'
+#!/bin/bash
+# Seraph AI Slack Notification Helper
+WEBHOOK_URL="${SLACK_WEBHOOK_URL:-}"
+MESSAGE="${1:-Test notification from Seraph AI}"
+SEVERITY="${2:-info}"
+
+if [[ -z "$WEBHOOK_URL" ]]; then
+    echo "Error: SLACK_WEBHOOK_URL not set"
+    exit 1
+fi
+
+COLOR="#36a64f"  # Green for info
+case "$SEVERITY" in
+    critical) COLOR="#ff0000" ;;
+    high) COLOR="#ff6600" ;;
+    medium) COLOR="#ffcc00" ;;
+    low) COLOR="#36a64f" ;;
+esac
+
+curl -s -X POST "$WEBHOOK_URL" \
+    -H "Content-Type: application/json" \
+    -d "{
+        \"attachments\": [{
+            \"color\": \"$COLOR\",
+            \"title\": \"Seraph AI Alert\",
+            \"text\": \"$MESSAGE\",
+            \"footer\": \"Seraph AI Defense System\",
+            \"ts\": $(date +%s)
+        }]
+    }"
+SLACK_EOF
+    chmod +x "$SERAPH_HOME/scripts/slack_notify.sh"
+    
+    log "Slack notification helper created at $SERAPH_HOME/scripts/slack_notify.sh"
+}
+
+setup_email_notifications() {
+    log "Configuring email notifications..."
+    
+    # Install mailutils for email sending
+    apt-get install -y mailutils postfix 2>/dev/null || true
+    
+    # Create email notification helper script
+    cat > "$SERAPH_HOME/scripts/email_notify.sh" << 'EMAIL_EOF'
+#!/bin/bash
+# Seraph AI Email Notification Helper
+SMTP_HOST="${SMTP_HOST:-smtp.gmail.com}"
+SMTP_PORT="${SMTP_PORT:-587}"
+SMTP_USER="${SMTP_USER:-}"
+SMTP_PASS="${SMTP_PASS:-}"
+FROM_ADDR="${FROM_ADDR:-seraph@localhost}"
+TO_ADDR="${1:-}"
+SUBJECT="${2:-Seraph AI Alert}"
+MESSAGE="${3:-Alert from Seraph AI Defense System}"
+
+if [[ -z "$TO_ADDR" ]]; then
+    echo "Error: No recipient address provided"
+    exit 1
+fi
+
+# Use sendmail if available
+if command -v sendmail &> /dev/null; then
+    echo -e "Subject: $SUBJECT\nFrom: $FROM_ADDR\nTo: $TO_ADDR\n\n$MESSAGE" | sendmail -t
+elif command -v mail &> /dev/null; then
+    echo "$MESSAGE" | mail -s "$SUBJECT" "$TO_ADDR"
+else
+    echo "Error: No mail command available"
+    exit 1
+fi
+EMAIL_EOF
+    chmod +x "$SERAPH_HOME/scripts/email_notify.sh"
+    
+    log "Email notification helper created at $SERAPH_HOME/scripts/email_notify.sh"
+}
+
+verify_installation() {
+    log "Verifying installation..."
+    
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  INSTALLATION VERIFICATION${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    
+    # Check Docker
+    echo -n "  Docker: "
+    if command -v docker &> /dev/null && docker ps &> /dev/null; then
+        echo -e "${GREEN}✓ Running${NC}"
+    else
+        echo -e "${RED}✗ Not running${NC}"
+    fi
+    
+    # Check MongoDB
+    echo -n "  MongoDB: "
+    if docker ps | grep -q seraph-mongodb; then
+        echo -e "${GREEN}✓ Running${NC}"
+    else
+        echo -e "${YELLOW}○ Not started${NC}"
+    fi
+    
+    # Check Elasticsearch
+    echo -n "  Elasticsearch: "
+    if docker ps | grep -q seraph-elasticsearch; then
+        echo -e "${GREEN}✓ Running${NC}"
+    else
+        echo -e "${YELLOW}○ Not started${NC}"
+    fi
+    
+    # Check Kibana
+    echo -n "  Kibana: "
+    if docker ps | grep -q seraph-kibana; then
+        echo -e "${GREEN}✓ Running${NC}"
+    else
+        echo -e "${YELLOW}○ Not started${NC}"
+    fi
+    
+    # Check Redis
+    echo -n "  Redis: "
+    if docker ps | grep -q seraph-redis; then
+        echo -e "${GREEN}✓ Running${NC}"
+    else
+        echo -e "${YELLOW}○ Not started${NC}"
+    fi
+    
+    # Check WireGuard
+    echo -n "  WireGuard: "
+    if command -v wg &> /dev/null; then
+        if systemctl is-active --quiet wg-quick@wg0; then
+            echo -e "${GREEN}✓ Running${NC}"
+        else
+            echo -e "${YELLOW}○ Installed, not active${NC}"
+        fi
+    else
+        echo -e "${RED}✗ Not installed${NC}"
+    fi
+    
+    # Check Cuckoo
+    echo -n "  Cuckoo Sandbox: "
+    if docker ps | grep -q seraph-cuckoo; then
+        echo -e "${GREEN}✓ Running${NC}"
+    else
+        echo -e "${YELLOW}○ Container created${NC}"
+    fi
+    
+    # Check liboqs
+    echo -n "  liboqs (Quantum): "
+    if python3 -c "import oqs" 2>/dev/null; then
+        echo -e "${GREEN}✓ Installed${NC}"
+    else
+        echo -e "${YELLOW}○ Not installed${NC}"
+    fi
+    
+    # Check Ollama
+    echo -n "  Ollama (Local AI): "
+    if command -v ollama &> /dev/null; then
+        if systemctl is-active --quiet ollama; then
+            echo -e "${GREEN}✓ Running${NC}"
+        else
+            echo -e "${YELLOW}○ Installed, not active${NC}"
+        fi
+    else
+        echo -e "${RED}✗ Not installed${NC}"
+    fi
+    
+    echo ""
+}
+
 install_ollama() {
     log "Installing Ollama for local AI..."
     
@@ -750,7 +922,10 @@ main() {
             setup_seraph_app
             create_user
             create_systemd_services
+            setup_slack_notifications
+            setup_email_notifications
             setup_firewall
+            verify_installation
             ;;
     esac
     
