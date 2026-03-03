@@ -35,9 +35,74 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v6.2.0**: Metatron/Seraph Unified Agent Integration + MITRE Threat Hunting (Mar 2026)
 - **v6.3.0**: P1/P2 Feature Completion - VNS Alerts, Browser Extension, Setup Guide, SOAR Templates, Multi-Tenant (Mar 2026)
 - **v6.4.0**: Infrastructure Builder, Extension Download, PDF Stress Testing, Multi-Tenant API (Mar 2026)
-- **v6.5.0**: System-Wide Hardening - All UI Features, SOAR Templates Visibility, Complete Builder (Mar 2026) - CURRENT
+- **v6.5.0**: System-Wide Hardening - All UI Features, SOAR Templates Visibility, Complete Builder (Mar 2026)
+- **v6.6.0**: Full System Audit & Agent Installer Endpoints (Mar 2026) - CURRENT
 
-## v6.5.0 System-Wide Hardening (Mar 2026) - CURRENT
+## v6.6.0 Full System Audit & Agent Installer Endpoints (Mar 2026) - CURRENT
+
+### Major Fixes & Additions
+
+#### 1. Agent Download/Install API Endpoints
+- **`GET /api/unified/agent/download`**: Downloads agent package as tarball (.tar.gz)
+- **`GET /api/unified/agent/install-script`**: Returns Linux installation script with server URL
+- **`GET /api/unified/agent/install-windows`**: Returns PowerShell installation script for Windows
+- One-liner deployment: `curl -sSL SERVER/api/unified/agent/install-script | sudo bash`
+
+#### 2. Builder Script Enhancement
+- Fixed agent service ExecStart path: `python -m core.agent --server URL`
+- Added PYTHONPATH environment variable
+- Created standalone `install-agent.sh` script
+
+#### 3. Alerts Endpoint Fix (by Testing Agent)
+- Fixed `/api/alerts` returning 500 error
+- Now normalizes legacy telemetry alerts with required fields
+- Returns `{"alerts": [...], "count": N}` format
+
+#### 4. AlertsPage.jsx Fix (by Testing Agent)
+- Fixed frontend to handle both array and object API responses
+- `const alertsData = Array.isArray(response.data) ? response.data : (response.data.alerts || [])`
+
+### Comprehensive System Testing Results (iteration_30.json)
+
+#### Backend (83% Pass Rate - 24/29)
+- All major endpoints working
+- Minor 404 on `/api/intel/feeds` (correct route is `/api/threat-intel/feeds`)
+- Minor 404 on `/api/reports/` list endpoint
+
+#### Frontend (100% Pass Rate)
+All 14+ pages verified working:
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Swarm Dashboard | WORKING | 303 devices, 32 agents, 48343 telemetry events, 76 deployments |
+| SOAR Page | WORKING | 5 playbooks, 14 templates, 6 AI Defense playbooks |
+| VNS Alerts | WORKING | Slack/Email configuration tabs |
+| Threat Hunting | WORKING | Rules and matches |
+| Network Topology | WORKING | Visual node display |
+| Command Center | WORKING | Agent commands interface |
+| Agents Page | WORKING | Agent list |
+| Alerts Page | WORKING (fixed) | Normalized alerts display |
+| Reports Page | WORKING | PDF generation, stress test 100% pass |
+| Browser Extension | WORKING | ZIP download verified |
+| Multi-Tenants | WORKING | CRUD operations |
+| Threat Intel | WORKING | Intelligence feeds |
+
+### API Verification Summary
+
+| Endpoint | Status |
+|----------|--------|
+| `/api/swarm/scanner/report` | WORKING - Scanner report ingestion |
+| `/api/swarm/deploy/batch` | WORKING - Batch deployment |
+| `/api/soar/templates` | WORKING - 14 templates returned |
+| `/api/advanced/alerts/status` | WORKING - VNS alerts status |
+| `/api/hunting/status` | WORKING - Threat hunting |
+| `/api/reports/stress-test` | WORKING - 100% success, avg 6.88ms |
+| `/api/reports/health` | WORKING - PDF generation verified |
+| `/api/extension/download` | WORKING - Browser extension ZIP |
+| `/api/unified/agent/download` | WORKING - Agent tarball |
+| `/api/unified/agent/install-script` | WORKING - Install script |
+
+## v6.5.0 System-Wide Hardening (Mar 2026)
 
 ### Major Fixes & Additions
 

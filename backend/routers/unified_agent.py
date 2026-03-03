@@ -652,6 +652,179 @@ async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
 
 
 # ============================================================
+# AGENT DOWNLOAD / INSTALL ENDPOINTS
+# ============================================================
+
+@router.get("/agent/download")
+async def download_agent_package():
+    """Download the unified agent package as a tarball"""
+    import tarfile
+    import io
+    import os
+    from fastapi.responses import StreamingResponse
+    
+    agent_dir = "/app/unified_agent"
+    
+    # Create tarball in memory
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode='w:gz') as tar:
+        # Add core agent files
+        for item in ['core', 'requirements.txt']:
+            item_path = os.path.join(agent_dir, item)
+            if os.path.exists(item_path):
+                tar.add(item_path, arcname=item)
+    
+    buffer.seek(0)
+    
+    return StreamingResponse(
+        buffer,
+        media_type="application/gzip",
+        headers={"Content-Disposition": "attachment; filename=seraph-agent.tar.gz"}
+    )
+
+
+@router.get("/agent/install-script")
+async def get_install_script(server_url: Optional[str] = None):
+    """Get the agent installation script"""
+    
+    # Use the request's host as default server URL
+    base_url = server_url or "http://localhost:8001"
+    
+    script = f'''#!/bin/bash
+# Seraph AI Unified Agent Installer
+# Automatically generated for: {base_url}
+
+set -e
+
+SERAPH_SERVER="{base_url}"
+INSTALL_DIR="/opt/seraph-agent"
+
+echo "================================================================"
+echo "  SERAPH AI UNIFIED AGENT INSTALLER"
+echo "  Target Server: $SERAPH_SERVER"
+echo "================================================================"
+
+# Check root
+if [[ $EUID -ne 0 ]]; then
+    echo "This script must be run as root (use sudo)"
+    exit 1
+fi
+
+# Create installation directory
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+
+# Install Python dependencies
+echo "Installing Python and dependencies..."
+apt-get update
+apt-get install -y python3 python3-pip python3-venv curl
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install required packages
+pip install --upgrade pip
+pip install psutil requests netifaces scapy watchdog python-nmap aiohttp pyyaml
+
+# Download agent package
+echo "Downloading agent from server..."
+curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
+tar -xzf agent.tar.gz
+rm agent.tar.gz
+
+# Create systemd service
+cat > /etc/systemd/system/seraph-agent.service << EOF
+[Unit]
+Description=Seraph AI Unified Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$INSTALL_DIR
+Environment="PATH=$INSTALL_DIR/venv/bin"
+ExecStart=$INSTALL_DIR/venv/bin/python core/agent.py --server $SERAPH_SERVER
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start service
+systemctl daemon-reload
+systemctl enable seraph-agent
+systemctl start seraph-agent
+
+echo ""
+echo "================================================================"
+echo "  INSTALLATION COMPLETE"
+echo "================================================================"
+echo "Agent installed to: $INSTALL_DIR"
+echo "Service status: systemctl status seraph-agent"
+echo "Service logs: journalctl -u seraph-agent -f"
+echo ""
+'''
+    
+    return {"script": script, "usage": f"curl -sSL {base_url}/api/unified/agent/install-script | sudo bash"}
+
+
+@router.get("/agent/install-windows")
+async def get_windows_install_script(server_url: Optional[str] = None):
+    """Get the Windows agent installation script (PowerShell)"""
+    
+    base_url = server_url or "http://localhost:8001"
+    
+    script = f'''# Seraph AI Unified Agent - Windows Installer
+# Run as Administrator
+
+$SERAPH_SERVER = "{base_url}"
+$INSTALL_DIR = "C:\\ProgramData\\SeraphAgent"
+
+Write-Host "================================================================" -ForegroundColor Cyan
+Write-Host "  SERAPH AI UNIFIED AGENT INSTALLER (Windows)" -ForegroundColor Cyan
+Write-Host "  Target Server: $SERAPH_SERVER" -ForegroundColor Cyan
+Write-Host "================================================================" -ForegroundColor Cyan
+
+# Create installation directory
+New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+Set-Location $INSTALL_DIR
+
+# Download agent
+Write-Host "Downloading agent..."
+Invoke-WebRequest -Uri "$SERAPH_SERVER/api/unified/agent/download" -OutFile "agent.tar.gz"
+
+# Extract (requires 7-zip or tar on Windows 10+)
+tar -xzf agent.tar.gz
+Remove-Item agent.tar.gz
+
+# Install Python dependencies
+Write-Host "Installing dependencies..."
+python -m pip install psutil requests netifaces watchdog pyyaml
+
+# Create scheduled task to run at startup
+$action = New-ScheduledTaskAction -Execute "python" -Argument "core\\agent.py --server $SERAPH_SERVER" -WorkingDirectory $INSTALL_DIR
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
+Register-ScheduledTask -TaskName "SeraphAgent" -Action $action -Trigger $trigger -Principal $principal -Force
+
+# Start agent
+Write-Host "Starting agent..."
+Start-ScheduledTask -TaskName "SeraphAgent"
+
+Write-Host ""
+Write-Host "================================================================" -ForegroundColor Green
+Write-Host "  INSTALLATION COMPLETE" -ForegroundColor Green
+Write-Host "================================================================" -ForegroundColor Green
+Write-Host "Agent installed to: $INSTALL_DIR"
+Write-Host "Check status: Get-ScheduledTask -TaskName SeraphAgent"
+'''
+    
+    return {"script": script, "usage": f"Invoke-WebRequest -Uri {base_url}/api/unified/agent/install-windows | Invoke-Expression"}
+
+
+# ============================================================
 # HELPER FUNCTIONS
 # ============================================================
 

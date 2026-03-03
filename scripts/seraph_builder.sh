@@ -592,13 +592,70 @@ Type=simple
 User=root
 WorkingDirectory=$SERAPH_HOME/agents
 Environment="PATH=$SERAPH_HOME/venv/bin"
-ExecStart=$SERAPH_HOME/venv/bin/python core/agent.py --server http://localhost:8001
+Environment="PYTHONPATH=$SERAPH_HOME/agents"
+ExecStart=$SERAPH_HOME/venv/bin/python -m core.agent --server http://localhost:8001
 Restart=always
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
+    
+    # Create standalone agent installer script
+    cat > "$SERAPH_HOME/install-agent.sh" << 'AGENT_INSTALLER'
+#!/bin/bash
+# Seraph AI Unified Agent Installer
+# Usage: curl -sSL http://YOUR_SERVER:8001/api/agent/install | sudo bash
+
+SERAPH_SERVER="${1:-http://localhost:8001}"
+INSTALL_DIR="/opt/seraph-agent"
+
+echo "Installing Seraph AI Unified Agent..."
+echo "Server: $SERAPH_SERVER"
+
+# Create installation directory
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+
+# Install Python dependencies
+apt-get update && apt-get install -y python3 python3-pip python3-venv
+python3 -m venv venv
+source venv/bin/activate
+
+# Install required packages
+pip install psutil requests netifaces scapy watchdog python-nmap aiohttp pyyaml
+
+# Download agent files from server
+curl -sSL "$SERAPH_SERVER/api/agent/download" -o agent.tar.gz
+tar -xzf agent.tar.gz
+
+# Create systemd service
+cat > /etc/systemd/system/seraph-agent.service << EOF
+[Unit]
+Description=Seraph AI Unified Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$INSTALL_DIR
+Environment="PATH=$INSTALL_DIR/venv/bin"
+ExecStart=$INSTALL_DIR/venv/bin/python core/agent.py --server $SERAPH_SERVER
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable seraph-agent
+systemctl start seraph-agent
+
+echo "Seraph AI Agent installed and running!"
+echo "Check status: systemctl status seraph-agent"
+AGENT_INSTALLER
+    chmod +x "$SERAPH_HOME/install-agent.sh"
     
     # Reload systemd
     systemctl daemon-reload
