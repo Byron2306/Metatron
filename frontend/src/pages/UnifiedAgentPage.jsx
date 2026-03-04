@@ -25,7 +25,9 @@ import {
   Zap
 } from "lucide-react";
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const rawBackendUrl = process.env.REACT_APP_BACKEND_URL?.trim();
+const API_URL = rawBackendUrl || "";
+const API_ROOT = API_URL ? `${API_URL}/api` : '/api';
 
 export default function UnifiedAgentPage() {
   const { token } = useAuth();
@@ -45,8 +47,8 @@ export default function UnifiedAgentPage() {
       const headers = { Authorization: `Bearer ${token}` };
       
       const [agentsRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/api/unified/agents`, { headers }),
-        fetch(`${API_URL}/api/unified/stats`, { headers })
+        fetch(`${API_ROOT}/unified/agents`, { headers }),
+        fetch(`${API_ROOT}/unified/stats`, { headers })
       ]);
       
       if (agentsRes.ok) {
@@ -67,13 +69,17 @@ export default function UnifiedAgentPage() {
 
   const sendCommand = async (agentId, command, params = {}) => {
     try {
-      const response = await fetch(`${API_URL}/api/unified/agents/${agentId}/command`, {
+      const response = await fetch(`${API_ROOT}/unified/agents/${agentId}/command`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ command, params })
+        body: JSON.stringify({
+          command_type: command,
+          parameters: params,
+          priority: "normal"
+        })
       });
       
       if (response.ok) {
@@ -84,6 +90,22 @@ export default function UnifiedAgentPage() {
     } catch (error) {
       toast.error("Error sending command");
     }
+  };
+
+  const runBulkCommand = async (command, params = {}, successLabel = 'Command') => {
+    const onlineAgents = agents.filter((agent) => (agent.status || '').toLowerCase() === 'online');
+    if (onlineAgents.length === 0) {
+      toast.warning('No online agents available for bulk command');
+      return;
+    }
+
+    const results = await Promise.allSettled(
+      onlineAgents.map((agent) => sendCommand(agent.agent_id, command, params))
+    );
+
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    toast.success(`${successLabel} sent to ${succeeded}/${onlineAgents.length} online agents`);
+    fetchData();
   };
 
   const getStatusColor = (status) => {
@@ -129,7 +151,7 @@ export default function UnifiedAgentPage() {
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
-          <Button className="bg-cyan-600 hover:bg-cyan-700">
+          <Button className="bg-cyan-600 hover:bg-cyan-700" onClick={() => window.open(`${API_ROOT}/unified/agent/download`, '_blank')}>
             <Download className="w-4 h-4 mr-2" />
             Download Agent
           </Button>
@@ -263,7 +285,7 @@ export default function UnifiedAgentPage() {
                   <p className="text-slate-400 text-sm mb-4">
                     Deploy the unified agent to your endpoints to start monitoring
                   </p>
-                  <Button className="bg-cyan-600 hover:bg-cyan-700">
+                  <Button className="bg-cyan-600 hover:bg-cyan-700" onClick={() => window.open(`${API_ROOT}/unified/agent/download`, '_blank')}>
                     <Download className="w-4 h-4 mr-2" />
                     Download Agent
                   </Button>
@@ -364,19 +386,31 @@ export default function UnifiedAgentPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Button className="h-24 flex-col bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30">
+                <Button
+                  className="h-24 flex-col bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30"
+                  onClick={() => runBulkCommand('scan', {}, 'Full scan')}
+                >
                   <Activity className="w-6 h-6 mb-2 text-cyan-400" />
                   <span className="text-cyan-400">Full Scan All</span>
                 </Button>
-                <Button className="h-24 flex-col bg-green-500/10 hover:bg-green-500/20 border border-green-500/30">
+                <Button
+                  className="h-24 flex-col bg-green-500/10 hover:bg-green-500/20 border border-green-500/30"
+                  onClick={() => runBulkCommand('update_config', {}, 'Update command')}
+                >
                   <RefreshCw className="w-6 h-6 mb-2 text-green-400" />
                   <span className="text-green-400">Update All</span>
                 </Button>
-                <Button className="h-24 flex-col bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30">
+                <Button
+                  className="h-24 flex-col bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30"
+                  onClick={() => runBulkCommand('network_scan', {}, 'Network scan')}
+                >
                   <Network className="w-6 h-6 mb-2 text-purple-400" />
                   <span className="text-purple-400">Network Scan</span>
                 </Button>
-                <Button className="h-24 flex-col bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30">
+                <Button
+                  className="h-24 flex-col bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30"
+                  onClick={() => runBulkCommand('update_config', { auto_kill: true }, 'Auto-kill enable')}
+                >
                   <Zap className="w-6 h-6 mb-2 text-orange-400" />
                   <span className="text-orange-400">Enable Auto-Kill</span>
                 </Button>
@@ -396,13 +430,23 @@ export default function UnifiedAgentPage() {
                 <h4 className="text-cyan-400 font-medium">Quick Install (Python)</h4>
                 <pre className="bg-slate-950 p-4 rounded-lg text-sm text-slate-300 font-mono overflow-x-auto">
 {`# Download and run the unified agent
-curl -sSL ${API_URL}/api/unified/install.py | python3 - \\
-  --server ${API_URL} \\
-  --name "My-Endpoint"
+curl -sSL ${API_ROOT}/unified/agent/install-script | sudo bash
+
+# Optional explicit server URL
+curl -sSL "${API_ROOT}/unified/agent/install-script?server_url=${window.location.origin}" | sudo bash
+
+# Manual package install
+curl -sSL ${API_ROOT}/unified/agent/download -o agent.tar.gz
+tar -xzf agent.tar.gz
+pip install -r requirements.txt
+python core/agent.py --server ${window.location.origin}
+
+# Legacy style
+python core/agent.py --server ${window.location.origin} --name "My-Endpoint"
 
 # Or install manually
 pip install psutil requests
-python unified_agent.py --server ${API_URL}`}
+python unified_agent.py --server ${window.location.origin}`}
                 </pre>
               </div>
 

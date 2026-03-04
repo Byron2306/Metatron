@@ -13,13 +13,50 @@ import uuid
 import os
 import logging
 
+logger = logging.getLogger(__name__)
+
+
+def _is_production_security_mode() -> bool:
+    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
+    strict_flag = os.environ.get("SERAPH_STRICT_SECURITY", "false").strip().lower()
+    return environment in {"prod", "production"} or strict_flag in {"1", "true", "yes", "on"}
+
+
+def _resolve_jwt_secret() -> str:
+    configured_secret = os.environ.get("JWT_SECRET")
+    weak_defaults = {
+        "anti-ai-defense-secret",
+        "secret",
+        "changeme",
+        "password",
+        "default",
+    }
+
+    if not configured_secret:
+        generated_secret = f"ephemeral-{uuid.uuid4().hex}{uuid.uuid4().hex}"
+        logger.warning(
+            "JWT_SECRET is not set. Using an ephemeral in-memory secret for this process. "
+            "Set a strong JWT_SECRET (>=32 chars) for persistent authentication.")
+        return generated_secret
+
+    if configured_secret in weak_defaults or len(configured_secret) < 32:
+        message = (
+            "Weak JWT_SECRET detected. Use a strong random secret with length >= 32 "
+            "for secure token signing."
+        )
+        if _is_production_security_mode():
+            raise RuntimeError(f"{message} Refusing to start in production/strict mode.")
+        logger.warning(message)
+
+    return configured_secret
+
+
 # JWT Configuration
-JWT_SECRET = os.environ.get('JWT_SECRET', 'anti-ai-defense-secret')
+JWT_SECRET = _resolve_jwt_secret()
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
 security = HTTPBearer()
-logger = logging.getLogger(__name__)
 
 # MongoDB connection - will be set by main app
 db = None

@@ -5,7 +5,7 @@ API endpoints for the Metatron/Seraph unified agent management system.
 Provides cross-platform agent registration, heartbeat, deployment, and monitoring.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect, Request
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
@@ -54,9 +54,11 @@ class DeploymentRequestModel(BaseModel):
 
 
 class AgentCommandModel(BaseModel):
-    command_type: str  # scan, remediate, update, restart, shutdown
+    command_type: Optional[str] = None  # scan, remediate, update, restart, shutdown
     parameters: Dict[str, Any] = {}
     priority: str = "normal"  # low, normal, high, critical
+    command: Optional[str] = None
+    params: Optional[Dict[str, Any]] = None
 
 
 class AlertModel(BaseModel):
@@ -316,13 +318,22 @@ async def send_agent_command(
     agent = await db.unified_agents.find_one({"agent_id": agent_id})
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    resolved_command_type = command.command_type or command.command
+    if not resolved_command_type:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing command type. Provide 'command_type' (preferred) or legacy 'command'."
+        )
+
+    resolved_parameters = command.parameters or command.params or {}
     
     command_id = secrets.token_hex(8)
     command_data = {
         "command_id": command_id,
         "type": "command",
-        "command_type": command.command_type,
-        "parameters": command.parameters,
+        "command_type": resolved_command_type,
+        "parameters": resolved_parameters,
         "priority": command.priority,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "issued_by": current_user.get("email", "system")
@@ -338,7 +349,7 @@ async def send_agent_command(
         "status": "sent" if sent else "queued"
     })
     
-    logger.info(f"Command {command.command_type} sent to {agent_id}: {'immediate' if sent else 'queued'}")
+    logger.info(f"Command {resolved_command_type} sent to {agent_id}: {'immediate' if sent else 'queued'}")
     
     return {
         "command_id": command_id,
@@ -397,6 +408,9 @@ async def list_deployments(
         query["status"] = status
     
     deployments = await db.unified_deployments.find(query, {"_id": 0}).to_list(500)
+
+    for deployment in deployments:
+        await _sync_unified_deployment_status(deployment)
     
     return {
         "deployments": deployments,
@@ -417,6 +431,12 @@ async def get_deployment(
     )
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
+
+    await _sync_unified_deployment_status(deployment)
+    deployment = await db.unified_deployments.find_one(
+        {"deployment_id": deployment_id},
+        {"_id": 0}
+    )
     
     return deployment
 
@@ -684,11 +704,13 @@ async def download_agent_package():
 
 
 @router.get("/agent/install-script")
-async def get_install_script(server_url: Optional[str] = None):
+async def get_install_script(request: Request, server_url: Optional[str] = None):
     """Get the agent installation script"""
     
-    # Use the request's host as default server URL
-    base_url = server_url or "http://localhost:8001"
+    # Use explicit query param first; otherwise infer from request/proxy headers
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    proto = forwarded_proto or request.url.scheme or "http"
+    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
     
     script = f'''#!/bin/bash
 # Seraph AI Unified Agent Installer
@@ -771,10 +793,12 @@ echo ""
 
 
 @router.get("/agent/install-windows")
-async def get_windows_install_script(server_url: Optional[str] = None):
+async def get_windows_install_script(request: Request, server_url: Optional[str] = None):
     """Get the Windows agent installation script (PowerShell)"""
     
-    base_url = server_url or "http://localhost:8001"
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    proto = forwarded_proto or request.url.scheme or "http"
+    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
     
     script = f'''# Seraph AI Unified Agent - Windows Installer
 # Run as Administrator
@@ -868,6 +892,49 @@ async def _hunt_telemetry(telemetry: Dict):
         logger.error(f"Threat hunting error: {e}")
 
 
+async def _sync_unified_deployment_status(deployment: Dict[str, Any]):
+    """Sync unified deployment status from underlying deployment task state."""
+    task_id = deployment.get("deployment_task_id")
+    if not task_id:
+        return
+
+    task_doc = await db.deployment_tasks.find_one({"task_id": task_id}, {"_id": 0})
+    if not task_doc:
+        return
+
+    task_status = task_doc.get("status")
+    simulated = bool(task_doc.get("simulated", False))
+    error_message = task_doc.get("error_message")
+    current_status = deployment.get("status")
+
+    if task_status == "deployed" and current_status != "completed":
+        await db.unified_deployments.update_one(
+            {"deployment_id": deployment["deployment_id"]},
+            {"$set": {
+                "status": "completed",
+                "simulated": simulated,
+                "completed_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+    elif task_status == "failed" and current_status != "failed":
+        await db.unified_deployments.update_one(
+            {"deployment_id": deployment["deployment_id"]},
+            {"$set": {
+                "status": "failed",
+                "error": error_message or "Deployment failed",
+                "failed_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+    elif task_status in {"pending", "deploying"} and current_status not in {"running", "queued"}:
+        await db.unified_deployments.update_one(
+            {"deployment_id": deployment["deployment_id"]},
+            {"$set": {
+                "status": "running",
+                "last_checked_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+
+
 async def _process_deployment(deployment_id: str, deployment: DeploymentRequestModel):
     """Process a deployment in the background"""
     
@@ -876,25 +943,76 @@ async def _process_deployment(deployment_id: str, deployment: DeploymentRequestM
             {"deployment_id": deployment_id},
             {"$set": {"status": "processing", "started_at": datetime.now(timezone.utc).isoformat()}}
         )
-        
-        # Simulate deployment process
-        # In production, this would:
-        # 1. Connect to target device via SSH/WinRM/ADB
-        # 2. Transfer agent package
-        # 3. Install and configure agent
-        # 4. Verify installation
-        
-        await asyncio.sleep(5)  # Simulated delay
-        
+
+        from services.agent_deployment import get_deployment_service, start_deployment_service
+
+        service = get_deployment_service()
+        if service is None:
+            import os
+            api_url = os.environ.get('API_URL', 'http://localhost:8001')
+            service = await start_deployment_service(db, api_url)
+
+        task_id = await service.queue_deployment(
+            device_ip=deployment.target_ip,
+            device_hostname=None,
+            os_type=deployment.target_platform,
+            credentials=deployment.credentials
+        )
+
         await db.unified_deployments.update_one(
             {"deployment_id": deployment_id},
             {"$set": {
-                "status": "completed",
-                "completed_at": datetime.now(timezone.utc).isoformat()
+                "status": "queued",
+                "deployment_task_id": task_id,
+                "queued_at": datetime.now(timezone.utc).isoformat()
             }}
         )
-        
-        logger.info(f"Deployment {deployment_id} completed")
+
+        final_status = None
+        simulated = False
+        error_message = None
+
+        for _ in range(120):
+            task_doc = await db.deployment_tasks.find_one({"task_id": task_id}, {"_id": 0})
+            if task_doc:
+                task_status = task_doc.get("status")
+                simulated = bool(task_doc.get("simulated", False))
+                error_message = task_doc.get("error_message")
+                if task_status in {"deployed", "failed"}:
+                    final_status = task_status
+                    break
+            await asyncio.sleep(2)
+
+        if final_status == "deployed":
+            await db.unified_deployments.update_one(
+                {"deployment_id": deployment_id},
+                {"$set": {
+                    "status": "completed",
+                    "simulated": simulated,
+                    "completed_at": datetime.now(timezone.utc).isoformat()
+                }}
+            )
+            logger.info(f"Deployment {deployment_id} completed (task={task_id}, simulated={simulated})")
+        elif final_status == "failed":
+            await db.unified_deployments.update_one(
+                {"deployment_id": deployment_id},
+                {"$set": {
+                    "status": "failed",
+                    "error": error_message or "Deployment failed",
+                    "failed_at": datetime.now(timezone.utc).isoformat()
+                }}
+            )
+            logger.error(f"Deployment {deployment_id} failed (task={task_id}): {error_message}")
+        else:
+            await db.unified_deployments.update_one(
+                {"deployment_id": deployment_id},
+                {"$set": {
+                    "status": "running",
+                    "deployment_task_id": task_id,
+                    "last_checked_at": datetime.now(timezone.utc).isoformat()
+                }}
+            )
+            logger.info(f"Deployment {deployment_id} still running (task={task_id})")
         
     except Exception as e:
         await db.unified_deployments.update_one(

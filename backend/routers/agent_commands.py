@@ -32,6 +32,13 @@ class CommandApproval(BaseModel):
     notes: Optional[str] = None
 
 
+class AICommandRecommendationRequest(BaseModel):
+    objective: str
+    agent_id: Optional[str] = None
+    context: Dict[str, Any] = {}
+    max_recommendations: int = 3
+
+
 # Command types and their descriptions
 COMMAND_TYPES = {
     "block_ip": {
@@ -107,6 +114,81 @@ COMMAND_TYPES = {
 async def get_command_types(current_user: dict = Depends(get_current_user)):
     """Get available command types"""
     return {"command_types": COMMAND_TYPES}
+
+
+@router.post("/recommend")
+async def recommend_commands(
+    request: AICommandRecommendationRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Recommend commands using Ollama-assisted reasoning with safe fallbacks."""
+    from services.ai_reasoning import ai_reasoning
+
+    allowed_types = list(COMMAND_TYPES.keys())
+    objective = request.objective.strip()
+    max_items = max(1, min(request.max_recommendations, 5))
+
+    system_prompt = (
+        "You are a SOC response planner. Return strict JSON only with schema: "
+        "{\"recommended_commands\":[{\"command_type\":str,\"priority\":str,\"parameters\":object,\"rationale\":str}],\"notes\":str}. "
+        f"Allowed command_type values: {allowed_types}."
+    )
+    prompt = (
+        f"Objective: {objective}\n"
+        f"Agent ID: {request.agent_id or 'unspecified'}\n"
+        f"Context: {request.context}\n"
+        f"Max recommendations: {max_items}"
+    )
+
+    method = "fallback"
+    recommendations = []
+
+    try:
+        llm_result = await ai_reasoning.ollama_generate(prompt=prompt, system_prompt=system_prompt)
+        if "error" not in llm_result:
+            raw = (llm_result.get("response") or "").strip()
+            # strip code fences if present
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            parsed = json.loads(raw)
+            for item in parsed.get("recommended_commands", []):
+                command_type = item.get("command_type")
+                if command_type in COMMAND_TYPES:
+                    recommendations.append({
+                        "command_type": command_type,
+                        "priority": item.get("priority", "medium"),
+                        "parameters": item.get("parameters", {}),
+                        "rationale": item.get("rationale", "AI-recommended")
+                    })
+            if recommendations:
+                method = "ollama"
+    except Exception:
+        # fall through to rule-based fallback
+        pass
+
+    if not recommendations:
+        text = objective.lower()
+        if "ransom" in text or "encrypt" in text:
+            recommendations = [
+                {"command_type": "kill_process", "priority": "critical", "parameters": {}, "rationale": "Contain suspected ransomware execution."},
+                {"command_type": "collect_forensics", "priority": "high", "parameters": {"collection_type": "memory+logs"}, "rationale": "Preserve evidence before full remediation."}
+            ]
+        elif "ip" in text or "c2" in text or "beacon" in text:
+            recommendations = [
+                {"command_type": "block_ip", "priority": "high", "parameters": {}, "rationale": "Disrupt suspicious external communication."},
+                {"command_type": "full_scan", "priority": "medium", "parameters": {"scan_types": ["network", "process"]}, "rationale": "Validate scope of compromise."}
+            ]
+        else:
+            recommendations = [
+                {"command_type": "full_scan", "priority": "medium", "parameters": {"scan_types": ["process", "file"]}, "rationale": "Baseline containment and verification."}
+            ]
+        method = "rule_based"
+
+    return {
+        "objective": objective,
+        "agent_id": request.agent_id,
+        "recommended_commands": recommendations[:max_items],
+        "method": method
+    }
 
 
 @router.post("/create")

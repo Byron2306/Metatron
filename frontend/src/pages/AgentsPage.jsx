@@ -32,7 +32,10 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const AgentCard = ({ agent }) => {
   const isOnline = agent.status === 'online';
@@ -229,6 +232,7 @@ const AgentsPage = () => {
             <DropdownMenuTrigger asChild>
               <Button
                 className="bg-cyan-600 hover:bg-cyan-500"
+                onClick={() => toast.info('Select an agent package from the dropdown')}
                 data-testid="download-agent-btn"
               >
                 <Download className="w-4 h-4 mr-2" />

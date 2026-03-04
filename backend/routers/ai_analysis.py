@@ -9,7 +9,11 @@ import os
 import logging
 
 from openai import AsyncOpenAI
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+try:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+except ImportError:
+    LlmChat = None
+    UserMessage = None
 
 from .dependencies import (
     AIAnalysisRequest, AIAnalysisResponse, get_current_user, get_db, logger
@@ -43,7 +47,7 @@ async def call_openai(system_message: str, user_message: str) -> str:
         except Exception as e:
             logger.warning(f"OpenAI call failed, falling back to Emergent: {str(e)}")
     
-    if EMERGENT_LLM_KEY:
+    if EMERGENT_LLM_KEY and LlmChat and UserMessage:
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"analysis-{str(uuid.uuid4())[:8]}",
@@ -54,6 +58,9 @@ async def call_openai(system_message: str, user_message: str) -> str:
         response = await chat.send_message(msg)
         return response
     
+    if EMERGENT_LLM_KEY and (not LlmChat or not UserMessage):
+        raise Exception("EMERGENT_LLM_KEY is set but emergentintegrations is not installed")
+
     raise Exception("No AI API available")
 
 SYSTEM_PROMPTS = {

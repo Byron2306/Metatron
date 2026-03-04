@@ -1,7 +1,8 @@
 """Verify command results stored in MongoDB via the backend API"""
+import os
 import requests, json
 
-BACKEND = "http://localhost:8001"
+BACKEND = os.getenv("METATRON_BACKEND_URL", "http://localhost:8001").rstrip('/')
 resp = requests.post(f"{BACKEND}/api/auth/login", json={
     "email": "admin@seraph.io", "password": "TestAdmin123!"
 })

@@ -16,14 +16,15 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/register", response_model=TokenResponse)
 async def register(user_data: UserCreate):
     db = get_db()
-    existing = await db.users.find_one({"email": user_data.email})
+    normalized_email = user_data.email.strip().lower()
+    existing = await db.users.find_one({"email": normalized_email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
     user_id = str(uuid.uuid4())
     user_doc = {
         "id": user_id,
-        "email": user_data.email,
+        "email": normalized_email,
         "password": hash_password(user_data.password),
         "name": user_data.name,
         "role": "analyst",
@@ -31,12 +32,12 @@ async def register(user_data: UserCreate):
     }
     await db.users.insert_one(user_doc)
     
-    token = create_token(user_id, user_data.email)
+    token = create_token(user_id, normalized_email)
     return TokenResponse(
         access_token=token,
         user=UserResponse(
             id=user_id,
-            email=user_data.email,
+            email=normalized_email,
             name=user_data.name,
             role="analyst",
             created_at=user_doc["created_at"]
@@ -46,7 +47,8 @@ async def register(user_data: UserCreate):
 @router.post("/login", response_model=TokenResponse)
 async def login(credentials: UserLogin):
     db = get_db()
-    user = await db.users.find_one({"email": credentials.email}, {"_id": 0})
+    normalized_email = credentials.email.strip().lower()
+    user = await db.users.find_one({"email": normalized_email}, {"_id": 0})
     if not user or not verify_password(credentials.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     

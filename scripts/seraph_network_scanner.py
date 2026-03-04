@@ -443,7 +443,7 @@ class SeraphNetworkScanner:
 set -e
 echo "[*] Installing Seraph Defender Agent..."
 mkdir -p /opt/seraph-defender
-curl -sL "{self.api_url}/api/agent/download/linux" -o /opt/seraph-defender/seraph_defender.py
+curl -sL "{self.api_url}/api/swarm/agent/download/linux" -o /opt/seraph-defender/seraph_defender.py
 chmod +x /opt/seraph-defender/seraph_defender.py
 
 # Install dependencies
@@ -511,7 +511,7 @@ Write-Host "[*] Installing Seraph Defender Agent..."
 New-Item -ItemType Directory -Force -Path "C:\\SeraphDefender" | Out-Null
 
 # Download agent
-Invoke-WebRequest -Uri "{self.api_url}/api/agent/download/windows" -OutFile "C:\\SeraphDefender\\seraph_defender.py"
+Invoke-WebRequest -Uri "{self.api_url}/api/swarm/agent/download/windows" -OutFile "C:\\SeraphDefender\\seraph_defender.py"
 
 # Install Python if needed
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {{

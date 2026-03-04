@@ -62,12 +62,26 @@ QUARANTINE_DIR = INSTALL_DIR / "quarantine"
 for d in [INSTALL_DIR, DATA_DIR, LOGS_DIR, REPORTS_DIR, QUARANTINE_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
+
+def normalize_server_url(url: str) -> str:
+    """Normalize a base server URL to avoid duplicate /api path segments."""
+    if not url:
+        return ""
+
+    normalized = str(url).strip().rstrip("/")
+    if normalized.lower().endswith("/api"):
+        normalized = normalized[:-4]
+
+    return normalized.rstrip("/")
+
 # Load config if exists
 CONFIG_PATH = INSTALL_DIR / "config.json"
 CONFIG = {}
 if CONFIG_PATH.exists():
     with open(CONFIG_PATH) as f:
         CONFIG = json.load(f)
+    if CONFIG.get("api_url"):
+        CONFIG["api_url"] = normalize_server_url(CONFIG.get("api_url"))
 
 # =============================================================================
 # IMPORTS (with fallbacks)
@@ -3088,7 +3102,7 @@ class CloudSyncClient:
     """
     
     def __init__(self, api_url: str = None):
-        self.api_url = api_url or CONFIG.get("api_url", "")
+        self.api_url = normalize_server_url(api_url or CONFIG.get("api_url", ""))
         self.agent_id = CONFIG.get("agent_id", hashlib.md5(platform.node().encode()).hexdigest()[:16])
         self.agent_name = CONFIG.get("agent_name", platform.node())
         self.connected = False
@@ -3125,7 +3139,7 @@ class CloudSyncClient:
             }
             
             response = self.session.post(
-                f"{self.api_url}/agent/event",
+                f"{self.api_url}/api/agent/event",
                 json=payload,
                 timeout=30
             )
@@ -3429,7 +3443,7 @@ class CloudSyncClient:
         
         try:
             response = self.session.get(
-                f"{self.api_url}/agent/{self.agent_id}/commands",
+                f"{self.api_url}/api/agent/{self.agent_id}/commands",
                 timeout=10
             )
             

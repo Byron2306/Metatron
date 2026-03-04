@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,30 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-QUARANTINE_BASE_DIR = os.environ.get("QUARANTINE_DIR", "/var/lib/anti-ai-defense/quarantine")
-QUARANTINE_INDEX_FILE = os.path.join(QUARANTINE_BASE_DIR, "quarantine_index.json")
+_quarantine_env = os.environ.get("QUARANTINE_DIR")
+if _quarantine_env:
+    _env_path = Path(_quarantine_env)
+    try:
+        _env_path.mkdir(parents=True, exist_ok=True)
+        _probe = _env_path / ".quarantine-write-probe"
+        with open(_probe, "w", encoding="utf-8") as handle:
+            handle.write("ok")
+        try:
+            _probe.unlink()
+        except OSError:
+            pass
+        QUARANTINE_BASE_PATH = _env_path
+    except OSError:
+        logger.warning(
+            "Configured QUARANTINE_DIR is not writable (%s). Falling back to managed runtime path.",
+            _quarantine_env,
+        )
+        QUARANTINE_BASE_PATH = ensure_data_dir("quarantine")
+else:
+    QUARANTINE_BASE_PATH = ensure_data_dir("quarantine")
+
+QUARANTINE_BASE_DIR = str(QUARANTINE_BASE_PATH)
+QUARANTINE_INDEX_FILE = str(QUARANTINE_BASE_PATH / "quarantine_index.json")
 MAX_QUARANTINE_SIZE_MB = int(os.environ.get("MAX_QUARANTINE_SIZE_MB", "1000"))  # 1GB default
 
 # =============================================================================

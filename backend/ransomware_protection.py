@@ -23,6 +23,7 @@ from pathlib import Path
 from enum import Enum
 import threading
 import time
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +31,10 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-CANARY_DIR = Path("/var/lib/anti-ai-defense/canaries")
-BACKUP_DIR = Path("/var/lib/anti-ai-defense/ransomware_backups")
-PROTECTED_DIRS_FILE = Path("/var/lib/anti-ai-defense/protected_dirs.json")
-
-CANARY_DIR.mkdir(parents=True, exist_ok=True)
-BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+DATA_ROOT_DIR = ensure_data_dir()
+CANARY_DIR = ensure_data_dir("canaries")
+BACKUP_DIR = ensure_data_dir("ransomware_backups")
+PROTECTED_DIRS_FILE = DATA_ROOT_DIR / "protected_dirs.json"
 
 class RansomwareConfig:
     def __init__(self):

@@ -526,21 +526,18 @@ def process_deployment(deployment_id: str):
         deployment["updated_at"] = datetime.now().isoformat()
         save_data()
 
-        # Simulate deployment process
-        time.sleep(5)  # Simulate deployment time
+        time.sleep(1)
 
-        # In a real implementation, this would:
-        # 1. Connect to target device
-        # 2. Transfer agent package
-        # 3. Install and configure agent
-        # 4. Verify installation
-
-        deployment["status"] = "completed"
-        deployment["completed_at"] = datetime.now().isoformat()
+        deployment["status"] = "manual_required"
+        deployment["manual_action"] = {
+            "message": "This API server does not execute remote installs. Use backend /api/unified deployment endpoints with AgentDeploymentService for actual deployment.",
+            "target_platform": deployment.get("target_platform"),
+            "target_ip": deployment.get("target_ip")
+        }
         deployment["updated_at"] = datetime.now().isoformat()
         save_data()
 
-        logger.info(f"Deployment {deployment_id} completed successfully")
+        logger.info(f"Deployment {deployment_id} marked manual_required (no simulated completion)")
 
     except Exception as e:
         logger.error(f"Deployment {deployment_id} failed: {e}")

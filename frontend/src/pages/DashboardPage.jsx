@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { motion } from 'framer-motion';
 import { 
@@ -31,7 +32,10 @@ import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const StatCard = ({ icon: Icon, label, value, subValue, color, glow }) => (
   <motion.div
@@ -108,6 +112,7 @@ const AlertItem = ({ alert }) => {
 };
 
 const DashboardPage = () => {
+  const navigate = useNavigate();
   const { getAuthHeaders } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -116,7 +121,7 @@ const DashboardPage = () => {
     const fetchData = async () => {
       try {
         // Seed data first
-        await axios.post(`${API}/seed`, {}, { headers: getAuthHeaders() }).catch(() => {});
+        await axios.post(`${API}/dashboard/seed`, {}, { headers: getAuthHeaders() }).catch(() => {});
         
         // Fetch dashboard stats
         const response = await axios.get(`${API}/dashboard/stats`, {
@@ -361,7 +366,12 @@ const DashboardPage = () => {
               <h3 className="font-mono font-semibold text-white">Recent Threats</h3>
               <p className="text-xs text-slate-400">Latest detected threats</p>
             </div>
-            <Button variant="ghost" size="sm" className="text-slate-400 hover:text-blue-400">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-slate-400 hover:text-blue-400"
+              onClick={() => navigate('/threats')}
+            >
               View All <ChevronRight className="w-4 h-4 ml-1" />
             </Button>
           </div>
@@ -397,7 +407,12 @@ const DashboardPage = () => {
                 </Badge>
               )}
             </div>
-            <Button variant="ghost" size="sm" className="text-slate-400 hover:text-blue-400">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-slate-400 hover:text-blue-400"
+              onClick={() => navigate('/alerts')}
+            >
               View All <ChevronRight className="w-4 h-4 ml-1" />
             </Button>
           </div>

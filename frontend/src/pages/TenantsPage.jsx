@@ -23,7 +23,10 @@ import {
   Trash2
 } from "lucide-react";
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? ''
+  : envBackendUrl.replace(/\/+$/, '');
 
 export default function TenantsPage() {
   const { token } = useAuth();

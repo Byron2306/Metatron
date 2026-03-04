@@ -668,7 +668,7 @@ class UnifiedAgent {
     var wirelessScanning by mutableStateOf(true)
     var bluetoothScanning by mutableStateOf(true)
 
-    var serverUrl by mutableStateOf("http://localhost:8001")
+    var serverUrl by mutableStateOf(resolveDefaultServerUrl())
     var agentName by mutableStateOf("")
     var updateInterval by mutableStateOf(30)
     var heartbeatInterval by mutableStateOf(60)
@@ -678,6 +678,15 @@ class UnifiedAgent {
     var logs by mutableStateOf("")
 
     private var monitoringJob: kotlinx.coroutines.Job? = null
+
+    private fun resolveDefaultServerUrl(): String {
+        val configured = System.getenv("METATRON_SERVER_URL") ?: "http://localhost:8001"
+        var normalized = configured.trim().trimEnd('/')
+        if (normalized.endsWith("/api", ignoreCase = true)) {
+            normalized = normalized.dropLast(4).trimEnd('/')
+        }
+        return normalized
+    }
 
     init {
         setupAgent()

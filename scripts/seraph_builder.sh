@@ -605,7 +605,7 @@ EOF
     cat > "$SERAPH_HOME/install-agent.sh" << 'AGENT_INSTALLER'
 #!/bin/bash
 # Seraph AI Unified Agent Installer
-# Usage: curl -sSL http://YOUR_SERVER:8001/api/agent/install | sudo bash
+# Usage: curl -sSL http://YOUR_SERVER:8001/api/unified/agent/install-script | sudo bash
 
 SERAPH_SERVER="${1:-http://localhost:8001}"
 INSTALL_DIR="/opt/seraph-agent"
@@ -626,7 +626,7 @@ source venv/bin/activate
 pip install psutil requests netifaces scapy watchdog python-nmap aiohttp pyyaml
 
 # Download agent files from server
-curl -sSL "$SERAPH_SERVER/api/agent/download" -o agent.tar.gz
+curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
 tar -xzf agent.tar.gz
 
 # Create systemd service

@@ -18,7 +18,8 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API_URL = (!envBackendUrl || envBackendUrl.includes('localhost')) ? '/api' : `${envBackendUrl}/api`;
 
 // Simple chart components for live preview
 const MetricCard = ({ title, value }) => (
@@ -129,10 +130,10 @@ const KibanaDashboardsPage = () => {
   const fetchData = async () => {
     try {
       const [dashboardsRes, statusRes] = await Promise.all([
-        fetch(`${API_URL}/api/kibana/dashboards`, {
+        fetch(`${API_URL}/kibana/dashboards`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`${API_URL}/api/kibana/status`, {
+        fetch(`${API_URL}/kibana/status`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ]);
@@ -153,7 +154,7 @@ const KibanaDashboardsPage = () => {
 
   const fetchDashboardDetails = async (dashboardId) => {
     try {
-      const response = await fetch(`${API_URL}/api/kibana/dashboards/${dashboardId}`, {
+      const response = await fetch(`${API_URL}/kibana/dashboards/${dashboardId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -168,7 +169,7 @@ const KibanaDashboardsPage = () => {
   const fetchLiveData = async (dashboardId) => {
     setLoadingLive(true);
     try {
-      const response = await fetch(`${API_URL}/api/kibana/live-data/${dashboardId}`, {
+      const response = await fetch(`${API_URL}/kibana/live-data/${dashboardId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -185,7 +186,7 @@ const KibanaDashboardsPage = () => {
 
   const exportDashboard = async (dashboardId) => {
     try {
-      const response = await fetch(`${API_URL}/api/kibana/dashboards/${dashboardId}/export`, {
+      const response = await fetch(`${API_URL}/kibana/dashboards/${dashboardId}/export`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -204,7 +205,7 @@ const KibanaDashboardsPage = () => {
 
   const exportAllDashboards = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/kibana/export-all`, {
+      const response = await fetch(`${API_URL}/kibana/export-all`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -223,7 +224,7 @@ const KibanaDashboardsPage = () => {
 
   const setupIndexPattern = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/kibana/setup-index`, {
+      const response = await fetch(`${API_URL}/kibana/setup-index`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });

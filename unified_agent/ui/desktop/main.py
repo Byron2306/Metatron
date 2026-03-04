@@ -39,6 +39,23 @@ except ImportError:
 logger = logging.getLogger("SeraphAgent")
 logging.basicConfig(level=logging.INFO)
 
+
+def normalize_server_url(url: str, fallback: str = "http://localhost:8001") -> str:
+    """Normalize server URL values to avoid trailing slash and optional /api suffix drift."""
+    candidate = (url or fallback).strip()
+    normalized = candidate.rstrip("/")
+    if normalized.lower().endswith("/api"):
+        normalized = normalized[:-4]
+    return normalized.rstrip("/")
+
+
+DEFAULT_CONTROL_PLANE_URL = normalize_server_url(
+    os.getenv("METATRON_SERVER_URL", os.getenv("METATRON_BACKEND_URL", "http://localhost:8001"))
+)
+DEFAULT_BACKEND_URL = normalize_server_url(
+    os.getenv("METATRON_BACKEND_URL", DEFAULT_CONTROL_PLANE_URL)
+)
+
 # =============================================================================
 # COLORS & STYLING (Seraph AI Theme)
 # =============================================================================
@@ -2285,13 +2302,14 @@ AUTORUN_KEYS = [
 class UnifiedAgentCore:
     """Agent core with full server registration, heartbeats, real scanning, and alert reporting.
 
-    Communicates with TWO servers:
-      - Unified Agent Server (port 8002): for registration/heartbeats
-      - Main Backend (port 8001):         for agent events that feed the admin dashboard
+        Communicates with control-plane and backend APIs:
+            - Control-plane URL: registration/heartbeats/commands (default: localhost:8001)
+            - Backend URL:       event publishing and admin APIs (default: localhost:8001)
+        Values are environment-overridable via METATRON_SERVER_URL and METATRON_BACKEND_URL.
     """
 
     CONFIG_FILE = Path.home() / ".seraph_agent_config.json"
-    BACKEND_URL = "http://localhost:8001"   # main admin backend
+    BACKEND_URL = DEFAULT_BACKEND_URL
     BACKEND_CREDS = {"email": "admin@seraph.io", "password": "TestAdmin123!"}
     _backend_token: Optional[str] = None
 
@@ -3929,6 +3947,11 @@ class UnifiedAgentCore:
                 if "backend_url" in data:
                     self.BACKEND_URL = data["backend_url"]
                 logger.info(f"Config loaded from {self.CONFIG_FILE}")
+            self.config.server_url = normalize_server_url(
+                self.config.server_url,
+                DEFAULT_CONTROL_PLANE_URL,
+            )
+            self.BACKEND_URL = normalize_server_url(self.BACKEND_URL, DEFAULT_BACKEND_URL)
         except Exception as e:
             logger.warning(f"Failed to load config: {e}")
 
@@ -5148,7 +5171,7 @@ class UnifiedAgentCore:
 # Configuration class
 @dataclass
 class AgentConfig:
-    server_url: str = "http://localhost:8002"
+    server_url: str = DEFAULT_CONTROL_PLANE_URL
     agent_id: str = ""
     agent_name: str = ""
     platform: str = platform.system().lower()

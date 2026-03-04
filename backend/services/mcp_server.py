@@ -10,6 +10,10 @@ import json
 import hashlib
 import logging
 import asyncio
+import socket
+import ipaddress
+import time
+import signal
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Callable
 from dataclasses import dataclass, asdict, field
@@ -18,6 +22,47 @@ import uuid
 from collections import deque
 
 logger = logging.getLogger(__name__)
+
+
+def _is_production_security_mode() -> bool:
+    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
+    strict_flag = os.environ.get("SERAPH_STRICT_SECURITY", "false").strip().lower()
+    mcp_strict_flag = os.environ.get("MCP_STRICT_SECURITY", "false").strip().lower()
+    return (
+        environment in {"prod", "production"}
+        or strict_flag in {"1", "true", "yes", "on"}
+        or mcp_strict_flag in {"1", "true", "yes", "on"}
+    )
+
+
+def _resolve_mcp_signing_key() -> str:
+    configured_key = os.environ.get("MCP_SIGNING_KEY")
+    weak_defaults = {
+        "mcp-default-key",
+        "secret",
+        "changeme",
+        "password",
+        "default",
+    }
+
+    if not configured_key:
+        generated_key = f"ephemeral-mcp-{uuid.uuid4().hex}{uuid.uuid4().hex}"
+        logger.warning(
+            "MCP_SIGNING_KEY is not set. Using an ephemeral in-memory signing key for this process. "
+            "Set a strong MCP_SIGNING_KEY (>=32 chars) for stable message signatures."
+        )
+        return generated_key
+
+    if configured_key in weak_defaults or len(configured_key) < 32:
+        message = (
+            "Weak MCP_SIGNING_KEY detected. Use a strong random signing key with length >= 32 "
+            "for secure MCP message signatures."
+        )
+        if _is_production_security_mode():
+            raise RuntimeError(f"{message} Refusing to start in production/strict mode.")
+        logger.warning(message)
+
+    return configured_key
 
 
 class MCPMessageType(Enum):
@@ -151,7 +196,7 @@ class MCPServer:
         self._initialized = True
         
         # Signing key
-        self.signing_key = os.environ.get('MCP_SIGNING_KEY', 'mcp-default-key')
+        self.signing_key = _resolve_mcp_signing_key()
         
         # Tool registry
         self.tools: Dict[str, MCPToolSchema] = {}
@@ -169,6 +214,7 @@ class MCPServer:
         
         # Register built-in tools
         self._register_builtin_tools()
+        self._register_builtin_handlers()
         
         logger.info("MCP Server initialized")
     
@@ -360,6 +406,273 @@ class MCPServer:
             audit_level="basic",
             redact_fields=["config.credentials"]
         ))
+
+    def _register_builtin_handlers(self):
+        """Register default handlers for built-in MCP tools."""
+        self.register_tool_handler("mcp.scanner.network", self._handler_network_scan)
+        self.register_tool_handler("mcp.edr.process_kill", self._handler_process_kill)
+        self.register_tool_handler("mcp.firewall.block_ip", self._handler_firewall_block_ip)
+        self.register_tool_handler("mcp.soar.run_playbook", self._handler_soar_run_playbook)
+        self.register_tool_handler("mcp.forensics.memory_dump", self._handler_forensics_memory_dump)
+        self.register_tool_handler("mcp.deception.deploy_honeypot", self._handler_deploy_honeypot)
+
+    def register_tool_handler(self, tool_id: str, handler: Callable):
+        """Register or replace a handler for an existing MCP tool."""
+        if tool_id not in self.tools:
+            raise ValueError(f"Cannot register handler for unknown tool: {tool_id}")
+        self.tool_handlers[tool_id] = handler
+        logger.info(f"MCP: Registered handler for {tool_id}")
+
+    async def _handler_network_scan(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Basic network scan handler using socket reachability checks."""
+        target = str(params.get("target", "127.0.0.1")).strip()
+        scan_type = str(params.get("scan_type", "quick")).lower()
+
+        raw_ports = params.get("ports")
+        if isinstance(raw_ports, list) and raw_ports:
+            ports = [int(p) for p in raw_ports if str(p).isdigit() and 1 <= int(p) <= 65535][:64]
+        elif scan_type == "full":
+            ports = [21, 22, 23, 53, 80, 110, 139, 143, 443, 445, 3389, 5900, 8080]
+        else:
+            ports = [22, 80, 443]
+
+        hosts_to_scan: List[str] = []
+        try:
+            if "/" in target:
+                network = ipaddress.ip_network(target, strict=False)
+                hosts_to_scan = [str(host) for host in network.hosts()][:32]
+            else:
+                hosts_to_scan = [str(ipaddress.ip_address(target))]
+        except ValueError:
+            try:
+                hosts_to_scan = [socket.gethostbyname(target)]
+            except socket.gaierror as exc:
+                raise RuntimeError(f"Invalid scan target '{target}': {exc}") from exc
+
+        started = time.time()
+        hosts = []
+        open_ports: Dict[str, List[int]] = {}
+
+        for host in hosts_to_scan:
+            host_open = []
+            for port in ports:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.35)
+                try:
+                    if sock.connect_ex((host, port)) == 0:
+                        host_open.append(port)
+                except OSError:
+                    pass
+                finally:
+                    sock.close()
+
+            open_ports[host] = host_open
+            hosts.append({
+                "ip": host,
+                "status": "reachable" if host_open else "scanned",
+                "open_ports": host_open,
+            })
+
+        return {
+            "target": target,
+            "scan_type": scan_type,
+            "hosts": hosts,
+            "open_ports": open_ports,
+            "scan_time": round(time.time() - started, 3),
+        }
+
+    def _handler_process_kill(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Process termination handler with safe dry-run default."""
+        pid = int(params.get("pid"))
+        execute = bool(params.get("execute", False))
+        force = bool(params.get("force", False))
+
+        if pid <= 1 or pid in {os.getpid(), os.getppid()}:
+            raise RuntimeError(f"Refusing to terminate protected PID: {pid}")
+
+        process_name = None
+        proc_name_path = f"/proc/{pid}/comm"
+        if os.path.exists(proc_name_path):
+            try:
+                with open(proc_name_path, "r", encoding="utf-8") as handle:
+                    process_name = handle.read().strip()
+            except OSError:
+                process_name = None
+
+        if not execute:
+            return {
+                "success": False,
+                "dry_run": True,
+                "pid": pid,
+                "process_name": process_name,
+                "message": "Set execute=true to perform process termination.",
+            }
+
+        kill_signal = signal.SIGKILL if force else signal.SIGTERM
+        os.kill(pid, kill_signal)
+
+        return {
+            "success": True,
+            "pid": pid,
+            "process_name": process_name,
+            "signal": int(kill_signal),
+            "terminated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def _handler_firewall_block_ip(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Firewall block handler with dry-run safety by default."""
+        ip = str(params.get("ip", "")).strip()
+        if not ip:
+            raise RuntimeError("Missing required parameter: ip")
+        ipaddress.ip_address(ip)
+
+        execute = bool(params.get("execute", False))
+        duration_hours = int(params.get("duration_hours", 24))
+        direction = str(params.get("direction", "inbound"))
+        reason = str(params.get("reason", f"MCP firewall block ({direction})"))
+
+        if not execute:
+            return {
+                "success": False,
+                "dry_run": True,
+                "ip": ip,
+                "direction": direction,
+                "duration_hours": duration_hours,
+                "message": "Set execute=true to apply firewall rule.",
+            }
+
+        from threat_response import firewall, ResponseStatus
+
+        result = await firewall.block_ip(ip=ip, reason=reason, duration_hours=duration_hours)
+        if result.status != ResponseStatus.SUCCESS:
+            raise RuntimeError(result.message)
+
+        return {
+            "success": True,
+            "ip": ip,
+            "direction": direction,
+            "blocked_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": firewall.blocked_ips.get(ip).isoformat() if firewall.blocked_ips.get(ip) else None,
+            "details": result.details,
+        }
+
+    async def _handler_soar_run_playbook(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """SOAR playbook execution handler."""
+        playbook_id = str(params.get("playbook_id", "")).strip()
+        if not playbook_id:
+            raise RuntimeError("Missing required parameter: playbook_id")
+
+        incident_id = str(params.get("incident_id", "manual-incident"))
+        event_params = params.get("parameters", {}) or {}
+        event = {
+            "incident_id": incident_id,
+            "trigger_type": "manual",
+            **event_params,
+        }
+
+        from soar_engine import soar_engine
+
+        execution = await soar_engine.execute_playbook(playbook_id, event)
+        step_results = execution.step_results or []
+        completed_steps = len([s for s in step_results if s.get("status") == "completed"])
+
+        return {
+            "execution_id": execution.id,
+            "status": execution.status.value,
+            "steps_completed": completed_steps,
+            "results": step_results,
+            "playbook_id": playbook_id,
+            "incident_id": incident_id,
+        }
+
+    def _handler_forensics_memory_dump(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Memory dump handler backed by governed tool gateway with dry-run default."""
+        pid = int(params.get("pid"))
+        execute = bool(params.get("execute", False))
+
+        if not execute:
+            return {
+                "dry_run": True,
+                "pid": pid,
+                "message": "Set execute=true to run memory dump collection.",
+            }
+
+        from runtime_paths import ensure_data_dir
+        from services.tool_gateway import tool_gateway
+
+        output_dir = str(params.get("output_path") or ensure_data_dir("forensics", "memory_dumps"))
+        token_id = f"mcp-{uuid.uuid4().hex[:10]}"
+        execution = tool_gateway.execute(
+            tool_id="memory_dump",
+            parameters={"pid": pid, "output_dir": output_dir},
+            principal="mcp_server",
+            token_id=token_id,
+            trust_state="trusted",
+        )
+
+        if execution.status != "success":
+            raise RuntimeError(execution.stderr or f"Memory dump failed with status={execution.status}")
+
+        return {
+            "dump_path": output_dir,
+            "size_bytes": None,
+            "hash": None,
+            "execution_id": execution.execution_id,
+            "stdout": execution.stdout,
+        }
+
+    def _handler_deploy_honeypot(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Deception deployment handler (network canary or honey token)."""
+        honeypot_type = str(params.get("honeypot_type", "file")).strip().lower()
+        target_zone = str(params.get("target_zone", "default")).strip() or "default"
+        config = params.get("config", {}) or {}
+        honeypot_id = f"hp_{uuid.uuid4().hex[:12]}"
+
+        if honeypot_type == "network":
+            from services.vns import vns
+
+            ip = config.get("ip")
+            domain = config.get("domain")
+            port = config.get("port")
+
+            if ip:
+                vns.add_canary_ip(str(ip))
+            if domain:
+                vns.add_canary_domain(str(domain))
+            if port is not None:
+                vns.add_canary_port(int(port))
+
+            if not any([ip, domain, port is not None]):
+                raise RuntimeError("Network deception requires at least one of: config.ip, config.domain, config.port")
+
+            trigger_endpoint = f"vns://canary/{target_zone}/{honeypot_id}"
+        else:
+            from honey_tokens import honey_token_manager
+
+            token_type_map = {
+                "credential": "password",
+                "service": "api_key",
+                "file": "api_key",
+            }
+            token_type = token_type_map.get(honeypot_type, "api_key")
+
+            created = honey_token_manager.create_token(
+                name=f"MCP Honeypot {honeypot_id}",
+                token_type=token_type,
+                description=f"MCP deception token for zone {target_zone}",
+                location=config.get("location", f"deception/{target_zone}"),
+                created_by="mcp_server",
+            )
+
+            trigger_endpoint = f"honeytoken://{created['id']}"
+
+        return {
+            "honeypot_id": honeypot_id,
+            "deployed_at": datetime.now(timezone.utc).isoformat(),
+            "trigger_endpoint": trigger_endpoint,
+            "honeypot_type": honeypot_type,
+            "target_zone": target_zone,
+        }
     
     def register_tool(self, schema: MCPToolSchema, handler: Callable = None):
         """Register a tool with the MCP server"""
@@ -460,9 +773,16 @@ class MCPServer:
                 execution.status = "failed"
                 execution.error = str(e)
         else:
-            # Simulated execution for unregistered handlers
-            execution.status = "success"
-            execution.output = {"simulated": True, "tool_id": tool_id}
+            allow_simulation = str(os.environ.get("MCP_ALLOW_SIMULATED_EXECUTION", "false")).lower() in {"1", "true", "yes", "on"}
+            if allow_simulation:
+                execution.status = "success"
+                execution.output = {"simulated": True, "tool_id": tool_id}
+            else:
+                execution.status = "failed"
+                execution.error = (
+                    f"No handler registered for tool '{tool_id}'. "
+                    "Set MCP_ALLOW_SIMULATED_EXECUTION=true only for demo/testing mode."
+                )
         
         execution.completed_at = datetime.now(timezone.utc).isoformat()
         

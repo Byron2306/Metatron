@@ -17,11 +17,12 @@ import logging
 import asyncio
 import random
 from pathlib import Path
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
 # Sandbox directories
-SANDBOX_DIR = Path("/var/lib/anti-ai-defense/sandbox")
+SANDBOX_DIR = ensure_data_dir("sandbox")
 SAMPLES_DIR = SANDBOX_DIR / "samples"
 REPORTS_DIR = SANDBOX_DIR / "reports"
 VMS_DIR = SANDBOX_DIR / "vms"

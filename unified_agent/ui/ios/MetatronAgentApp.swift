@@ -519,7 +519,7 @@ class UnifiedAgent: ObservableObject {
     @Published var wirelessScanning = true
     @Published var bluetoothScanning = true
 
-    @Published var serverUrl = "http://localhost:8001"
+    @Published var serverUrl = UnifiedAgent.resolveDefaultServerUrl()
     @Published var agentName = ""
     @Published var updateInterval = 30
     @Published var heartbeatInterval = 60
@@ -529,6 +529,24 @@ class UnifiedAgent: ObservableObject {
     @Published var logs = ""
 
     private var monitoringTimer: Timer?
+
+    private static func resolveDefaultServerUrl() -> String {
+        let configured = ProcessInfo.processInfo.environment["METATRON_SERVER_URL"] ?? "http://localhost:8001"
+        var normalized = configured.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        while normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+
+        if normalized.lowercased().hasSuffix("/api") {
+            normalized.removeLast(4)
+            while normalized.hasSuffix("/") {
+                normalized.removeLast()
+            }
+        }
+
+        return normalized
+    }
 
     init() {
         setupAgent()

@@ -12,13 +12,21 @@ LABEL version="5.0.0"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
+    ca-certificates \
     gnupg \
     build-essential \
+    cmake \
+    ninja-build \
+    pkg-config \
     libffi-dev \
     libssl-dev \
     git \
     # WireGuard tools
     wireguard-tools \
+    # Detection/forensics tooling
+    suricata \
+    yara \
+    jq \
     # Network tools
     nmap \
     tcpdump \
@@ -27,12 +35,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Trivy binary
+RUN set -eux; \
+        TRIVY_VERSION="0.57.1"; \
+        ARCH="$(dpkg --print-architecture)"; \
+        case "$ARCH" in \
+            amd64) TRIVY_ARCH="64bit" ;; \
+            arm64) TRIVY_ARCH="ARM64" ;; \
+            *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+        esac; \
+        wget -qO /tmp/trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${TRIVY_ARCH}.tar.gz"; \
+        tar -xzf /tmp/trivy.tar.gz -C /tmp trivy; \
+        mv /tmp/trivy /usr/local/bin/trivy; \
+        chmod +x /usr/local/bin/trivy; \
+        rm -f /tmp/trivy.tar.gz
+
 # Create app directory
 WORKDIR /app
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install liboqs and Python bindings for production quantum mode
+RUN set -eux; \
+    git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs; \
+    cmake -S /tmp/liboqs -B /tmp/liboqs/build -GNinja -DBUILD_SHARED_LIBS=ON -DOQS_BUILD_ONLY_LIB=ON; \
+    cmake --build /tmp/liboqs/build; \
+    cmake --install /tmp/liboqs/build; \
+    ldconfig; \
+    pip install --no-cache-dir liboqs-python; \
+    rm -rf /tmp/liboqs
 
 # Copy application code
 COPY . .
@@ -43,9 +76,6 @@ RUN mkdir -p /var/lib/seraph-ai/vpn \
     && mkdir -p /app/playbooks \
     && mkdir -p /app/services \
     && chmod -R 755 /app
-
-# Copy playbooks if they exist
-COPY playbooks/ /app/playbooks/ 2>/dev/null || true
 
 # Expose port
 EXPOSE 8001

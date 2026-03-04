@@ -20,7 +20,9 @@ import {
   Lock
 } from "lucide-react";
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const rawBackendUrl = process.env.REACT_APP_BACKEND_URL?.trim();
+const API_URL = rawBackendUrl || "";
+const API_ROOT = API_URL ? `${API_URL}/api` : '/api';
 
 export default function SetupGuidePage() {
   const { token } = useAuth();
@@ -145,8 +147,8 @@ CMD ["python", "server.py"]`;
   const verifyInstallation = async (service) => {
     try {
       const endpoint = service === "cuckoo" 
-        ? `${API_URL}/api/advanced/sandbox/status`
-        : `${API_URL}/api/advanced/quantum/status`;
+        ? `${API_ROOT}/advanced/sandbox/status`
+        : `${API_ROOT}/advanced/quantum/status`;
       
       const response = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}` }

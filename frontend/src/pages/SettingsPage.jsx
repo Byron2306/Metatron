@@ -7,7 +7,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const API = process.env.REACT_APP_BACKEND_URL;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? ''
+  : envBackendUrl.replace(/\/+$/, '');
 
 const SettingsPage = () => {
   const [loading, setLoading] = useState(true);
@@ -54,7 +57,7 @@ const SettingsPage = () => {
   const checkElasticStatus = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API}/api/elasticsearch/status`, {
+      const response = await fetch(`${API}/api/settings/elasticsearch/status`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.ok) {

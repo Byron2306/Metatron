@@ -17,7 +17,8 @@ import { Input } from '../components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const rawBackendUrl = process.env.REACT_APP_BACKEND_URL?.trim();
+const API = rawBackendUrl ? `${rawBackendUrl}/api` : '/api';
 
 const SwarmDashboard = () => {
   const { token } = useAuth();

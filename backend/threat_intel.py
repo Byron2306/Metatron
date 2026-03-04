@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Set, Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from enum import Enum
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,7 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-CACHE_DIR = Path("/var/lib/anti-ai-defense/threat_intel")
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = ensure_data_dir("threat_intel")
 
 class ThreatIntelConfig:
     def __init__(self):

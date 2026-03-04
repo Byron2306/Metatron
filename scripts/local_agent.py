@@ -86,9 +86,20 @@ except ImportError:
 # CONFIGURATION - EDIT THESE VALUES
 # =============================================================================
 
+def normalize_server_url(url: str) -> str:
+    """Normalize a base server URL to avoid duplicate /api path segments."""
+    if not url:
+        return ""
+
+    normalized = str(url).strip().rstrip("/")
+    if normalized.lower().endswith("/api"):
+        normalized = normalized[:-4]
+
+    return normalized.rstrip("/")
+
 CONFIG = {
     # Your Anti-AI Defense System API endpoint
-    "API_URL": "https://agentic-armor.preview.emergentagent.com/api",
+    "API_URL": os.getenv("METATRON_API_URL", "https://agentic-armor.preview.emergentagent.com"),
     
     # Agent authentication (get this from your dashboard)
     "AGENT_KEY": "local-agent-key-change-me",
@@ -133,6 +144,8 @@ CONFIG = {
     "ENABLE_PROCESS_MONITOR": True,
 }
 
+CONFIG["API_URL"] = normalize_server_url(CONFIG.get("API_URL", ""))
+
 
 # =============================================================================
 # API CLIENT
@@ -140,7 +153,7 @@ CONFIG = {
 
 class APIClient:
     def __init__(self, config):
-        self.api_url = config["API_URL"]
+        self.api_url = normalize_server_url(config["API_URL"])
         self.agent_key = config["AGENT_KEY"]
         self.agent_id = config["AGENT_ID"]
         self.agent_name = config["AGENT_NAME"]
@@ -162,7 +175,7 @@ class APIClient:
         }
         try:
             response = self.session.post(
-                f"{self.api_url}/agent/event",
+                f"{self.api_url}/api/agent/event",
                 json=payload,
                 timeout=10
             )

@@ -38,7 +38,10 @@ import {
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const honeypotTypeIcons = {
   ssh: Server,
@@ -273,7 +276,11 @@ const HoneypotsPage = () => {
           </Button>
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogTrigger asChild>
-              <Button className="bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_20px_rgba(6,182,212,0.3)]" data-testid="deploy-honeypot-btn">
+              <Button
+                className="bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_20px_rgba(6,182,212,0.3)]"
+                onClick={() => setShowAddDialog(true)}
+                data-testid="deploy-honeypot-btn"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Deploy Honeypot
               </Button>

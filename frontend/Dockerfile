@@ -8,16 +8,16 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files
-COPY package.json yarn.lock ./
+COPY package.json ./
 
 # Install dependencies
-RUN yarn install --frozen-lockfile
+RUN corepack enable && yarn install --no-lockfile
 
 # Copy source code
 COPY . .
 
 # Build argument for backend URL
-ARG REACT_APP_BACKEND_URL=http://localhost:8001
+ARG REACT_APP_BACKEND_URL=
 ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 
 # Build the application
@@ -41,7 +41,7 @@ EXPOSE 80
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget -q --spider http://localhost/ || exit 1
+    CMD wget -q --spider http://127.0.0.1/ || exit 1
 
 # Run nginx
 CMD ["nginx", "-g", "daemon off;"]

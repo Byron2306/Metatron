@@ -20,12 +20,12 @@ from enum import Enum
 from pathlib import Path
 from collections import defaultdict
 import random
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
 # Model storage directory
-MODEL_DIR = Path("/var/lib/anti-ai-defense/models")
-MODEL_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_DIR = ensure_data_dir("models")
 
 # =============================================================================
 # FEATURE EXTRACTION

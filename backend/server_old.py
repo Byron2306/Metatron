@@ -52,6 +52,7 @@ from audit_logging import (
 )
 from threat_timeline import timeline_builder, ThreatTimeline
 from websocket_service import realtime_ws, WSMessageType, WSMessage
+from runtime_paths import ensure_data_dir
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -2395,7 +2396,7 @@ async def get_forensics_data(
     current_user: dict = Depends(get_current_user)
 ):
     """Get forensic data for an incident"""
-    forensics_path = Path("/var/lib/anti-ai-defense/forensics") / incident_id
+    forensics_path = ensure_data_dir("forensics") / incident_id
     
     if not forensics_path.exists():
         raise HTTPException(status_code=404, detail="Forensics data not found")

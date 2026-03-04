@@ -14,6 +14,7 @@ from dataclasses import dataclass, asdict, field
 from enum import Enum
 from pathlib import Path
 import hashlib
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,7 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-AUDIT_LOG_DIR = Path("/var/lib/anti-ai-defense/audit_logs")
-AUDIT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+AUDIT_LOG_DIR = ensure_data_dir("audit_logs")
 
 class AuditConfig:
     def __init__(self):

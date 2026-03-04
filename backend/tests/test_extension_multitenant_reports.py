@@ -12,7 +12,7 @@ import zipfile
 import io
 
 # Get API URL from environment
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'http://localhost:8001').rstrip('/')
 
 if not BASE_URL:
     raise ValueError("REACT_APP_BACKEND_URL environment variable not set")

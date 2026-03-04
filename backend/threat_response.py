@@ -27,6 +27,7 @@ from dataclasses import dataclass, asdict, field
 from enum import Enum
 from pathlib import Path
 import httpx
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +377,20 @@ class OpenClawAgent:
                 return response.status_code == 200
         except Exception:
             return False
+
+    @staticmethod
+    async def get_status() -> Dict[str, Any]:
+        """Get OpenClaw integration status for API consumers."""
+        enabled = config.openclaw_enabled
+        available = await OpenClawAgent.is_available() if enabled else False
+
+        return {
+            "enabled": enabled,
+            "connected": available,
+            "gateway_url": config.openclaw_gateway_url,
+            "has_api_key": bool(config.openclaw_api_key),
+            "status": "connected" if available else ("disabled" if not enabled else "unavailable")
+        }
     
     @staticmethod
     async def execute_security_task(
@@ -500,7 +515,7 @@ openclaw = OpenClawAgent()
 class ForensicsCollector:
     """Collect forensic data for incident investigation"""
     
-    FORENSICS_DIR = Path("/var/lib/anti-ai-defense/forensics")
+    FORENSICS_DIR = ensure_data_dir("forensics")
     
     @classmethod
     async def collect_incident_data(cls, context: ThreatContext) -> ResponseResult:

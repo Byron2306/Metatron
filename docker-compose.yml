@@ -61,9 +61,19 @@ services:
       - DB_NAME=seraph_ai_defense
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       - VPN_SERVER_ENDPOINT=${VPN_SERVER_ENDPOINT:-vpn.yourdomain.com}
-      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
       - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME:-}
       - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD:-}
+      - ELASTICSEARCH_API_KEY=${ELASTICSEARCH_API_KEY:-}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-mistral}
+      - LOCAL_LLM_ENABLED=${LOCAL_LLM_ENABLED:-true}
+      - CUCKOO_API_URL=${CUCKOO_API_URL:-http://cuckoo:8090}
+      - CUCKOO_API_TOKEN=${CUCKOO_API_TOKEN:-}
+      - CUCKOO_API_VERSION=${CUCKOO_API_VERSION:-2}
+      - TRIVY_ENABLED=${TRIVY_ENABLED:-true}
+      - FALCO_ENABLED=${FALCO_ENABLED:-true}
+      - VPN_ENABLED=${VPN_ENABLED:-true}
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
       - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
       - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
@@ -71,10 +81,17 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     volumes:
-      - vpn_config:/var/lib/seraph-ai/vpn
-      - agent_scripts:/app/scripts
-      - playbooks:/app/playbooks
+      - vpn_config:/var/lib/anti-ai-defense/vpn
+      - ./scripts:/app/scripts:ro
+      - ./backend/playbooks:/app/playbooks:ro
+      - ./unified_agent:/app/unified_agent:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - seraph-network
     healthcheck:
@@ -85,6 +102,181 @@ services:
       start_period: 15s
 
   # ==========================================================================
+  # Elasticsearch (local SIEM store)
+  # ==========================================================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: seraph-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - seraph-network
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9200/_cluster/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ==========================================================================
+  # Kibana (local dashboards)
+  # ==========================================================================
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: seraph-kibana
+    restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - seraph-network
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5601/api/status"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+
+  # ==========================================================================
+  # Ollama (local LLM)
+  # ==========================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: seraph-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - seraph-network
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 8
+      start_period: 30s
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: seraph-ollama-pull
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull ${OLLAMA_MODEL:-mistral} || true"]
+    networks:
+      - seraph-network
+    profiles:
+      - bootstrap
+
+  # ==========================================================================
+  # Trivy Server (optional remote scanner service)
+  # ==========================================================================
+  trivy:
+    image: aquasec/trivy:latest
+    container_name: seraph-trivy
+    restart: unless-stopped
+    command: ["server", "--listen", "0.0.0.0:4954"]
+    ports:
+      - "4954:4954"
+    volumes:
+      - trivy_cache:/root/.cache/trivy
+    networks:
+      - seraph-network
+    profiles:
+      - security
+
+  # ==========================================================================
+  # Falco Runtime Security (optional)
+  # ==========================================================================
+  falco:
+    image: falcosecurity/falco-no-driver:latest
+    container_name: seraph-falco
+    restart: unless-stopped
+    privileged: true
+    pid: host
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /boot:/host/boot:ro
+      - /lib/modules:/host/lib/modules:ro
+      - /usr:/host/usr:ro
+      - falco_data:/var/log/falco
+    networks:
+      - seraph-network
+    profiles:
+      - security
+
+  # ==========================================================================
+  # Suricata IDS (optional host sensor)
+  # ==========================================================================
+  suricata:
+    image: jasonish/suricata:latest
+    container_name: seraph-suricata
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    command: ["-i", "${SURICATA_INTERFACE:-eth0}", "-l", "/var/log/suricata"]
+    volumes:
+      - suricata_logs:/var/log/suricata
+      - ./backend:/app/backend:ro
+    profiles:
+      - security
+
+  # ==========================================================================
+  # Cuckoo Sandbox API (optional - requires VM/lab tuning)
+  # ==========================================================================
+  cuckoo:
+    image: blacktop/cuckoo:2.0.7
+    container_name: seraph-cuckoo
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8090:8090"
+      - "2042:2042"
+    environment:
+      - CUCKOO_API_HOST=0.0.0.0
+    volumes:
+      - cuckoo_data:/cuckoo
+      - /tmp:/tmp
+    networks:
+      - seraph-network
+    profiles:
+      - sandbox
+
+  cuckoo-web:
+    image: blacktop/cuckoo:2.0.7
+    container_name: seraph-cuckoo-web
+    restart: unless-stopped
+    command: web
+    ports:
+      - "8080:8080"
+    environment:
+      - CUCKOO_API=http://cuckoo:8090
+    depends_on:
+      - cuckoo
+    networks:
+      - seraph-network
+    profiles:
+      - sandbox
+
+  # ==========================================================================
   # Frontend React App
   # ==========================================================================
   frontend:
@@ -92,7 +284,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL:-http://localhost:8001}
+        - REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL:-}
     container_name: seraph-frontend
     restart: unless-stopped
     ports:
@@ -187,11 +379,19 @@ volumes:
     driver: local
   mongodb_config:
     driver: local
+  elasticsearch_data:
+    driver: local
+  ollama_data:
+    driver: local
+  trivy_cache:
+    driver: local
+  falco_data:
+    driver: local
+  suricata_logs:
+    driver: local
+  cuckoo_data:
+    driver: local
   vpn_config:
-    driver: local
-  agent_scripts:
-    driver: local
-  playbooks:
     driver: local
   wireguard_config:
     driver: local

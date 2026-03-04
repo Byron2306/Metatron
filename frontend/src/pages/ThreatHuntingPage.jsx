@@ -11,6 +11,7 @@ import {
   Shield,
   AlertTriangle,
   Activity,
+  Brain,
   RefreshCw,
   Target,
   Crosshair,
@@ -21,7 +22,10 @@ import {
   X
 } from "lucide-react";
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? ''
+  : envBackendUrl.replace(/\/+$/, '');
 
 export default function ThreatHuntingPage() {
   const { token } = useAuth();
@@ -32,6 +36,9 @@ export default function ThreatHuntingPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
   const [expandedRules, setExpandedRules] = useState({});
+  const [hypotheses, setHypotheses] = useState([]);
+  const [hypothesisMethod, setHypothesisMethod] = useState(null);
+  const [generatingHypotheses, setGeneratingHypotheses] = useState(false);
 
   useEffect(() => {
     fetchAll();
@@ -117,6 +124,36 @@ export default function ThreatHuntingPage() {
     }
   };
 
+  const generateHypotheses = async () => {
+    setGeneratingHypotheses(true);
+    try {
+      const response = await fetch(`${API_URL}/api/hunting/hypotheses/generate`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          focus: "active high-severity threat hunting",
+          recent_matches: matches.slice(0, 10)
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setHypotheses(data.hypotheses || []);
+        setHypothesisMethod(data.method || null);
+        toast.success("AI hypotheses generated");
+      } else {
+        toast.error("Failed to generate hypotheses");
+      }
+    } catch (error) {
+      toast.error("Failed to generate hypotheses");
+    } finally {
+      setGeneratingHypotheses(false);
+    }
+  };
+
   const getSeverityColor = (severity) => {
     const colors = {
       critical: "bg-red-500",
@@ -166,6 +203,10 @@ export default function ThreatHuntingPage() {
         <Button onClick={fetchAll} variant="outline" size="sm">
           <RefreshCw className="w-4 h-4 mr-2" />
           Refresh
+        </Button>
+        <Button onClick={generateHypotheses} variant="outline" size="sm" disabled={generatingHypotheses}>
+          <Brain className={`w-4 h-4 mr-2 ${generatingHypotheses ? 'animate-pulse' : ''}`} />
+          {generatingHypotheses ? 'Generating...' : 'Generate Hypotheses'}
         </Button>
       </div>
 
@@ -231,6 +272,29 @@ export default function ThreatHuntingPage() {
           </CardContent>
         </Card>
       </div>
+
+      {hypotheses.length > 0 && (
+        <Card className="bg-slate-900/50 border-slate-800" data-testid="hunting-hypotheses-card">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Brain className="w-5 h-5 text-purple-400" />
+              AI Hunting Hypotheses
+            </CardTitle>
+            {hypothesisMethod && (
+              <CardDescription>Method: {hypothesisMethod}</CardDescription>
+            )}
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {hypotheses.map((h, idx) => (
+                <li key={idx} className="text-slate-200 text-sm bg-slate-800/50 rounded p-3 border border-slate-700">
+                  {h}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">

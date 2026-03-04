@@ -210,13 +210,20 @@ class AgentDeploymentService:
             # Check if we're in simulation mode (no real credentials provided)
             creds = task.credentials or self.default_credentials.get(task.method.value.lower(), {})
             is_simulation = not creds.get('password') and not creds.get('key_path')
+            allow_simulation = str(os.environ.get("ALLOW_SIMULATED_DEPLOYMENTS", "false")).lower() in {"1", "true", "yes", "on"}
             
-            if is_simulation:
+            if is_simulation and allow_simulation:
                 # Simulate deployment for demo purposes
                 logger.info(f"Simulating deployment to {task.device_ip} (no credentials)")
                 await asyncio.sleep(2)  # Simulate deployment time
                 success = True
                 task.error_message = None
+            elif is_simulation and not allow_simulation:
+                success = False
+                task.error_message = (
+                    "Deployment credentials required. "
+                    "Set ALLOW_SIMULATED_DEPLOYMENTS=true only for non-production demo mode."
+                )
             elif task.method == DeploymentMethod.SSH:
                 success = await self._deploy_via_ssh(task)
             elif task.method == DeploymentMethod.WINRM:

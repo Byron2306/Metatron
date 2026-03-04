@@ -14,7 +14,9 @@ router = APIRouter(prefix="/kibana", tags=["Kibana Dashboards"])
 
 class ConfigureKibanaRequest(BaseModel):
     elasticsearch_url: str
-    api_key: str
+    api_key: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
     kibana_url: Optional[str] = None
 
 
@@ -85,7 +87,9 @@ async def configure_kibana(
     kibana_dashboard_service.configure(
         elasticsearch_url=request.elasticsearch_url,
         api_key=request.api_key,
-        kibana_url=request.kibana_url
+        kibana_url=request.kibana_url,
+        username=request.username,
+        password=request.password
     )
     return {"message": "Kibana configured successfully"}
 

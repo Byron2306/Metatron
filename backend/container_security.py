@@ -22,6 +22,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from enum import Enum
 import hashlib
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,7 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-TRIVY_CACHE_DIR = Path("/var/lib/anti-ai-defense/trivy_cache")
-TRIVY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+TRIVY_CACHE_DIR = ensure_data_dir("trivy_cache")
 
 class ContainerSecurityConfig:
     def __init__(self):

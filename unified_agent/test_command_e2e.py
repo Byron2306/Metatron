@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "ui", "desktop"))
 
 from main import UnifiedAgentCore
 
-BACKEND = "http://localhost:8001"
+BACKEND = os.getenv("METATRON_BACKEND_URL", "http://localhost:8001").rstrip('/')
 TOKEN = None
 
 def get_token():

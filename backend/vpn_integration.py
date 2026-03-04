@@ -24,6 +24,7 @@ from pathlib import Path
 from enum import Enum
 import hashlib
 import ipaddress
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,7 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-VPN_CONFIG_DIR = Path("/var/lib/anti-ai-defense/vpn")
-VPN_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+VPN_CONFIG_DIR = ensure_data_dir("vpn")
 
 WIREGUARD_DIR = Path("/etc/wireguard")
 

@@ -10,7 +10,7 @@ import pytest
 import requests
 import os
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'http://localhost:8001').rstrip('/')
 
 # Test credentials
 TEST_EMAIL = "testadmin@test.com"
@@ -105,10 +105,6 @@ class TestVPNEndpoints:
         data = response.json()
         assert "peer" in data or "message" in data
         print(f"Add peer result: {data}")
-        
-        # Store peer_id for config download test
-        if "peer" in data:
-            return data["peer"].get("peer_id")
     
     def test_vpn_peer_config_download(self, headers):
         """Test GET /api/vpn/peers/{peer_id}/config - Download peer config"""
@@ -320,7 +316,6 @@ class TestBrowserIsolationEndpoints:
         data = response.json()
         assert "session_id" in data
         print(f"Created session: {data.get('session_id')}")
-        return data.get("session_id")
     
     def test_browser_isolation_list_sessions(self, headers):
         """Test GET /api/browser-isolation/sessions - List active sessions"""
