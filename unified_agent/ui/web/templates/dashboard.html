@@ -189,6 +189,7 @@
             <button class="sub-tab-btn text-xs py-1 px-1 text-slate-400" data-subtab="mon-services" data-group="monitoring">Services</button>
             <button class="sub-tab-btn text-xs py-1 px-1 text-slate-400" data-subtab="mon-autoreduce" data-group="monitoring">Auto-Reduce</button>
             <button class="sub-tab-btn text-xs py-1 px-1 text-slate-400" data-subtab="mon-virusscan" data-group="monitoring">Virus Scan</button>
+            <button class="sub-tab-btn text-xs py-1 px-1 text-slate-400" data-subtab="mon-security" data-group="monitoring">&#x1F6E1; Security Monitors</button>
         </div>
 
         <!-- Events Sub-tab -->
@@ -423,6 +424,318 @@
                         <hr class="border-white/5">
                         <p class="text-slate-500">Scans: Downloads, Desktop, Temp, Windows/Temp</p>
                         <p id="malware-scan-time" class="text-slate-500 font-mono mt-2">Last scan: --</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Monitors Sub-tab -->
+        <div id="subtab-mon-security" class="subtab-content hidden">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="font-mono font-semibold text-sm">&#x1F6E1; Security Monitors (29 Active)</h3>
+                <button onclick="refreshAllMonitors()" class="action-btn bg-blue-600 hover:bg-blue-500 text-white text-sm">Refresh All</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                <!-- Ransomware Protection -->
+                <div class="card rounded-lg p-4" id="mon-card-ransomware">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-red-400">&#x1F6A8; Ransomware</h4>
+                        <span id="mon-ransomware-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Canary Files</span><span id="mon-ransomware-canaries" class="font-mono text-slate-300">0</span></div>
+                        <div class="flex justify-between"><span>Canary Alerts</span><span id="mon-ransomware-alerts" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>Shadow Copy</span><span id="mon-ransomware-shadow" class="font-mono text-green-400">--</span></div>
+                    </div>
+                </div>
+                <!-- Rootkit Detector -->
+                <div class="card rounded-lg p-4" id="mon-card-rootkit">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-purple-400">&#x1F41B; Rootkit</h4>
+                        <span id="mon-rootkit-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Hidden Processes</span><span id="mon-rootkit-hidden" class="font-mono text-slate-300">0</span></div>
+                        <div class="flex justify-between"><span>Suspicious Modules</span><span id="mon-rootkit-modules" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>DKOM Indicators</span><span id="mon-rootkit-dkom" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- Kernel Security -->
+                <div class="card rounded-lg p-4" id="mon-card-kernel">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-cyan-400">&#x2699; Kernel</h4>
+                        <span id="mon-kernel-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Syscall Anomalies</span><span id="mon-kernel-syscall" class="font-mono text-slate-300">0</span></div>
+                        <div class="flex justify-between"><span>Audit Alerts</span><span id="mon-kernel-audit" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>Ptrace Detections</span><span id="mon-kernel-ptrace" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- Anti-Tamper -->
+                <div class="card rounded-lg p-4" id="mon-card-antitamper">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-orange-400">&#x1F6E1; Anti-Tamper</h4>
+                        <span id="mon-antitamper-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Watchdog</span><span id="mon-antitamper-watchdog" class="font-mono text-green-400">--</span></div>
+                        <div class="flex justify-between"><span>Debugger Detections</span><span id="mon-antitamper-debug" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>Injection Attempts</span><span id="mon-antitamper-inject" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- Identity Protection -->
+                <div class="card rounded-lg p-4" id="mon-card-identity">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-blue-400">&#x1F511; Identity</h4>
+                        <span id="mon-identity-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Credential Tools</span><span id="mon-identity-credtools" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>LSASS Access</span><span id="mon-identity-lsass" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>PtH/PtT Indicators</span><span id="mon-identity-pth" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- Process Tree -->
+                <div class="card rounded-lg p-4" id="mon-card-proctree">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-green-400">&#x1F333; Process Tree</h4>
+                        <span id="mon-proctree-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Suspicious Chains</span><span id="mon-proctree-chains" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>Injection Detected</span><span id="mon-proctree-inject" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- LOLBin -->
+                <div class="card rounded-lg p-4" id="mon-card-lolbin">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-yellow-400">&#x26A0; LOLBin</h4>
+                        <span id="mon-lolbin-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>LOLBin Executions</span><span id="mon-lolbin-exec" class="font-mono text-amber-400">0</span></div>
+                    </div>
+                </div>
+                <!-- DNS Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-dns">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-teal-400">&#x1F310; DNS</h4>
+                        <span id="mon-dns-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>DNS Anomalies</span><span id="mon-dns-anomalies" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>DGA Detections</span><span id="mon-dns-dga" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>Tunneling Alerts</span><span id="mon-dns-tunnel" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- Memory Scanner -->
+                <div class="card rounded-lg p-4" id="mon-card-memory">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-pink-400">&#x1F9E0; Memory</h4>
+                        <span id="mon-memory-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Injections Detected</span><span id="mon-memory-inject" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>Reflective Loads</span><span id="mon-memory-reflect" class="font-mono text-amber-400">0</span></div>
+                    </div>
+                </div>
+                <!-- DLP Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-dlp">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-indigo-400">&#x1F4C4; DLP</h4>
+                        <span id="mon-dlp-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Sensitive Data</span><span id="mon-dlp-sensitive" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>Exfil Attempts</span><span id="mon-dlp-exfil" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- Vulnerability Scanner -->
+                <div class="card rounded-lg p-4" id="mon-card-vuln">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-rose-400">&#x1F50D; Vulnerability</h4>
+                        <span id="mon-vuln-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Vulnerabilities</span><span id="mon-vuln-count" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>CVE Matches</span><span id="mon-vuln-cve" class="font-mono text-amber-400">0</span></div>
+                    </div>
+                </div>
+                <!-- App Whitelist -->
+                <div class="card rounded-lg p-4" id="mon-card-whitelist">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-lime-400">&#x2705; Whitelist</h4>
+                        <span id="mon-whitelist-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Blocked Apps</span><span id="mon-whitelist-blocked" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>Allowed List</span><span id="mon-whitelist-allowed" class="font-mono text-slate-300">0</span></div>
+                    </div>
+                </div>
+                <!-- Code Signing -->
+                <div class="card rounded-lg p-4" id="mon-card-codesign">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-emerald-400">&#x1F4DD; Code Signing</h4>
+                        <span id="mon-codesign-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Unsigned Execs</span><span id="mon-codesign-unsigned" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>Invalid Sigs</span><span id="mon-codesign-invalid" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- AMSI Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-amsi">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-violet-400">&#x1F6AB; AMSI</h4>
+                        <span id="mon-amsi-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Bypass Attempts</span><span id="mon-amsi-bypass" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>Obfuscation</span><span id="mon-amsi-obfuscation" class="font-mono text-amber-400">0</span></div>
+                    </div>
+                </div>
+                <!-- Trusted AI Whitelist -->
+                <div class="card rounded-lg p-4" id="mon-card-trustedai">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-sky-400">&#x1F916; Trusted AI</h4>
+                        <span id="mon-trustedai-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>AI Tools Allowed</span><span id="mon-trustedai-allowed" class="font-mono text-green-400">0</span></div>
+                        <div class="flex justify-between"><span>Blocked AI</span><span id="mon-trustedai-blocked" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- Bootkit Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-bootkit">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-fuchsia-400">&#x1F4BB; Bootkit</h4>
+                        <span id="mon-bootkit-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>MBR/GPT Anomalies</span><span id="mon-bootkit-mbr" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>Boot Config</span><span id="mon-bootkit-config" class="font-mono text-slate-300">OK</span></div>
+                    </div>
+                </div>
+                <!-- Certificate Authority -->
+                <div class="card rounded-lg p-4" id="mon-card-ca">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-amber-400">&#x1F4DC; PKI/CA</h4>
+                        <span id="mon-ca-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Cert Issues</span><span id="mon-ca-issues" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>Rogue CAs</span><span id="mon-ca-rogue" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- BIOS Integrity -->
+                <div class="card rounded-lg p-4" id="mon-card-bios">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-stone-400">&#x1F4DF; BIOS</h4>
+                        <span id="mon-bios-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Firmware Status</span><span id="mon-bios-firmware" class="font-mono text-green-400">Valid</span></div>
+                        <div class="flex justify-between"><span>Secure Boot</span><span id="mon-bios-secureboot" class="font-mono text-slate-300">--</span></div>
+                    </div>
+                </div>
+                <!-- Scheduled Task -->
+                <div class="card rounded-lg p-4" id="mon-card-schtask">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-blue-300">&#x23F0; Sched Tasks</h4>
+                        <span id="mon-schtask-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Suspicious Tasks</span><span id="mon-schtask-suspicious" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>New Tasks</span><span id="mon-schtask-new" class="font-mono text-slate-300">0</span></div>
+                    </div>
+                </div>
+                <!-- Service Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-service">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-green-300">&#x2699; Services</h4>
+                        <span id="mon-service-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Hijacked Svc</span><span id="mon-service-hijacked" class="font-mono text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>New Services</span><span id="mon-service-new" class="font-mono text-slate-300">0</span></div>
+                    </div>
+                </div>
+                <!-- WMI Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-wmi">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-orange-300">&#x1F5A5; WMI</h4>
+                        <span id="mon-wmi-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Event Subscriptions</span><span id="mon-wmi-subscriptions" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>Suspicious WMI</span><span id="mon-wmi-suspicious" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- USB Device -->
+                <div class="card rounded-lg p-4" id="mon-card-usb">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-red-300">&#x1F50C; USB</h4>
+                        <span id="mon-usb-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Connected Devices</span><span id="mon-usb-devices" class="font-mono text-slate-300">0</span></div>
+                        <div class="flex justify-between"><span>Blocked</span><span id="mon-usb-blocked" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- Firewall Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-firewall">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-cyan-300">&#x1F6E1; Firewall</h4>
+                        <span id="mon-firewall-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Rules Active</span><span id="mon-firewall-rules" class="font-mono text-green-400">0</span></div>
+                        <div class="flex justify-between"><span>Blocked IPs</span><span id="mon-firewall-blocked" class="font-mono text-red-400">0</span></div>
+                    </div>
+                </div>
+                <!-- WebView2 Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-webview">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-blue-200">&#x1F310; WebView2</h4>
+                        <span id="mon-webview-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Embedded Browsers</span><span id="mon-webview-browsers" class="font-mono text-slate-300">0</span></div>
+                        <div class="flex justify-between"><span>Script Blocks</span><span id="mon-webview-blocks" class="font-mono text-amber-400">0</span></div>
+                    </div>
+                </div>
+                <!-- CLI Telemetry -->
+                <div class="card rounded-lg p-4" id="mon-card-cli">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-slate-300">&#x1F4BB; CLI Telemetry</h4>
+                        <span id="mon-cli-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Commands Analyzed</span><span id="mon-cli-commands" class="font-mono text-slate-300">0</span></div>
+                        <div class="flex justify-between"><span>Suspicious CLI</span><span id="mon-cli-suspicious" class="font-mono text-amber-400">0</span></div>
+                    </div>
+                </div>
+                <!-- AutoThrottle -->
+                <div class="card rounded-lg p-4" id="mon-card-autothrottle">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-yellow-300">&#x26A1; AutoThrottle</h4>
+                        <span id="mon-autothrottle-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>CPU Throttled</span><span id="mon-autothrottle-cpu" class="font-mono text-slate-300">No</span></div>
+                        <div class="flex justify-between"><span>Scan Interval</span><span id="mon-autothrottle-interval" class="font-mono text-slate-300">5s</span></div>
+                    </div>
+                </div>
+                <!-- Power Management -->
+                <div class="card rounded-lg p-4" id="mon-card-power">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-green-200">&#x1F50B; Power</h4>
+                        <span id="mon-power-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Sleep Blocked</span><span id="mon-power-sleep" class="font-mono text-amber-400">0</span></div>
+                        <div class="flex justify-between"><span>Wake Events</span><span id="mon-power-wake" class="font-mono text-slate-300">0</span></div>
                     </div>
                 </div>
             </div>
@@ -1596,6 +1909,268 @@ async function triggerAutoReduce() {
 }
 
 // ============================================================================
+// SECURITY MONITORS
+// ============================================================================
+async function refreshAllMonitors() {
+    const data = await api('/api/monitors');
+    if (!data || !data.monitors) return;
+    
+    // Update individual monitor cards
+    await refreshRansomwareMonitor();
+    await refreshRootkitMonitor();
+    await refreshKernelMonitor();
+    await refreshSelfProtectionMonitor();
+    await refreshIdentityMonitor();
+    await refreshProcessTreeMonitor();
+    await refreshLolbinMonitor();
+    await refreshDnsMonitor();
+    await refreshMemoryMonitor();
+    await refreshDlpMonitor();
+    await refreshVulnerabilityMonitor();
+    await refreshWhitelistMonitor();
+    await refreshCodeSigningMonitor();
+    // New monitors (Unified Agent v2.0)
+    await refreshAmsiMonitor();
+    await refreshTrustedAiMonitor();
+    await refreshBootkitMonitor();
+    await refreshCaMonitor();
+    await refreshBiosMonitor();
+    await refreshScheduledTaskMonitor();
+    await refreshServiceMonitor();
+    await refreshWmiMonitor();
+    await refreshUsbMonitor();
+    await refreshFirewallMonitor();
+    await refreshWebviewMonitor();
+    await refreshCliMonitor();
+    await refreshAutothrottleMonitor();
+    await refreshPowerMonitor();
+}
+
+async function refreshRansomwareMonitor() {
+    const data = await api('/api/monitors/ransomware');
+    if (!data) return;
+    document.getElementById('mon-ransomware-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-ransomware-canaries').textContent = (data.canary_files || []).length;
+    document.getElementById('mon-ransomware-alerts').textContent = data.canary_alerts || 0;
+    document.getElementById('mon-ransomware-shadow').textContent = data.shadow_copy_protected ? 'Protected' : 'Not Protected';
+}
+
+async function refreshRootkitMonitor() {
+    const data = await api('/api/monitors/rootkit');
+    if (!data) return;
+    document.getElementById('mon-rootkit-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-rootkit-hidden').textContent = (data.hidden_processes || []).length;
+    document.getElementById('mon-rootkit-modules').textContent = (data.suspicious_modules || []).length;
+    document.getElementById('mon-rootkit-dkom').textContent = (data.dkom_indicators || []).length;
+}
+
+async function refreshKernelMonitor() {
+    const data = await api('/api/monitors/kernel');
+    if (!data) return;
+    document.getElementById('mon-kernel-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-kernel-syscall').textContent = (data.syscall_anomalies || []).length;
+    document.getElementById('mon-kernel-audit').textContent = (data.audit_alerts || []).length;
+    document.getElementById('mon-kernel-ptrace').textContent = (data.ptrace_detections || []).length;
+}
+
+async function refreshSelfProtectionMonitor() {
+    const data = await api('/api/monitors/self-protection');
+    if (!data) return;
+    document.getElementById('mon-antitamper-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-antitamper-watchdog').textContent = data.watchdog_running ? 'Running' : 'Stopped';
+    document.getElementById('mon-antitamper-debug').textContent = (data.debugger_detections || []).length;
+    document.getElementById('mon-antitamper-inject').textContent = (data.injection_attempts || []).length;
+}
+
+async function refreshIdentityMonitor() {
+    const data = await api('/api/monitors/identity');
+    if (!data) return;
+    document.getElementById('mon-identity-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-identity-credtools').textContent = (data.credential_tools_detected || []).length;
+    document.getElementById('mon-identity-lsass').textContent = (data.lsass_access_alerts || []).length;
+    document.getElementById('mon-identity-pth').textContent = (data.pth_indicators || []).length;
+}
+
+async function refreshProcessTreeMonitor() {
+    const data = await api('/api/monitors/process-tree');
+    if (!data) return;
+    document.getElementById('mon-proctree-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-proctree-chains').textContent = (data.suspicious_chains || []).length;
+    document.getElementById('mon-proctree-inject').textContent = (data.injection_detections || []).length;
+}
+
+async function refreshLolbinMonitor() {
+    const data = await api('/api/monitors/lolbin');
+    if (!data) return;
+    document.getElementById('mon-lolbin-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-lolbin-exec').textContent = (data.lolbin_executions || []).length;
+}
+
+async function refreshDnsMonitor() {
+    const data = await api('/api/monitors/dns');
+    if (!data) return;
+    document.getElementById('mon-dns-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-dns-anomalies').textContent = (data.dns_anomalies || []).length;
+    document.getElementById('mon-dns-dga').textContent = (data.dga_detections || []).length;
+    document.getElementById('mon-dns-tunnel').textContent = (data.dns_tunneling_alerts || []).length;
+}
+
+async function refreshMemoryMonitor() {
+    const data = await api('/api/monitors/memory');
+    if (!data) return;
+    document.getElementById('mon-memory-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-memory-inject').textContent = (data.injections_detected || []).length;
+    document.getElementById('mon-memory-reflect').textContent = (data.reflective_loads || []).length;
+}
+
+async function refreshDlpMonitor() {
+    const data = await api('/api/monitors/dlp');
+    if (!data) return;
+    document.getElementById('mon-dlp-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-dlp-sensitive').textContent = (data.sensitive_data_alerts || []).length;
+    document.getElementById('mon-dlp-exfil').textContent = (data.exfiltration_attempts || []).length;
+}
+
+async function refreshVulnerabilityMonitor() {
+    const data = await api('/api/monitors/vulnerability');
+    if (!data) return;
+    document.getElementById('mon-vuln-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-vuln-count').textContent = (data.vulnerabilities || []).length;
+    document.getElementById('mon-vuln-cve').textContent = (data.cve_matches || []).length;
+}
+
+async function refreshWhitelistMonitor() {
+    const data = await api('/api/monitors/whitelist');
+    if (!data) return;
+    document.getElementById('mon-whitelist-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-whitelist-blocked').textContent = (data.blocked_applications || []).length;
+    document.getElementById('mon-whitelist-allowed').textContent = (data.allowed_list || []).length;
+}
+
+async function refreshCodeSigningMonitor() {
+    const data = await api('/api/monitors/code-signing');
+    if (!data) return;
+    document.getElementById('mon-codesign-status').className = 'status-dot ' + (data.enabled ? 'green' : 'red');
+    document.getElementById('mon-codesign-unsigned').textContent = (data.unsigned_executions || []).length;
+    document.getElementById('mon-codesign-invalid').textContent = (data.invalid_signatures || []).length;
+}
+
+// ============================================================================
+// NEW UNIFIED AGENT v2.0 MONITORS
+// ============================================================================
+async function refreshAmsiMonitor() {
+    const data = await api('/api/monitors/amsi');
+    if (!data) return;
+    document.getElementById('mon-amsi-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-amsi-bypass').textContent = (data.bypass_attempts || []).length;
+    document.getElementById('mon-amsi-obfuscation').textContent = (data.obfuscation_detected || []).length;
+}
+
+async function refreshTrustedAiMonitor() {
+    const data = await api('/api/monitors/trusted-ai');
+    if (!data) return;
+    document.getElementById('mon-trustedai-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-trustedai-allowed').textContent = data.allowed_count || 0;
+    document.getElementById('mon-trustedai-blocked').textContent = (data.blocked_ai || []).length;
+}
+
+async function refreshBootkitMonitor() {
+    const data = await api('/api/monitors/bootkit');
+    if (!data) return;
+    document.getElementById('mon-bootkit-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-bootkit-mbr').textContent = (data.mbr_anomalies || []).length;
+    document.getElementById('mon-bootkit-config').textContent = data.boot_config_valid ? 'OK' : 'Tampered';
+}
+
+async function refreshCaMonitor() {
+    const data = await api('/api/monitors/certificate-authority');
+    if (!data) return;
+    document.getElementById('mon-ca-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-ca-issues').textContent = (data.cert_issues || []).length;
+    document.getElementById('mon-ca-rogue').textContent = (data.rogue_cas || []).length;
+}
+
+async function refreshBiosMonitor() {
+    const data = await api('/api/monitors/bios');
+    if (!data) return;
+    document.getElementById('mon-bios-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-bios-firmware').textContent = data.firmware_valid ? 'Valid' : 'Tampered';
+    document.getElementById('mon-bios-secureboot').textContent = data.secure_boot ? 'Enabled' : 'Disabled';
+}
+
+async function refreshScheduledTaskMonitor() {
+    const data = await api('/api/monitors/scheduled-tasks');
+    if (!data) return;
+    document.getElementById('mon-schtask-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-schtask-suspicious').textContent = (data.suspicious_tasks || []).length;
+    document.getElementById('mon-schtask-new').textContent = (data.new_tasks || []).length;
+}
+
+async function refreshServiceMonitor() {
+    const data = await api('/api/monitors/services');
+    if (!data) return;
+    document.getElementById('mon-service-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-service-hijacked').textContent = (data.hijacked_services || []).length;
+    document.getElementById('mon-service-new').textContent = (data.new_services || []).length;
+}
+
+async function refreshWmiMonitor() {
+    const data = await api('/api/monitors/wmi');
+    if (!data) return;
+    document.getElementById('mon-wmi-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-wmi-subscriptions').textContent = (data.event_subscriptions || []).length;
+    document.getElementById('mon-wmi-suspicious').textContent = (data.suspicious_wmi || []).length;
+}
+
+async function refreshUsbMonitor() {
+    const data = await api('/api/monitors/usb');
+    if (!data) return;
+    document.getElementById('mon-usb-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-usb-devices').textContent = (data.connected_devices || []).length;
+    document.getElementById('mon-usb-blocked').textContent = (data.blocked_devices || []).length;
+}
+
+async function refreshFirewallMonitor() {
+    const data = await api('/api/monitors/firewall');
+    if (!data) return;
+    document.getElementById('mon-firewall-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-firewall-rules').textContent = data.rules_active || 0;
+    document.getElementById('mon-firewall-blocked').textContent = (data.blocked_ips || []).length;
+}
+
+async function refreshWebviewMonitor() {
+    const data = await api('/api/monitors/webview');
+    if (!data) return;
+    document.getElementById('mon-webview-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-webview-browsers').textContent = (data.embedded_browsers || []).length;
+    document.getElementById('mon-webview-blocks').textContent = (data.script_blocks || []).length;
+}
+
+async function refreshCliMonitor() {
+    const data = await api('/api/monitors/cli-telemetry');
+    if (!data) return;
+    document.getElementById('mon-cli-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-cli-commands').textContent = data.commands_analyzed || 0;
+    document.getElementById('mon-cli-suspicious').textContent = (data.suspicious_commands || []).length;
+}
+
+async function refreshAutothrottleMonitor() {
+    const data = await api('/api/monitors/autothrottle');
+    if (!data) return;
+    document.getElementById('mon-autothrottle-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-autothrottle-cpu').textContent = data.cpu_throttled ? 'Yes' : 'No';
+    document.getElementById('mon-autothrottle-interval').textContent = (data.scan_interval || 5) + 's';
+}
+
+async function refreshPowerMonitor() {
+    const data = await api('/api/monitors/power');
+    if (!data) return;
+    document.getElementById('mon-power-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
+    document.getElementById('mon-power-sleep').textContent = (data.sleep_blocked || []).length;
+    document.getElementById('mon-power-wake').textContent = (data.wake_events || []).length;
+}
+
+// ============================================================================
 // MONITORING CONFIG
 // ============================================================================
 async function updateMonConfig() {
@@ -1659,6 +2234,7 @@ async function pollSlow() {
     await updateCommands();
     await updateQuarantine();
     await updateAutoReduceLog();
+    await refreshAllMonitors();
 }
 
 // Initial load

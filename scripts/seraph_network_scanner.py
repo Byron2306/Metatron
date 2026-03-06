@@ -2,10 +2,17 @@
 """
 Seraph Network Scanner & Deployment Agent
 =========================================
-Run this on a machine INSIDE your network to:
-1. Discover all devices on your LAN
-2. Report them to Seraph AI server
-3. Deploy Seraph Defender agents to discovered devices
+Enterprise Network Security Scanner with Advanced Threat Detection
+
+Features:
+1. Multi-method device discovery (ARP, Nmap, mDNS)
+2. Service fingerprinting with banner grabbing
+3. Rogue device detection against known baselines
+4. MAC spoofing and IP conflict detection
+5. Vulnerability scanning for common CVEs
+6. Network anomaly detection
+7. Automated agent deployment (SSH/WinRM)
+8. Real-time reporting to Seraph AI server
 
 This is the REAL scanner that runs on YOUR network.
 """
@@ -21,9 +28,12 @@ import argparse
 import platform
 import threading
 import ipaddress
-from datetime import datetime
-from typing import List, Dict, Optional
+import hashlib
+import re
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 try:
     import requests
@@ -46,11 +56,62 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "paramiko", "-q"])
     import paramiko
 
+# Known vulnerable service versions (simplified CVE database)
+KNOWN_VULNERABILITIES = {
+    'openssh': {
+        '7.2': ['CVE-2016-6515', 'CVE-2016-10009'],
+        '7.4': ['CVE-2017-15906'],
+        '7.5': ['CVE-2018-15473'],
+        '7.6': ['CVE-2018-15473'],
+        '8.0': ['CVE-2019-6111'],
+    },
+    'apache': {
+        '2.4.49': ['CVE-2021-41773', 'CVE-2021-42013'],
+        '2.4.50': ['CVE-2021-42013'],
+    },
+    'nginx': {
+        '1.16': ['CVE-2019-20372'],
+        '1.17': ['CVE-2019-20372'],
+    },
+    'vsftpd': {
+        '2.3.4': ['CVE-2011-2523'],  # Backdoor
+    },
+    'proftpd': {
+        '1.3.3': ['CVE-2010-4221'],
+    },
+    'smb': {
+        '1.0': ['CVE-2017-0144', 'CVE-2017-0145'],  # EternalBlue
+        '2.0': ['CVE-2020-0796'],  # SMBGhost
+    },
+}
+
+# Service banner patterns for fingerprinting
+SERVICE_PATTERNS = {
+    'ssh': re.compile(r'SSH-[\d.]+-(OpenSSH[_\s][\d.p]+|dropbear)', re.I),
+    'http': re.compile(r'(Apache|nginx|IIS|lighttpd)[/\s]([\d.]+)', re.I),
+    'ftp': re.compile(r'(vsftpd|ProFTPD|Pure-FTPd|FileZilla)[/\s]?([\d.]+)?', re.I),
+    'smtp': re.compile(r'(Postfix|Sendmail|Exim|Microsoft ESMTP)[/\s]?([\d.]+)?', re.I),
+    'mysql': re.compile(r'([\d.]+).*MariaDB|MySQL', re.I),
+    'rdp': re.compile(r'RDP|Remote Desktop', re.I),
+}
+
 
 class SeraphNetworkScanner:
     """
-    Network scanner that runs on YOUR network and reports to Seraph AI server.
+    Enterprise Network Scanner with Advanced Threat Detection.
+    
+    Capabilities:
+    - ARP/Nmap/mDNS multi-method discovery
+    - Service fingerprinting via banner grabbing
+    - Rogue device detection with baseline comparison
+    - MAC spoofing and IP conflict detection
+    - Vulnerability scanning for known CVEs
+    - Real-time reporting to Seraph AI server
+    - Automated agent deployment
     """
+    
+    # Baseline file for known devices
+    BASELINE_FILE = Path.home() / '.seraph' / 'device_baseline.json'
     
     def __init__(self, api_url: str, scan_interval: int = 300):
         self.api_url = api_url.rstrip('/')
@@ -58,6 +119,11 @@ class SeraphNetworkScanner:
         self.scanner_id = f"scanner-{socket.gethostname()}-{os.getpid()}"
         self.discovered_devices: Dict[str, dict] = {}
         self.running = False
+        
+        # Device baseline for rogue detection
+        self.known_devices: Dict[str, dict] = self._load_baseline()
+        self.ip_mac_history: Dict[str, List[Tuple[str, datetime]]] = {}  # IP -> [(MAC, timestamp)]
+        self.alerts: List[dict] = []
         
         # Get local network info
         self.local_ip = self._get_local_ip()
@@ -68,6 +134,7 @@ class SeraphNetworkScanner:
         print(f"[*] Local IP: {self.local_ip}")
         print(f"[*] Network: {self.network_cidr}")
         print(f"[*] API URL: {self.api_url}")
+        print(f"[*] Known devices in baseline: {len(self.known_devices)}")
     
     def _get_local_ip(self) -> str:
         """Get local IP address"""
@@ -99,6 +166,233 @@ class SeraphNetworkScanner:
         except Exception:
             return "192.168.1.0/24"
     
+    def _load_baseline(self) -> Dict[str, dict]:
+        """Load known device baseline from disk"""
+        try:
+            if self.BASELINE_FILE.exists():
+                with open(self.BASELINE_FILE, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"[-] Error loading baseline: {e}")
+        return {}
+    
+    def _save_baseline(self):
+        """Save device baseline to disk"""
+        try:
+            self.BASELINE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.BASELINE_FILE, 'w') as f:
+                json.dump(self.known_devices, f, indent=2, default=str)
+        except Exception as e:
+            print(f"[-] Error saving baseline: {e}")
+    
+    def add_to_baseline(self, device: dict):
+        """Add a device to the known baseline"""
+        ip = device.get('ip_address')
+        if ip:
+            self.known_devices[ip] = {
+                'mac_address': device.get('mac_address'),
+                'hostname': device.get('hostname'),
+                'device_type': device.get('device_type'),
+                'os': device.get('os'),
+                'first_seen': datetime.now().isoformat(),
+                'approved': True
+            }
+            self._save_baseline()
+            print(f"[+] Added {ip} to baseline")
+    
+    def _grab_banner(self, ip: str, port: int, timeout: float = 2.0) -> Optional[str]:
+        """Grab service banner from a port"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            sock.connect((ip, port))
+            
+            # Send probe based on port
+            if port in [80, 8080, 8000, 8443]:
+                sock.send(b"HEAD / HTTP/1.0\r\nHost: target\r\n\r\n")
+            elif port == 21:
+                pass  # FTP sends banner automatically
+            elif port == 25:
+                sock.send(b"EHLO scanner\r\n")
+            elif port == 22:
+                pass  # SSH sends banner automatically
+            else:
+                sock.send(b"\r\n")
+            
+            banner = sock.recv(1024).decode('utf-8', errors='ignore').strip()
+            sock.close()
+            return banner[:500] if banner else None
+        except Exception:
+            return None
+    
+    def _fingerprint_service(self, banner: str) -> Dict[str, str]:
+        """Extract service name and version from banner"""
+        result = {'service': 'unknown', 'version': ''}
+        
+        for service_name, pattern in SERVICE_PATTERNS.items():
+            match = pattern.search(banner)
+            if match:
+                result['service'] = service_name
+                groups = match.groups()
+                if len(groups) >= 2 and groups[1]:
+                    result['version'] = groups[1]
+                elif len(groups) >= 1 and groups[0]:
+                    result['version'] = groups[0]
+                break
+        
+        return result
+    
+    def _check_vulnerabilities(self, service: str, version: str) -> List[str]:
+        """Check if service version has known vulnerabilities"""
+        cves = []
+        service_lower = service.lower()
+        
+        if service_lower in KNOWN_VULNERABILITIES:
+            vuln_versions = KNOWN_VULNERABILITIES[service_lower]
+            # Check exact match and prefix match
+            for vuln_ver, vuln_cves in vuln_versions.items():
+                if version.startswith(vuln_ver) or version == vuln_ver:
+                    cves.extend(vuln_cves)
+        
+        return list(set(cves))
+    
+    def _detect_rogue_device(self, device: dict) -> Optional[dict]:
+        """Detect if device is rogue (not in baseline)"""
+        ip = device.get('ip_address')
+        mac = device.get('mac_address', '').lower()
+        
+        if not ip:
+            return None
+        
+        # Check if device is in baseline
+        if ip not in self.known_devices:
+            return {
+                'type': 'rogue_device',
+                'severity': 'high',
+                'ip': ip,
+                'mac': mac,
+                'message': f"Unknown device detected: {ip} ({mac})",
+                'mitre': ['T1200'],  # Hardware Additions
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        # Check if MAC changed (possible spoofing)
+        known = self.known_devices[ip]
+        known_mac = known.get('mac_address', '').lower()
+        if known_mac and mac and known_mac != mac:
+            return {
+                'type': 'mac_changed',
+                'severity': 'critical',
+                'ip': ip,
+                'mac': mac,
+                'expected_mac': known_mac,
+                'message': f"MAC address changed for {ip}: {known_mac} -> {mac}",
+                'mitre': ['T1557.002'],  # ARP Cache Poisoning
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        return None
+    
+    def _detect_mac_spoofing(self, devices: List[dict]) -> List[dict]:
+        """Detect MAC spoofing and IP conflicts"""
+        alerts = []
+        mac_to_ips: Dict[str, List[str]] = {}
+        
+        # Build MAC to IP mapping
+        for device in devices:
+            mac = device.get('mac_address', '').lower()
+            ip = device.get('ip_address')
+            if mac and ip:
+                if mac not in mac_to_ips:
+                    mac_to_ips[mac] = []
+                mac_to_ips[mac].append(ip)
+        
+        # Check for same MAC on multiple IPs (could be normal for routers)
+        for mac, ips in mac_to_ips.items():
+            if len(ips) > 3:  # Threshold for suspicion
+                alerts.append({
+                    'type': 'mac_multiple_ips',
+                    'severity': 'medium',
+                    'mac': mac,
+                    'ips': ips,
+                    'message': f"MAC {mac} associated with {len(ips)} IPs: {', '.join(ips[:5])}",
+                    'mitre': ['T1557'],
+                    'timestamp': datetime.now().isoformat()
+                })
+        
+        # Track IP/MAC history for ARP poisoning detection
+        for device in devices:
+            ip = device.get('ip_address')
+            mac = device.get('mac_address', '').lower()
+            if ip and mac:
+                if ip not in self.ip_mac_history:
+                    self.ip_mac_history[ip] = []
+                
+                # Check recent history
+                recent = [m for m, t in self.ip_mac_history[ip] 
+                         if datetime.now() - t < timedelta(hours=1)]
+                
+                if recent and mac not in recent:
+                    alerts.append({
+                        'type': 'arp_spoofing',
+                        'severity': 'critical',
+                        'ip': ip,
+                        'current_mac': mac,
+                        'previous_macs': list(set(recent)),
+                        'message': f"Possible ARP spoofing: {ip} MAC changed from {recent[-1]} to {mac}",
+                        'mitre': ['T1557.002'],
+                        'timestamp': datetime.now().isoformat()
+                    })
+                
+                self.ip_mac_history[ip].append((mac, datetime.now()))
+                # Keep only last 10 entries
+                self.ip_mac_history[ip] = self.ip_mac_history[ip][-10:]
+        
+        return alerts
+    
+    def _scan_service_vulnerabilities(self, device: dict) -> List[dict]:
+        """Scan device services for known vulnerabilities"""
+        vulnerabilities = []
+        ip = device.get('ip_address')
+        
+        if not ip:
+            return vulnerabilities
+        
+        # Common ports to check
+        vuln_ports = {
+            22: 'ssh',
+            21: 'ftp', 
+            80: 'http',
+            443: 'https',
+            8080: 'http-proxy',
+            445: 'smb',
+            3389: 'rdp',
+            3306: 'mysql',
+            5432: 'postgres',
+        }
+        
+        for port, service_hint in vuln_ports.items():
+            banner = self._grab_banner(ip, port)
+            if banner:
+                fingerprint = self._fingerprint_service(banner)
+                service = fingerprint.get('service', service_hint)
+                version = fingerprint.get('version', '')
+                
+                if version:
+                    cves = self._check_vulnerabilities(service, version)
+                    if cves:
+                        vulnerabilities.append({
+                            'ip': ip,
+                            'port': port,
+                            'service': service,
+                            'version': version,
+                            'cves': cves,
+                            'banner': banner[:200],
+                            'severity': 'critical' if any('CVE-2017-0144' in c or 'CVE-2021-41773' in c for c in cves) else 'high'
+                        })
+        
+        return vulnerabilities
+
     def scan_network(self, network: str = None) -> List[dict]:
         """
         Scan network using multiple methods for comprehensive discovery
@@ -131,6 +425,33 @@ class SeraphNetworkScanner:
         
         # Enrich devices with port scan for key devices
         devices = self._enrich_devices(devices)
+        
+        # Security checks
+        print(f"[*] Running security checks...")
+        
+        # Rogue device detection
+        rogue_alerts = []
+        for device in devices:
+            rogue = self._detect_rogue_device(device)
+            if rogue:
+                rogue_alerts.append(rogue)
+        print(f"[!] Rogue devices detected: {len(rogue_alerts)}")
+        
+        # MAC spoofing detection
+        spoof_alerts = self._detect_mac_spoofing(devices)
+        print(f"[!] MAC spoofing alerts: {len(spoof_alerts)}")
+        
+        # Vulnerability scanning
+        vuln_count = 0
+        for device in devices:
+            vulns = self._scan_service_vulnerabilities(device)
+            if vulns:
+                device['vulnerabilities'] = vulns
+                vuln_count += len(vulns)
+        print(f"[!] Vulnerabilities found: {vuln_count}")
+        
+        # Store alerts
+        self.alerts = rogue_alerts + spoof_alerts
         
         print(f"\n[*] Total unique devices found: {len(devices)}")
         return devices
@@ -370,13 +691,28 @@ class SeraphNetworkScanner:
             return False
     
     def report_devices(self, devices: List[dict]) -> bool:
-        """Report discovered devices to Seraph AI server"""
+        """Report discovered devices, alerts, and vulnerabilities to Seraph AI server"""
         try:
+            # Collect vulnerabilities from all devices
+            all_vulnerabilities = []
+            for device in devices:
+                if device.get('vulnerabilities'):
+                    all_vulnerabilities.extend(device['vulnerabilities'])
+            
             payload = {
                 'scanner_id': self.scanner_id,
                 'network': self.network_cidr,
                 'scan_time': datetime.now().isoformat(),
-                'devices': devices
+                'devices': devices,
+                'alerts': self.alerts,
+                'vulnerabilities': all_vulnerabilities,
+                'summary': {
+                    'total_devices': len(devices),
+                    'rogue_devices': len([a for a in self.alerts if a.get('type') == 'rogue_device']),
+                    'spoofing_alerts': len([a for a in self.alerts if 'spoof' in a.get('type', '').lower() or 'arp' in a.get('type', '').lower()]),
+                    'vulnerabilities_found': len(all_vulnerabilities),
+                    'critical_vulns': len([v for v in all_vulnerabilities if v.get('severity') == 'critical'])
+                }
             }
             
             response = requests.post(
@@ -388,6 +724,7 @@ class SeraphNetworkScanner:
             if response.ok:
                 result = response.json()
                 print(f"[+] Reported {len(devices)} devices to server")
+                print(f"[+] Alerts: {len(self.alerts)}, Vulnerabilities: {len(all_vulnerabilities)}")
                 print(f"[+] Server response: {result.get('message', 'OK')}")
                 return True
             else:
@@ -579,7 +916,17 @@ Write-Host "[+] Seraph Defender installed successfully!"
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Seraph Network Scanner')
+    parser = argparse.ArgumentParser(
+        description='Seraph Network Scanner - Enterprise Network Security',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  %(prog)s --api-url https://seraph.example.com --once
+  %(prog)s --api-url https://seraph.example.com --network 10.0.0.0/24
+  %(prog)s --api-url https://seraph.example.com --vuln-scan
+  %(prog)s --api-url https://seraph.example.com --add-baseline 192.168.1.100
+        '''
+    )
     parser.add_argument('--api-url', required=True, help='Seraph AI server URL')
     parser.add_argument('--network', help='Network CIDR to scan (default: auto-detect)')
     parser.add_argument('--interval', type=int, default=300, help='Scan interval in seconds')
@@ -588,6 +935,10 @@ def main():
     parser.add_argument('--deploy-user', default='root', help='Username for deployment')
     parser.add_argument('--deploy-pass', help='Password for deployment')
     parser.add_argument('--deploy-key', help='SSH key path for deployment')
+    parser.add_argument('--vuln-scan', action='store_true', help='Enable detailed vulnerability scanning')
+    parser.add_argument('--add-baseline', help='Add IP to known device baseline')
+    parser.add_argument('--show-baseline', action='store_true', help='Show known device baseline')
+    parser.add_argument('--clear-baseline', action='store_true', help='Clear device baseline')
     
     args = parser.parse_args()
     
@@ -595,6 +946,27 @@ def main():
     
     if args.network:
         scanner.network_cidr = args.network
+    
+    # Baseline management
+    if args.show_baseline:
+        print("\n" + "="*70)
+        print("KNOWN DEVICE BASELINE:")
+        print("="*70)
+        for ip, info in scanner.known_devices.items():
+            print(f"  {ip:15} | {info.get('mac_address', 'N/A'):17} | {info.get('hostname', 'N/A')}")
+        print(f"\nTotal: {len(scanner.known_devices)} devices")
+        return
+    
+    if args.clear_baseline:
+        scanner.known_devices = {}
+        scanner._save_baseline()
+        print("[+] Baseline cleared")
+        return
+    
+    if args.add_baseline:
+        device = {'ip_address': args.add_baseline}
+        scanner.add_to_baseline(device)
+        return
     
     if args.deploy:
         # Deploy to specific device
@@ -610,11 +982,31 @@ def main():
         devices = scanner.scan_network()
         scanner.report_devices(devices)
         
-        print("\n" + "="*60)
+        print("\n" + "="*70)
         print("DISCOVERED DEVICES:")
-        print("="*60)
+        print("="*70)
         for d in devices:
-            print(f"  {d['ip_address']:15} | {d.get('mac_address', 'N/A'):17} | {d.get('os', 'unknown'):10} | {d.get('hostname', 'N/A')}")
+            status = "ROGUE" if d['ip_address'] not in scanner.known_devices else "OK"
+            vuln_count = len(d.get('vulnerabilities', []))
+            vuln_str = f"VULN:{vuln_count}" if vuln_count > 0 else ""
+            print(f"  {d['ip_address']:15} | {d.get('mac_address', 'N/A'):17} | {d.get('os', 'unknown'):10} | {status:5} {vuln_str}")
+        
+        # Show alerts
+        if scanner.alerts:
+            print("\n" + "="*70)
+            print("SECURITY ALERTS:")
+            print("="*70)
+            for alert in scanner.alerts:
+                print(f"  [{alert.get('severity', 'unknown').upper():8}] {alert.get('message', 'Unknown alert')}")
+        
+        # Show vulnerabilities
+        all_vulns = [v for d in devices for v in d.get('vulnerabilities', [])]
+        if all_vulns:
+            print("\n" + "="*70)
+            print("VULNERABILITIES:")
+            print("="*70)
+            for v in all_vulns:
+                print(f"  [{v.get('severity', 'unknown').upper():8}] {v.get('ip')}:{v.get('port')} - {v.get('service')} {v.get('version')} - {', '.join(v.get('cves', []))}")
     else:
         # Continuous scanning
         scanner.run_continuous()

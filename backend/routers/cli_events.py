@@ -21,7 +21,7 @@ from routers.dependencies import get_current_user, get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/cli", tags=["CLI Events"])
-deception_router = APIRouter(prefix="/deception", tags=["Deception Events"])
+deception_router = APIRouter(prefix="/deception-hits", tags=["Deception Hit Events"])
 
 
 # =============================================================================

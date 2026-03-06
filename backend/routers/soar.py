@@ -210,7 +210,19 @@ def _get_action_description(action: str) -> str:
         "disable_user": "Disable a user account",
         "scan_endpoint": "Run antimalware scan on endpoint",
         "update_firewall": "Add or modify firewall rules",
-        "create_ticket": "Create a support/incident ticket"
+        "create_ticket": "Create a support/incident ticket",
+        # AI Defense Actions
+        "throttle_cli": "Rate-limit AI agent CLI commands",
+        "inject_latency": "Inject response delays to slow AI attackers",
+        "deploy_decoy": "Deploy honey tokens/decoys for AI deception",
+        "engage_tarpit": "Engage adaptive tarpit to trap AI threats",
+        "capture_triage_bundle": "Capture full triage bundle for AI session",
+        "capture_memory_snapshot": "Capture memory snapshot for forensics",
+        "kill_process_tree": "Kill entire process tree (parent + children)",
+        "tag_session": "Apply threat tags to session for tracking",
+        "rotate_credentials": "Rotate compromised credentials",
+        "notify": "Send notification to security team",
+        "feed_disinformation": "Feed false data to mislead AI attackers"
     }
     return descriptions.get(action, "No description available")
 
@@ -223,7 +235,18 @@ def _get_trigger_description(trigger: str) -> str:
         "ioc_match": "Indicator of compromise matched",
         "honeypot_triggered": "Honeypot accessed by attacker",
         "anomaly_detected": "Behavioral anomaly detected",
-        "manual": "Manual playbook execution"
+        "manual": "Manual playbook execution",
+        # AI Agent Threat Triggers
+        "ai_agent_detected": "Autonomous AI agent detected on session",
+        "rapid_tool_switching": "Fast tool/command switching (AI pattern)",
+        "decoy_touched": "Deployed decoy accessed by potential AI",
+        "credential_spray_burst": "Burst credential spraying detected",
+        "systematic_enumeration": "Systematic recon enumeration pattern",
+        "ml_pattern_match": "Machine learning detected AI behavior",
+        "goal_persistence_high": "High goal persistence typical of AI agents",
+        "timing_anomaly": "Timing patterns indicate automation",
+        "api_abuse_burst": "Burst API requests typical of AI",
+        "lateral_automation": "Automated lateral movement detected"
     }
     return descriptions.get(trigger, "No description available")
 

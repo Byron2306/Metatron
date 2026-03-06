@@ -89,7 +89,7 @@ function App() {
               <Route path="hunting" element={<ThreatHuntingPage />} />
               <Route path="honeypots" element={<HoneypotsPage />} />
               <Route path="reports" element={<ReportsPage />} />
-              <Route path="agents" element={<AgentsPage />} />
+              <Route path="agents" element={<Navigate to="/unified-agent" replace />} />
               <Route path="quarantine" element={<QuarantinePage />} />
               <Route path="response" element={<ThreatResponsePage />} />
               <Route path="timeline" element={<TimelinePage />} />
@@ -108,10 +108,10 @@ function App() {
               <Route path="sandbox" element={<SandboxPage />} />
               <Route path="browser-isolation" element={<BrowserIsolationPage />} />
               <Route path="kibana" element={<KibanaDashboardsPage />} />
-              <Route path="agent-commands" element={<AgentCommandsPage />} />
-              <Route path="agent-commands/:agentId" element={<AgentDetailsPage />} />
+              <Route path="agent-commands" element={<Navigate to="/unified-agent" replace />} />
+              <Route path="agent-commands/:agentId" element={<Navigate to="/unified-agent" replace />} />
               <Route path="cli-sessions" element={<CLISessionsPage />} />
-              <Route path="swarm" element={<SwarmDashboard />} />
+              <Route path="swarm" element={<Navigate to="/unified-agent" replace />} />
               <Route path="ai-threats" element={<AIThreatIntelligence />} />
               <Route path="command-center" element={<CommandCenterPage />} />
               <Route path="advanced" element={<AdvancedServicesPage />} />

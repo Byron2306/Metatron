@@ -1,5 +1,6 @@
 """
 Ransomware Protection Router
+Enhanced with deception engine integration for campaign tracking
 """
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional, List
@@ -11,6 +12,18 @@ from .dependencies import get_current_user, check_permission
 from ransomware_protection import ransomware_protection, RansomwareProtectionManager
 
 router = APIRouter(prefix="/ransomware", tags=["Ransomware Protection"])
+
+# Lazy loader for deception engine to avoid circular imports
+_deception_engine = None
+def get_deception_engine():
+    global _deception_engine
+    if _deception_engine is None:
+        try:
+            from deception_engine import deception_engine
+            _deception_engine = deception_engine
+        except ImportError:
+            pass
+    return _deception_engine
 
 class DeployCanariesRequest(BaseModel):
     directories: Optional[List[str]] = None
@@ -53,12 +66,38 @@ async def get_canaries(current_user: dict = Depends(get_current_user)):
 
 @router.post("/canaries/check")
 async def check_canaries(current_user: dict = Depends(get_current_user)):
-    """Manually check canary files for modifications"""
+    """Manually check canary files for modifications - notifies deception engine on triggers"""
     from dataclasses import asdict
     triggered = ransomware_protection.canary_manager.check_canaries()
+    
+    # Notify deception engine for each triggered canary
+    deception = get_deception_engine()
+    campaign_tracking = []
+    if deception and triggered:
+        import logging
+        logger = logging.getLogger(__name__)
+        for canary in triggered:
+            try:
+                # Record as decoy interaction - canary is a type of decoy
+                assessment = await deception.record_decoy_interaction(
+                    ip="local",  # Canary triggers are local process-based
+                    decoy_type="canary",
+                    decoy_id=canary.path,
+                    headers={"canary_path": canary.path, "triggered_at": str(canary.last_check)}
+                )
+                campaign_tracking.append({
+                    "canary_path": canary.path,
+                    "campaign_id": assessment.campaign_id,
+                    "escalation_level": assessment.escalation_level.value,
+                    "risk_score": assessment.score
+                })
+            except Exception as e:
+                logger.warning(f"Deception engine notification failed for canary {canary.path}: {e}")
+    
     return {
         "triggered_count": len(triggered),
-        "triggered": [asdict(c) for c in triggered]
+        "triggered": [asdict(c) for c in triggered],
+        "campaign_tracking": campaign_tracking if campaign_tracking else None
     }
 
 @router.get("/protected-folders")

@@ -189,6 +189,43 @@ class AutonomousAgentThreatLayer:
     Core AATL engine that processes telemetry and generates AI threat assessments.
     """
     
+    # ==========================================================================
+    # TRUSTED AI / FRIENDLY AGENT WHITELIST
+    # ==========================================================================
+    # These are legitimate AI-powered development tools that should NOT trigger
+    # AATL threat detection. They exhibit AI-like behavior (rapid commands,
+    # automated patterns) but are benign.
+    
+    TRUSTED_AI_TOOLS = {
+        # VS Code and extensions
+        "code", "code.exe", "code-insiders", "vscode", "code-oss",
+        "copilot-agent", "github.copilot", "copilot-language-server",
+        
+        # JetBrains IDEs
+        "idea", "pycharm", "webstorm", "goland", "rider", "clion", "intellij",
+        
+        # AI Assistants
+        "claude", "claude-desktop", "cursor", "cursor.exe",
+        "ollama", "chatgpt", "aider", "continue", "codeium", "tabnine",
+        
+        # Common dev tools that may spawn AI-assisted commands
+        "npm", "npx", "node", "python", "python3", "pip",
+        "cargo", "go", "dotnet", "git", "gh",
+        
+        # Terminal emulators (human-initiated)
+        "gnome-terminal", "konsole", "alacritty", "kitty", "iterm2", "warp",
+        "windowsterminal", "wt", "cmd", "powershell", "pwsh", "bash", "zsh",
+        
+        # Our own infrastructure
+        "mcp-server", "metatron-mcp", "seraph-mcp", "unified-agent", "seraph-defender",
+    }
+    
+    TRUSTED_AI_PATTERNS = [
+        r".*copilot.*", r".*vscode.*", r".*jetbrains.*", r".*cursor.*",
+        r".*anthropic.*", r".*openai.*", r".*claude.*", r".*ollama.*",
+        r".*metatron.*", r".*seraph.*",
+    ]
+    
     # Timing thresholds for machine detection (in milliseconds)
     MACHINE_TIMING = {
         "min_human_delay": 200,      # Humans rarely type faster than 200ms
@@ -260,7 +297,43 @@ class AutonomousAgentThreatLayer:
         self.db = db
         self.active_sessions: Dict[str, AATLAssessment] = {}
         self.session_commands: Dict[str, List[Dict]] = defaultdict(list)
+        self.trusted_sessions: set = set()  # Sessions from trusted AI tools
         logger.info("AATL Engine initialized")
+    
+    def _is_trusted_ai_source(self, event: Dict) -> Tuple[bool, str]:
+        """
+        Check if the event originates from a trusted AI/development tool.
+        
+        Returns:
+            (is_trusted: bool, reason: str)
+        """
+        source = event.get("source", "").lower()
+        process_name = event.get("data", {}).get("process_name", "").lower()
+        parent_process = event.get("data", {}).get("parent_process", "").lower()
+        user_agent = event.get("data", {}).get("user_agent", "").lower()
+        
+        # Check direct process name match
+        for trusted in self.TRUSTED_AI_TOOLS:
+            if trusted in process_name or trusted in parent_process:
+                return True, f"Trusted AI tool: {trusted}"
+        
+        # Check user agent (for API calls)
+        trusted_agents = ["vscode", "copilot", "cursor", "jetbrains", "claude", "anthropic"]
+        for agent in trusted_agents:
+            if agent in user_agent:
+                return True, f"Trusted user agent: {agent}"
+        
+        # Check source patterns
+        for pattern in self.TRUSTED_AI_PATTERNS:
+            if re.match(pattern, source, re.IGNORECASE) or \
+               re.match(pattern, process_name, re.IGNORECASE):
+                return True, f"Matches trusted pattern"
+        
+        # Check if this is our own infrastructure (MCP servers, agents)
+        if any(x in source for x in ["metatron", "seraph", "mcp-server", "unified-agent"]):
+            return True, "Metatron infrastructure"
+        
+        return False, "Unknown source"
     
     async def process_cli_event(self, event: Dict) -> Optional[AATLAssessment]:
         """Process a CLI event and update AATL assessment"""
@@ -270,6 +343,19 @@ class AutonomousAgentThreatLayer:
         timestamp = event.get("timestamp", datetime.now(timezone.utc).isoformat())
         
         session_key = f"{host_id}:{session_id}"
+        
+        # Check if this is from a trusted AI tool - skip threat analysis
+        is_trusted, trust_reason = self._is_trusted_ai_source(event)
+        if is_trusted:
+            if session_key not in self.trusted_sessions:
+                self.trusted_sessions.add(session_key)
+                logger.debug(f"Trusted AI session detected: {session_key} - {trust_reason}")
+            return None  # No threat assessment needed for trusted sources
+        
+        # If this session was previously trusted but now isn't, that's suspicious
+        if session_key in self.trusted_sessions:
+            logger.warning(f"Session {session_key} changed from trusted to untrusted - possible spoofing")
+            self.trusted_sessions.discard(session_key)
         
         # Store command
         self.session_commands[session_key].append({

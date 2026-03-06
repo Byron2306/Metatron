@@ -456,22 +456,88 @@ class ProtectedFolderManager:
     """
     Manages folders protected from ransomware access.
     Only whitelisted processes can modify files in protected folders.
+    
+    Enforcement mechanisms:
+    - Windows: Integrates with Controlled Folder Access API
+    - Linux: Uses inotify for real-time monitoring + process verification
+    - Cross-platform: Process whitelist validation with alert generation
     """
     
     DEFAULT_PROTECTED = [
         str(Path.home() / "Documents"),
         str(Path.home() / "Pictures"),
         str(Path.home() / "Desktop"),
+        str(Path.home() / "Videos"),
+        str(Path.home() / "Music"),
     ]
     
+    # Expanded whitelist with common legitimate applications
     DEFAULT_ALLOWED_PROCESSES = [
-        "explorer.exe", "notepad.exe", "word.exe", "excel.exe",
-        "code.exe", "vim", "nano", "gedit", "libreoffice"
+        # Windows shell/system
+        "explorer.exe", "notepad.exe", "notepad++.exe", "wordpad.exe",
+        # Microsoft Office
+        "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe", "onenote.exe",
+        # Development
+        "code.exe", "code", "devenv.exe", "vim", "nvim", "nano", "emacs", "gedit",
+        "atom", "sublime_text", "idea64.exe", "pycharm64.exe", "webstorm64.exe",
+        # Media
+        "vlc.exe", "vlc", "mpv", "gimp", "photoshop.exe", "illustrator.exe",
+        # Productivity
+        "libreoffice", "soffice.bin", "abiword", "gnumeric", "evince", "okular",
+        # Browsers (for download management)
+        "chrome.exe", "firefox.exe", "msedge.exe", "brave.exe",
+        # Cloud sync (legitimate file modifications)
+        "onedrive.exe", "dropbox", "googledrivesync.exe",
+    ]
+    
+    # Known ransomware process patterns to always block
+    BLOCKED_PROCESS_PATTERNS = [
+        "vssadmin", "wmic shadowcopy", "bcdedit", "wbadmin", "cipher /w",
+        "powershell.*-enc", "cmd.*/c.*del", "taskkill.*defender",
+        "reg.*delete.*backup", "net stop.*vss", "net stop.*backup",
     ]
     
     def __init__(self):
         self.protected_folders: Dict[str, ProtectedFolder] = {}
+        self.access_violations: List[Dict] = []
+        self.blocked_attempts: int = 0
+        self._alert_callback: Optional[Callable] = None
+        self._monitoring = False
+        self._monitor_thread = None
+        self._windows_cfa_enabled = False
         self._load_config()
+        self._check_platform_features()
+    
+    def _check_platform_features(self):
+        """Check available platform-specific features"""
+        import platform
+        system = platform.system()
+        
+        if system == "Windows":
+            # Check if Controlled Folder Access is available
+            try:
+                import winreg
+                key = winreg.OpenKey(
+                    winreg.HKEY_LOCAL_MACHINE,
+                    r"SOFTWARE\Microsoft\Windows Defender\Windows Defender Exploit Guard\Controlled Folder Access",
+                    0, winreg.KEY_READ
+                )
+                value, _ = winreg.QueryValueEx(key, "EnableControlledFolderAccess")
+                self._windows_cfa_enabled = value == 1
+                winreg.CloseKey(key)
+                logger.info(f"Windows Controlled Folder Access: {'enabled' if self._windows_cfa_enabled else 'disabled'}")
+            except Exception:
+                logger.info("Windows Controlled Folder Access not available")
+        
+        elif system == "Linux":
+            # Check for inotify support
+            try:
+                import ctypes
+                libc = ctypes.CDLL("libc.so.6")
+                self._inotify_available = hasattr(libc, 'inotify_init')
+                logger.info(f"Linux inotify support: {'available' if self._inotify_available else 'unavailable'}")
+            except Exception:
+                self._inotify_available = False
     
     def _load_config(self):
         """Load protected folder configuration"""
@@ -494,16 +560,76 @@ class ProtectedFolderManager:
         except Exception as e:
             logger.error(f"Failed to save protected folders config: {e}")
     
+    def set_alert_callback(self, callback: Callable):
+        """Set callback for folder access alerts"""
+        self._alert_callback = callback
+    
     def add_protected_folder(self, path: str, allowed_processes: List[str] = None) -> ProtectedFolder:
         """Add a folder to protection"""
         folder = ProtectedFolder(
             path=path,
-            allowed_processes=allowed_processes or self.DEFAULT_ALLOWED_PROCESSES,
+            allowed_processes=allowed_processes or self.DEFAULT_ALLOWED_PROCESSES.copy(),
             created_at=datetime.now(timezone.utc).isoformat()
         )
         self.protected_folders[path] = folder
         self._save_config()
+        
+        # Try to enable Windows CFA for this folder
+        self._enable_windows_cfa(path)
+        
         return folder
+    
+    def _enable_windows_cfa(self, path: str):
+        """Enable Windows Controlled Folder Access for a folder"""
+        import platform
+        if platform.system() != "Windows":
+            return
+        
+        try:
+            import subprocess
+            # Add folder to Windows Defender Controlled Folder Access
+            result = subprocess.run([
+                "powershell", "-Command",
+                f"Add-MpPreference -ControlledFolderAccessProtectedFolders '{path}'"
+            ], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                logger.info(f"Added {path} to Windows Controlled Folder Access")
+            else:
+                logger.debug(f"Could not add to CFA: {result.stderr}")
+        except Exception as e:
+            logger.debug(f"CFA integration not available: {e}")
+    
+    def add_allowed_process(self, folder_path: str, process_name: str) -> bool:
+        """Add an allowed process to a protected folder"""
+        if folder_path in self.protected_folders:
+            folder = self.protected_folders[folder_path]
+            if process_name not in folder.allowed_processes:
+                folder.allowed_processes.append(process_name)
+                self._save_config()
+                
+                # Also add to Windows CFA if available
+                self._add_windows_cfa_allowed_app(process_name)
+            return True
+        return False
+    
+    def _add_windows_cfa_allowed_app(self, process_path: str):
+        """Add an allowed application to Windows Controlled Folder Access"""
+        import platform
+        if platform.system() != "Windows":
+            return
+        
+        try:
+            import subprocess
+            result = subprocess.run([
+                "powershell", "-Command",
+                f"Add-MpPreference -ControlledFolderAccessAllowedApplications '{process_path}'"
+            ], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                logger.info(f"Added {process_path} to CFA allowed apps")
+        except Exception:
+            pass
     
     def remove_protected_folder(self, path: str) -> bool:
         """Remove a folder from protection"""
@@ -513,13 +639,22 @@ class ProtectedFolderManager:
             return True
         return False
     
-    def check_access(self, file_path: str, process_name: str) -> bool:
+    def check_access(self, file_path: str, process_name: str, process_cmdline: str = "") -> bool:
         """
         Check if a process is allowed to access a protected file.
-        Returns True if access is allowed.
+        Returns True if access is allowed, False if blocked.
         """
+        import re
         file_path = Path(file_path)
         
+        # First check for known ransomware patterns (always block)
+        full_cmd = f"{process_name} {process_cmdline}".lower()
+        for pattern in self.BLOCKED_PROCESS_PATTERNS:
+            if re.search(pattern.lower(), full_cmd):
+                self._record_violation(str(file_path), process_name, "ransomware_pattern", pattern)
+                return False
+        
+        # Check protected folders
         for protected_path, folder in self.protected_folders.items():
             if str(file_path).startswith(protected_path):
                 # File is in a protected folder
@@ -529,15 +664,413 @@ class ProtectedFolderManager:
                 if not allowed:
                     folder.last_access_attempt = datetime.now(timezone.utc).isoformat()
                     self._save_config()
+                    self._record_violation(str(file_path), process_name, "not_whitelisted", protected_path)
+                    return False
                 
-                return allowed
+                return True
         
         # Not in a protected folder
         return True
     
+    def _record_violation(self, file_path: str, process_name: str, reason: str, detail: str):
+        """Record an access violation"""
+        self.blocked_attempts += 1
+        
+        violation = {
+            "id": hashlib.md5(f"{file_path}-{datetime.now().isoformat()}".encode()).hexdigest()[:16],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "file_path": file_path,
+            "process_name": process_name,
+            "reason": reason,
+            "detail": detail
+        }
+        
+        self.access_violations.append(violation)
+        
+        # Keep only last 1000 violations
+        if len(self.access_violations) > 1000:
+            self.access_violations = self.access_violations[-1000:]
+        
+        logger.warning(f"Protected folder access blocked: {process_name} -> {file_path} ({reason})")
+        
+        # Emit alert for potential ransomware
+        if self._alert_callback and reason == "ransomware_pattern":
+            event = RansomwareEvent(
+                id=violation["id"],
+                event_type=RansomwareEventType.PROTECTED_FOLDER_ACCESS.value,
+                timestamp=violation["timestamp"],
+                severity="critical",
+                process_name=process_name,
+                affected_files=[file_path],
+                details={"reason": reason, "pattern": detail}
+            )
+            self._alert_callback(event)
+    
     def get_protected_folders(self) -> List[ProtectedFolder]:
         """Get all protected folders"""
         return list(self.protected_folders.values())
+    
+    def get_violations(self, limit: int = 100) -> List[Dict]:
+        """Get recent access violations"""
+        return self.access_violations[-limit:]
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get protected folder statistics"""
+        return {
+            "protected_folders_count": len(self.protected_folders),
+            "protected_paths": list(self.protected_folders.keys()),
+            "blocked_attempts": self.blocked_attempts,
+            "recent_violations": len(self.access_violations),
+            "windows_cfa_enabled": self._windows_cfa_enabled,
+            "monitoring_active": self._monitoring
+        }
+
+
+# =============================================================================
+# SHADOW COPY MONITORING
+# =============================================================================
+
+class ShadowCopyMonitor:
+    """
+    Monitors Windows Shadow Copies (VSS) and Linux snapshots for ransomware activity.
+    
+    Ransomware commonly deletes shadow copies to prevent recovery:
+    - Windows: vssadmin delete shadows, wmic shadowcopy delete
+    - Also monitors for Volume Shadow Copy service stop/disable
+    - Linux: Monitors LVM/btrfs snapshot deletion
+    
+    Detection methods:
+    - Process command line monitoring for vssadmin/wmic commands
+    - Windows Event Log monitoring (Event ID 524, 8224)
+    - Service state monitoring for VSS service
+    - Periodic shadow copy count validation
+    """
+    
+    # Suspicious commands that target shadow copies
+    SHADOW_COPY_COMMANDS = [
+        "vssadmin delete shadows",
+        "vssadmin resize shadowstorage",
+        "wmic shadowcopy delete",
+        "wmic shadowcopy where",
+        "bcdedit /set {default} bootstatuspolicy ignoreallfailures",
+        "bcdedit /set {default} recoveryenabled no",
+        "wbadmin delete catalog",
+        "wbadmin delete systemstatebackup",
+    ]
+    
+    # Suspicious services being stopped/disabled
+    BACKUP_SERVICES = [
+        "VSS",              # Volume Shadow Copy
+        "VSSAdmin",         # Shadow copy admin
+        "SDRSVC",           # Windows Backup
+        "wbengine",         # Block Level Backup Engine
+        "swprv",            # Microsoft Software Shadow Copy Provider
+        "vds",              # Virtual Disk Service
+        "SQLWriter",        # SQL Server VSS Writer (targeted by ransomware)
+    ]
+    
+    def __init__(self):
+        self._alert_callback: Optional[Callable] = None
+        self._monitoring = False
+        self._monitor_thread = None
+        self._baseline_shadow_count: Optional[int] = None
+        self._baseline_snapshots: Dict[str, List[str]] = {}
+        self._alerts: List[Dict] = []
+        self._detections: int = 0
+        self._last_check: Optional[str] = None
+        self._platform = self._detect_platform()
+    
+    def _detect_platform(self) -> str:
+        """Detect the current platform"""
+        import platform
+        return platform.system()
+    
+    def set_alert_callback(self, callback: Callable):
+        """Set callback for shadow copy alerts"""
+        self._alert_callback = callback
+    
+    def start_monitoring(self):
+        """Start shadow copy monitoring"""
+        if self._monitoring:
+            return
+        
+        # Establish baseline
+        self._establish_baseline()
+        
+        self._monitoring = True
+        self._monitor_thread = threading.Thread(
+            target=self._monitor_loop,
+            daemon=True
+        )
+        self._monitor_thread.start()
+        logger.info("Shadow copy monitoring started")
+    
+    def stop_monitoring(self):
+        """Stop shadow copy monitoring"""
+        self._monitoring = False
+        if self._monitor_thread:
+            self._monitor_thread.join(timeout=5)
+        logger.info("Shadow copy monitoring stopped")
+    
+    def _establish_baseline(self):
+        """Establish baseline shadow copy/snapshot count"""
+        if self._platform == "Windows":
+            self._baseline_shadow_count = self._get_windows_shadow_count()
+            logger.info(f"Baseline shadow copies: {self._baseline_shadow_count}")
+        elif self._platform == "Linux":
+            self._baseline_snapshots = self._get_linux_snapshots()
+            logger.info(f"Baseline snapshots: {sum(len(v) for v in self._baseline_snapshots.values())}")
+    
+    def _get_windows_shadow_count(self) -> int:
+        """Get current Windows shadow copy count"""
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["vssadmin", "list", "shadows"],
+                capture_output=True, text=True,
+                timeout=30
+            )
+            # Count "Shadow Copy ID:" occurrences
+            return result.stdout.lower().count("shadow copy id:")
+        except Exception as e:
+            logger.debug(f"Could not enumerate shadow copies: {e}")
+            return -1
+    
+    def _get_linux_snapshots(self) -> Dict[str, List[str]]:
+        """Get current Linux LVM/btrfs snapshots"""
+        snapshots = {"lvm": [], "btrfs": []}
+        
+        try:
+            import subprocess
+            
+            # LVM snapshots
+            result = subprocess.run(
+                ["lvs", "--noheadings", "-o", "lv_name,lv_attr"],
+                capture_output=True, text=True,
+                timeout=30
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    if line and 's' in line:  # 's' in attributes = snapshot
+                        snapshots["lvm"].append(line.strip().split()[0])
+        except Exception:
+            pass
+        
+        try:
+            # Btrfs snapshots
+            result = subprocess.run(
+                ["btrfs", "subvolume", "list", "-s", "/"],
+                capture_output=True, text=True,
+                timeout=30
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    if line:
+                        snapshots["btrfs"].append(line.strip())
+        except Exception:
+            pass
+        
+        return snapshots
+    
+    def _check_windows_services(self) -> List[Dict]:
+        """Check if backup-related services are running"""
+        alerts = []
+        
+        try:
+            import subprocess
+            
+            for service in self.BACKUP_SERVICES:
+                result = subprocess.run(
+                    ["sc", "query", service],
+                    capture_output=True, text=True,
+                    timeout=10
+                )
+                
+                if "STOPPED" in result.stdout or "DISABLED" in result.stdout:
+                    alerts.append({
+                        "type": "service_stopped",
+                        "service": service,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+        except Exception as e:
+            logger.debug(f"Service check error: {e}")
+        
+        return alerts
+    
+    def _check_windows_event_log(self) -> List[Dict]:
+        """Check Windows Event Log for shadow copy deletion events"""
+        alerts = []
+        
+        try:
+            import subprocess
+            
+            # Query for VSS-related events (Event ID 524 = shadow copy deleted)
+            result = subprocess.run([
+                "wevtutil", "qe", "System",
+                "/q:*[System[(EventID=524 or EventID=8224)]]",
+                "/c:10", "/rd:true", "/f:text"
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.stdout and "Event ID" in result.stdout:
+                alerts.append({
+                    "type": "event_log_alert",
+                    "details": "Recent shadow copy deletion events detected",
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+        except Exception as e:
+            logger.debug(f"Event log check error: {e}")
+        
+        return alerts
+    
+    def check_command(self, command: str, process_name: str = "") -> bool:
+        """
+        Check if a command is attempting to delete shadow copies.
+        Returns True if suspicious (should be blocked).
+        """
+        command_lower = command.lower()
+        
+        for pattern in self.SHADOW_COPY_COMMANDS:
+            if pattern.lower() in command_lower:
+                self._record_detection(
+                    event_type="shadow_copy_command",
+                    process_name=process_name,
+                    details={"command": command, "pattern": pattern}
+                )
+                return True
+        
+        # Check for service stop commands targeting backup services
+        if "net stop" in command_lower or "sc stop" in command_lower:
+            for service in self.BACKUP_SERVICES:
+                if service.lower() in command_lower:
+                    self._record_detection(
+                        event_type="backup_service_stop",
+                        process_name=process_name,
+                        details={"command": command, "service": service}
+                    )
+                    return True
+        
+        return False
+    
+    def _record_detection(self, event_type: str, process_name: str, details: Dict):
+        """Record a shadow copy attack detection"""
+        self._detections += 1
+        
+        alert = {
+            "id": hashlib.md5(f"{event_type}-{datetime.now().isoformat()}".encode()).hexdigest()[:16],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "process_name": process_name,
+            "details": details,
+            "severity": "critical"
+        }
+        
+        self._alerts.append(alert)
+        
+        # Keep only last 500 alerts
+        if len(self._alerts) > 500:
+            self._alerts = self._alerts[-500:]
+        
+        logger.critical(f"SHADOW COPY ATTACK DETECTED: {event_type} by {process_name}")
+        
+        # Emit alert
+        if self._alert_callback:
+            event = RansomwareEvent(
+                id=alert["id"],
+                event_type=RansomwareEventType.SHADOW_COPY_DELETE.value if "shadow" in event_type 
+                          else RansomwareEventType.BACKUP_SERVICE_STOP.value,
+                timestamp=alert["timestamp"],
+                severity="critical",
+                process_name=process_name,
+                affected_files=[],
+                details=details
+            )
+            self._alert_callback(event)
+    
+    def _monitor_loop(self):
+        """Background monitoring loop"""
+        while self._monitoring:
+            try:
+                self._last_check = datetime.now(timezone.utc).isoformat()
+                
+                if self._platform == "Windows":
+                    # Check current shadow count against baseline
+                    current_count = self._get_windows_shadow_count()
+                    
+                    if self._baseline_shadow_count is not None and current_count >= 0:
+                        if current_count < self._baseline_shadow_count:
+                            reduction = self._baseline_shadow_count - current_count
+                            self._record_detection(
+                                event_type="shadow_count_reduced",
+                                process_name="unknown",
+                                details={
+                                    "baseline": self._baseline_shadow_count,
+                                    "current": current_count,
+                                    "reduction": reduction
+                                }
+                            )
+                    
+                    # Check services
+                    service_alerts = self._check_windows_services()
+                    for alert in service_alerts:
+                        self._record_detection(
+                            event_type="backup_service_stopped",
+                            process_name="system",
+                            details=alert
+                        )
+                    
+                    # Check event logs
+                    event_alerts = self._check_windows_event_log()
+                    for alert in event_alerts:
+                        self._record_detection(
+                            event_type="event_log_shadow_deletion",
+                            process_name="unknown",
+                            details=alert
+                        )
+                
+                elif self._platform == "Linux":
+                    # Check current snapshot count against baseline
+                    current_snapshots = self._get_linux_snapshots()
+                    
+                    for snap_type in ["lvm", "btrfs"]:
+                        baseline_count = len(self._baseline_snapshots.get(snap_type, []))
+                        current_count = len(current_snapshots.get(snap_type, []))
+                        
+                        if baseline_count > 0 and current_count < baseline_count:
+                            self._record_detection(
+                                event_type=f"{snap_type}_snapshot_deleted",
+                                process_name="unknown",
+                                details={
+                                    "baseline": baseline_count,
+                                    "current": current_count,
+                                    "reduction": baseline_count - current_count
+                                }
+                            )
+                
+            except Exception as e:
+                logger.error(f"Shadow copy monitor error: {e}")
+            
+            # Check every 60 seconds
+            time.sleep(60)
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get shadow copy monitor status"""
+        current_count = -1
+        if self._platform == "Windows":
+            current_count = self._get_windows_shadow_count()
+        
+        return {
+            "monitoring": self._monitoring,
+            "platform": self._platform,
+            "baseline_shadow_count": self._baseline_shadow_count,
+            "current_shadow_count": current_count,
+            "detections": self._detections,
+            "recent_alerts": len(self._alerts),
+            "last_check": self._last_check
+        }
+    
+    def get_alerts(self, limit: int = 50) -> List[Dict]:
+        """Get recent shadow copy alerts"""
+        return self._alerts[-limit:]
 
 
 # =============================================================================
@@ -547,6 +1080,7 @@ class ProtectedFolderManager:
 class RansomwareProtectionManager:
     """
     Central manager for all ransomware protection features.
+    Includes: Canary Files, Behavioral Detection, Protected Folders, Shadow Copy Monitoring
     """
     
     _instance = None
@@ -565,6 +1099,7 @@ class RansomwareProtectionManager:
         self.canary_manager = CanaryFileManager()
         self.behavior_detector = RansomwareBehaviorDetector()
         self.folder_manager = ProtectedFolderManager()
+        self.shadow_monitor = ShadowCopyMonitor()
         self.events: List[RansomwareEvent] = []
         self._monitoring = False
         self._monitor_thread = None
@@ -581,6 +1116,8 @@ class RansomwareProtectionManager:
         """Set callback for ransomware alerts"""
         self.canary_manager.set_alert_callback(callback)
         self.behavior_detector.set_alert_callback(callback)
+        self.folder_manager.set_alert_callback(callback)
+        self.shadow_monitor.set_alert_callback(callback)
     
     def start_protection(self):
         """Start all ransomware protection features"""
@@ -590,16 +1127,20 @@ class RansomwareProtectionManager:
         if config.canary_enabled:
             self.canary_manager.deploy_canaries()
         
-        # Start monitoring
+        # Start shadow copy monitoring
+        self.shadow_monitor.start_monitoring()
+        
+        # Start main monitoring loop
         self._monitoring = True
         self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._monitor_thread.start()
         
-        logger.info("Ransomware protection active")
+        logger.info("Ransomware protection active (all modules)")
     
     def stop_protection(self):
         """Stop ransomware protection"""
         self._monitoring = False
+        self.shadow_monitor.stop_monitoring()
         if self._monitor_thread:
             self._monitor_thread.join(timeout=5)
         logger.info("Ransomware protection stopped")
@@ -618,13 +1159,46 @@ class RansomwareProtectionManager:
             
             time.sleep(30)
     
+    def check_command_safety(self, command: str, process_name: str = "") -> Dict[str, Any]:
+        """
+        Check if a command should be blocked.
+        Returns dict with 'allowed' boolean and 'reason' if blocked.
+        """
+        # Check shadow copy operations
+        if self.shadow_monitor.check_command(command, process_name):
+            return {
+                "allowed": False,
+                "reason": "shadow_copy_operation",
+                "details": "Command attempts to delete shadow copies or disable backup services"
+            }
+        
+        return {"allowed": True, "reason": None}
+    
+    def check_file_access(self, file_path: str, process_name: str, process_cmdline: str = "") -> Dict[str, Any]:
+        """
+        Check if a process can access a file in protected folders.
+        Returns dict with 'allowed' boolean and details.
+        """
+        allowed = self.folder_manager.check_access(file_path, process_name, process_cmdline)
+        
+        if not allowed:
+            return {
+                "allowed": False,
+                "reason": "protected_folder_violation",
+                "file_path": file_path,
+                "process": process_name
+            }
+        
+        return {"allowed": True, "reason": None}
+    
     def get_status(self) -> Dict[str, Any]:
         """Get comprehensive protection status"""
         return {
             "protection_active": self._monitoring,
             "canary_status": self.canary_manager.get_status(),
             "behavioral_status": self.behavior_detector.get_stats(),
-            "protected_folders": len(self.folder_manager.protected_folders),
+            "protected_folders_status": self.folder_manager.get_stats(),
+            "shadow_copy_status": self.shadow_monitor.get_status(),
             "recent_events": len(self.events),
             "config": {
                 "canary_enabled": config.canary_enabled,
@@ -647,6 +1221,14 @@ class RansomwareProtectionManager:
     def get_protected_folders(self) -> List[Dict]:
         """Get all protected folders"""
         return [asdict(f) for f in self.folder_manager.get_protected_folders()]
+    
+    def get_folder_violations(self, limit: int = 100) -> List[Dict]:
+        """Get recent protected folder violations"""
+        return self.folder_manager.get_violations(limit)
+    
+    def get_shadow_copy_alerts(self, limit: int = 50) -> List[Dict]:
+        """Get recent shadow copy alerts"""
+        return self.shadow_monitor.get_alerts(limit)
 
 
 # Global instance

@@ -56,6 +56,7 @@ class ScannerReportRequest(BaseModel):
     network: str
     scan_time: str
     devices: List[dict]
+    auto_deploy_request: Optional[bool] = False  # Request auto-deployment of unified agent
 
 
 class AgentRegistrationRequest(BaseModel):
@@ -361,11 +362,56 @@ async def receive_scanner_report(request: ScannerReportRequest):
     
     logger.info(f"Scanner {request.scanner_id} reported {len(request.devices)} devices ({new_devices} new, {updated_devices} updated)")
     
+    # Auto-deploy unified agents to deployable devices if requested
+    auto_deploy_queued = 0
+    if request.auto_deploy_request or True:  # Always attempt auto-deploy for deployable devices
+        for device in request.devices:
+            ip = device.get('ip_address')
+            if not ip:
+                continue
+            
+            # Only auto-deploy to deployable devices that are not already managed
+            if device.get('deployable', False):
+                # Check if device is already managed
+                existing_agent = await db.unified_agents.find_one({"ip_address": ip})
+                if existing_agent:
+                    continue
+                
+                # Check deployment status
+                existing_device = await db.discovered_devices.find_one({"ip_address": ip})
+                if existing_device and existing_device.get('deployment_status') in ['deployed', 'deploying', 'queued']:
+                    continue
+                
+                # Queue for auto-deployment
+                await db.discovered_devices.update_one(
+                    {"ip_address": ip},
+                    {"$set": {
+                        "deployment_status": "queued",
+                        "deployment_queued_at": now,
+                        "deployment_method": "auto"
+                    }}
+                )
+                
+                # Create deployment task
+                deploy_task = {
+                    "task_id": f"deploy-{uuid.uuid4().hex[:8]}",
+                    "target_ip": ip,
+                    "target_hostname": device.get('hostname'),
+                    "target_os": device.get('os', device.get('os_type', 'unknown')),
+                    "status": "pending",
+                    "created_at": now,
+                    "method": "auto",
+                    "agent_type": "unified"
+                }
+                await db.deployment_tasks.insert_one(deploy_task)
+                auto_deploy_queued += 1
+    
     return {
         "status": "ok",
         "message": f"Received {len(request.devices)} devices",
         "new_devices": new_devices,
-        "updated_devices": updated_devices
+        "updated_devices": updated_devices,
+        "auto_deploy_queued": auto_deploy_queued
     }
 
 
@@ -2267,5 +2313,207 @@ async def get_mitre_mapping(current_user: dict = Depends(get_current_user)):
         "all_tactics": MITRE_ATTACK_TACTICS,
         "active_tactics": active_tactics,
         "keyword_mappings": len(THREAT_KEYWORDS_TO_TACTICS)
+    }
+
+
+# =============================================================================
+# UNIFIED AGENT AUTO-DEPLOYMENT
+# =============================================================================
+
+@router.post("/unified/scan-and-deploy")
+async def scan_and_auto_deploy(
+    request: ScanNetworkRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """
+    Trigger network scan and auto-deploy unified agents to discovered devices.
+    This is the main endpoint for the dashboard "Scan Network" button.
+    
+    Flow:
+    1. Triggers network discovery scan
+    2. Discovered devices get queued for auto-deployment
+    3. Unified agents are deployed via SSH/WinRM
+    4. Agents auto-configure VPN and start monitoring
+    """
+    from services.network_discovery import get_network_discovery
+    from services.agent_deployment import get_deployment_service, start_deployment_service
+    import os
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Step 1: Get or start network discovery
+    discovery = get_network_discovery()
+    
+    # Step 2: Get or start deployment service
+    service = get_deployment_service()
+    if service is None:
+        try:
+            api_url = os.environ.get('API_URL', 'http://localhost:8001')
+            service = await start_deployment_service(db, api_url)
+            logger.info("Started deployment service for unified agent auto-deploy")
+        except Exception as e:
+            logger.warning(f"Could not start deployment service: {e}")
+    
+    # Step 3: Trigger scan
+    scan_triggered = False
+    if discovery is not None:
+        try:
+            background_tasks.add_task(discovery.trigger_manual_scan, request.network)
+            scan_triggered = True
+        except Exception as e:
+            logger.error(f"Network scan failed: {e}")
+    
+    # Step 4: Queue existing discovered devices for deployment
+    cursor = db.discovered_devices.find({
+        "deployment_status": {"$in": ["discovered", "failed", None]},
+        "$or": [
+            {"os_type": {"$regex": "^(windows|linux|macos|darwin)$", "$options": "i"}},
+            {"deployable": True}
+        ]
+    }, {"_id": 0})
+    devices = await cursor.to_list(100)
+    
+    queued_count = 0
+    for device in devices:
+        ip = device.get("ip_address")
+        if not ip:
+            continue
+        
+        # Check if already has an agent
+        existing = await db.unified_agents.find_one({"ip_address": ip})
+        if existing:
+            continue
+        
+        # Queue for deployment
+        await db.discovered_devices.update_one(
+            {"ip_address": ip},
+            {"$set": {
+                "deployment_status": "queued",
+                "deployment_queued_at": now,
+                "agent_type": "unified"
+            }}
+        )
+        
+        # Create deployment task
+        deploy_task = {
+            "task_id": f"unified-{uuid.uuid4().hex[:8]}",
+            "target_ip": ip,
+            "target_hostname": device.get("hostname"),
+            "target_os": device.get("os_type", "unknown"),
+            "status": "pending",
+            "created_at": now,
+            "method": "auto",
+            "agent_type": "unified"
+        }
+        await db.deployment_tasks.insert_one(deploy_task)
+        queued_count += 1
+    
+    return {
+        "status": "ok",
+        "message": "Network scan and auto-deploy initiated",
+        "scan_triggered": scan_triggered,
+        "devices_queued": queued_count,
+        "network": request.network or "all networks"
+    }
+
+
+@router.get("/unified/deployment-status")
+async def get_unified_deployment_status(current_user: dict = Depends(get_current_user)):
+    """Get status of unified agent deployments"""
+    
+    # Get deployment tasks
+    cursor = db.deployment_tasks.find(
+        {"agent_type": "unified"},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50)
+    tasks = await cursor.to_list(50)
+    
+    # Get discovered devices status
+    device_stats = {
+        "total": await db.discovered_devices.count_documents({}),
+        "queued": await db.discovered_devices.count_documents({"deployment_status": "queued"}),
+        "deploying": await db.discovered_devices.count_documents({"deployment_status": "deploying"}),
+        "deployed": await db.discovered_devices.count_documents({"deployment_status": "deployed"}),
+        "failed": await db.discovered_devices.count_documents({"deployment_status": "failed"}),
+        "discovered": await db.discovered_devices.count_documents({"deployment_status": "discovered"})
+    }
+    
+    # Get registered unified agents
+    agent_count = await db.unified_agents.count_documents({})
+    online_count = await db.unified_agents.count_documents({"status": "online"})
+    
+    return {
+        "tasks": tasks,
+        "device_stats": device_stats,
+        "agents": {
+            "total": agent_count,
+            "online": online_count
+        }
+    }
+
+
+@router.post("/unified/deploy-to-device")
+async def deploy_unified_to_device(
+    device_ip: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Deploy unified agent to a specific discovered device"""
+    from services.agent_deployment import get_deployment_service, start_deployment_service
+    import os
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Check if device exists
+    device = await db.discovered_devices.find_one({"ip_address": device_ip})
+    if not device:
+        raise HTTPException(status_code=404, detail=f"Device {device_ip} not found")
+    
+    # Check if already has agent
+    existing = await db.unified_agents.find_one({"ip_address": device_ip})
+    if existing:
+        return {
+            "status": "already_deployed",
+            "message": f"Unified agent already deployed to {device_ip}",
+            "agent_id": existing.get("agent_id")
+        }
+    
+    # Get or start deployment service
+    service = get_deployment_service()
+    if service is None:
+        try:
+            api_url = os.environ.get('API_URL', 'http://localhost:8001')
+            service = await start_deployment_service(db, api_url)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Deployment service unavailable: {e}")
+    
+    # Queue deployment
+    await db.discovered_devices.update_one(
+        {"ip_address": device_ip},
+        {"$set": {
+            "deployment_status": "queued",
+            "deployment_queued_at": now,
+            "agent_type": "unified"
+        }}
+    )
+    
+    deploy_task = {
+        "task_id": f"unified-{uuid.uuid4().hex[:8]}",
+        "target_ip": device_ip,
+        "target_hostname": device.get("hostname"),
+        "target_os": device.get("os_type", "unknown"),
+        "status": "pending",
+        "created_at": now,
+        "method": "manual",
+        "agent_type": "unified"
+    }
+    await db.deployment_tasks.insert_one(deploy_task)
+    
+    return {
+        "status": "queued",
+        "message": f"Unified agent deployment queued for {device_ip}",
+        "task_id": deploy_task["task_id"],
+        "os_type": device.get("os_type")
     }
 

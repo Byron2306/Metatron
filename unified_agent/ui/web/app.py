@@ -1718,6 +1718,220 @@ class WebAgentBridge:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    # =========================================================================
+    # MONITOR STATS - Expose all 17 MonitorModule stats locally
+    # =========================================================================
+
+    def get_all_monitor_stats(self) -> dict:
+        """Get aggregated stats from all monitors."""
+        stats = {
+            "monitors": {},
+            "summary": {
+                "total_monitors": len(self.agent.monitors),
+                "active_monitors": sum(1 for m in self.agent.monitors.values() if m.enabled),
+                "total_threats": len(self.agent.threat_history),
+                "total_events": len(self.agent.event_log),
+            }
+        }
+        for name, monitor in self.agent.monitors.items():
+            stats["monitors"][name] = {
+                "enabled": monitor.enabled,
+                "stats": getattr(monitor, 'stats', {}),
+                "last_scan": getattr(monitor, 'last_scan', None),
+            }
+        return stats
+
+    def get_monitor_stats(self, monitor_name: str) -> dict:
+        """Get stats for a specific monitor."""
+        if monitor_name not in self.agent.monitors:
+            return {"error": f"Monitor '{monitor_name}' not found", "available": list(self.agent.monitors.keys())}
+        monitor = self.agent.monitors[monitor_name]
+        return {
+            "name": monitor_name,
+            "enabled": monitor.enabled,
+            "stats": getattr(monitor, 'stats', {}),
+            "last_scan": getattr(monitor, 'last_scan', None),
+            "alerts": getattr(monitor, 'alerts', [])[-50:] if hasattr(monitor, 'alerts') else [],
+        }
+
+    def get_ransomware_stats(self) -> dict:
+        """Get ransomware protection monitor stats."""
+        if 'ransomware' not in self.agent.monitors:
+            return {"enabled": False, "error": "Ransomware monitor not initialized"}
+        mon = self.agent.monitors['ransomware']
+        return {
+            "enabled": mon.enabled,
+            "canary_files": getattr(mon, 'canary_files', []),
+            "canary_alerts": getattr(mon, 'canary_alerts', 0),
+            "protected_folders": getattr(mon, 'protected_folders', []),
+            "protected_extensions": getattr(mon, 'protected_extensions', []),
+            "shadow_copy_protected": getattr(mon, 'shadow_copies_protected', False),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_rootkit_stats(self) -> dict:
+        """Get rootkit detector stats."""
+        if 'rootkit' not in self.agent.monitors:
+            return {"enabled": False, "error": "Rootkit detector not initialized"}
+        mon = self.agent.monitors['rootkit']
+        return {
+            "enabled": mon.enabled,
+            "hidden_processes": getattr(mon, 'hidden_processes', []),
+            "suspicious_modules": getattr(mon, 'suspicious_modules', []),
+            "ld_preload_hooks": getattr(mon, 'ld_preload_hooks', []),
+            "dkom_indicators": getattr(mon, 'dkom_indicators', []),
+            "integrity_violations": getattr(mon, 'integrity_violations', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_kernel_stats(self) -> dict:
+        """Get kernel security monitor stats."""
+        if 'kernel_security' not in self.agent.monitors:
+            return {"enabled": False, "error": "Kernel security monitor not initialized"}
+        mon = self.agent.monitors['kernel_security']
+        return {
+            "enabled": mon.enabled,
+            "syscall_anomalies": getattr(mon, 'syscall_anomalies', []),
+            "audit_alerts": getattr(mon, 'audit_alerts', []),
+            "ptrace_detections": getattr(mon, 'ptrace_detections', []),
+            "privilege_escalations": getattr(mon, 'privilege_escalations', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_self_protection_stats(self) -> dict:
+        """Get agent self-protection stats."""
+        if 'self_protection' not in self.agent.monitors:
+            return {"enabled": False, "error": "Self-protection monitor not initialized"}
+        mon = self.agent.monitors['self_protection']
+        return {
+            "enabled": mon.enabled,
+            "anti_debug_active": getattr(mon, 'anti_debug_active', False),
+            "watchdog_running": getattr(mon, 'watchdog_running', False),
+            "debugger_detections": getattr(mon, 'debugger_detections', []),
+            "injection_attempts": getattr(mon, 'injection_attempts', []),
+            "integrity_status": getattr(mon, 'integrity_status', 'unknown'),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_identity_stats(self) -> dict:
+        """Get identity protection stats."""
+        if 'identity' not in self.agent.monitors:
+            return {"enabled": False, "error": "Identity protection monitor not initialized"}
+        mon = self.agent.monitors['identity']
+        return {
+            "enabled": mon.enabled,
+            "credential_tools_detected": getattr(mon, 'credential_tools_detected', []),
+            "lsass_access_alerts": getattr(mon, 'lsass_access_alerts', []),
+            "browser_credential_alerts": getattr(mon, 'browser_credential_alerts', []),
+            "pth_indicators": getattr(mon, 'pth_indicators', []),
+            "kerberos_anomalies": getattr(mon, 'kerberos_anomalies', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_process_tree_stats(self) -> dict:
+        """Get process tree monitor stats."""
+        if 'process_tree' not in self.agent.monitors:
+            return {"enabled": False, "error": "Process tree monitor not initialized"}
+        mon = self.agent.monitors['process_tree']
+        return {
+            "enabled": mon.enabled,
+            "suspicious_chains": getattr(mon, 'suspicious_chains', []),
+            "injection_detections": getattr(mon, 'injection_detections', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_lolbin_stats(self) -> dict:
+        """Get LOLBin monitor stats."""
+        if 'lolbin' not in self.agent.monitors:
+            return {"enabled": False, "error": "LOLBin monitor not initialized"}
+        mon = self.agent.monitors['lolbin']
+        return {
+            "enabled": mon.enabled,
+            "lolbin_executions": getattr(mon, 'lolbin_executions', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_dns_stats(self) -> dict:
+        """Get DNS monitor stats."""
+        if 'dns' not in self.agent.monitors:
+            return {"enabled": False, "error": "DNS monitor not initialized"}
+        mon = self.agent.monitors['dns']
+        return {
+            "enabled": mon.enabled,
+            "dns_anomalies": getattr(mon, 'dns_anomalies', []),
+            "dga_detections": getattr(mon, 'dga_detections', []),
+            "dns_tunneling_alerts": getattr(mon, 'dns_tunneling_alerts', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_memory_stats(self) -> dict:
+        """Get memory scanner stats."""
+        if 'memory' not in self.agent.monitors:
+            return {"enabled": False, "error": "Memory scanner not initialized"}
+        mon = self.agent.monitors['memory']
+        return {
+            "enabled": mon.enabled,
+            "injections_detected": getattr(mon, 'injections_detected', []),
+            "reflective_loads": getattr(mon, 'reflective_loads', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_dlp_stats(self) -> dict:
+        """Get DLP monitor stats."""
+        if 'dlp' not in self.agent.monitors:
+            return {"enabled": False, "error": "DLP monitor not initialized"}
+        mon = self.agent.monitors['dlp']
+        return {
+            "enabled": mon.enabled,
+            "sensitive_data_alerts": getattr(mon, 'sensitive_data_alerts', []),
+            "exfiltration_attempts": getattr(mon, 'exfiltration_attempts', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_vulnerability_stats(self) -> dict:
+        """Get vulnerability scanner stats."""
+        if 'vulnerability' not in self.agent.monitors:
+            return {"enabled": False, "error": "Vulnerability scanner not initialized"}
+        mon = self.agent.monitors['vulnerability']
+        return {
+            "enabled": mon.enabled,
+            "vulnerabilities": getattr(mon, 'vulnerabilities', []),
+            "cve_matches": getattr(mon, 'cve_matches', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_whitelist_stats(self) -> dict:
+        """Get application whitelist stats."""
+        if 'whitelist' not in self.agent.monitors:
+            return {"enabled": False, "error": "Whitelist monitor not initialized"}
+        mon = self.agent.monitors['whitelist']
+        return {
+            "enabled": mon.enabled,
+            "blocked_applications": getattr(mon, 'blocked_applications', []),
+            "allowed_list": getattr(mon, 'allowed_list', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_code_signing_stats(self) -> dict:
+        """Get code signing monitor stats."""
+        if 'code_signing' not in self.agent.monitors:
+            return {"enabled": False, "error": "Code signing monitor not initialized"}
+        mon = self.agent.monitors['code_signing']
+        return {
+            "enabled": mon.enabled,
+            "unsigned_executions": getattr(mon, 'unsigned_executions', []),
+            "invalid_signatures": getattr(mon, 'invalid_signatures', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def toggle_monitor(self, monitor_name: str, enabled: bool) -> dict:
+        """Enable or disable a specific monitor."""
+        if monitor_name not in self.agent.monitors:
+            return {"success": False, "error": f"Monitor '{monitor_name}' not found"}
+        self.agent.monitors[monitor_name].enabled = enabled
+        self.log(f"Monitor '{monitor_name}' {'enabled' if enabled else 'disabled'}")
+        return {"success": True, "monitor": monitor_name, "enabled": enabled}
+
 
 # ============================================================================
 # Flask Application
@@ -2004,6 +2218,74 @@ def create_app() -> Flask:
     def api_save_settings():
         data = request.get_json(force=True)
         return jsonify(bridge.save_settings(data))
+
+    # ------------------------------------------------------------------
+    # Monitor Stats - All 17 monitors exposed locally
+    # ------------------------------------------------------------------
+    @app.route("/api/monitors")
+    def api_all_monitors():
+        return jsonify(bridge.get_all_monitor_stats())
+
+    @app.route("/api/monitors/<monitor_name>")
+    def api_monitor_stats(monitor_name):
+        return jsonify(bridge.get_monitor_stats(monitor_name))
+
+    @app.route("/api/monitors/<monitor_name>/toggle", methods=["POST"])
+    def api_toggle_monitor(monitor_name):
+        data = request.get_json(force=True)
+        return jsonify(bridge.toggle_monitor(monitor_name, bool(data.get("enabled", True))))
+
+    @app.route("/api/monitors/ransomware")
+    def api_ransomware_stats():
+        return jsonify(bridge.get_ransomware_stats())
+
+    @app.route("/api/monitors/rootkit")
+    def api_rootkit_stats():
+        return jsonify(bridge.get_rootkit_stats())
+
+    @app.route("/api/monitors/kernel")
+    def api_kernel_stats():
+        return jsonify(bridge.get_kernel_stats())
+
+    @app.route("/api/monitors/self-protection")
+    def api_self_protection_stats():
+        return jsonify(bridge.get_self_protection_stats())
+
+    @app.route("/api/monitors/identity")
+    def api_identity_stats():
+        return jsonify(bridge.get_identity_stats())
+
+    @app.route("/api/monitors/process-tree")
+    def api_process_tree_stats():
+        return jsonify(bridge.get_process_tree_stats())
+
+    @app.route("/api/monitors/lolbin")
+    def api_lolbin_stats():
+        return jsonify(bridge.get_lolbin_stats())
+
+    @app.route("/api/monitors/dns")
+    def api_dns_stats():
+        return jsonify(bridge.get_dns_stats())
+
+    @app.route("/api/monitors/memory")
+    def api_memory_stats():
+        return jsonify(bridge.get_memory_stats())
+
+    @app.route("/api/monitors/dlp")
+    def api_dlp_stats():
+        return jsonify(bridge.get_dlp_stats())
+
+    @app.route("/api/monitors/vulnerability")
+    def api_vulnerability_stats():
+        return jsonify(bridge.get_vulnerability_stats())
+
+    @app.route("/api/monitors/whitelist")
+    def api_whitelist_stats():
+        return jsonify(bridge.get_whitelist_stats())
+
+    @app.route("/api/monitors/code-signing")
+    def api_code_signing_stats():
+        return jsonify(bridge.get_code_signing_stats())
 
     # ------------------------------------------------------------------
     # Logs

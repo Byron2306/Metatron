@@ -35,13 +35,42 @@ class CorrelationConfidence(Enum):
     NONE = "none"       # No correlation found
 
 @dataclass
+class DiamondModel:
+    """Diamond Model of Intrusion Analysis (Sergio Caltagirone, 2013)"""
+    # Core vertices
+    adversary: Optional[str] = None  # Threat actor / APT group
+    capability: Optional[str] = None  # Malware, tools, techniques
+    infrastructure: Optional[str] = None  # C2 servers, domains, IPs
+    victim: Optional[str] = None  # Target organization/industry
+    
+    # Meta-features
+    timestamp: Optional[str] = None
+    phase: Optional[str] = None  # Kill chain phase
+    direction: str = "adversary-to-victim"  # Direction of attack
+    methodology: Optional[str] = None  # Attack methodology
+    resources: List[str] = field(default_factory=list)  # Required resources
+    
+    # Additional analysis
+    social_political_context: Optional[str] = None  # Geopolitical factors
+    technology_context: Optional[str] = None  # Technical environment
+    confidence: str = "low"
+
+@dataclass
 class ThreatAttribution:
     """Attribution information for a threat"""
     threat_actor: Optional[str] = None
+    threat_actor_aliases: List[str] = field(default_factory=list)
     campaign: Optional[str] = None
     malware_family: Optional[str] = None
+    malware_variants: List[str] = field(default_factory=list)
+    ttps_observed: List[str] = field(default_factory=list)
+    mitre_techniques: List[str] = field(default_factory=list)
+    origin_country: Optional[str] = None
+    motivation: Optional[str] = None  # espionage, financial, sabotage, hacktivism
+    target_industries: List[str] = field(default_factory=list)
     confidence: str = "low"
     sources: List[str] = field(default_factory=list)
+    diamond_model: Optional[DiamondModel] = None
     
 @dataclass
 class RelatedIndicator:
@@ -51,6 +80,9 @@ class RelatedIndicator:
     relationship: str  # e.g., "same_campaign", "same_actor", "infrastructure"
     source: str
     confidence: int = 50
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
 
 @dataclass
 class Mitigation:
@@ -59,6 +91,8 @@ class Mitigation:
     priority: str  # critical, high, medium, low
     description: str
     automated: bool = False
+    mitre_mitigation_id: Optional[str] = None
+    estimated_effort: Optional[str] = None  # low, medium, high
 
 @dataclass
 class CorrelationResult:
@@ -79,66 +113,354 @@ class CorrelationResult:
 # KNOWN THREAT ACTORS & CAMPAIGNS
 # =============================================================================
 
-# APT/Threat Actor signatures and indicators
+# APT/Threat Actor signatures and indicators (Diamond Model: Adversary)
 THREAT_ACTORS = {
+    # === RUSSIA-BASED ACTORS ===
     "apt28": {
-        "names": ["APT28", "Fancy Bear", "Sofacy", "Sednit", "STRONTIUM"],
-        "ttps": ["spearphishing", "watering_hole", "zero_day"],
-        "malware": ["XAgent", "Seduploader", "Zebrocy"],
-        "industries": ["government", "military", "defense"],
-        "origin": "Russia"
+        "names": ["APT28", "Fancy Bear", "Sofacy", "Sednit", "STRONTIUM", "Forest Blizzard"],
+        "ttps": ["spearphishing", "watering_hole", "zero_day", "credential_harvesting"],
+        "malware": ["XAgent", "Seduploader", "Zebrocy", "Drovorub"],
+        "industries": ["government", "military", "defense", "media", "aerospace"],
+        "origin": "Russia",
+        "motivation": "espionage",
+        "infrastructure": ["dedicated_servers", "compromised_sites", "tor"],
+        "mitre_techniques": ["T1566", "T1189", "T1003", "T1059.001"]
     },
     "apt29": {
-        "names": ["APT29", "Cozy Bear", "The Dukes", "NOBELIUM"],
-        "ttps": ["supply_chain", "cloud_exploitation", "spearphishing"],
-        "malware": ["SUNBURST", "TEARDROP", "WellMess"],
-        "industries": ["government", "technology", "healthcare"],
-        "origin": "Russia"
+        "names": ["APT29", "Cozy Bear", "The Dukes", "NOBELIUM", "Midnight Blizzard"],
+        "ttps": ["supply_chain", "cloud_exploitation", "spearphishing", "oauth_abuse"],
+        "malware": ["SUNBURST", "TEARDROP", "WellMess", "EnvyScout", "Brute Ratel"],
+        "industries": ["government", "technology", "healthcare", "think_tanks"],
+        "origin": "Russia",
+        "motivation": "espionage",
+        "infrastructure": ["cloud_services", "compromised_domains"],
+        "mitre_techniques": ["T1195.002", "T1078", "T1098", "T1550"]
     },
-    "lazarus": {
-        "names": ["Lazarus Group", "Hidden Cobra", "ZINC", "APT38"],
-        "ttps": ["cryptocurrency_theft", "ransomware", "supply_chain"],
-        "malware": ["WannaCry", "FALLCHILL", "AppleJeus"],
-        "industries": ["financial", "cryptocurrency", "defense"],
-        "origin": "North Korea"
+    "turla": {
+        "names": ["Turla", "Snake", "Venomous Bear", "Waterbug", "KRYPTON"],
+        "ttps": ["satellite_hijacking", "watering_hole", "rootkit", "covert_channel"],
+        "malware": ["Snake", "ComRAT", "Carbon", "Kazuar", "Gazer"],
+        "industries": ["government", "embassy", "military", "research"],
+        "origin": "Russia",
+        "motivation": "espionage",
+        "infrastructure": ["hijacked_satellites", "compromised_infrastructure"],
+        "mitre_techniques": ["T1071.001", "T1014", "T1205", "T1095"]
     },
+    "sandworm": {
+        "names": ["Sandworm", "Voodoo Bear", "IRIDIUM", "Seashell Blizzard", "TeleBots"],
+        "ttps": ["ics_attacks", "wiper", "supply_chain", "destructive_attacks"],
+        "malware": ["NotPetya", "Industroyer", "Olympic Destroyer", "CaddyWiper", "SwiftSlicer"],
+        "industries": ["energy", "critical_infrastructure", "government", "financial"],
+        "origin": "Russia",
+        "motivation": "sabotage",
+        "infrastructure": ["dedicated_infrastructure", "vpn_services"],
+        "mitre_techniques": ["T1485", "T1495", "T1561", "T1491"]
+    },
+    
+    # === CHINA-BASED ACTORS ===
     "apt41": {
-        "names": ["APT41", "BARIUM", "Winnti", "Double Dragon"],
-        "ttps": ["supply_chain", "ransomware", "espionage"],
-        "malware": ["ShadowPad", "Winnti", "PlugX"],
-        "industries": ["gaming", "healthcare", "technology"],
-        "origin": "China"
+        "names": ["APT41", "BARIUM", "Winnti", "Double Dragon", "Brass Typhoon"],
+        "ttps": ["supply_chain", "ransomware", "espionage", "dual_espionage_criminal"],
+        "malware": ["ShadowPad", "Winnti", "PlugX", "Cobalt Strike", "DUSTPAN"],
+        "industries": ["gaming", "healthcare", "technology", "telecom", "pharmaceutical"],
+        "origin": "China",
+        "motivation": "espionage_and_financial",
+        "infrastructure": ["compromised_servers", "cloud_providers"],
+        "mitre_techniques": ["T1195", "T1587", "T1059", "T1055"]
     },
+    "apt32": {
+        "names": ["APT32", "OceanLotus", "SeaLotus", "Ocean Buffalo", "BISMUTH"],
+        "ttps": ["spearphishing", "watering_hole", "macros", "social_engineering"],
+        "malware": ["Denis", "Kerrdown", "Goopy", "METALJACK", "PhantomNet"],
+        "industries": ["government", "media", "manufacturing", "human_rights", "technology"],
+        "origin": "Vietnam",
+        "motivation": "espionage",
+        "infrastructure": ["compromised_websites", "c2_infrastructure"],
+        "mitre_techniques": ["T1566.001", "T1204.002", "T1059.001", "T1027"]
+    },
+    "mustang_panda": {
+        "names": ["Mustang Panda", "RedDelta", "Bronze President", "TA416", "Earth Preta"],
+        "ttps": ["spearphishing", "usb_malware", "dll_sideloading", "geopolitical_targeting"],
+        "malware": ["PlugX", "Hodur", "Korplug", "TONESHELL"],
+        "industries": ["government", "ngo", "telecom", "religious_organizations"],
+        "origin": "China",
+        "motivation": "espionage",
+        "infrastructure": ["compromised_sites", "dynamic_dns"],
+        "mitre_techniques": ["T1566.001", "T1091", "T1574.002", "T1071"]
+    },
+    "apt40": {
+        "names": ["APT40", "Leviathan", "BRONZE MOHAWK", "Kryptonite Panda", "Gingham Typhoon"],
+        "ttps": ["watering_hole", "spearphishing", "supply_chain", "web_exploitation"],
+        "malware": ["BADFLICK", "PHOTO", "ScanBox", "AIRBREAK"],
+        "industries": ["maritime", "defense", "aviation", "chemicals", "government"],
+        "origin": "China",
+        "motivation": "espionage",
+        "infrastructure": ["compromised_web_servers", "aws_infrastructure"],
+        "mitre_techniques": ["T1190", "T1566", "T1505.003", "T1048"]
+    },
+    "volt_typhoon": {
+        "names": ["Volt Typhoon", "BRONZE SILHOUETTE", "Vanguard Panda"],
+        "ttps": ["living_off_land", "credential_theft", "network_exploitation", "zero_day"],
+        "malware": ["custom_web_shells", "LOTL_tools"],
+        "industries": ["critical_infrastructure", "communications", "government", "utilities"],
+        "origin": "China",
+        "motivation": "pre_positioning",
+        "infrastructure": ["compromised_routers", "soho_devices"],
+        "mitre_techniques": ["T1059.001", "T1078", "T1003", "T1071"]
+    },
+    
+    # === NORTH KOREA-BASED ACTORS ===
+    "lazarus": {
+        "names": ["Lazarus Group", "Hidden Cobra", "ZINC", "APT38", "Diamond Sleet"],
+        "ttps": ["cryptocurrency_theft", "ransomware", "supply_chain", "destructive_attacks"],
+        "malware": ["WannaCry", "FALLCHILL", "AppleJeus", "BLINDINGCAN", "Dtrack"],
+        "industries": ["financial", "cryptocurrency", "defense", "media", "entertainment"],
+        "origin": "North Korea",
+        "motivation": "financial_and_espionage",
+        "infrastructure": ["compromised_servers", "vpn_proxy"],
+        "mitre_techniques": ["T1486", "T1195.002", "T1566.001", "T1071"]
+    },
+    "kimsuky": {
+        "names": ["Kimsuky", "Thallium", "APT43", "Velvet Chollima", "Emerald Sleet"],
+        "ttps": ["spearphishing", "credential_harvesting", "web_exploitation", "social_engineering"],
+        "malware": ["BabyShark", "SHARPEXT", "GoldDragon", "AppleSeed"],
+        "industries": ["government", "think_tanks", "academia", "defense", "nuclear_policy"],
+        "origin": "North Korea",
+        "motivation": "espionage",
+        "infrastructure": ["phishing_sites", "compromised_web_mail"],
+        "mitre_techniques": ["T1566", "T1598", "T1539", "T1557"]
+    },
+    "andariel": {
+        "names": ["Andariel", "Silent Chollima", "Onyx Sleet", "Plutonium"],
+        "ttps": ["ransomware", "espionage", "vulnerability_exploitation", "cryptomining"],
+        "malware": ["Maui", "EarlyRAT", "DTrack", "TigerRAT"],
+        "industries": ["defense", "aerospace", "nuclear", "healthcare"],
+        "origin": "North Korea",
+        "motivation": "financial_and_espionage",
+        "infrastructure": ["vpn_servers", "compromised_infrastructure"],
+        "mitre_techniques": ["T1486", "T1190", "T1003", "T1496"]
+    },
+    
+    # === IRAN-BASED ACTORS ===
+    "apt33": {
+        "names": ["APT33", "Elfin", "Holmium", "Refined Kitten", "Peach Sandstorm"],
+        "ttps": ["spearphishing", "password_spraying", "wiper", "destructive_attacks"],
+        "malware": ["Stonedrill", "Shamoon", "Dropshot", "Narilam"],
+        "industries": ["aviation", "petrochemical", "energy", "defense"],
+        "origin": "Iran",
+        "motivation": "sabotage_and_espionage",
+        "infrastructure": ["compromised_websites", "c2_servers"],
+        "mitre_techniques": ["T1566", "T1110.003", "T1485", "T1561"]
+    },
+    "apt34": {
+        "names": ["APT34", "OilRig", "Helix Kitten", "Hazel Sandstorm", "Crambus"],
+        "ttps": ["dns_hijacking", "spearphishing", "credential_theft", "web_shells"],
+        "malware": ["POWRUNER", "BONDUPDATER", "Glimpse", "RDAT", "SideTwist"],
+        "industries": ["financial", "government", "energy", "telecom", "chemical"],
+        "origin": "Iran",
+        "motivation": "espionage",
+        "infrastructure": ["dns_providers", "compromised_domains"],
+        "mitre_techniques": ["T1071.004", "T1566", "T1003", "T1505.003"]
+    },
+    "apt35": {
+        "names": ["APT35", "Charming Kitten", "Phosphorus", "Mint Sandstorm", "TA453"],
+        "ttps": ["credential_phishing", "social_engineering", "fake_personas", "password_spraying"],
+        "malware": ["HYPERSCRAPE", "DownPaper", "POWERLESS", "CharmPower"],
+        "industries": ["think_tanks", "academia", "media", "human_rights", "policy"],
+        "origin": "Iran",
+        "motivation": "espionage",
+        "infrastructure": ["phishing_domains", "lookalike_domains"],
+        "mitre_techniques": ["T1566.001", "T1598.003", "T1534", "T1110.003"]
+    },
+    "muddywater": {
+        "names": ["MuddyWater", "Static Kitten", "Mercury", "Mango Sandstorm", "TEMP.Zagros"],
+        "ttps": ["spearphishing", "powershell_abuse", "legitimate_tools", "macro_enabled_docs"],
+        "malware": ["POWERSTATS", "PhonyC2", "BugSleep", "MUDBLAST"],
+        "industries": ["government", "telecom", "oil_gas", "defense"],
+        "origin": "Iran",
+        "motivation": "espionage",
+        "infrastructure": ["cloud_services", "compromised_hosts"],
+        "mitre_techniques": ["T1566.001", "T1059.001", "T1204.002", "T1218"]
+    },
+    
+    # === RANSOMWARE & ECRIME GROUPS ===
     "fin7": {
-        "names": ["FIN7", "Carbanak", "Carbon Spider"],
-        "ttps": ["pos_malware", "spearphishing", "social_engineering"],
-        "malware": ["Carbanak", "GRIFFON", "BIRDWATCH"],
-        "industries": ["retail", "hospitality", "financial"],
-        "origin": "Eastern Europe"
+        "names": ["FIN7", "Carbanak", "Carbon Spider", "Sangria Tempest"],
+        "ttps": ["pos_malware", "spearphishing", "social_engineering", "supply_chain"],
+        "malware": ["Carbanak", "GRIFFON", "BIRDWATCH", "Lizar", "DiceLoader"],
+        "industries": ["retail", "hospitality", "financial", "food_service"],
+        "origin": "Eastern Europe",
+        "motivation": "financial",
+        "infrastructure": ["bulletproof_hosting", "compromised_sites"],
+        "mitre_techniques": ["T1566.001", "T1204", "T1059.001", "T1583"]
+    },
+    "lockbit": {
+        "names": ["LockBit", "ABCD", "LockBit 2.0", "LockBit 3.0", "LockBit Black"],
+        "ttps": ["ransomware", "raas", "double_extortion", "credential_theft"],
+        "malware": ["LockBit", "StealBit", "Cobalt Strike"],
+        "industries": ["all_industries", "healthcare", "education", "manufacturing"],
+        "origin": "Russia/CIS",
+        "motivation": "financial",
+        "infrastructure": ["tor_sites", "affiliate_network"],
+        "mitre_techniques": ["T1486", "T1490", "T1048", "T1003"]
+    },
+    "blackcat": {
+        "names": ["ALPHV", "BlackCat", "Noberus", "Scatter Spider"],
+        "ttps": ["ransomware", "raas", "triple_extortion", "social_engineering"],
+        "malware": ["BlackCat", "ALPHV", "Rust_ransomware"],
+        "industries": ["healthcare", "government", "technology", "critical_infrastructure"],
+        "origin": "Russia",
+        "motivation": "financial",
+        "infrastructure": ["tor_infrastructure", "data_leak_sites"],
+        "mitre_techniques": ["T1486", "T1491.002", "T1496", "T1567"]
+    },
+    "clop": {
+        "names": ["Cl0p", "TA505", "Clop", "Lace Tempest", "FIN11"],
+        "ttps": ["ransomware", "zero_day_exploitation", "mass_exploitation", "data_theft"],
+        "malware": ["Clop", "FlawedAmmyy", "SDBBot", "Truebot"],
+        "industries": ["all_industries", "healthcare", "financial", "government"],
+        "origin": "Russia",
+        "motivation": "financial",
+        "infrastructure": ["data_leak_sites", "file_transfer_exploits"],
+        "mitre_techniques": ["T1190", "T1486", "T1567", "T1537"]
+    },
+    "conti": {
+        "names": ["Conti", "Wizard Spider", "TrickBot", "Gold Ulrick"],
+        "ttps": ["ransomware", "double_extortion", "credential_theft", "cobalt_strike"],
+        "malware": ["Conti", "TrickBot", "BazarLoader", "Ryuk", "Diavol"],
+        "industries": ["healthcare", "education", "government", "manufacturing"],
+        "origin": "Russia",
+        "motivation": "financial",
+        "infrastructure": ["bulletproof_hosting", "botnet_infrastructure"],
+        "mitre_techniques": ["T1486", "T1003", "T1021.001", "T1047"]
+    },
+    "blackbasta": {
+        "names": ["Black Basta", "Storm-0506", "Tropical Scorpius"],
+        "ttps": ["ransomware", "double_extortion", "qakbot", "social_engineering"],
+        "malware": ["Black Basta", "QakBot", "Cobalt Strike", "SystemBC"],
+        "industries": ["manufacturing", "construction", "professional_services"],
+        "origin": "Russia/CIS",
+        "motivation": "financial",
+        "infrastructure": ["tor_sites", "affiliate_programs"],
+        "mitre_techniques": ["T1486", "T1566", "T1059", "T1218"]
+    },
+    "play": {
+        "names": ["Play", "PlayCrypt", "Balloonfly"],
+        "ttps": ["ransomware", "living_off_land", "credential_theft", "double_extortion"],
+        "malware": ["Play Ransomware", "SystemBC", "Grixba"],
+        "industries": ["local_government", "legal", "healthcare", "technology"],
+        "origin": "Russia/CIS",
+        "motivation": "financial",
+        "infrastructure": ["tor_sites", "data_leak_sites"],
+        "mitre_techniques": ["T1486", "T1059.001", "T1003", "T1490"]
     }
 }
 
-# Campaign patterns
+# Campaign patterns (Diamond Model: Capability)
 CAMPAIGN_PATTERNS = {
     "ransomware": {
-        "indicators": ["encrypted", "ransom", "bitcoin", "decrypt", "locked"],
-        "file_extensions": [".encrypted", ".locked", ".crypt", ".wcry"],
-        "severity": "critical"
+        "indicators": ["encrypted", "ransom", "bitcoin", "decrypt", "locked", ".onion", "recover"],
+        "file_extensions": [".encrypted", ".locked", ".crypt", ".wcry", ".wnry", ".locky", ".zepto", ".cerber"],
+        "malware_families": ["lockbit", "conti", "revil", "blackcat", "ryuk", "maze", "clop"],
+        "severity": "critical",
+        "mitre_tactics": ["TA0040"],
+        "response_priority": 1
     },
     "cryptomining": {
-        "indicators": ["xmrig", "monero", "stratum", "pool", "miner", "hashrate"],
-        "ports": [3333, 4444, 5555, 14444, 45700],
-        "severity": "high"
+        "indicators": ["xmrig", "monero", "stratum", "pool", "miner", "hashrate", "coinhive", "cryptonight"],
+        "ports": [3333, 4444, 5555, 14444, 45700, 14433],
+        "process_indicators": ["xmr", "miner", "minerd", "cgminer", "bfgminer"],
+        "severity": "high",
+        "mitre_tactics": ["TA0040"],
+        "response_priority": 3
     },
     "botnet": {
-        "indicators": ["c2", "beacon", "callback", "bot", "zombie"],
-        "behaviors": ["periodic_connection", "encrypted_traffic"],
-        "severity": "critical"
+        "indicators": ["c2", "beacon", "callback", "bot", "zombie", "dga", "heartbeat"],
+        "behaviors": ["periodic_connection", "encrypted_traffic", "dga_domains", "fast_flux"],
+        "common_ports": [6667, 6697, 443, 80, 8080],
+        "severity": "critical",
+        "mitre_tactics": ["TA0011"],
+        "response_priority": 2
     },
     "data_exfiltration": {
-        "indicators": ["exfil", "upload", "transfer", "staging"],
-        "behaviors": ["large_outbound", "dns_tunneling"],
-        "severity": "critical"
+        "indicators": ["exfil", "upload", "transfer", "staging", "compress", "archive", "encrypt_files"],
+        "behaviors": ["large_outbound", "dns_tunneling", "steganography", "cloud_upload"],
+        "protocols": ["https", "dns", "ftp", "sftp", "smb"],
+        "severity": "critical",
+        "mitre_tactics": ["TA0010"],
+        "response_priority": 1
+    },
+    "supply_chain": {
+        "indicators": ["update", "package", "dependency", "npm", "pypi", "nuget", "maven", "cargo"],
+        "attack_vectors": ["trojanized_update", "compromised_library", "build_server", "ci_cd"],
+        "target_systems": ["build_servers", "package_managers", "update_mechanisms"],
+        "severity": "critical",
+        "mitre_tactics": ["TA0001", "TA0042"],
+        "response_priority": 1
+    },
+    "credential_harvesting": {
+        "indicators": ["mimikatz", "lsass", "sam", "ntds", "credential", "password", "kerberos", "ticket"],
+        "techniques": ["pass_the_hash", "pass_the_ticket", "kerberoasting", "dcsync", "credential_dump"],
+        "target_files": ["lsass.exe", "sam", "ntds.dit", "security", "system"],
+        "severity": "critical",
+        "mitre_tactics": ["TA0006"],
+        "response_priority": 1
+    },
+    "wiper": {
+        "indicators": ["wipe", "destroy", "mbr", "partition", "overwrite", "corrupt", "delete"],
+        "malware_families": ["notpetya", "shamoon", "whispergate", "caddywiper", "hermetic"],
+        "target_systems": ["mbr", "boot_sector", "file_systems", "backups"],
+        "severity": "critical",
+        "mitre_tactics": ["TA0040"],
+        "response_priority": 1
+    },
+    "espionage": {
+        "indicators": ["screenshot", "keylog", "clipboard", "microphone", "camera", "document", "collect"],
+        "techniques": ["keylogging", "screen_capture", "audio_capture", "data_collection"],
+        "data_targets": ["documents", "emails", "credentials", "communications"],
+        "severity": "high",
+        "mitre_tactics": ["TA0009"],
+        "response_priority": 2
+    },
+    "watering_hole": {
+        "indicators": ["iframe", "exploit_kit", "drive_by", "redirect", "compromised_site"],
+        "attack_vectors": ["compromised_website", "malicious_ads", "exploit_kits"],
+        "delivery_methods": ["javascript", "flash", "java", "browser_exploit"],
+        "severity": "high",
+        "mitre_tactics": ["TA0001"],
+        "response_priority": 2
+    },
+    "living_off_land": {
+        "indicators": ["powershell", "wmic", "certutil", "mshta", "regsvr32", "rundll32", "bitsadmin"],
+        "techniques": ["lolbins", "fileless", "memory_only", "legitimate_tools"],
+        "common_tools": ["powershell", "cmd", "wmic", "certutil", "mshta"],
+        "severity": "high",
+        "mitre_tactics": ["TA0002", "TA0005"],
+        "response_priority": 2
+    },
+    "lateral_movement": {
+        "indicators": ["psexec", "wmiexec", "smbexec", "dcom", "rdp", "winrm", "ssh"],
+        "techniques": ["remote_execution", "pass_the_hash", "token_impersonation", "exploitation"],
+        "protocols": ["smb", "wmi", "rdp", "ssh", "winrm"],
+        "severity": "critical",
+        "mitre_tactics": ["TA0008"],
+        "response_priority": 1
+    },
+    "persistence": {
+        "indicators": ["startup", "services", "registry", "scheduled_task", "boot", "autorun"],
+        "techniques": ["registry_run_key", "scheduled_task", "service_creation", "dll_hijacking"],
+        "locations": ["run_keys", "services", "scheduled_tasks", "startup_folder"],
+        "severity": "high",
+        "mitre_tactics": ["TA0003"],
+        "response_priority": 2
+    },
+    "initial_access_exploit": {
+        "indicators": ["exploit", "cve", "vulnerability", "rce", "injection", "overflow"],
+        "attack_vectors": ["zero_day", "n_day", "web_exploit", "network_exploit"],
+        "common_services": ["exchange", "sharepoint", "citrix", "vpn", "firewall"],
+        "severity": "critical",
+        "mitre_tactics": ["TA0001"],
+        "response_priority": 1
     }
 }
 
@@ -341,54 +663,131 @@ class ThreatCorrelationEngine:
         return matched
     
     def _identify_attribution(self, threat: Dict, matched_indicators: List[Dict]) -> ThreatAttribution:
-        """Identify threat actor and campaign attribution"""
+        """Identify threat actor and campaign attribution using enhanced correlation"""
         attribution = ThreatAttribution()
         
         threat_type = threat.get("type", "").lower()
         threat_name = threat.get("name", "").lower()
         description = threat.get("description", "").lower()
         indicators = threat.get("indicators", [])
+        mitre_techniques = threat.get("mitre_techniques", [])
+        target_industry = threat.get("target_industry", "").lower()
+        source_country = threat.get("source_country", "").lower()
         
         combined_text = f"{threat_name} {description} {' '.join(str(i).lower() for i in indicators)}"
         
-        # Check for known threat actors
-        best_match = None
-        best_score = 0
+        # Check for known threat actors with enhanced scoring
+        actor_scores = {}
         
         for actor_id, actor_info in THREAT_ACTORS.items():
             score = 0
+            match_reasons = []
             
-            # Check name matches
+            # Check name matches (high weight)
             for name in actor_info["names"]:
                 if name.lower() in combined_text:
-                    score += 30
+                    score += 35
+                    match_reasons.append(f"name:{name}")
             
-            # Check malware matches
+            # Check malware matches (high weight)
             for malware in actor_info.get("malware", []):
                 if malware.lower() in combined_text:
-                    score += 20
+                    score += 25
+                    match_reasons.append(f"malware:{malware}")
             
-            # Check TTP matches
+            # Check TTP matches (medium weight)
             for ttp in actor_info.get("ttps", []):
                 if ttp in combined_text:
-                    score += 10
+                    score += 12
+                    match_reasons.append(f"ttp:{ttp}")
             
-            if score > best_score:
-                best_score = score
-                best_match = actor_id
+            # Check MITRE technique matches (high weight)
+            actor_techniques = actor_info.get("mitre_techniques", [])
+            for technique in mitre_techniques:
+                if technique in actor_techniques:
+                    score += 20
+                    match_reasons.append(f"mitre:{technique}")
+            
+            # Check industry targeting alignment (medium weight)
+            actor_industries = actor_info.get("industries", [])
+            for industry in actor_industries:
+                if industry in target_industry or industry in combined_text:
+                    score += 10
+                    match_reasons.append(f"industry:{industry}")
+            
+            # Check origin/country correlation (medium weight)
+            actor_origin = actor_info.get("origin", "").lower()
+            if actor_origin and source_country and (actor_origin in source_country or source_country in actor_origin):
+                score += 8
+                match_reasons.append(f"origin:{actor_origin}")
+            
+            # Check infrastructure patterns (medium weight)
+            for infra in actor_info.get("infrastructure", []):
+                if infra in combined_text:
+                    score += 8
+                    match_reasons.append(f"infra:{infra}")
+            
+            if score > 0:
+                actor_scores[actor_id] = {"score": score, "reasons": match_reasons}
         
-        if best_match and best_score >= 20:
-            actor_info = THREAT_ACTORS[best_match]
-            attribution.threat_actor = actor_info["names"][0]
-            attribution.confidence = "high" if best_score >= 50 else "medium" if best_score >= 30 else "low"
-            attribution.sources = ["internal_correlation"]
+        # Find best matching actor
+        if actor_scores:
+            best_match = max(actor_scores.items(), key=lambda x: x[1]["score"])
+            actor_id = best_match[0]
+            score_data = best_match[1]
+            
+            if score_data["score"] >= 15:  # Minimum threshold
+                actor_info = THREAT_ACTORS[actor_id]
+                attribution.threat_actor = actor_info["names"][0]
+                attribution.threat_actor_aliases = actor_info["names"][1:] if len(actor_info["names"]) > 1 else []
+                attribution.ttps_observed = actor_info.get("ttps", [])
+                attribution.mitre_techniques = actor_info.get("mitre_techniques", [])
+                attribution.origin_country = actor_info.get("origin")
+                attribution.motivation = actor_info.get("motivation")
+                attribution.target_industries = actor_info.get("industries", [])
+                attribution.malware_variants = actor_info.get("malware", [])
+                
+                # Determine confidence based on score
+                if score_data["score"] >= 60:
+                    attribution.confidence = "high"
+                elif score_data["score"] >= 35:
+                    attribution.confidence = "medium"
+                else:
+                    attribution.confidence = "low"
+                
+                attribution.sources = ["internal_correlation", "mitre_att&ck", "threat_actor_database"]
+                
+                # Build Diamond Model
+                attribution.diamond_model = DiamondModel(
+                    adversary=attribution.threat_actor,
+                    capability=", ".join(actor_info.get("malware", [])[:3]),
+                    infrastructure=", ".join(actor_info.get("infrastructure", [])[:2]),
+                    victim=target_industry or "unknown",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    phase=self._determine_kill_chain_phase(threat),
+                    methodology=actor_info.get("motivation"),
+                    resources=actor_info.get("ttps", [])[:5],
+                    social_political_context=f"Attribution to {actor_info.get('origin', 'unknown')} state-sponsored or criminal group",
+                    technology_context=description[:200] if description else None,
+                    confidence=attribution.confidence
+                )
         
-        # Check for campaign patterns
+        # Check for campaign patterns with enhanced matching
+        campaign_matches = []
         for campaign_id, campaign_info in CAMPAIGN_PATTERNS.items():
+            campaign_score = 0
             for indicator in campaign_info.get("indicators", []):
                 if indicator in combined_text:
-                    attribution.campaign = campaign_id.title()
-                    break
+                    campaign_score += 10
+            for malware in campaign_info.get("malware_families", []):
+                if malware in combined_text:
+                    campaign_score += 15
+            if campaign_score > 0:
+                campaign_matches.append((campaign_id, campaign_score))
+        
+        if campaign_matches:
+            best_campaign = max(campaign_matches, key=lambda x: x[1])
+            attribution.campaign = best_campaign[0].replace("_", " ").title()
         
         # Check matched indicators for additional context
         for match in matched_indicators:
@@ -397,13 +796,35 @@ class ThreatCorrelationEngine:
                     attribution.sources.append(match["source"])
         
         # Try to identify malware family from threat name/description
-        malware_keywords = ["ransomware", "trojan", "worm", "backdoor", "rootkit", "keylogger", "spyware"]
-        for keyword in malware_keywords:
-            if keyword in combined_text:
-                attribution.malware_family = keyword.title()
-                break
+        if not attribution.malware_family:
+            malware_keywords = ["ransomware", "trojan", "worm", "backdoor", "rootkit", "keylogger", "spyware", "rat", "infostealer", "loader", "downloader"]
+            for keyword in malware_keywords:
+                if keyword in combined_text:
+                    attribution.malware_family = keyword.title()
+                    break
         
         return attribution
+    
+    def _determine_kill_chain_phase(self, threat: Dict) -> str:
+        """Determine approximate kill chain phase based on threat indicators"""
+        combined = f"{threat.get('name', '')} {threat.get('description', '')} {threat.get('type', '')}".lower()
+        
+        if any(k in combined for k in ["recon", "scan", "enumeration", "discovery"]):
+            return "reconnaissance"
+        elif any(k in combined for k in ["phishing", "exploit", "payload", "dropper"]):
+            return "delivery"
+        elif any(k in combined for k in ["execute", "run", "spawn", "shellcode"]):
+            return "exploitation"
+        elif any(k in combined for k in ["persistence", "service", "registry", "scheduled"]):
+            return "installation"
+        elif any(k in combined for k in ["c2", "beacon", "callback", "command"]):
+            return "command_and_control"
+        elif any(k in combined for k in ["lateral", "pivot", "spread", "wmi", "psexec"]):
+            return "lateral_movement"
+        elif any(k in combined for k in ["exfil", "upload", "steal", "collect", "archive"]):
+            return "actions_on_objectives"
+        else:
+            return "unknown"
     
     def _find_related_indicators(self, threat: Dict, matched_indicators: List[Dict]) -> List[RelatedIndicator]:
         """Find related indicators based on correlation"""

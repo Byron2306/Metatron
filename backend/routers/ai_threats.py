@@ -329,3 +329,140 @@ async def get_intelligence_dashboard(current_user: dict = Depends(get_current_us
     result["combined_threat_score"] = min(100, (aatl_sessions / total_sessions) * 100)
     
     return result
+
+
+# =============================================================================
+# AI DEFENSE ENGINE INTEGRATION
+# =============================================================================
+
+class AIDefenseRequest(BaseModel):
+    session_id: str
+    host_id: str
+    behavior_data: dict = {}
+
+
+@router.post("/defense/assess")
+async def assess_ai_threat_combined(
+    request: AIDefenseRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Combined AI threat assessment using AIDefenseEngine + AATL.
+    Returns unified threat assessment with correlated analysis.
+    """
+    from threat_response import AIDefenseEngine
+    
+    result = await AIDefenseEngine.integrate_with_aatl(
+        session_id=request.session_id,
+        host_id=request.host_id,
+        behavior_data=request.behavior_data
+    )
+    
+    return result
+
+
+@router.post("/defense/engage-tarpit")
+async def engage_tarpit(
+    session_id: str,
+    host_id: str,
+    mode: str = "standard",
+    current_user: dict = Depends(get_current_user)
+):
+    """Engage tarpit on a session to slow down AI attacker"""
+    from threat_response import AIDefenseEngine
+    from dataclasses import asdict
+    
+    result = await AIDefenseEngine.engage_tarpit(
+        session_id=session_id,
+        host_id=host_id,
+        mode=mode
+    )
+    
+    return asdict(result)
+
+
+@router.post("/defense/deploy-decoy")
+async def deploy_decoy(
+    host_id: str,
+    decoy_type: str,
+    decoys: List[str],
+    placement: str = "standard",
+    current_user: dict = Depends(get_current_user)
+):
+    """Deploy decoys targeting AI attackers"""
+    from threat_response import AIDefenseEngine
+    from dataclasses import asdict
+    
+    result = await AIDefenseEngine.deploy_decoy(
+        host_id=host_id,
+        decoy_type=decoy_type,
+        decoys=decoys,
+        placement=placement
+    )
+    
+    return asdict(result)
+
+
+@router.post("/defense/escalate")
+async def escalate_defense(
+    session_id: str,
+    escalation_level: str,
+    threat_type: str = "ai_autonomous",
+    severity: str = "high",
+    current_user: dict = Depends(get_current_user)
+):
+    """Execute graduated defense escalation"""
+    from threat_response import AIDefenseEngine, ThreatContext, DefenseEscalationLevel
+    from dataclasses import asdict
+    
+    # Create context
+    context = ThreatContext(
+        threat_id=f"ai_{session_id}",
+        threat_type=threat_type,
+        session_id=session_id,
+        severity=severity
+    )
+    
+    # Map level
+    level_map = {
+        "observe": DefenseEscalationLevel.OBSERVE,
+        "degrade": DefenseEscalationLevel.DEGRADE,
+        "deceive": DefenseEscalationLevel.DECEIVE,
+        "contain": DefenseEscalationLevel.CONTAIN,
+        "isolate": DefenseEscalationLevel.ISOLATE,
+        "eradicate": DefenseEscalationLevel.ERADICATE
+    }
+    level = level_map.get(escalation_level.lower(), DefenseEscalationLevel.OBSERVE)
+    
+    results = await AIDefenseEngine.execute_escalated_response(context, level)
+    
+    return {
+        "escalation_level": escalation_level,
+        "actions_taken": len(results),
+        "results": [asdict(r) for r in results]
+    }
+
+
+@router.get("/defense/status")
+async def get_defense_status(current_user: dict = Depends(get_current_user)):
+    """Get current AI defense status"""
+    from threat_response import AIDefenseEngine
+    
+    return AIDefenseEngine.get_defense_status()
+
+
+@router.post("/defense/sync-aatr")
+async def sync_with_aatr(
+    session_id: str,
+    indicators: List[str],
+    current_user: dict = Depends(get_current_user)
+):
+    """Sync detected patterns with AATR for framework identification"""
+    from threat_response import AIDefenseEngine
+    
+    result = await AIDefenseEngine.sync_with_aatr(
+        threat_indicators=indicators,
+        session_id=session_id
+    )
+    
+    return result

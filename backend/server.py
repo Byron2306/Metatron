@@ -186,6 +186,20 @@ app.include_router(advanced_router, prefix="/api")
 from routers.unified_agent import router as unified_agent_router
 app.include_router(unified_agent_router, prefix="/api")
 
+# ============ DECEPTION ENGINE ============
+# Import advanced deception system with Pebbles, Mystique, and Stonewall
+from routers.deception import router as deception_engine_router
+app.include_router(deception_engine_router, prefix="/api")  # Now /api/deception
+
+# Initialize deception engine and integrate with existing systems
+from deception_engine import deception_engine, integrate_with_honey_tokens, integrate_with_ransomware_protection
+from honey_tokens import honey_token_manager
+from ransomware_protection import ransomware_protection as ransomware_mgr
+
+deception_engine.set_database(db)
+integrate_with_honey_tokens(honey_token_manager)
+integrate_with_ransomware_protection(ransomware_mgr.behavior_detector)
+
 # ============ WEBSOCKET ENDPOINTS ============
 
 from routers.honeypots import ws_manager
@@ -240,7 +254,11 @@ async def root():
             "vpn_integration",
             "threat_correlation",
             "edr_capabilities",
-            "memory_forensics"
+            "memory_forensics",
+            "deception_engine",
+            "campaign_tracking_pebbles",
+            "adaptive_deception_mystique",
+            "progressive_escalation_stonewall"
         ]
     }
 

@@ -88,6 +88,8 @@ class MCPToolCategory(Enum):
     DECEPTION = "deception"
     IDENTITY = "identity"
     NETWORK = "network"
+    AI_DEFENSE = "ai_defense"      # AI threat defense tools (tarpit, decoy, escalation)
+    QUARANTINE = "quarantine"       # Quarantine pipeline tools
 
 
 @dataclass
@@ -407,6 +409,398 @@ class MCPServer:
             redact_fields=["config.credentials"]
         ))
 
+        # AI Defense: Tarpit Engagement
+        self.tools["mcp.defense.engage_tarpit"] = MCPToolSchema(
+            tool_id="mcp.defense.engage_tarpit",
+            name="AI Tarpit Engagement",
+            description="Engage adaptive tarpit to slow down AI threats with progressive delays",
+            category=MCPToolCategory.AI_DEFENSE,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "Session ID to tarpit"},
+                    "threat_level": {"type": "string", "enum": ["standard", "adaptive", "aggressive"]},
+                    "initial_delay_ms": {"type": "integer", "default": 500},
+                    "escalation_factor": {"type": "number", "default": 2.0},
+                    "max_delay_ms": {"type": "integer", "default": 30000}
+                },
+                "required": ["session_id"]
+            },
+            output_schema={"type": "object"},
+            required_trust_state="trusted",
+            required_scopes=["ai_defense"],
+            rate_limit=100,
+            timeout_seconds=5,
+            async_capable=True,
+            idempotent=False,
+            audit_level="basic",
+            redact_fields=[]
+        )
+
+        # AI Defense: Decoy Deployment
+        self.tools["mcp.defense.deploy_decoy"] = MCPToolSchema(
+            tool_id="mcp.defense.deploy_decoy",
+            name="AI Decoy Deployment",
+            description="Deploy dynamic decoys targeting AI attackers (credentials, files, endpoints)",
+            category=MCPToolCategory.AI_DEFENSE,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "decoy_type": {"type": "string", "enum": ["credentials", "files", "endpoints", "data"]},
+                    "threat_context": {"type": "object", "description": "AI threat context for targeted decoys"},
+                    "quantity": {"type": "integer", "default": 5},
+                    "complexity": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"}
+                },
+                "required": ["decoy_type"]
+            },
+            output_schema={"type": "object"},
+            required_trust_state="trusted",
+            required_scopes=["ai_defense", "deception"],
+            rate_limit=50,
+            timeout_seconds=30,
+            async_capable=True,
+            idempotent=False,
+            audit_level="basic",
+            redact_fields=["threat_context.credentials"]
+        )
+
+        # AI Defense: Threat Assessment
+        self.tools["mcp.defense.assess_ai_threat"] = MCPToolSchema(
+            tool_id="mcp.defense.assess_ai_threat",
+            name="AI Threat Assessment",
+            description="Assess if activity is from AI/automated agent and determine threat level",
+            category=MCPToolCategory.AI_DEFENSE,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "activity_data": {"type": "object", "description": "Activity patterns to analyze"},
+                    "request_timing": {"type": "array", "items": {"type": "number"}},
+                    "behavioral_indicators": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["session_id", "activity_data"]
+            },
+            output_schema={"type": "object"},
+            required_trust_state="elevated",
+            required_scopes=["ai_defense"],
+            rate_limit=200,
+            timeout_seconds=10,
+            async_capable=True,
+            idempotent=True,
+            audit_level="basic",
+            redact_fields=[]
+        )
+
+        # AI Defense: Escalation Handler
+        self.tools["mcp.defense.escalate_response"] = MCPToolSchema(
+            tool_id="mcp.defense.escalate_response",
+            name="Defense Escalation Handler",
+            description="Execute graduated defense escalation (OBSERVE→DEGRADE→DECEIVE→CONTAIN→ISOLATE→ERADICATE)",
+            category=MCPToolCategory.AI_DEFENSE,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "current_level": {"type": "string", "enum": ["observe", "degrade", "deceive", "contain", "isolate", "eradicate"]},
+                    "target_level": {"type": "string", "enum": ["observe", "degrade", "deceive", "contain", "isolate", "eradicate"]},
+                    "ai_confidence": {"type": "number", "description": "AI threat confidence 0.0-1.0"},
+                    "threat_assessment": {"type": "object"}
+                },
+                "required": ["session_id", "target_level"]
+            },
+            output_schema={"type": "object"},
+            required_trust_state="admin",
+            required_scopes=["ai_defense", "escalation"],
+            rate_limit=20,
+            timeout_seconds=60,
+            async_capable=True,
+            idempotent=False,
+            audit_level="full",
+            redact_fields=[]
+        )
+
+        # AI Defense: Feed Disinformation
+        self.tools["mcp.defense.feed_disinformation"] = MCPToolSchema(
+            tool_id="mcp.defense.feed_disinformation",
+            name="AI Disinformation Feed",
+            description="Feed targeted disinformation to mislead AI attackers",
+            category=MCPToolCategory.AI_DEFENSE,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "disinformation_type": {"type": "string", "enum": ["fake_data", "goal_misdirection", "capability_overstate", "deadline_manipulation"]},
+                    "target_goals": {"type": "array", "items": {"type": "string"}},
+                    "plausibility_level": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"}
+                },
+                "required": ["session_id", "disinformation_type"]
+            },
+            output_schema={"type": "object"},
+            required_trust_state="trusted",
+            required_scopes=["ai_defense", "deception"],
+            rate_limit=50,
+            timeout_seconds=15,
+            async_capable=True,
+            idempotent=False,
+            audit_level="basic",
+            redact_fields=[]
+        )
+
+        # Quarantine: Advance Pipeline
+        self.tools["mcp.quarantine.advance_pipeline"] = MCPToolSchema(
+            tool_id="mcp.quarantine.advance_pipeline",
+            name="Quarantine Pipeline Advancement",
+            description="Advance quarantined item through pipeline stages (quarantined→scanning→sandboxed→analyzed→stored)",
+            category=MCPToolCategory.QUARANTINE,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "entry_id": {"type": "string", "description": "Quarantine entry ID"},
+                    "target_stage": {"type": "string", "enum": ["quarantined", "scanning", "sandboxed", "analyzed", "stored"]},
+                    "force_advance": {"type": "boolean", "default": False}
+                },
+                "required": ["entry_id"]
+            },
+            output_schema={"type": "object"},
+            required_trust_state="trusted",
+            required_scopes=["quarantine"],
+            rate_limit=100,
+            timeout_seconds=30,
+            async_capable=True,
+            idempotent=False,
+            audit_level="basic",
+            redact_fields=[]
+        )
+
+        # Quarantine: Add Scan Result
+        self.tools["mcp.quarantine.add_scan_result"] = MCPToolSchema(
+            tool_id="mcp.quarantine.add_scan_result",
+            name="Quarantine Scan Result",
+            description="Add scan result to quarantine entry from EDR/AV engines",
+            category=MCPToolCategory.QUARANTINE,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "entry_id": {"type": "string"},
+                    "engine": {"type": "string"},
+                    "detected": {"type": "boolean"},
+                    "threat_name": {"type": "string"},
+                    "confidence": {"type": "number"}
+                },
+                "required": ["entry_id", "engine", "detected"]
+            },
+            output_schema={"type": "object"},
+            required_trust_state="trusted",
+            required_scopes=["quarantine"],
+            rate_limit=200,
+            timeout_seconds=10,
+            async_capable=True,
+            idempotent=False,
+            audit_level="basic",
+            redact_fields=[]
+        )
+
+        # Quarantine: Get Pipeline Status
+        self.tools["mcp.quarantine.get_pipeline_status"] = MCPToolSchema(
+            tool_id="mcp.quarantine.get_pipeline_status",
+            name="Quarantine Pipeline Status",
+            description="Get full status of quarantine pipeline for an entry",
+            category=MCPToolCategory.QUARANTINE,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "entry_id": {"type": "string"}
+                },
+                "required": ["entry_id"]
+            },
+            output_schema={"type": "object"},
+            required_trust_state="elevated",
+            required_scopes=["quarantine"],
+            rate_limit=200,
+            timeout_seconds=5,
+            async_capable=False,
+            idempotent=True,
+            audit_level="basic",
+            redact_fields=[]
+        )
+
+        # ============ DECEPTION ENGINE TOOLS ============
+        # Pebbles: Campaign-based attack correlation
+        self.tools["mcp.deception.track_campaign"] = MCPToolSchema(
+            tool_id="mcp.deception.track_campaign",
+            name="Pebbles Campaign Tracking",
+            description="Correlate attacks via behavioral fingerprints across sessions, IPs, and time windows",
+            category=MCPToolCategory.DECEPTION,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "ip": {"type": "string", "description": "Source IP address"},
+                    "headers": {"type": "object", "description": "Request headers for fingerprinting"},
+                    "timing_data": {"type": "object", "description": "Command timing intervals"},
+                    "session_id": {"type": "string"}
+                },
+                "required": ["ip"]
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "campaign_id": {"type": "string"},
+                    "fingerprint_id": {"type": "string"},
+                    "total_events": {"type": "integer"},
+                    "risk_level": {"type": "string"}
+                }
+            },
+            required_trust_state="elevated",
+            required_scopes=["deception"],
+            rate_limit=500,
+            timeout_seconds=5,
+            async_capable=True,
+            idempotent=True,
+            audit_level="basic",
+            redact_fields=[]
+        )
+
+        # Mystique: Adaptive deception tuning
+        self.tools["mcp.deception.mystique_adapt"] = MCPToolSchema(
+            tool_id="mcp.deception.mystique_adapt",
+            name="Mystique Adaptive Tuning",
+            description="Self-adjust deception parameters (friction, tarpit, thresholds) based on attacker behavior",
+            category=MCPToolCategory.DECEPTION,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "campaign_id": {"type": "string", "description": "Campaign to adapt"},
+                    "force_adapt": {"type": "boolean", "default": False}
+                },
+                "required": ["campaign_id"]
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "adapted": {"type": "boolean"},
+                    "friction_multiplier": {"type": "number"},
+                    "tarpit_multiplier": {"type": "number"},
+                    "sink_score_override": {"type": "integer"}
+                }
+            },
+            required_trust_state="trusted",
+            required_scopes=["deception", "ai_defense"],
+            rate_limit=100,
+            timeout_seconds=10,
+            async_capable=True,
+            idempotent=False,
+            audit_level="basic",
+            redact_fields=[]
+        )
+
+        # Stonewall: Progressive escalation
+        self.tools["mcp.deception.stonewall_escalate"] = MCPToolSchema(
+            tool_id="mcp.deception.stonewall_escalate",
+            name="Stonewall Progressive Escalation",
+            description="Apply progressive blocking escalation (warn→throttle→soft_ban→hard_ban→blocklist)",
+            category=MCPToolCategory.DECEPTION,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "ip": {"type": "string"},
+                    "campaign_id": {"type": "string"},
+                    "target_level": {"type": "string", "enum": ["warned", "throttled", "soft_banned", "hard_banned", "blocklisted"]}
+                },
+                "required": ["ip"]
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "escalation_level": {"type": "string"},
+                    "ban_until": {"type": "string"},
+                    "blocklisted": {"type": "boolean"}
+                }
+            },
+            required_trust_state="admin",
+            required_scopes=["deception", "firewall"],
+            rate_limit=50,
+            timeout_seconds=5,
+            async_capable=True,
+            idempotent=False,
+            audit_level="full",
+            redact_fields=[]
+        )
+
+        # Risk Scoring: Comprehensive assessment
+        self.tools["mcp.deception.assess_risk"] = MCPToolSchema(
+            tool_id="mcp.deception.assess_risk",
+            name="Deception Risk Assessment",
+            description="Comprehensive risk scoring with routing decision (pass/friction/trap_sink/honeypot)",
+            category=MCPToolCategory.DECEPTION,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "ip": {"type": "string"},
+                    "path": {"type": "string"},
+                    "headers": {"type": "object"},
+                    "behavior_flags": {"type": "object", "description": "Flags: decoy_touched, ai_behavior, repeated_failures"}
+                },
+                "required": ["ip"]
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "score": {"type": "integer"},
+                    "reasons": {"type": "array"},
+                    "route": {"type": "string"},
+                    "delay_ms": {"type": "integer"}
+                }
+            },
+            required_trust_state="elevated",
+            required_scopes=["deception"],
+            rate_limit=500,
+            timeout_seconds=5,
+            async_capable=True,
+            idempotent=True,
+            audit_level="basic",
+            redact_fields=[]
+        )
+
+        # Decoy Interaction Recording
+        self.tools["mcp.deception.record_decoy_touch"] = MCPToolSchema(
+            tool_id="mcp.deception.record_decoy_touch",
+            name="Record Decoy Interaction",
+            description="Record attacker interaction with decoy/honey token for campaign correlation",
+            category=MCPToolCategory.DECEPTION,
+            version="1.0.0",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "ip": {"type": "string"},
+                    "decoy_type": {"type": "string", "enum": ["honey_token", "canary_file", "fake_endpoint", "credential_trap"]},
+                    "decoy_id": {"type": "string"},
+                    "session_id": {"type": "string"}
+                },
+                "required": ["ip", "decoy_type", "decoy_id"]
+            },
+            output_schema={"type": "object"},
+            required_trust_state="trusted",
+            required_scopes=["deception"],
+            rate_limit=200,
+            timeout_seconds=5,
+            async_capable=True,
+            idempotent=False,
+            audit_level="full",
+            redact_fields=[]
+        )
+
     def _register_builtin_handlers(self):
         """Register default handlers for built-in MCP tools."""
         self.register_tool_handler("mcp.scanner.network", self._handler_network_scan)
@@ -415,6 +809,22 @@ class MCPServer:
         self.register_tool_handler("mcp.soar.run_playbook", self._handler_soar_run_playbook)
         self.register_tool_handler("mcp.forensics.memory_dump", self._handler_forensics_memory_dump)
         self.register_tool_handler("mcp.deception.deploy_honeypot", self._handler_deploy_honeypot)
+        # AI Defense handlers
+        self.register_tool_handler("mcp.defense.engage_tarpit", self._handler_engage_tarpit)
+        self.register_tool_handler("mcp.defense.deploy_decoy", self._handler_deploy_decoy)
+        self.register_tool_handler("mcp.defense.assess_ai_threat", self._handler_assess_ai_threat)
+        self.register_tool_handler("mcp.defense.escalate_response", self._handler_escalate_response)
+        self.register_tool_handler("mcp.defense.feed_disinformation", self._handler_feed_disinformation)
+        # Quarantine handlers
+        self.register_tool_handler("mcp.quarantine.advance_pipeline", self._handler_advance_pipeline)
+        self.register_tool_handler("mcp.quarantine.add_scan_result", self._handler_add_scan_result)
+        self.register_tool_handler("mcp.quarantine.get_pipeline_status", self._handler_get_pipeline_status)
+        # Deception Engine handlers (Pebbles, Mystique, Stonewall)
+        self.register_tool_handler("mcp.deception.track_campaign", self._handler_track_campaign)
+        self.register_tool_handler("mcp.deception.mystique_adapt", self._handler_mystique_adapt)
+        self.register_tool_handler("mcp.deception.stonewall_escalate", self._handler_stonewall_escalate)
+        self.register_tool_handler("mcp.deception.assess_risk", self._handler_assess_deception_risk)
+        self.register_tool_handler("mcp.deception.record_decoy_touch", self._handler_record_decoy_touch)
 
     def register_tool_handler(self, tool_id: str, handler: Callable):
         """Register or replace a handler for an existing MCP tool."""
@@ -672,6 +1082,495 @@ class MCPServer:
             "trigger_endpoint": trigger_endpoint,
             "honeypot_type": honeypot_type,
             "target_zone": target_zone,
+        }
+
+    # ==========================================================================
+    # AI Defense Handlers
+    # ==========================================================================
+
+    async def _handler_engage_tarpit(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Engage adaptive tarpit to slow down AI threats."""
+        session_id = str(params.get("session_id", "")).strip()
+        if not session_id:
+            raise RuntimeError("Missing required parameter: session_id")
+
+        threat_level = str(params.get("threat_level", "standard")).lower()
+        host_id = str(params.get("host_id", "unknown")).strip()
+
+        from threat_response import AIDefenseEngine
+
+        result = await AIDefenseEngine.engage_tarpit(
+            session_id=session_id,
+            host_id=host_id,
+            mode=threat_level
+        )
+
+        return {
+            "session_id": session_id,
+            "tarpit_engaged": True,
+            "threat_level": threat_level,
+            "current_delay_ms": result.details.get("base_delay_ms", 500),
+            "engaged_at": datetime.now(timezone.utc).isoformat(),
+            "details": result.details
+        }
+
+    async def _handler_deploy_decoy(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Deploy dynamic decoys targeting AI attackers."""
+        decoy_type = str(params.get("decoy_type", "")).strip().lower()
+        if not decoy_type:
+            raise RuntimeError("Missing required parameter: decoy_type")
+
+        host_id = str(params.get("host_id", "unknown")).strip()
+        decoys = params.get("decoys", ["trap_credential_1", "trap_file_2", "honeypot_endpoint_3"])
+        if not isinstance(decoys, list):
+            decoys = [str(decoys)]
+        placement = str(params.get("placement", "standard")).lower()
+
+        from threat_response import AIDefenseEngine
+
+        result = await AIDefenseEngine.deploy_decoy(
+            host_id=host_id,
+            decoy_type=decoy_type,
+            decoys=decoys,
+            placement=placement
+        )
+
+        return {
+            "decoy_type": decoy_type,
+            "decoys_deployed": result.details.get("count", 0),
+            "decoy_id": result.details.get("decoy_id"),
+            "placement": placement,
+            "deployed_at": datetime.now(timezone.utc).isoformat()
+        }
+
+    async def _handler_assess_ai_threat(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Assess if activity is from AI/automated agent."""
+        session_id = str(params.get("session_id", "")).strip()
+        activity_data = params.get("activity_data", {})
+
+        if not session_id:
+            raise RuntimeError("Missing required parameter: session_id")
+
+        request_timing = params.get("request_timing", [])
+        host_id = str(params.get("host_id", activity_data.get("host_id", "unknown"))).strip()
+
+        from threat_response import AIDefenseEngine
+
+        # Adapt params to class method signature
+        behavior_data = {
+            **activity_data,
+            "command_timestamps": request_timing
+        }
+        
+        assessment = await AIDefenseEngine.assess_ai_threat(
+            session_id=session_id,
+            host_id=host_id,
+            behavior_data=behavior_data
+        )
+
+        return {
+            "session_id": session_id,
+            "is_ai_threat": assessment.machine_likelihood >= 0.5,
+            "ai_confidence": assessment.machine_likelihood,
+            "confidence_level": assessment.confidence_level,
+            "threat_indicators": assessment.dominant_intents,
+            "recommended_action": assessment.recommended_escalation.value,
+            "assessed_at": datetime.now(timezone.utc).isoformat()
+        }
+
+    async def _handler_escalate_response(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute graduated defense escalation."""
+        session_id = str(params.get("session_id", "")).strip()
+        target_level = str(params.get("target_level", "")).strip().lower()
+
+        if not session_id:
+            raise RuntimeError("Missing required parameter: session_id")
+        if not target_level:
+            raise RuntimeError("Missing required parameter: target_level")
+
+        valid_levels = ["observe", "degrade", "deceive", "contain", "isolate", "eradicate"]
+        if target_level not in valid_levels:
+            raise RuntimeError(f"Invalid escalation level: {target_level}")
+
+        current_level = str(params.get("current_level", "observe")).lower()
+        threat_assessment = params.get("threat_assessment", {})
+
+        from threat_response import AIDefenseEngine, ThreatContext, DefenseEscalationLevel
+
+        # Build ThreatContext from params
+        context = ThreatContext(
+            threat_id=f"mcp-escalation-{uuid.uuid4().hex[:8]}",
+            threat_type=threat_assessment.get("threat_type", "ai_threat"),
+            severity=threat_assessment.get("severity", 8),
+            agent_id=threat_assessment.get("agent_id"),
+            source_ip=threat_assessment.get("source_ip"),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            session_id=session_id,
+            process_id=threat_assessment.get("process_id")
+        )
+
+        # Map target_level string to enum
+        level_map = {
+            "observe": DefenseEscalationLevel.OBSERVE,
+            "degrade": DefenseEscalationLevel.DEGRADE,
+            "deceive": DefenseEscalationLevel.DECEIVE,
+            "contain": DefenseEscalationLevel.CONTAIN,
+            "isolate": DefenseEscalationLevel.ISOLATE,
+            "eradicate": DefenseEscalationLevel.ERADICATE
+        }
+
+        results = await AIDefenseEngine.execute_escalated_response(
+            context=context,
+            escalation_level=level_map.get(target_level, DefenseEscalationLevel.OBSERVE)
+        )
+
+        actions_taken = [r.action.value for r in results] if results else []
+
+        return {
+            "session_id": session_id,
+            "previous_level": current_level,
+            "current_level": target_level,
+            "actions_taken": actions_taken,
+            "escalation_successful": len(actions_taken) > 0,
+            "escalated_at": datetime.now(timezone.utc).isoformat()
+        }
+
+    async def _handler_feed_disinformation(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Feed targeted disinformation to mislead AI attackers."""
+        session_id = str(params.get("session_id", "")).strip()
+        disinformation_type = str(params.get("disinformation_type", "")).strip()
+
+        if not session_id:
+            raise RuntimeError("Missing required parameter: session_id")
+        if not disinformation_type:
+            raise RuntimeError("Missing required parameter: disinformation_type")
+
+        goal_misdirection = bool(params.get("goal_misdirection", False))
+
+        from threat_response import AIDefenseEngine
+
+        result = await AIDefenseEngine.feed_disinformation(
+            session_id=session_id,
+            disinfo_type=disinformation_type,
+            goal_misdirection=goal_misdirection
+        )
+
+        return {
+            "session_id": session_id,
+            "disinformation_type": disinformation_type,
+            "disinformation_active": result.status.value == "success",
+            "details": result.details,
+            "fed_at": datetime.now(timezone.utc).isoformat()
+        }
+
+    # ==========================================================================
+    # Quarantine Pipeline Handlers
+    # ==========================================================================
+
+    async def _handler_advance_pipeline(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Advance quarantine entry through pipeline stages."""
+        entry_id = str(params.get("entry_id", "")).strip()
+        if not entry_id:
+            raise RuntimeError("Missing required parameter: entry_id")
+
+        target_stage = params.get("target_stage", "scanning")
+        reason = str(params.get("reason", "MCP advancement")).strip()
+
+        from quarantine import get_quarantine_entry, advance_pipeline_stage
+
+        entry = get_quarantine_entry(entry_id)
+        if not entry:
+            raise RuntimeError(f"Quarantine entry not found: {entry_id}")
+
+        previous_stage = entry.pipeline_stage
+        
+        result = advance_pipeline_stage(
+            entry_id=entry_id,
+            new_stage=target_stage,
+            reason=reason
+        )
+
+        return {
+            "entry_id": entry_id,
+            "previous_stage": previous_stage,
+            "current_stage": result.pipeline_stage if result else target_stage,
+            "advanced_at": datetime.now(timezone.utc).isoformat(),
+            "success": result is not None
+        }
+
+    async def _handler_add_scan_result(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Add scan result to quarantine entry."""
+        entry_id = str(params.get("entry_id", "")).strip()
+        engine = str(params.get("engine", "")).strip()
+        detected = bool(params.get("detected", False))
+
+        if not entry_id:
+            raise RuntimeError("Missing required parameter: entry_id")
+        if not engine:
+            raise RuntimeError("Missing required parameter: engine")
+
+        threat_name = params.get("threat_name")
+        threat_category = params.get("threat_category")
+        confidence = float(params.get("confidence", 0.0))
+
+        from quarantine import add_scan_result as quarantine_add_scan_result
+
+        result = quarantine_add_scan_result(
+            entry_id=entry_id,
+            scanner=engine,
+            detection=detected,
+            threat_name=threat_name,
+            threat_category=threat_category,
+            confidence=confidence
+        )
+
+        return {
+            "entry_id": entry_id,
+            "engine": engine,
+            "detected": detected,
+            "threat_name": threat_name,
+            "added_at": datetime.now(timezone.utc).isoformat(),
+            "success": result is not None
+        }
+
+    def _handler_get_pipeline_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get full status of quarantine pipeline for an entry."""
+        entry_id = str(params.get("entry_id", "")).strip()
+        if not entry_id:
+            raise RuntimeError("Missing required parameter: entry_id")
+
+        from quarantine import get_quarantine_entry, get_pipeline_status
+
+        entry = get_quarantine_entry(entry_id)
+        if not entry:
+            raise RuntimeError(f"Quarantine entry not found: {entry_id}")
+
+        # Use dedicated pipeline status function if available
+        pipeline_status = get_pipeline_status(entry_id)
+        if pipeline_status:
+            return pipeline_status
+
+        return {
+            "entry_id": entry_id,
+            "current_stage": entry.pipeline_stage,
+            "original_path": entry.original_path,
+            "threat_type": entry.threat_type,
+            "quarantined_at": entry.quarantined_at,
+            "scan_results": entry.scan_results,
+            "sandbox_result": entry.sandbox_result,
+            "threat_intel_hits": entry.threat_intel_hits,
+            "final_verdict": entry.final_verdict,
+            "pipeline_complete": entry.pipeline_stage == "stored"
+        }
+
+    # ============ DECEPTION ENGINE HANDLERS ============
+
+    async def _handler_track_campaign(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Pebbles: Track attack campaign via behavioral fingerprint."""
+        from deception_engine import deception_engine
+
+        ip = str(params.get("ip", "")).strip()
+        if not ip:
+            raise RuntimeError("Missing required parameter: ip")
+
+        headers = params.get("headers", {})
+        timing_data = params.get("timing_data")
+        session_id = params.get("session_id")
+        path = params.get("path", "/")
+
+        # Compute fingerprint and campaign
+        fingerprint = deception_engine.compute_fingerprint(headers, timing_data)
+        campaign_id = deception_engine.compute_campaign_id(ip, fingerprint.fingerprint_id, path)
+        campaign = deception_engine.get_or_create_campaign(campaign_id, ip, fingerprint.fingerprint_id, session_id)
+
+        # Determine risk level
+        risk_level = "low"
+        if campaign.trap_events > 10:
+            risk_level = "critical"
+        elif campaign.total_events > 30:
+            risk_level = "high"
+        elif campaign.total_events > 10:
+            risk_level = "medium"
+
+        return {
+            "campaign_id": campaign_id,
+            "fingerprint_id": fingerprint.fingerprint_id,
+            "total_events": campaign.total_events,
+            "trap_events": campaign.trap_events,
+            "decoy_interactions": campaign.decoy_interactions,
+            "source_ips": list(campaign.source_ips),
+            "risk_level": risk_level,
+            "escalation_level": campaign.escalation_level.value,
+            "first_seen": campaign.first_seen,
+            "last_seen": campaign.last_seen
+        }
+
+    async def _handler_mystique_adapt(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Mystique: Adapt deception parameters for a campaign."""
+        from deception_engine import deception_engine
+
+        campaign_id = str(params.get("campaign_id", "")).strip()
+        if not campaign_id:
+            raise RuntimeError("Missing required parameter: campaign_id")
+
+        force_adapt = params.get("force_adapt", False)
+
+        if campaign_id not in deception_engine.campaigns:
+            raise RuntimeError(f"Campaign not found: {campaign_id}")
+
+        campaign = deception_engine.campaigns[campaign_id]
+
+        # Force adaptation if requested
+        if force_adapt:
+            campaign.total_events = max(
+                campaign.total_events,
+                deception_engine.config.campaign_promote_threshold + 1
+            )
+            # Align to adapt interval
+            n = deception_engine.config.adapt_every_n_events
+            campaign.total_events = ((campaign.total_events // n) + 1) * n
+
+        adapted = deception_engine.mystique_adapt(campaign_id)
+
+        return {
+            "campaign_id": campaign_id,
+            "adapted": adapted,
+            "friction_multiplier": campaign.friction_multiplier,
+            "tarpit_multiplier": campaign.tarpit_multiplier,
+            "sink_score_override": campaign.sink_score_override,
+            "escalation_level": campaign.escalation_level.value
+        }
+
+    async def _handler_stonewall_escalate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Stonewall: Apply progressive blocking escalation."""
+        from deception_engine import deception_engine, EscalationLevel, RouteDecision
+        import time as _time
+
+        ip = str(params.get("ip", "")).strip()
+        if not ip:
+            raise RuntimeError("Missing required parameter: ip")
+
+        campaign_id = params.get("campaign_id")
+        target_level = params.get("target_level")
+
+        # If target level specified, directly apply
+        if target_level:
+            level_map = {
+                "warned": EscalationLevel.WARNED,
+                "throttled": EscalationLevel.THROTTLED,
+                "soft_banned": EscalationLevel.SOFT_BANNED,
+                "hard_banned": EscalationLevel.HARD_BANNED,
+                "blocklisted": EscalationLevel.BLOCKLISTED
+            }
+            
+            if target_level not in level_map:
+                raise RuntimeError(f"Invalid target_level: {target_level}")
+
+            target = level_map[target_level]
+            blocklisted = False
+            ban_until = None
+
+            if target == EscalationLevel.SOFT_BANNED:
+                deception_engine.soft_bans[ip] = _time.time() + deception_engine.config.ban_seconds_first
+                ban_until = datetime.fromtimestamp(deception_engine.soft_bans[ip], tz=timezone.utc).isoformat()
+            elif target == EscalationLevel.HARD_BANNED:
+                deception_engine.soft_bans[ip] = _time.time() + deception_engine.config.ban_seconds_repeat
+                ban_until = datetime.fromtimestamp(deception_engine.soft_bans[ip], tz=timezone.utc).isoformat()
+            elif target == EscalationLevel.BLOCKLISTED:
+                deception_engine.blocklist.add(ip)
+                blocklisted = True
+
+            # Update campaign if exists
+            if campaign_id and campaign_id in deception_engine.campaigns:
+                deception_engine.campaigns[campaign_id].escalation_level = target
+
+            return {
+                "ip": ip,
+                "escalation_level": target.value,
+                "ban_until": ban_until,
+                "blocklisted": blocklisted
+            }
+
+        # Otherwise use automatic escalation
+        if not campaign_id:
+            raise RuntimeError("campaign_id required when target_level not specified")
+
+        new_level = deception_engine.stonewall_check(campaign_id, ip, RouteDecision.TRAP_SINK)
+        ban_until = None
+        if ip in deception_engine.soft_bans:
+            ban_until = datetime.fromtimestamp(deception_engine.soft_bans[ip], tz=timezone.utc).isoformat()
+
+        return {
+            "ip": ip,
+            "campaign_id": campaign_id,
+            "escalation_level": new_level.value,
+            "ban_until": ban_until,
+            "blocklisted": ip in deception_engine.blocklist
+        }
+
+    async def _handler_assess_deception_risk(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Comprehensive deception risk assessment."""
+        from deception_engine import deception_engine
+
+        ip = str(params.get("ip", "")).strip()
+        if not ip:
+            raise RuntimeError("Missing required parameter: ip")
+
+        path = params.get("path", "/")
+        headers = params.get("headers", {})
+        session_id = params.get("session_id")
+        behavior_flags = params.get("behavior_flags", {})
+
+        assessment = await deception_engine.process_request(
+            ip=ip,
+            path=path,
+            headers=headers,
+            session_id=session_id,
+            behavior_flags=behavior_flags
+        )
+
+        return {
+            "score": assessment.score,
+            "reasons": assessment.reasons,
+            "route": assessment.route.value,
+            "delay_ms": assessment.delay_ms,
+            "campaign_id": assessment.campaign_id,
+            "fingerprint_id": assessment.fingerprint_id,
+            "escalation_level": assessment.escalation_level.value
+        }
+
+    async def _handler_record_decoy_touch(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Record attacker interaction with decoy/honey token."""
+        from deception_engine import deception_engine
+
+        ip = str(params.get("ip", "")).strip()
+        decoy_type = str(params.get("decoy_type", "")).strip()
+        decoy_id = str(params.get("decoy_id", "")).strip()
+
+        if not ip or not decoy_type or not decoy_id:
+            raise RuntimeError("Missing required parameters: ip, decoy_type, decoy_id")
+
+        session_id = params.get("session_id")
+        headers = params.get("headers", {})
+
+        assessment = await deception_engine.record_decoy_interaction(
+            ip=ip,
+            decoy_type=decoy_type,
+            decoy_id=decoy_id,
+            session_id=session_id,
+            headers=headers
+        )
+
+        return {
+            "recorded": True,
+            "ip": ip,
+            "decoy_type": decoy_type,
+            "decoy_id": decoy_id,
+            "risk_score": assessment.score,
+            "route": assessment.route.value,
+            "campaign_id": assessment.campaign_id,
+            "escalation_level": assessment.escalation_level.value,
+            "alert_triggered": True
         }
     
     def register_tool(self, schema: MCPToolSchema, handler: Callable = None):

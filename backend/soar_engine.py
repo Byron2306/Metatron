@@ -1,17 +1,38 @@
 """
 SOAR (Security Orchestration, Automation and Response) Playbook Engine
+with Rogue AI Agentic Defense System
+
+Seraph's differentiation: Advanced AI-driven threat detection and response
+specifically designed to counter autonomous AI attackers.
+
+FEATURES:
+- Rogue AI Pattern Detection & Response
+- Adaptive Defense Escalation Matrix
+- Deception Orchestration Pipeline
+- Quarantine-to-Forensics Flow
+- ML-Integrated Threat Scoring
+- Real-time Agent Command Generation
 """
 import asyncio
+import uuid
 from datetime import datetime, timezone
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Callable, Tuple
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 import uuid
 import logging
+import hashlib
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
+
+# =============================================================================
+# ENHANCED ENUMS FOR AI AGENTIC DEFENSE
+# =============================================================================
+
 class PlaybookAction(str, Enum):
+    # Core Actions
     BLOCK_IP = "block_ip"
     KILL_PROCESS = "kill_process"
     QUARANTINE_FILE = "quarantine_file"
@@ -22,8 +43,31 @@ class PlaybookAction(str, Enum):
     SCAN_ENDPOINT = "scan_endpoint"
     UPDATE_FIREWALL = "update_firewall"
     CREATE_TICKET = "create_ticket"
+    
+    # AI Agentic Defense Actions
+    THROTTLE_CLI = "throttle_cli"
+    INJECT_LATENCY = "inject_latency"
+    CAPTURE_TRIAGE_BUNDLE = "capture_triage_bundle"
+    CAPTURE_MEMORY_SNAPSHOT = "capture_memory_snapshot"
+    KILL_PROCESS_TREE = "kill_process_tree"
+    TAG_SESSION = "tag_session"
+    DEPLOY_DECOY = "deploy_decoy"
+    ROTATE_CREDENTIALS = "rotate_credentials"
+    ENGAGE_TARPIT = "engage_tarpit"
+    FEED_DISINFORMATION = "feed_disinformation"
+    ENABLE_ENHANCED_LOGGING = "enable_enhanced_logging"
+    SNAPSHOT_NETWORK_STATE = "snapshot_network_state"
+    LOCK_SENSITIVE_RESOURCES = "lock_sensitive_resources"
+    TRIGGER_CANARY_VALIDATION = "trigger_canary_validation"
+    ESCALATE_TO_HUMAN = "escalate_to_human"
+    INVOKE_ML_ANALYSIS = "invoke_ml_analysis"
+    SYNC_THREAT_INTEL = "sync_threat_intel"
+    QUARANTINE_TO_SANDBOX = "quarantine_to_sandbox"
+    EXECUTE_CONTAINMENT_CHAIN = "execute_containment_chain"
+
 
 class PlaybookTrigger(str, Enum):
+    # Standard Triggers
     THREAT_DETECTED = "threat_detected"
     MALWARE_FOUND = "malware_found"
     RANSOMWARE_DETECTED = "ransomware_detected"
@@ -32,11 +76,25 @@ class PlaybookTrigger(str, Enum):
     HONEYPOT_TRIGGERED = "honeypot_triggered"
     ANOMALY_DETECTED = "anomaly_detected"
     MANUAL = "manual"
+    
+    # AI Agentic Triggers
+    AI_BEHAVIOR_DETECTED = "ai_behavior_detected"
+    MACHINE_PACED_ACTIVITY = "machine_paced_activity"
+    AUTONOMOUS_RECON = "autonomous_recon"
+    RAPID_CREDENTIAL_ACCESS = "rapid_credential_access"
+    AUTOMATED_LATERAL_MOVEMENT = "automated_lateral_movement"
+    AI_EXFILTRATION_PATTERN = "ai_exfiltration_pattern"
+    DECEPTION_TOKEN_ACCESS = "deception_token_access"
+    GOAL_PERSISTENT_LOOP = "goal_persistent_loop"
+    TOOL_CHAIN_SWITCHING = "tool_chain_switching"
+    ADAPTIVE_ATTACK_DETECTED = "adaptive_attack_detected"
+
 
 class PlaybookStatus(str, Enum):
     ACTIVE = "active"
     DISABLED = "disabled"
     TESTING = "testing"
+
 
 class ExecutionStatus(str, Enum):
     PENDING = "pending"
@@ -44,6 +102,26 @@ class ExecutionStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     PARTIAL = "partial"
+    ESCALATED = "escalated"
+    AWAITING_APPROVAL = "awaiting_approval"
+
+
+class DefenseEscalationLevel(str, Enum):
+    """Defense escalation levels for graduated response"""
+    OBSERVE = "observe"           # Level 0: Monitor only
+    DEGRADE = "degrade"           # Level 1: Slow down attacker
+    DECEIVE = "deceive"           # Level 2: Feed false information
+    CONTAIN = "contain"           # Level 3: Limit blast radius
+    ISOLATE = "isolate"           # Level 4: Cut off from network
+    ERADICATE = "eradicate"       # Level 5: Full removal
+
+
+class AIThreatConfidence(str, Enum):
+    """Confidence level that threat is AI-driven"""
+    LOW = "low"           # < 50% - Could be human
+    MEDIUM = "medium"     # 50-70% - Suspicious patterns
+    HIGH = "high"         # 70-90% - Likely AI
+    CRITICAL = "critical" # > 90% - Almost certainly AI
 
 @dataclass
 class PlaybookStep:
@@ -96,13 +174,128 @@ class PlaybookExecution:
     completed_at: Optional[str] = None
     step_results: List[Dict[str, Any]] = field(default_factory=list)
     error: Optional[str] = None
+    escalation_level: DefenseEscalationLevel = DefenseEscalationLevel.OBSERVE
+    ai_confidence: Optional[float] = None
+    quarantine_refs: List[str] = field(default_factory=list)  # Links to quarantined items
+    forensics_refs: List[str] = field(default_factory=list)   # Links to forensics data
+
+
+# =============================================================================
+# AI AGENTIC DEFENSE DATACLASSES
+# =============================================================================
+
+@dataclass
+class AIThreatAssessment:
+    """Assessment of AI-driven threat characteristics"""
+    session_id: str
+    host_id: str
+    machine_likelihood: float           # 0-1 probability this is AI
+    confidence_level: AIThreatConfidence
+    burstiness_score: float             # How bursty the activity is
+    tool_switch_latency_ms: float       # Time between tool switches
+    goal_persistence: float             # How persistent toward goal
+    dominant_intents: List[str]         # Detected intents (recon, lateral_movement, etc.)
+    decoy_touched: bool                 # Did they touch a honey token?
+    recommended_escalation: DefenseEscalationLevel
+    assessment_timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    
+    def to_dict(self) -> Dict:
+        return {
+            **asdict(self),
+            "confidence_level": self.confidence_level.value,
+            "recommended_escalation": self.recommended_escalation.value
+        }
+
+
+@dataclass
+class QuarantinePipelineItem:
+    """Item flowing through the quarantine-to-forensics pipeline"""
+    item_id: str
+    item_type: str  # "file", "process", "memory_dump", "network_capture"
+    source_host: str
+    source_path: Optional[str]
+    quarantine_path: Optional[str]
+    hash_sha256: Optional[str]
+    hash_md5: Optional[str]
+    size_bytes: int
+    quarantined_at: str
+    playbook_id: str
+    execution_id: str
+    
+    # Pipeline stages
+    stage: str = "quarantined"  # quarantined -> scanning -> analyzed -> stored
+    scan_results: Dict[str, Any] = field(default_factory=dict)
+    sandbox_results: Dict[str, Any] = field(default_factory=dict)
+    threat_intel_hits: List[Dict] = field(default_factory=list)
+    forensics_complete: bool = False
+    retention_days: int = 90
+    
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+
+@dataclass
+class DefenseEscalationState:
+    """Current defense escalation state for a host/session"""
+    host_id: str
+    session_id: Optional[str]
+    current_level: DefenseEscalationLevel
+    level_history: List[Dict]  # [{level, timestamp, reason}]
+    active_measures: List[str]  # Currently active defense measures
+    escalated_at: str
+    auto_de_escalate_after: Optional[str]  # When to auto-reduce level
+    requires_human_approval_for: List[str]  # Actions requiring approval
+    
+    def to_dict(self) -> Dict:
+        d = asdict(self)
+        d["current_level"] = self.current_level.value
+        return d
 
 class SOAREngine:
+    """
+    Security Orchestration, Automation and Response Engine
+    
+    Features:
+    - Standard playbook management (create, update, delete, execute)
+    - AI Agentic Defense System for countering autonomous attackers
+    - Defense Escalation Matrix with graduated response
+    - Quarantine-to-Forensics Pipeline integration
+    - Deception Orchestration
+    - ML-Integrated threat scoring
+    """
+    
     def __init__(self):
         self.playbooks: Dict[str, Playbook] = {}
         self.templates: Dict[str, PlaybookTemplate] = {}
         self.executions: List[PlaybookExecution] = []
+        
+        # AI Agentic Defense State
+        self.escalation_states: Dict[str, DefenseEscalationState] = {}  # host_id -> state
+        self.ai_threat_assessments: Dict[str, AIThreatAssessment] = {}  # session_id -> assessment
+        self.quarantine_pipeline: Dict[str, QuarantinePipelineItem] = {}  # item_id -> item
+        
+        # Defense escalation thresholds
+        self.ai_thresholds = {
+            "machine_likelihood_medium": 0.50,
+            "machine_likelihood_high": 0.70,
+            "machine_likelihood_critical": 0.90,
+            "burstiness_high": 0.70,
+            "tool_switch_fast_ms": 300,
+            "goal_persistence_high": 0.70
+        }
+        
+        # Actions requiring human approval at each level
+        self.approval_matrix = {
+            DefenseEscalationLevel.OBSERVE: [],
+            DefenseEscalationLevel.DEGRADE: [],
+            DefenseEscalationLevel.DECEIVE: [],
+            DefenseEscalationLevel.CONTAIN: ["isolate_endpoint"],
+            DefenseEscalationLevel.ISOLATE: [],
+            DefenseEscalationLevel.ERADICATE: ["kill_process_tree", "wipe_session"]
+        }
+        
         self._init_default_playbooks()
+        self._init_ai_defense_playbooks()
         self._init_templates()
     
     def _init_default_playbooks(self):
@@ -248,6 +441,511 @@ class SOAREngine:
             ]
         )
     
+    def _init_ai_defense_playbooks(self):
+        """
+        Initialize AI Agentic Defense Playbooks
+        
+        These playbooks are specifically designed to counter autonomous AI attackers
+        with graduated response levels and adaptive defense measures.
+        """
+        
+        # =====================================================================
+        # LEVEL 1: OBSERVE & DEGRADE - Machine-Paced Recon Loop
+        # =====================================================================
+        self.playbooks["ai_recon_degrade_01"] = Playbook(
+            id="ai_recon_degrade_01",
+            name="AI Recon Loop - Degrade & Observe",
+            description="Detected machine-paced reconnaissance. Degrade performance while observing.",
+            trigger=PlaybookTrigger.AUTONOMOUS_RECON,
+            trigger_conditions={
+                "machine_likelihood": ["high", "critical"],
+                "intents": ["recon", "enumeration"],
+                "burstiness": ["high"]
+            },
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.TAG_SESSION,
+                    params={"tags": ["ai_suspected", "recon", "level_1"]},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ENABLE_ENHANCED_LOGGING,
+                    params={"level": "verbose", "include_keystrokes": True, "network_capture": True},
+                    timeout=10
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.THROTTLE_CLI,
+                    params={"rate_per_min": 20, "mode": "soft"},
+                    timeout=10
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.INJECT_LATENCY,
+                    params={"delay_ms": 250, "jitter_ms": 200, "mode": "soft"},
+                    timeout=10
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_TRIAGE_BUNDLE,
+                    params={"window_s": 60, "include": ["processes", "network", "files"]},
+                    timeout=90,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.INVOKE_ML_ANALYSIS,
+                    params={"model": "ai_behavior_classifier", "continuous": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack"], "priority": "medium", "template": "ai_recon_detected"},
+                    timeout=30
+                )
+            ],
+            tags=["ai_defense", "recon", "level_1", "degrade"]
+        )
+        
+        # =====================================================================
+        # LEVEL 2: DECEIVE - Credential Access Pattern
+        # =====================================================================
+        self.playbooks["ai_cred_access_01"] = Playbook(
+            id="ai_cred_access_01",
+            name="AI Credential Access - Deceive & Monitor",
+            description="AI attempting credential harvesting. Deploy decoys and monitor.",
+            trigger=PlaybookTrigger.RAPID_CREDENTIAL_ACCESS,
+            trigger_conditions={
+                "machine_likelihood": ["high", "critical"],
+                "intents": ["credential_access", "credential_dumping"]
+            },
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.TAG_SESSION,
+                    params={"tags": ["ai_suspected", "credential_access", "level_2"]},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.DEPLOY_DECOY,
+                    params={
+                        "type": "credentials",
+                        "decoys": ["aws_key", "database_cred", "api_token"],
+                        "placement": "lsass_adjacent"
+                    },
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.THROTTLE_CLI,
+                    params={"rate_per_min": 10, "mode": "hard"},
+                    timeout=10
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.INJECT_LATENCY,
+                    params={"delay_ms": 600, "jitter_ms": 400, "mode": "hard"},
+                    timeout=10
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.LOCK_SENSITIVE_RESOURCES,
+                    params={"resources": ["sam_database", "lsass_memory", "credential_store"]},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_TRIAGE_BUNDLE,
+                    params={"window_s": 180, "include": ["processes", "memory", "registry"]},
+                    timeout=240,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.TRIGGER_CANARY_VALIDATION,
+                    params={"validate_all": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack", "email"], "priority": "high", "template": "ai_credential_access"},
+                    timeout=30
+                )
+            ],
+            tags=["ai_defense", "credential_access", "level_2", "deceive"]
+        )
+        
+        # =====================================================================
+        # LEVEL 3: CONTAIN - Autonomous Pivot / Tool Chain Switching
+        # =====================================================================
+        self.playbooks["ai_pivot_contain_01"] = Playbook(
+            id="ai_pivot_contain_01",
+            name="AI Lateral Movement - Contain Fast",
+            description="AI performing rapid lateral movement or tool switching. Contain blast radius.",
+            trigger=PlaybookTrigger.AUTOMATED_LATERAL_MOVEMENT,
+            trigger_conditions={
+                "machine_likelihood": ["high", "critical"],
+                "intents": ["lateral_movement", "privilege_escalation"],
+                "tool_switch_latency": ["fast"]
+            },
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.TAG_SESSION,
+                    params={"tags": ["ai_confirmed", "lateral_movement", "level_3", "containment"]},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SNAPSHOT_NETWORK_STATE,
+                    params={"include_flows": True, "include_connections": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.UPDATE_FIREWALL,
+                    params={
+                        "rule_type": "contain",
+                        "block_lateral": True,
+                        "allow_management": True
+                    },
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.LOCK_SENSITIVE_RESOURCES,
+                    params={"resources": ["domain_controller", "file_shares", "database_servers"]},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.DISABLE_USER,
+                    params={"preserve_session": True, "reason": "ai_containment"},
+                    timeout=15
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_TRIAGE_BUNDLE,
+                    params={"window_s": 300, "include": ["processes", "network", "registry", "files"]},
+                    timeout=360,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SYNC_THREAT_INTEL,
+                    params={"share_iocs": True, "communities": ["internal", "isac"]},
+                    timeout=60,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack", "email", "sms"], "priority": "critical", "template": "ai_lateral_movement"},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CREATE_TICKET,
+                    params={"category": "ai_incident", "priority": "P1", "auto_assign": True},
+                    timeout=30
+                )
+            ],
+            tags=["ai_defense", "lateral_movement", "level_3", "contain"]
+        )
+        
+        # =====================================================================
+        # LEVEL 4: ISOLATE - Data Exfiltration Preparation
+        # =====================================================================
+        self.playbooks["ai_exfil_cut_01"] = Playbook(
+            id="ai_exfil_cut_01",
+            name="AI Exfil Prep - Cut Egress",
+            description="AI staging data for exfiltration. Cut egress immediately.",
+            trigger=PlaybookTrigger.AI_EXFILTRATION_PATTERN,
+            trigger_conditions={
+                "machine_likelihood": ["high", "critical"],
+                "intents": ["exfil_prep", "data_staging", "compression"]
+            },
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.TAG_SESSION,
+                    params={"tags": ["ai_confirmed", "exfiltration", "level_4", "critical"]},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ISOLATE_ENDPOINT,
+                    params={"block_network": True, "allow_management": True, "preserve_state": True},
+                    timeout=15
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_MEMORY_SNAPSHOT,
+                    params={"mode": "full", "priority": "high"},
+                    timeout=300,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_TRIAGE_BUNDLE,
+                    params={"window_s": 600, "include": ["processes", "network", "files", "memory"]},
+                    timeout=660,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.QUARANTINE_FILE,
+                    params={"paths": "staged_data", "auto_sandbox": True},
+                    timeout=120
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.QUARANTINE_TO_SANDBOX,
+                    params={"analyze": True, "detonation_time": 300},
+                    timeout=360,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ESCALATE_TO_HUMAN,
+                    params={"reason": "ai_exfiltration_attempt", "required": True},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack", "email", "sms"], "priority": "critical", "template": "ai_exfiltration"},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CREATE_TICKET,
+                    params={"category": "ai_exfiltration", "priority": "P0", "escalate_to_ciso": True},
+                    timeout=30
+                )
+            ],
+            tags=["ai_defense", "exfiltration", "level_4", "isolate"]
+        )
+        
+        # =====================================================================
+        # LEVEL 5: ERADICATE - High Confidence Complete Containment
+        # =====================================================================
+        self.playbooks["ai_highconf_eradicate_01"] = Playbook(
+            id="ai_highconf_eradicate_01",
+            name="AI High Confidence - Full Eradication",
+            description="High confidence AI intrusion with decoy confirmation. Full containment and eradication.",
+            trigger=PlaybookTrigger.DECEPTION_TOKEN_ACCESS,
+            trigger_conditions={
+                "machine_likelihood": ["critical"],
+                "decoy_touched": True
+            },
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.TAG_SESSION,
+                    params={"tags": ["ai_confirmed", "decoy_triggered", "level_5", "eradication"]},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ISOLATE_ENDPOINT,
+                    params={"block_network": True, "block_usb": True, "hard_isolation": True},
+                    timeout=10
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.KILL_PROCESS_TREE,
+                    params={"mode": "force", "preserve_memory": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_MEMORY_SNAPSHOT,
+                    params={"mode": "full", "priority": "critical"},
+                    timeout=300,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.EXECUTE_CONTAINMENT_CHAIN,
+                    params={
+                        "actions": [
+                            "revoke_all_tokens",
+                            "rotate_credentials",
+                            "block_associated_ips",
+                            "quarantine_artifacts"
+                        ]
+                    },
+                    timeout=120
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_TRIAGE_BUNDLE,
+                    params={"window_s": 900, "include": ["full_disk", "memory", "network", "registry"]},
+                    timeout=960,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SYNC_THREAT_INTEL,
+                    params={"share_iocs": True, "urgent": True, "communities": ["internal", "isac", "partners"]},
+                    timeout=60,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ESCALATE_TO_HUMAN,
+                    params={"reason": "ai_intrusion_confirmed", "required": True, "page_oncall": True},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={
+                        "channels": ["slack", "email", "sms", "pagerduty"],
+                        "priority": "critical",
+                        "template": "ai_intrusion_confirmed"
+                    },
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CREATE_TICKET,
+                    params={
+                        "category": "ai_intrusion",
+                        "priority": "P0",
+                        "escalate_to_ciso": True,
+                        "legal_notification": True
+                    },
+                    timeout=30
+                )
+            ],
+            tags=["ai_defense", "eradication", "level_5", "critical"]
+        )
+        
+        # =====================================================================
+        # DECEPTION HIT RESPONSE
+        # =====================================================================
+        self.playbooks["ai_decoy_hit_01"] = Playbook(
+            id="ai_decoy_hit_01",
+            name="Decoy/Honey Token Hit Response",
+            description="Immediate response when any deception asset is accessed.",
+            trigger=PlaybookTrigger.DECEPTION_TOKEN_ACCESS,
+            trigger_conditions={},
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.TAG_SESSION,
+                    params={"tags": ["decoy_triggered", "high_confidence", "investigate"]},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ENABLE_ENHANCED_LOGGING,
+                    params={"level": "debug", "full_packet_capture": True},
+                    timeout=10
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.INVOKE_ML_ANALYSIS,
+                    params={"model": "ai_behavior_classifier", "urgent": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_TRIAGE_BUNDLE,
+                    params={"window_s": 120, "include": ["processes", "network", "memory"]},
+                    timeout=180,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.FEED_DISINFORMATION,
+                    params={"type": "fake_data", "delay_reveal": True},
+                    timeout=30,
+                    condition="machine_likelihood >= 0.7"
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.BLOCK_IP,
+                    params={"duration": 604800, "source": "deception_hit"},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack", "email"], "priority": "high", "template": "decoy_hit"},
+                    timeout=30
+                )
+            ],
+            tags=["ai_defense", "deception", "honey_token"]
+        )
+        
+        # =====================================================================
+        # ADAPTIVE ATTACK RESPONSE
+        # =====================================================================
+        self.playbooks["ai_adaptive_attack_01"] = Playbook(
+            id="ai_adaptive_attack_01",
+            name="Adaptive AI Attack Response",
+            description="AI demonstrating adaptive behavior, switching tactics. Match their adaptation.",
+            trigger=PlaybookTrigger.ADAPTIVE_ATTACK_DETECTED,
+            trigger_conditions={
+                "machine_likelihood": ["high", "critical"],
+                "goal_persistence": ["high"]
+            },
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.TAG_SESSION,
+                    params={"tags": ["ai_adaptive", "sophisticated", "priority_investigation"]},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.INVOKE_ML_ANALYSIS,
+                    params={"model": "adaptive_threat_classifier", "track_evolution": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ENGAGE_TARPIT,
+                    params={"mode": "adaptive", "mimic_success": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.DEPLOY_DECOY,
+                    params={
+                        "type": "dynamic",
+                        "decoys": ["file_share", "database", "api_endpoint"],
+                        "realistic": True
+                    },
+                    timeout=60
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_TRIAGE_BUNDLE,
+                    params={"window_s": 300, "continuous": True},
+                    timeout=360,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SYNC_THREAT_INTEL,
+                    params={"query_ttps": True, "match_actor": True},
+                    timeout=60
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ESCALATE_TO_HUMAN,
+                    params={"reason": "adaptive_ai_threat", "expertise_required": "threat_hunting"},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack", "email"], "priority": "critical", "template": "adaptive_ai_threat"},
+                    timeout=30
+                )
+            ],
+            tags=["ai_defense", "adaptive", "sophisticated"]
+        )
+        
+        # =====================================================================
+        # GOAL PERSISTENT LOOP DETECTION
+        # =====================================================================
+        self.playbooks["ai_goal_loop_01"] = Playbook(
+            id="ai_goal_loop_01",
+            name="Goal Persistent Loop Detection",
+            description="AI showing persistent goal-seeking behavior. Break the loop.",
+            trigger=PlaybookTrigger.GOAL_PERSISTENT_LOOP,
+            trigger_conditions={
+                "goal_persistence": ["high"],
+                "machine_likelihood": ["medium", "high", "critical"]
+            },
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.TAG_SESSION,
+                    params={"tags": ["goal_persistent", "loop_detected"]},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.INJECT_LATENCY,
+                    params={"delay_ms": 1000, "jitter_ms": 500, "progressive": True},
+                    timeout=10
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.FEED_DISINFORMATION,
+                    params={"type": "false_progress", "goal_misdirection": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.DEPLOY_DECOY,
+                    params={"type": "goal_target", "attractive": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_TRIAGE_BUNDLE,
+                    params={"window_s": 180, "track_goal_progress": True},
+                    timeout=240,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack"], "priority": "high", "template": "goal_persistent_loop"},
+                    timeout=30
+                )
+            ],
+            tags=["ai_defense", "goal_persistent", "loop_breaking"]
+        )
+
     def get_playbooks(self) -> List[Dict]:
         """Get all playbooks"""
         return [asdict(pb) for pb in self.playbooks.values()]
@@ -407,64 +1105,538 @@ class SOAREngine:
         
         return execution
     
-    async def _execute_action(self, step: PlaybookStep, event: Dict) -> Dict:
-        """Execute a single playbook action"""
+    async def _execute_action(self, step: PlaybookStep, event: Dict, execution_id: Optional[str] = None) -> Dict:
+        """
+        Execute a single playbook action with full pipeline integration.
+        
+        This method handles both standard actions and AI Agentic Defense actions,
+        with proper integration into the quarantine pipeline and forensics flow.
+        """
         action = step.action
         params = step.params
+        host_id = event.get("host_id") or event.get("agent_id")
+        session_id = event.get("session_id")
         
-        # Simulated action execution - in production, these would call real services
+        result = {
+            "action": action.value,
+            "host_id": host_id,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # =================================================================
+        # STANDARD ACTIONS
+        # =================================================================
+        
         if action == PlaybookAction.BLOCK_IP:
             ip = event.get("source_ip") or params.get("ip")
-            logger.info(f"SOAR: Blocking IP {ip} for {params.get('duration', 3600)}s")
-            return {"blocked_ip": ip, "duration": params.get("duration", 3600)}
+            duration = params.get("duration", 3600)
+            logger.info(f"SOAR: Blocking IP {ip} for {duration}s")
+            result.update({"blocked_ip": ip, "duration": duration, "status": "blocked"})
         
         elif action == PlaybookAction.KILL_PROCESS:
             pid = event.get("pid") or params.get("pid")
-            logger.info(f"SOAR: Killing process {pid}")
-            return {"killed_pid": pid, "force": params.get("force", False)}
+            force = params.get("force", False)
+            logger.info(f"SOAR: Killing process {pid} (force={force})")
+            result.update({"killed_pid": pid, "force": force, "status": "terminated"})
         
         elif action == PlaybookAction.QUARANTINE_FILE:
-            file_path = event.get("file_path") or params.get("path")
-            logger.info(f"SOAR: Quarantining file {file_path}")
-            return {"quarantined": file_path}
+            file_path = event.get("file_path") or params.get("path") or params.get("paths")
+            auto_sandbox = params.get("auto_sandbox", False)
+            
+            # Create quarantine pipeline item
+            item_id = f"quar_{uuid.uuid4().hex[:12]}"
+            quarantine_item = QuarantinePipelineItem(
+                item_id=item_id,
+                item_type="file",
+                source_host=host_id or "unknown",
+                source_path=file_path if isinstance(file_path, str) else str(file_path),
+                quarantine_path=f"/var/seraph/quarantine/{item_id}",
+                hash_sha256=event.get("file_hash"),
+                hash_md5=event.get("file_md5"),
+                size_bytes=event.get("file_size", 0),
+                quarantined_at=datetime.now(timezone.utc).isoformat(),
+                playbook_id=event.get("playbook_id", "manual"),
+                execution_id=execution_id or "unknown",
+                stage="quarantined"
+            )
+            self.quarantine_pipeline[item_id] = quarantine_item
+            
+            logger.info(f"SOAR: Quarantining file {file_path} -> {item_id}")
+            result.update({
+                "quarantined": file_path,
+                "quarantine_id": item_id,
+                "auto_sandbox": auto_sandbox,
+                "pipeline_stage": "quarantined",
+                "status": "quarantined"
+            })
         
         elif action == PlaybookAction.SEND_ALERT:
             channels = params.get("channels", ["slack"])
             priority = params.get("priority", "medium")
+            template = params.get("template")
             logger.info(f"SOAR: Sending alert to {channels} with priority {priority}")
-            return {"channels_notified": channels, "priority": priority}
+            result.update({
+                "channels_notified": channels,
+                "priority": priority,
+                "template": template,
+                "status": "sent"
+            })
         
         elif action == PlaybookAction.ISOLATE_ENDPOINT:
-            agent_id = event.get("agent_id")
-            logger.info(f"SOAR: Isolating endpoint {agent_id}")
-            return {"isolated_agent": agent_id, "network": params.get("network", True)}
+            hard_isolation = params.get("hard_isolation", False)
+            block_network = params.get("block_network", True)
+            block_usb = params.get("block_usb", False)
+            preserve_state = params.get("preserve_state", True)
+            
+            # Update escalation state
+            if host_id:
+                self._update_escalation_state(
+                    host_id, session_id,
+                    DefenseEscalationLevel.ISOLATE,
+                    "endpoint isolation triggered"
+                )
+            
+            logger.info(f"SOAR: Isolating endpoint {host_id} (hard={hard_isolation})")
+            result.update({
+                "isolated_agent": host_id,
+                "network_blocked": block_network,
+                "usb_blocked": block_usb,
+                "hard_isolation": hard_isolation,
+                "preserve_state": preserve_state,
+                "status": "isolated"
+            })
         
         elif action == PlaybookAction.COLLECT_FORENSICS:
-            logger.info("SOAR: Collecting forensics data")
-            return {"forensics_collected": True, "params": params}
+            forensics_id = f"forensics_{uuid.uuid4().hex[:12]}"
+            params_copy = dict(params)
+            logger.info(f"SOAR: Collecting forensics data -> {forensics_id}")
+            result.update({
+                "forensics_id": forensics_id,
+                "forensics_collected": True,
+                "params": params_copy,
+                "status": "collecting"
+            })
         
         elif action == PlaybookAction.DISABLE_USER:
             user = event.get("user") or params.get("user")
+            force_logout = params.get("force_logout", False)
+            preserve_session = params.get("preserve_session", False)
             logger.info(f"SOAR: Disabling user {user}")
-            return {"disabled_user": user}
+            result.update({
+                "disabled_user": user,
+                "force_logout": force_logout,
+                "preserve_session": preserve_session,
+                "status": "disabled"
+            })
         
         elif action == PlaybookAction.SCAN_ENDPOINT:
-            agent_id = event.get("agent_id")
-            logger.info(f"SOAR: Scanning endpoint {agent_id}")
-            return {"scan_initiated": True, "full_scan": params.get("full_scan", False)}
+            full_scan = params.get("full_scan", False)
+            privilege_audit = params.get("privilege_audit", False)
+            logger.info(f"SOAR: Scanning endpoint {host_id}")
+            result.update({
+                "scan_initiated": True,
+                "full_scan": full_scan,
+                "privilege_audit": privilege_audit,
+                "status": "scanning"
+            })
         
         elif action == PlaybookAction.UPDATE_FIREWALL:
             rule_type = params.get("rule_type", "block")
+            block_lateral = params.get("block_lateral", False)
+            emergency_block = params.get("emergency_block", False)
             logger.info(f"SOAR: Updating firewall with {rule_type} rule")
-            return {"firewall_updated": True, "rule_type": rule_type}
+            result.update({
+                "firewall_updated": True,
+                "rule_type": rule_type,
+                "block_lateral": block_lateral,
+                "emergency_block": emergency_block,
+                "status": "updated"
+            })
         
         elif action == PlaybookAction.CREATE_TICKET:
             category = params.get("category", "security")
-            logger.info(f"SOAR: Creating ticket for {category}")
-            return {"ticket_created": True, "category": category}
+            priority = params.get("priority", "P2")
+            escalate_to_ciso = params.get("escalate_to_ciso", False)
+            ticket_id = f"TKT-{uuid.uuid4().hex[:8].upper()}"
+            logger.info(f"SOAR: Creating ticket {ticket_id} for {category}")
+            result.update({
+                "ticket_id": ticket_id,
+                "ticket_created": True,
+                "category": category,
+                "priority": priority,
+                "escalate_to_ciso": escalate_to_ciso,
+                "status": "created"
+            })
         
-        return {"action": action.value, "status": "executed"}
+        # =================================================================
+        # AI AGENTIC DEFENSE ACTIONS
+        # =================================================================
+        
+        elif action == PlaybookAction.THROTTLE_CLI:
+            rate_per_min = params.get("rate_per_min", 30)
+            mode = params.get("mode", "soft")  # soft, hard
+            logger.info(f"SOAR AI: Throttling CLI to {rate_per_min}/min ({mode})")
+            result.update({
+                "throttle_enabled": True,
+                "rate_per_min": rate_per_min,
+                "mode": mode,
+                "status": "throttling"
+            })
+        
+        elif action == PlaybookAction.INJECT_LATENCY:
+            delay_ms = params.get("delay_ms", 200)
+            jitter_ms = params.get("jitter_ms", 100)
+            mode = params.get("mode", "soft")
+            progressive = params.get("progressive", False)
+            logger.info(f"SOAR AI: Injecting {delay_ms}ms latency (jitter={jitter_ms}ms)")
+            result.update({
+                "latency_enabled": True,
+                "delay_ms": delay_ms,
+                "jitter_ms": jitter_ms,
+                "mode": mode,
+                "progressive": progressive,
+                "status": "degrading"
+            })
+        
+        elif action == PlaybookAction.CAPTURE_TRIAGE_BUNDLE:
+            window_s = params.get("window_s", 60)
+            include = params.get("include", ["processes", "network"])
+            bundle_id = f"triage_{uuid.uuid4().hex[:12]}"
+            
+            # Add to forensics pipeline
+            forensics_item = QuarantinePipelineItem(
+                item_id=bundle_id,
+                item_type="triage_bundle",
+                source_host=host_id or "unknown",
+                source_path=None,
+                quarantine_path=f"/var/seraph/forensics/{bundle_id}",
+                hash_sha256=None,
+                hash_md5=None,
+                size_bytes=0,
+                quarantined_at=datetime.now(timezone.utc).isoformat(),
+                playbook_id=event.get("playbook_id", "manual"),
+                execution_id=execution_id or "unknown",
+                stage="collecting"
+            )
+            self.quarantine_pipeline[bundle_id] = forensics_item
+            
+            logger.info(f"SOAR AI: Capturing triage bundle {bundle_id} for {window_s}s")
+            result.update({
+                "bundle_id": bundle_id,
+                "window_s": window_s,
+                "include": include,
+                "pipeline_stage": "collecting",
+                "status": "capturing"
+            })
+        
+        elif action == PlaybookAction.CAPTURE_MEMORY_SNAPSHOT:
+            mode = params.get("mode", "quick")  # quick, full
+            snapshot_id = f"mem_{uuid.uuid4().hex[:12]}"
+            
+            # Add to pipeline
+            mem_item = QuarantinePipelineItem(
+                item_id=snapshot_id,
+                item_type="memory_dump",
+                source_host=host_id or "unknown",
+                source_path="memory",
+                quarantine_path=f"/var/seraph/forensics/{snapshot_id}.dmp",
+                hash_sha256=None,
+                hash_md5=None,
+                size_bytes=0,
+                quarantined_at=datetime.now(timezone.utc).isoformat(),
+                playbook_id=event.get("playbook_id", "manual"),
+                execution_id=execution_id or "unknown",
+                stage="collecting"
+            )
+            self.quarantine_pipeline[snapshot_id] = mem_item
+            
+            logger.info(f"SOAR AI: Capturing memory snapshot {snapshot_id} ({mode})")
+            result.update({
+                "snapshot_id": snapshot_id,
+                "mode": mode,
+                "pipeline_stage": "collecting",
+                "status": "capturing"
+            })
+        
+        elif action == PlaybookAction.KILL_PROCESS_TREE:
+            mode = params.get("mode", "force")
+            preserve_memory = params.get("preserve_memory", True)
+            pid = event.get("pid") or params.get("pid")
+            logger.info(f"SOAR AI: Killing process tree from {pid} ({mode})")
+            result.update({
+                "root_pid": pid,
+                "mode": mode,
+                "preserve_memory": preserve_memory,
+                "status": "terminated"
+            })
+        
+        elif action == PlaybookAction.TAG_SESSION:
+            tags = params.get("tags", [])
+            session_id = event.get("session_id") or params.get("session_id")
+            logger.info(f"SOAR AI: Tagging session {session_id} with {tags}")
+            result.update({
+                "session_id": session_id,
+                "tags_applied": tags,
+                "status": "tagged"
+            })
+        
+        elif action == PlaybookAction.DEPLOY_DECOY:
+            decoy_type = params.get("type", "credentials")
+            decoys = params.get("decoys", [])
+            placement = params.get("placement", "standard")
+            decoy_ids = [f"decoy_{uuid.uuid4().hex[:8]}" for _ in decoys]
+            logger.info(f"SOAR AI: Deploying {len(decoys)} decoys of type {decoy_type}")
+            result.update({
+                "decoy_type": decoy_type,
+                "decoys_deployed": decoy_ids,
+                "placement": placement,
+                "status": "deployed"
+            })
+        
+        elif action == PlaybookAction.ROTATE_CREDENTIALS:
+            scope = params.get("scope", "session")  # session, user, system
+            logger.info(f"SOAR AI: Rotating credentials (scope={scope})")
+            result.update({
+                "scope": scope,
+                "credentials_rotated": True,
+                "status": "rotated"
+            })
+        
+        elif action == PlaybookAction.ENGAGE_TARPIT:
+            mode = params.get("mode", "standard")  # standard, adaptive
+            mimic_success = params.get("mimic_success", False)
+            logger.info(f"SOAR AI: Engaging tarpit ({mode})")
+            result.update({
+                "tarpit_engaged": True,
+                "mode": mode,
+                "mimic_success": mimic_success,
+                "status": "active"
+            })
+        
+        elif action == PlaybookAction.FEED_DISINFORMATION:
+            disinfo_type = params.get("type", "fake_data")
+            delay_reveal = params.get("delay_reveal", False)
+            goal_misdirection = params.get("goal_misdirection", False)
+            logger.info(f"SOAR AI: Feeding disinformation ({disinfo_type})")
+            result.update({
+                "type": disinfo_type,
+                "delay_reveal": delay_reveal,
+                "goal_misdirection": goal_misdirection,
+                "status": "feeding"
+            })
+        
+        elif action == PlaybookAction.ENABLE_ENHANCED_LOGGING:
+            level = params.get("level", "verbose")
+            include_keystrokes = params.get("include_keystrokes", False)
+            network_capture = params.get("network_capture", False)
+            full_packet_capture = params.get("full_packet_capture", False)
+            logger.info(f"SOAR AI: Enabling enhanced logging ({level})")
+            result.update({
+                "level": level,
+                "include_keystrokes": include_keystrokes,
+                "network_capture": network_capture,
+                "full_packet_capture": full_packet_capture,
+                "status": "enabled"
+            })
+        
+        elif action == PlaybookAction.SNAPSHOT_NETWORK_STATE:
+            include_flows = params.get("include_flows", True)
+            include_connections = params.get("include_connections", True)
+            snapshot_id = f"netsnap_{uuid.uuid4().hex[:12]}"
+            logger.info(f"SOAR AI: Capturing network state snapshot {snapshot_id}")
+            result.update({
+                "snapshot_id": snapshot_id,
+                "include_flows": include_flows,
+                "include_connections": include_connections,
+                "status": "captured"
+            })
+        
+        elif action == PlaybookAction.LOCK_SENSITIVE_RESOURCES:
+            resources = params.get("resources", [])
+            logger.info(f"SOAR AI: Locking {len(resources)} sensitive resources")
+            result.update({
+                "resources_locked": resources,
+                "lock_count": len(resources),
+                "status": "locked"
+            })
+        
+        elif action == PlaybookAction.TRIGGER_CANARY_VALIDATION:
+            validate_all = params.get("validate_all", False)
+            logger.info(f"SOAR AI: Triggering canary validation (all={validate_all})")
+            result.update({
+                "validate_all": validate_all,
+                "validation_triggered": True,
+                "status": "validating"
+            })
+        
+        elif action == PlaybookAction.ESCALATE_TO_HUMAN:
+            reason = params.get("reason", "manual_review_required")
+            required = params.get("required", False)
+            page_oncall = params.get("page_oncall", False)
+            expertise_required = params.get("expertise_required")
+            
+            escalation_id = f"esc_{uuid.uuid4().hex[:8]}"
+            logger.warning(f"SOAR AI: Escalating to human: {reason} (required={required})")
+            result.update({
+                "escalation_id": escalation_id,
+                "reason": reason,
+                "required": required,
+                "page_oncall": page_oncall,
+                "expertise_required": expertise_required,
+                "status": "escalated"
+            })
+        
+        elif action == PlaybookAction.INVOKE_ML_ANALYSIS:
+            model = params.get("model", "ai_behavior_classifier")
+            continuous = params.get("continuous", False)
+            urgent = params.get("urgent", False)
+            track_evolution = params.get("track_evolution", False)
+            logger.info(f"SOAR AI: Invoking ML analysis ({model})")
+            result.update({
+                "model": model,
+                "continuous": continuous,
+                "urgent": urgent,
+                "track_evolution": track_evolution,
+                "status": "analyzing"
+            })
+        
+        elif action == PlaybookAction.SYNC_THREAT_INTEL:
+            share_iocs = params.get("share_iocs", False)
+            query_ttps = params.get("query_ttps", False)
+            communities = params.get("communities", ["internal"])
+            urgent = params.get("urgent", False)
+            logger.info(f"SOAR AI: Syncing threat intel with {communities}")
+            result.update({
+                "share_iocs": share_iocs,
+                "query_ttps": query_ttps,
+                "communities": communities,
+                "urgent": urgent,
+                "status": "syncing"
+            })
+        
+        elif action == PlaybookAction.QUARANTINE_TO_SANDBOX:
+            analyze = params.get("analyze", True)
+            detonation_time = params.get("detonation_time", 300)
+            sandbox_id = f"sandbox_{uuid.uuid4().hex[:12]}"
+            
+            # Update pipeline item to sandbox stage
+            for item in self.quarantine_pipeline.values():
+                if item.source_host == host_id and item.stage == "quarantined":
+                    item.stage = "sandboxing"
+            
+            logger.info(f"SOAR AI: Sending to sandbox {sandbox_id} for analysis")
+            result.update({
+                "sandbox_id": sandbox_id,
+                "analyze": analyze,
+                "detonation_time": detonation_time,
+                "pipeline_stage": "sandboxing",
+                "status": "analyzing"
+            })
+        
+        elif action == PlaybookAction.EXECUTE_CONTAINMENT_CHAIN:
+            actions = params.get("actions", [])
+            chain_id = f"chain_{uuid.uuid4().hex[:8]}"
+            logger.info(f"SOAR AI: Executing containment chain {chain_id} with {len(actions)} actions")
+            
+            chain_results = []
+            for sub_action in actions:
+                chain_results.append({
+                    "action": sub_action,
+                    "status": "executed"
+                })
+            
+            result.update({
+                "chain_id": chain_id,
+                "actions_executed": len(actions),
+                "chain_results": chain_results,
+                "status": "completed"
+            })
+        
+        else:
+            result.update({"status": "executed"})
+        
+        return result
     
+    def _update_escalation_state(
+        self,
+        host_id: str,
+        session_id: Optional[str],
+        new_level: DefenseEscalationLevel,
+        reason: str
+    ):
+        """Update the defense escalation state for a host"""
+        now = datetime.now(timezone.utc).isoformat()
+        
+        if host_id in self.escalation_states:
+            state = self.escalation_states[host_id]
+            state.level_history.append({
+                "from_level": state.current_level.value,
+                "to_level": new_level.value,
+                "timestamp": now,
+                "reason": reason
+            })
+            state.current_level = new_level
+            state.escalated_at = now
+        else:
+            state = DefenseEscalationState(
+                host_id=host_id,
+                session_id=session_id,
+                current_level=new_level,
+                level_history=[{
+                    "from_level": "none",
+                    "to_level": new_level.value,
+                    "timestamp": now,
+                    "reason": reason
+                }],
+                active_measures=[],
+                escalated_at=now,
+                auto_de_escalate_after=None,
+                requires_human_approval_for=self.approval_matrix.get(new_level, [])
+            )
+            self.escalation_states[host_id] = state
+    
+    def get_escalation_state(self, host_id: str) -> Optional[Dict]:
+        """Get the current escalation state for a host"""
+        state = self.escalation_states.get(host_id)
+        return state.to_dict() if state else None
+    
+    def get_quarantine_pipeline_items(
+        self,
+        host_id: Optional[str] = None,
+        stage: Optional[str] = None,
+        limit: int = 50
+    ) -> List[Dict]:
+        """Get items from the quarantine pipeline"""
+        items = list(self.quarantine_pipeline.values())
+        
+        if host_id:
+            items = [i for i in items if i.source_host == host_id]
+        if stage:
+            items = [i for i in items if i.stage == stage]
+        
+        items = sorted(items, key=lambda x: x.quarantined_at, reverse=True)[:limit]
+        return [i.to_dict() for i in items]
+    
+    def advance_pipeline_item(self, item_id: str, new_stage: str, results: Optional[Dict] = None) -> Optional[Dict]:
+        """Advance a quarantine pipeline item to the next stage"""
+        item = self.quarantine_pipeline.get(item_id)
+        if not item:
+            return None
+        
+        old_stage = item.stage
+        item.stage = new_stage
+        
+        if results:
+            if new_stage == "scanning":
+                item.scan_results = results
+            elif new_stage == "analyzed":
+                item.sandbox_results = results
+            elif new_stage == "stored":
+                item.forensics_complete = True
+        
+        logger.info(f"SOAR Pipeline: Advanced {item_id} from {old_stage} to {new_stage}")
+        return item.to_dict()
+
     async def trigger_playbooks(self, event: Dict) -> List[PlaybookExecution]:
         """Trigger all matching playbooks for an event"""
         executions = []

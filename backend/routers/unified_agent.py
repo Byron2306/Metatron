@@ -5,19 +5,166 @@ API endpoints for the Metatron/Seraph unified agent management system.
 Provides cross-platform agent registration, heartbeat, deployment, and monitoring.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect, Request
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect, Request, Header
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
 import secrets
 import logging
 import asyncio
+import hmac
+import hashlib
+import os
+import socket
+import ipaddress
 
 from .dependencies import get_current_user, check_permission, db
 
 logger = logging.getLogger('seraph.unified_agent')
 
 router = APIRouter(prefix="/unified", tags=["Unified Agent"])
+
+
+# ============================================================
+# AGENT SECURITY CONFIGURATION
+# ============================================================
+
+def _get_agent_secret() -> str:
+    """Get or generate the agent enrollment secret"""
+    secret = os.environ.get('SERAPH_AGENT_SECRET')
+    if not secret:
+        # Generate a secret for development - in production, set SERAPH_AGENT_SECRET
+        secret = 'dev-agent-secret-change-in-production'
+        logger.warning("SERAPH_AGENT_SECRET not set. Using default development secret.")
+    return secret
+
+AGENT_SECRET = _get_agent_secret()
+
+# Trusted networks that agents can connect from (CIDR notation)
+TRUSTED_NETWORKS = [
+    "127.0.0.0/8",      # Localhost
+    "10.0.0.0/8",       # Private Class A
+    "172.16.0.0/12",    # Private Class B
+    "192.168.0.0/16",   # Private Class C
+    "::1/128",          # IPv6 localhost
+    "fe80::/10",        # IPv6 link-local
+]
+
+# Server's own IPs - populated at startup
+SERVER_IPS: set = set()
+
+def _populate_server_ips():
+    """Populate server's own IP addresses to prevent self-targeting"""
+    global SERVER_IPS
+    try:
+        hostname = socket.gethostname()
+        # Get all IPs for this host
+        SERVER_IPS.add(socket.gethostbyname(hostname))
+        for info in socket.getaddrinfo(hostname, None):
+            SERVER_IPS.add(info[4][0])
+        # Add common local addresses
+        SERVER_IPS.update(['127.0.0.1', 'localhost', '::1', '0.0.0.0'])
+        logger.info(f"Server IPs populated: {SERVER_IPS}")
+    except Exception as e:
+        logger.warning(f"Failed to populate server IPs: {e}")
+        SERVER_IPS = {'127.0.0.1', 'localhost', '::1'}
+
+_populate_server_ips()
+
+
+def _is_ip_trusted(ip_address: str) -> bool:
+    """Check if an IP is from a trusted network"""
+    try:
+        ip = ipaddress.ip_address(ip_address)
+        for network in TRUSTED_NETWORKS:
+            if ip in ipaddress.ip_network(network, strict=False):
+                return True
+        return False
+    except ValueError:
+        return False
+
+
+def _generate_agent_token(agent_id: str) -> str:
+    """Generate an HMAC-based token for agent authentication"""
+    timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+    message = f"{agent_id}:{timestamp}"
+    signature = hmac.new(
+        AGENT_SECRET.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    return f"{timestamp}:{signature}"
+
+
+def _verify_agent_token(agent_id: str, token: str) -> bool:
+    """Verify an agent's authentication token"""
+    try:
+        parts = token.split(':')
+        if len(parts) != 2:
+            return False
+        
+        timestamp, provided_signature = parts
+        # Token expiration: 24 hours
+        token_time = int(timestamp)
+        current_time = int(datetime.now(timezone.utc).timestamp())
+        
+        if current_time - token_time > 86400:  # 24 hours
+            logger.warning(f"Expired token for agent {agent_id}")
+            return False
+        
+        # Verify signature
+        message = f"{agent_id}:{timestamp}"
+        expected_signature = hmac.new(
+            AGENT_SECRET.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        return hmac.compare_digest(provided_signature, expected_signature)
+    except Exception as e:
+        logger.error(f"Token verification failed: {e}")
+        return False
+
+
+async def verify_agent_auth(
+    request: Request,
+    x_agent_id: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    x_enrollment_key: Optional[str] = Header(None)
+) -> Dict:
+    """Dependency to verify agent authentication"""
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Check if IP is trusted (allows initial enrollment from private networks)
+    is_trusted_network = _is_ip_trusted(client_ip)
+    
+    # For registration with enrollment key (first-time setup)
+    if x_enrollment_key:
+        if hmac.compare_digest(x_enrollment_key, AGENT_SECRET):
+            return {"type": "enrollment", "ip": client_ip, "trusted": is_trusted_network}
+        raise HTTPException(status_code=403, detail="Invalid enrollment key")
+    
+    # For ongoing agent authentication
+    if x_agent_id and x_agent_token:
+        if _verify_agent_token(x_agent_id, x_agent_token):
+            # Also verify agent is registered
+            agent = await db.unified_agents.find_one({"agent_id": x_agent_id})
+            if agent:
+                return {
+                    "type": "authenticated",
+                    "agent_id": x_agent_id,
+                    "ip": client_ip,
+                    "trusted": is_trusted_network
+                }
+            raise HTTPException(status_code=404, detail="Agent not registered")
+        raise HTTPException(status_code=401, detail="Invalid agent token")
+    
+    # Allow from trusted networks for backwards compatibility (with warning)
+    if is_trusted_network:
+        logger.warning(f"Agent request from {client_ip} without auth - allowed from trusted network")
+        return {"type": "trusted_network", "ip": client_ip, "trusted": True}
+    
+    raise HTTPException(status_code=401, detail="Agent authentication required")
 
 
 # ============================================================
@@ -34,6 +181,101 @@ class AgentRegistrationModel(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 
+# Monitor-specific telemetry models
+class MonitorTelemetry(BaseModel):
+    """Base telemetry from a monitor"""
+    last_run: Optional[str] = None
+    threats_found: int = 0
+    scan_duration_ms: Optional[int] = None
+
+
+class RegistryMonitorTelemetry(MonitorTelemetry):
+    """Registry/Startup persistence monitoring"""
+    persistence_locations: int = 0
+    changes_detected: int = 0
+    recent_changes: List[Dict] = []
+
+
+class ProcessTreeMonitorTelemetry(MonitorTelemetry):
+    """Parent-child process chain anomalies"""
+    processes_analyzed: int = 0
+    suspicious_chains: int = 0
+    chain_details: List[Dict] = []
+
+
+class LOLBinMonitorTelemetry(MonitorTelemetry):
+    """Living-off-the-land binary abuse"""
+    lolbins_checked: int = 0
+    detections: int = 0
+    detection_details: List[Dict] = []
+
+
+class CodeSigningMonitorTelemetry(MonitorTelemetry):
+    """Executable signature verification"""
+    executables_checked: int = 0
+    unsigned_count: int = 0
+    unsigned_executables: List[Dict] = []
+
+
+class DNSMonitorTelemetry(MonitorTelemetry):
+    """DNS anomaly detection"""
+    queries_analyzed: int = 0
+    suspicious_count: int = 0
+    suspicious_queries: List[Dict] = []
+
+
+class MemoryScannerTelemetry(MonitorTelemetry):
+    """Process injection/memory scanning"""
+    processes_scanned: int = 0
+    suspicious_found: int = 0
+    injection_details: List[Dict] = []
+
+
+class ApplicationWhitelistTelemetry(MonitorTelemetry):
+    """Application whitelist violations"""
+    processes_checked: int = 0
+    violations: int = 0
+    whitelist_size: int = 0
+    violation_details: List[Dict] = []
+
+
+class DLPMonitorTelemetry(MonitorTelemetry):
+    """Data loss prevention"""
+    clipboard_alerts: int = 0
+    file_alerts: int = 0
+    network_alerts: int = 0
+    alert_details: List[Dict] = []
+
+
+class VulnerabilityScannerTelemetry(MonitorTelemetry):
+    """Software vulnerability scanning"""
+    software_checked: int = 0
+    vulnerabilities_found: int = 0
+    vulnerable_software: List[Dict] = []
+
+
+class AMSIMonitorTelemetry(MonitorTelemetry):
+    """Windows AMSI integration"""
+    amsi_available: bool = False
+    scripts_scanned: int = 0
+    detections: int = 0
+    detection_details: List[Dict] = []
+
+
+class MonitorsTelemetry(BaseModel):
+    """Aggregated telemetry from all monitors"""
+    registry: Optional[RegistryMonitorTelemetry] = None
+    process_tree: Optional[ProcessTreeMonitorTelemetry] = None
+    lolbin: Optional[LOLBinMonitorTelemetry] = None
+    code_signing: Optional[CodeSigningMonitorTelemetry] = None
+    dns: Optional[DNSMonitorTelemetry] = None
+    memory: Optional[MemoryScannerTelemetry] = None
+    whitelist: Optional[ApplicationWhitelistTelemetry] = None
+    dlp: Optional[DLPMonitorTelemetry] = None
+    vulnerability: Optional[VulnerabilityScannerTelemetry] = None
+    amsi: Optional[AMSIMonitorTelemetry] = None
+
+
 class AgentHeartbeatModel(BaseModel):
     agent_id: str
     status: str  # online, offline, degraded
@@ -44,6 +286,8 @@ class AgentHeartbeatModel(BaseModel):
     network_connections: Optional[int] = None
     alerts: List[Dict] = []
     telemetry: Optional[Dict] = None
+    # Structured monitor telemetry
+    monitors: Optional[MonitorsTelemetry] = None
 
 
 class DeploymentRequestModel(BaseModel):
@@ -54,7 +298,10 @@ class DeploymentRequestModel(BaseModel):
 
 
 class AgentCommandModel(BaseModel):
-    command_type: Optional[str] = None  # scan, remediate, update, restart, shutdown
+    # Standard: scan, remediate, update, restart, shutdown
+    # AI Defense: throttle_cli, inject_latency, deploy_decoy, engage_tarpit, 
+    #            capture_triage, capture_memory, kill_tree, tag_session, rotate_creds
+    command_type: Optional[str] = None
     parameters: Dict[str, Any] = {}
     priority: str = "normal"  # low, normal, high, critical
     command: Optional[str] = None
@@ -128,11 +375,22 @@ agent_ws_manager = AgentConnectionManager()
 # ============================================================
 
 @router.post("/agents/register")
-async def register_agent(agent: AgentRegistrationModel):
-    """Register a new unified agent"""
+async def register_agent(
+    agent: AgentRegistrationModel,
+    request: Request,
+    auth: Dict = Depends(verify_agent_auth)
+):
+    """Register a new unified agent (requires enrollment key or trusted network)"""
+    
+    # Log authentication method
+    logger.info(f"Agent registration attempt: {agent.agent_id} via {auth['type']} from {auth['ip']}")
     
     # Check if already exists
     existing = await db.unified_agents.find_one({"agent_id": agent.agent_id})
+    
+    # Generate auth token for the agent
+    agent_token = _generate_agent_token(agent.agent_id)
+    
     if existing:
         # Update existing agent
         await db.unified_agents.update_one(
@@ -150,7 +408,13 @@ async def register_agent(agent: AgentRegistrationModel):
             }}
         )
         logger.info(f"Agent re-registered: {agent.agent_id} ({agent.platform})")
-        return {"status": "updated", "agent_id": agent.agent_id}
+        return {
+            "status": "updated",
+            "agent_id": agent.agent_id,
+            "auth_token": agent_token,
+            "server_ips": list(SERVER_IPS),
+            "message": "Store auth_token for future requests via X-Agent-Token header"
+        }
     
     # Create new agent
     agent_doc = {
@@ -165,18 +429,35 @@ async def register_agent(agent: AgentRegistrationModel):
         "registered_at": datetime.now(timezone.utc).isoformat(),
         "last_heartbeat": datetime.now(timezone.utc).isoformat(),
         "threat_count": 0,
-        "alerts_count": 0
+        "alerts_count": 0,
+        "enrolled_from_ip": auth['ip'],
+        "enrollment_type": auth['type']
     }
     
     await db.unified_agents.insert_one(agent_doc)
     logger.info(f"New agent registered: {agent.agent_id} ({agent.platform}) from {agent.ip_address}")
     
-    return {"status": "registered", "agent_id": agent.agent_id}
+    return {
+        "status": "registered",
+        "agent_id": agent.agent_id,
+        "auth_token": agent_token,
+        "server_ips": list(SERVER_IPS),
+        "message": "Store auth_token for future requests via X-Agent-Token header"
+    }
 
 
 @router.post("/agents/{agent_id}/heartbeat")
-async def agent_heartbeat(agent_id: str, heartbeat: AgentHeartbeatModel):
-    """Receive heartbeat from an agent"""
+async def agent_heartbeat(
+    agent_id: str,
+    heartbeat: AgentHeartbeatModel,
+    request: Request,
+    auth: Dict = Depends(verify_agent_auth)
+):
+    """Receive heartbeat from an agent (authenticated)"""
+    
+    # Verify agent_id matches if authenticated
+    if auth.get('agent_id') and auth['agent_id'] != agent_id:
+        raise HTTPException(status_code=403, detail="Agent ID mismatch")
     
     agent = await db.unified_agents.find_one({"agent_id": agent_id})
     if not agent:
@@ -190,8 +471,23 @@ async def agent_heartbeat(agent_id: str, heartbeat: AgentHeartbeatModel):
         "memory_usage": heartbeat.memory_usage,
         "disk_usage": heartbeat.disk_usage,
         "threat_count": heartbeat.threat_count or 0,
-        "network_connections": heartbeat.network_connections
+        "network_connections": heartbeat.network_connections,
+        "last_ip": auth['ip']
     }
+    
+    # Store monitor summary in agent document for quick access
+    if heartbeat.monitors:
+        monitors_summary = {}
+        for monitor_name in ['registry', 'process_tree', 'lolbin', 'code_signing', 
+                            'dns', 'memory', 'whitelist', 'dlp', 'vulnerability', 'amsi']:
+            monitor_data = getattr(heartbeat.monitors, monitor_name, None)
+            if monitor_data:
+                monitors_summary[monitor_name] = {
+                    "last_run": monitor_data.last_run,
+                    "threats_found": monitor_data.threats_found,
+                    "status": "active"
+                }
+        update_data["monitors_summary"] = monitors_summary
     
     await db.unified_agents.update_one(
         {"agent_id": agent_id},
@@ -212,6 +508,20 @@ async def agent_heartbeat(agent_id: str, heartbeat: AgentHeartbeatModel):
         
         # Run threat hunting on telemetry
         await _hunt_telemetry(heartbeat.telemetry)
+    
+    # Store structured monitor telemetry separately
+    if heartbeat.monitors:
+        monitor_doc = {
+            "agent_id": agent_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        for monitor_name in ['registry', 'process_tree', 'lolbin', 'code_signing', 
+                            'dns', 'memory', 'whitelist', 'dlp', 'vulnerability', 'amsi']:
+            monitor_data = getattr(heartbeat.monitors, monitor_name, None)
+            if monitor_data:
+                monitor_doc[monitor_name] = monitor_data.dict()
+        
+        await db.agent_monitor_telemetry.insert_one(monitor_doc)
     
     # Get queued commands for this agent
     commands = agent_ws_manager.get_queued_commands(agent_id)
@@ -307,6 +617,58 @@ async def unregister_agent(
     return {"status": "unregistered", "agent_id": agent_id}
 
 
+class AgentRenameModel(BaseModel):
+    """Model for agent rename/alias change"""
+    new_name: str
+    new_alias: Optional[str] = None
+
+
+@router.patch("/agents/{agent_id}/rename")
+async def rename_agent(
+    agent_id: str,
+    rename_data: AgentRenameModel,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """
+    Rename an agent or change its display alias.
+    
+    This allows operators to assign friendly names to agents for easier
+    identification in the dashboard, regardless of the original hostname.
+    """
+    agent = await db.unified_agents.find_one({"agent_id": agent_id})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    # Prepare update
+    update_fields = {
+        "display_name": rename_data.new_name,
+        "renamed_at": datetime.now(timezone.utc).isoformat(),
+        "renamed_by": current_user.get("username", "unknown")
+    }
+    
+    if rename_data.new_alias:
+        update_fields["alias"] = rename_data.new_alias
+    
+    # Store original name if not already stored
+    if not agent.get("original_name"):
+        update_fields["original_name"] = agent.get("agent_name", agent.get("hostname", "unknown"))
+    
+    await db.unified_agents.update_one(
+        {"agent_id": agent_id},
+        {"$set": update_fields}
+    )
+    
+    logger.info(f"Agent {agent_id} renamed to '{rename_data.new_name}' by {current_user.get('username')}")
+    
+    return {
+        "status": "renamed",
+        "agent_id": agent_id,
+        "new_name": rename_data.new_name,
+        "new_alias": rename_data.new_alias,
+        "original_name": update_fields.get("original_name", agent.get("original_name"))
+    }
+
+
 @router.post("/agents/{agent_id}/command")
 async def send_agent_command(
     agent_id: str,
@@ -355,6 +717,108 @@ async def send_agent_command(
         "command_id": command_id,
         "status": "sent" if sent else "queued",
         "message": f"Command {'sent immediately' if sent else 'queued for delivery'}"
+    }
+
+
+@router.get("/agents/{agent_id}/commands")
+async def get_agent_commands(
+    agent_id: str,
+    request: Request,
+    auth: Dict = Depends(verify_agent_auth)
+):
+    """Get pending commands for an agent (polling endpoint for MCP)"""
+    
+    # Verify agent_id matches if authenticated with token
+    if auth.get('agent_id') and auth['agent_id'] != agent_id:
+        raise HTTPException(status_code=403, detail="Agent ID mismatch")
+    
+    # First check in-memory queue (WebSocket manager)
+    queued = agent_ws_manager.get_queued_commands(agent_id)
+    
+    # Also check database for queued commands
+    db_commands = await db.agent_commands.find({
+        "agent_id": agent_id,
+        "status": "queued"
+    }).sort("timestamp", 1).limit(10).to_list(length=10)
+    
+    # Mark as delivered
+    if db_commands:
+        command_ids = [cmd["command_id"] for cmd in db_commands]
+        await db.agent_commands.update_many(
+            {"command_id": {"$in": command_ids}},
+            {"$set": {"status": "delivered", "delivered_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    
+    # Combine and return
+    all_commands = queued + [{
+        "command_id": c["command_id"],
+        "command_type": c["command_type"],
+        "parameters": c.get("parameters", {}),
+        "priority": c.get("priority", "normal"),
+        "timestamp": c["timestamp"]
+    } for c in db_commands]
+    
+    return {"commands": all_commands, "count": len(all_commands)}
+
+
+@router.post("/agents/{agent_id}/command-result")
+async def report_command_result(
+    agent_id: str,
+    result: dict,
+    request: Request,
+    auth: Dict = Depends(verify_agent_auth)
+):
+    """Receive command execution result from agent"""
+    
+    # Verify agent_id matches
+    if auth.get('agent_id') and auth['agent_id'] != agent_id:
+        raise HTTPException(status_code=403, detail="Agent ID mismatch")
+    
+    command_id = result.get("command_id")
+    if not command_id:
+        raise HTTPException(status_code=400, detail="Missing command_id")
+    
+    # Update command status
+    await db.agent_commands.update_one(
+        {"command_id": command_id},
+        {"$set": {
+            "status": result.get("status", "completed"),
+            "result": result.get("result", {}),
+            "completed_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Store full result in command_results collection
+    await db.command_results.insert_one({
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": result.get("command_type"),
+        "status": result.get("status", "completed"),
+        "result": result.get("result", {}),
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+    
+    logger.info(f"Command result received: {command_id} from {agent_id} - {result.get('status')}")
+    
+    return {"status": "received", "command_id": command_id}
+
+
+@router.get("/commands/{command_id}/status")
+async def get_command_status(command_id: str, current_user: dict = Depends(check_permission("read"))):
+    """Get the status of a specific command"""
+    
+    command = await db.agent_commands.find_one({"command_id": command_id})
+    if not command:
+        raise HTTPException(status_code=404, detail="Command not found")
+    
+    return {
+        "command_id": command_id,
+        "agent_id": command.get("agent_id"),
+        "command_type": command.get("command_type"),
+        "status": command.get("status"),
+        "result": command.get("result"),
+        "timestamp": command.get("timestamp"),
+        "completed_at": command.get("completed_at")
     }
 
 
@@ -848,6 +1312,418 @@ Write-Host "Check status: Get-ScheduledTask -TaskName SeraphAgent"
     return {"script": script, "usage": f"Invoke-WebRequest -Uri {base_url}/api/unified/agent/install-windows | Invoke-Expression"}
 
 
+@router.get("/agent/install-macos")
+async def get_macos_install_script(request: Request, server_url: Optional[str] = None):
+    """Get the macOS agent installation script"""
+    
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    proto = forwarded_proto or request.url.scheme or "http"
+    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    
+    script = f'''#!/bin/bash
+# Seraph AI Unified Agent - macOS Installer
+
+set -e
+
+SERAPH_SERVER="{base_url}"
+INSTALL_DIR="$HOME/Library/Application Support/SeraphAgent"
+LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/com.seraph.agent.plist"
+
+echo "================================================================"
+echo "  SERAPH AI UNIFIED AGENT INSTALLER (macOS)"
+echo "  Target Server: $SERAPH_SERVER"
+echo "================================================================"
+
+# Create installation directory
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+
+# Check for Python 3
+if ! command -v python3 &> /dev/null; then
+    echo "Python 3 not found. Installing via Homebrew..."
+    if ! command -v brew &> /dev/null; then
+        echo "Homebrew not found. Please install it first:"
+        echo '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        exit 1
+    fi
+    brew install python3
+fi
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install --upgrade pip
+pip install psutil requests netifaces watchdog pyyaml scapy
+
+# Download agent
+echo "Downloading agent from server..."
+curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
+tar -xzf agent.tar.gz
+rm agent.tar.gz
+
+# Create LaunchAgent plist for auto-start
+mkdir -p "$HOME/Library/LaunchAgents"
+cat > "$LAUNCH_AGENT_PATH" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.seraph.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$INSTALL_DIR/venv/bin/python</string>
+        <string>$INSTALL_DIR/core/agent.py</string>
+        <string>--server</string>
+        <string>$SERAPH_SERVER</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$INSTALL_DIR/agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>$INSTALL_DIR/agent-error.log</string>
+</dict>
+</plist>
+EOF
+
+# Load the launch agent
+launchctl load "$LAUNCH_AGENT_PATH"
+
+echo ""
+echo "================================================================"
+echo "  INSTALLATION COMPLETE"
+echo "================================================================"
+echo "Agent installed to: $INSTALL_DIR"
+echo "Logs: $INSTALL_DIR/agent.log"
+echo "Stop: launchctl unload $LAUNCH_AGENT_PATH"
+echo "Start: launchctl load $LAUNCH_AGENT_PATH"
+'''
+    
+    return {"script": script, "usage": f"curl -sSL {base_url}/api/unified/agent/install-macos | bash"}
+
+
+@router.get("/agent/install-android")
+async def get_android_install_script(request: Request, server_url: Optional[str] = None):
+    """Get the Android agent installation script (Termux)"""
+    
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    proto = forwarded_proto or request.url.scheme or "http"
+    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    
+    script = f'''#!/data/data/com.termux/files/usr/bin/bash
+# Seraph AI Unified Agent - Android Installer (Termux)
+# Requires: Termux app from F-Droid (Play Store version has limitations)
+
+set -e
+
+SERAPH_SERVER="{base_url}"
+INSTALL_DIR="$HOME/seraph-agent"
+
+echo "================================================================"
+echo "  SERAPH AI UNIFIED AGENT INSTALLER (Android/Termux)"
+echo "  Target Server: $SERAPH_SERVER"
+echo "================================================================"
+
+# Update packages
+pkg update -y
+pkg upgrade -y
+
+# Install Python and dependencies
+pkg install -y python python-pip curl openssl
+
+# Create installation directory
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# Install Python packages
+pip install --upgrade pip
+pip install psutil requests watchdog aiohttp pyyaml
+
+# Download agent
+echo "Downloading agent from server..."
+curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
+tar -xzf agent.tar.gz
+rm agent.tar.gz
+
+# Create startup script
+cat > "$HOME/.termux/boot/start-seraph.sh" << EOF
+#!/data/data/com.termux/files/usr/bin/bash
+cd $INSTALL_DIR
+source venv/bin/activate
+python core/agent.py --server $SERAPH_SERVER &
+EOF
+chmod +x "$HOME/.termux/boot/start-seraph.sh"
+
+# Create handy control script
+cat > "$INSTALL_DIR/seraph-control.sh" << EOF
+#!/data/data/com.termux/files/usr/bin/bash
+case "\\$1" in
+    start)
+        cd $INSTALL_DIR
+        source venv/bin/activate
+        nohup python core/agent.py --server $SERAPH_SERVER > agent.log 2>&1 &
+        echo "Agent started"
+        ;;
+    stop)
+        pkill -f "agent.py"
+        echo "Agent stopped"
+        ;;
+    status)
+        pgrep -f "agent.py" > /dev/null && echo "Running" || echo "Stopped"
+        ;;
+    logs)
+        tail -f $INSTALL_DIR/agent.log
+        ;;
+    *)
+        echo "Usage: seraph-control.sh {{start|stop|status|logs}}"
+        ;;
+esac
+EOF
+chmod +x "$INSTALL_DIR/seraph-control.sh"
+
+# Start agent
+source venv/bin/activate
+nohup python core/agent.py --server "$SERAPH_SERVER" > agent.log 2>&1 &
+
+echo ""
+echo "================================================================"
+echo "  INSTALLATION COMPLETE"
+echo "================================================================"
+echo "Agent installed to: $INSTALL_DIR"
+echo "Control: $INSTALL_DIR/seraph-control.sh {{start|stop|status|logs}}"
+echo ""
+echo "NOTE: Enable Termux:Boot app for auto-start on device boot"
+'''
+    
+    return {"script": script, "usage": f"curl -sSL {base_url}/api/unified/agent/install-android | bash"}
+
+
+@router.get("/agent/install-ios")
+async def get_ios_install_instructions(request: Request, server_url: Optional[str] = None):
+    """Get iOS agent installation instructions (Pythonista or native app)"""
+    
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    proto = forwarded_proto or request.url.scheme or "http"
+    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    
+    pythonista_script = f'''# Seraph AI Agent for iOS (Pythonista 3)
+# Copy this script to Pythonista and run it
+
+import requests
+import json
+import uuid
+import platform
+import socket
+import time
+import threading
+from datetime import datetime
+
+SERAPH_SERVER = "{base_url}"
+AGENT_ID = f"ios-{{uuid.uuid4().hex[:8]}}"
+UPDATE_INTERVAL = 60
+
+class iOSAgent:
+    def __init__(self):
+        self.running = False
+        self.agent_id = AGENT_ID
+    
+    def get_system_info(self):
+        return {{
+            "hostname": socket.gethostname(),
+            "platform": "ios",
+            "version": platform.version(),
+            "python": platform.python_version()
+        }}
+    
+    def register(self):
+        try:
+            response = requests.post(
+                f"{{SERAPH_SERVER}}/api/unified/agents/register",
+                json={{
+                    "agent_id": self.agent_id,
+                    "platform": "ios",
+                    "hostname": socket.gethostname(),
+                    "ip_address": socket.gethostbyname(socket.gethostname()),
+                    "version": "1.0.0",
+                    "capabilities": ["monitor", "scan"]
+                }},
+                timeout=10
+            )
+            print(f"Registered: {{response.json()}}")
+            return True
+        except Exception as e:
+            print(f"Registration failed: {{e}}")
+            return False
+    
+    def heartbeat(self):
+        try:
+            response = requests.post(
+                f"{{SERAPH_SERVER}}/api/unified/agents/{{self.agent_id}}/heartbeat",
+                json={{
+                    "status": "online",
+                    "cpu_usage": 0,
+                    "memory_usage": 0,
+                    "timestamp": datetime.now().isoformat()
+                }},
+                timeout=10
+            )
+            return True
+        except Exception as e:
+            print(f"Heartbeat failed: {{e}}")
+            return False
+    
+    def poll_commands(self):
+        try:
+            response = requests.get(
+                f"{{SERAPH_SERVER}}/api/unified/agents/{{self.agent_id}}/commands",
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                for cmd in data.get("commands", []):
+                    self.execute_command(cmd)
+        except Exception as e:
+            print(f"Command poll failed: {{e}}")
+    
+    def execute_command(self, cmd):
+        cmd_type = cmd.get("command_type", "")
+        print(f"Executing: {{cmd_type}}")
+        
+        result = {{"command_id": cmd.get("command_id"), "status": "completed", "result": {{}}}}
+        
+        if cmd_type == "get_status":
+            result["result"] = self.get_system_info()
+        
+        # Report result
+        try:
+            requests.post(
+                f"{{SERAPH_SERVER}}/api/unified/agents/{{self.agent_id}}/command-result",
+                json=result,
+                timeout=10
+            )
+        except:
+            pass
+    
+    def run(self):
+        print(f"Starting iOS Agent: {{self.agent_id}}")
+        self.running = True
+        
+        if not self.register():
+            print("Failed to register. Retrying in 30s...")
+            time.sleep(30)
+            self.register()
+        
+        while self.running:
+            self.heartbeat()
+            self.poll_commands()
+            time.sleep(UPDATE_INTERVAL)
+    
+    def stop(self):
+        self.running = False
+        print("Agent stopped")
+
+# Run agent
+agent = iOSAgent()
+
+# For Pythonista, run in background
+def start_background():
+    thread = threading.Thread(target=agent.run, daemon=True)
+    thread.start()
+    print("Agent running in background")
+    return thread
+
+# Start agent
+start_background()
+'''
+    
+    return {
+        "platform": "ios",
+        "methods": [
+            {
+                "name": "Pythonista 3 App",
+                "description": "Run agent as Python script in Pythonista 3",
+                "script": pythonista_script,
+                "steps": [
+                    "1. Download Pythonista 3 from App Store",
+                    "2. Create new script and paste the code below",
+                    "3. Run the script",
+                    "4. Agent will register and start monitoring"
+                ]
+            },
+            {
+                "name": "Native SwiftUI App",
+                "description": "Build and install the native iOS app",
+                "steps": [
+                    "1. Clone the repository",
+                    "2. Open unified_agent/ui/ios/MetatronAgentApp.xcodeproj",
+                    "3. Configure server URL in settings",
+                    "4. Build and install on device (requires Apple Developer account)"
+                ],
+                "download_url": f"{base_url}/api/unified/agent/ios-source"
+            }
+        ]
+    }
+
+
+@router.get("/agent/installers")
+async def get_all_installers(request: Request, server_url: Optional[str] = None):
+    """Get installation info for all supported platforms"""
+    
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    proto = forwarded_proto or request.url.scheme or "http"
+    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    
+    return {
+        "server_url": base_url,
+        "platforms": {
+            "linux": {
+                "name": "Linux",
+                "icon": "🐧",
+                "endpoint": f"{base_url}/api/unified/agent/install-script",
+                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-script | sudo bash",
+                "requirements": ["Python 3.8+", "Root access", "systemd"]
+            },
+            "windows": {
+                "name": "Windows",
+                "icon": "🪟",
+                "endpoint": f"{base_url}/api/unified/agent/install-windows",
+                "install_command": f"Invoke-WebRequest -Uri {base_url}/api/unified/agent/install-windows | Invoke-Expression",
+                "requirements": ["Python 3.8+", "Administrator access", "PowerShell 5+"]
+            },
+            "macos": {
+                "name": "macOS",
+                "icon": "🍎",
+                "endpoint": f"{base_url}/api/unified/agent/install-macos",
+                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-macos | bash",
+                "requirements": ["Python 3.8+ (via Homebrew)", "User account"]
+            },
+            "android": {
+                "name": "Android",
+                "icon": "🤖",
+                "endpoint": f"{base_url}/api/unified/agent/install-android",
+                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-android | bash",
+                "requirements": ["Termux app from F-Droid", "Termux:Boot (optional, for auto-start)"]
+            },
+            "ios": {
+                "name": "iOS",
+                "icon": "📱",
+                "endpoint": f"{base_url}/api/unified/agent/install-ios",
+                "methods": ["Pythonista 3", "Native SwiftUI App"],
+                "requirements": ["Pythonista 3 app OR Xcode + Apple Developer account"]
+            }
+        }
+    }
+
+
 # ============================================================
 # HELPER FUNCTIONS
 # ============================================================
@@ -1024,3 +1900,343 @@ async def _process_deployment(deployment_id: str, deployment: DeploymentRequestM
             }}
         )
         logger.error(f"Deployment {deployment_id} failed: {e}")
+
+
+# ============================================================================
+# MONITOR TELEMETRY ENDPOINTS
+# ============================================================================
+
+@router.get("/agents/{agent_id}/monitors")
+async def get_agent_monitors(
+    agent_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all monitor summaries for an agent."""
+    agent = await db.unified_agents.find_one({"agent_id": agent_id})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    monitors_summary = agent.get("monitors_summary", {})
+    
+    # Get latest detailed telemetry for each monitor
+    latest_telemetry = await db.agent_monitor_telemetry.find_one(
+        {"agent_id": agent_id},
+        sort=[("timestamp", -1)]
+    )
+    
+    return {
+        "agent_id": agent_id,
+        "monitors_summary": monitors_summary,
+        "latest_telemetry": latest_telemetry.get("monitors") if latest_telemetry else None,
+        "last_updated": agent.get("last_heartbeat")
+    }
+
+
+@router.get("/agents/{agent_id}/monitors/{monitor_name}")
+async def get_agent_monitor_history(
+    agent_id: str,
+    monitor_name: str,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get historical telemetry for a specific monitor."""
+    valid_monitors = [
+        "registry", "process_tree", "lolbin", "code_signing", "dns",
+        "memory", "app_whitelist", "dlp", "vulnerability", "amsi"
+    ]
+    
+    if monitor_name not in valid_monitors:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid monitor name. Valid monitors: {valid_monitors}"
+        )
+    
+    # Fetch historical telemetry for this monitor
+    cursor = db.agent_monitor_telemetry.find(
+        {"agent_id": agent_id, f"monitors.{monitor_name}": {"$exists": True}},
+        {f"monitors.{monitor_name}": 1, "timestamp": 1, "_id": 0}
+    ).sort("timestamp", -1).limit(limit)
+    
+    history = []
+    async for doc in cursor:
+        if doc.get("monitors", {}).get(monitor_name):
+            history.append({
+                "timestamp": doc.get("timestamp"),
+                "data": doc["monitors"][monitor_name]
+            })
+    
+    return {
+        "agent_id": agent_id,
+        "monitor": monitor_name,
+        "history": history,
+        "count": len(history)
+    }
+
+
+@router.get("/stats/monitors")
+async def get_monitors_aggregate_stats(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get aggregate monitor statistics across all agents."""
+    # Aggregate monitor stats across all agents
+    pipeline = [
+        {"$match": {"monitors_summary": {"$exists": True}}},
+        {"$group": {
+            "_id": None,
+            "total_agents": {"$sum": 1},
+            "registry_alerts": {"$sum": {"$ifNull": ["$monitors_summary.registry.alerts", 0]}},
+            "registry_persistence": {"$sum": {"$ifNull": ["$monitors_summary.registry.persistence_locations", 0]}},
+            "process_tree_anomalies": {"$sum": {"$ifNull": ["$monitors_summary.process_tree.anomalies", 0]}},
+            "lolbin_detections": {"$sum": {"$ifNull": ["$monitors_summary.lolbin.detections", 0]}},
+            "unsigned_binaries": {"$sum": {"$ifNull": ["$monitors_summary.code_signing.unsigned", 0]}},
+            "dns_alerts": {"$sum": {"$ifNull": ["$monitors_summary.dns.alerts", 0]}},
+            "dga_detections": {"$sum": {"$ifNull": ["$monitors_summary.dns.dga_detected", 0]}},
+            "memory_injections": {"$sum": {"$ifNull": ["$monitors_summary.memory.injections", 0]}},
+            "rwx_regions": {"$sum": {"$ifNull": ["$monitors_summary.memory.rwx_regions", 0]}},
+            "whitelist_violations": {"$sum": {"$ifNull": ["$monitors_summary.app_whitelist.violations", 0]}},
+            "dlp_alerts": {"$sum": {"$ifNull": ["$monitors_summary.dlp.total_alerts", 0]}},
+            "vulnerabilities_critical": {"$sum": {"$ifNull": ["$monitors_summary.vulnerability.critical", 0]}},
+            "vulnerabilities_high": {"$sum": {"$ifNull": ["$monitors_summary.vulnerability.high", 0]}},
+            "amsi_threats": {"$sum": {"$ifNull": ["$monitors_summary.amsi.threats_detected", 0]}},
+            # New monitors - Ransomware
+            "canary_alerts": {"$sum": {"$ifNull": ["$monitors_summary.ransomware.canary_alerts", 0]}},
+            "shadow_copy_attempts": {"$sum": {"$ifNull": ["$monitors_summary.ransomware.shadow_copy_threats", 0]}},
+            "entropy_alerts": {"$sum": {"$ifNull": ["$monitors_summary.ransomware.entropy_alerts", 0]}},
+            # New monitors - Rootkit
+            "hidden_processes": {"$sum": {"$ifNull": ["$monitors_summary.rootkit.hidden_processes", 0]}},
+            "kernel_module_threats": {"$sum": {"$ifNull": ["$monitors_summary.rootkit.kernel_module_threats", 0]}},
+            "dkom_detections": {"$sum": {"$ifNull": ["$monitors_summary.rootkit.dkom_detections", 0]}},
+            # New monitors - Kernel Security
+            "syscall_anomalies": {"$sum": {"$ifNull": ["$monitors_summary.kernel_security.syscall_anomalies", 0]}},
+            "ptrace_detections": {"$sum": {"$ifNull": ["$monitors_summary.kernel_security.ptrace_detections", 0]}},
+            "audit_log_alerts": {"$sum": {"$ifNull": ["$monitors_summary.kernel_security.audit_alerts", 0]}},
+            # New monitors - Self Protection
+            "tamper_events": {"$sum": {"$ifNull": ["$monitors_summary.self_protection.tamper_events", 0]}},
+            "debug_attempts": {"$sum": {"$ifNull": ["$monitors_summary.self_protection.debug_attempts", 0]}},
+            "injection_attempts": {"$sum": {"$ifNull": ["$monitors_summary.self_protection.injection_attempts", 0]}},
+            # New monitors - Identity Protection  
+            "credential_tools": {"$sum": {"$ifNull": ["$monitors_summary.identity.credential_tools_detected", 0]}},
+            "lsass_access": {"$sum": {"$ifNull": ["$monitors_summary.identity.lsass_access_events", 0]}},
+            "kerberos_anomalies": {"$sum": {"$ifNull": ["$monitors_summary.identity.kerberos_anomalies", 0]}},
+            # ============================================
+            # NEW MONITORS - Unified Agent v2.0
+            # ============================================
+            # Trusted AI Detection
+            "trusted_ai_violations": {"$sum": {"$ifNull": ["$monitors_summary.trusted_ai.violations", 0]}},
+            "untrusted_models": {"$sum": {"$ifNull": ["$monitors_summary.trusted_ai.untrusted_models", 0]}},
+            "ai_processes": {"$sum": {"$ifNull": ["$monitors_summary.trusted_ai.total_processes", 0]}},
+            # Bootkit Detection
+            "bootkit_threats": {"$sum": {"$ifNull": ["$monitors_summary.bootkit.threats_detected", 0]}},
+            "mbr_anomalies": {"$sum": {"$ifNull": ["$monitors_summary.bootkit.mbr_threats", 0]}},
+            "uefi_violations": {"$sum": {"$ifNull": ["$monitors_summary.bootkit.uefi_violations", 0]}},
+            # Certificate Authority Monitor
+            "rogue_ca_certs": {"$sum": {"$ifNull": ["$monitors_summary.certificate_authority.rogue_certs", 0]}},
+            "untrusted_roots": {"$sum": {"$ifNull": ["$monitors_summary.certificate_authority.untrusted_roots", 0]}},
+            # BIOS/UEFI Security
+            "bios_threats": {"$sum": {"$ifNull": ["$monitors_summary.bios_uefi.threats_detected", 0]}},
+            "secure_boot_disabled": {"$sum": {"$ifNull": ["$monitors_summary.bios_uefi.secure_boot_disabled", 0]}},
+            # Scheduled Task Monitor
+            "suspicious_tasks": {"$sum": {"$ifNull": ["$monitors_summary.scheduled_task.suspicious_count", 0]}},
+            "hidden_tasks": {"$sum": {"$ifNull": ["$monitors_summary.scheduled_task.hidden_tasks", 0]}},
+            # Service Integrity Monitor
+            "suspicious_services": {"$sum": {"$ifNull": ["$monitors_summary.service_integrity.suspicious_count", 0]}},
+            "service_dll_hijacks": {"$sum": {"$ifNull": ["$monitors_summary.service_integrity.dll_hijacks", 0]}},
+            # WMI Persistence Monitor
+            "wmi_consumers": {"$sum": {"$ifNull": ["$monitors_summary.wmi_persistence.suspicious_consumers", 0]}},
+            "wmi_subscriptions": {"$sum": {"$ifNull": ["$monitors_summary.wmi_persistence.malicious_subscriptions", 0]}},
+            # USB Device Monitor
+            "usb_violations": {"$sum": {"$ifNull": ["$monitors_summary.usb_device.violations", 0]}},
+            "unauthorized_usb": {"$sum": {"$ifNull": ["$monitors_summary.usb_device.unauthorized_devices", 0]}},
+            # Power State Monitor
+            "power_anomalies": {"$sum": {"$ifNull": ["$monitors_summary.power_state.anomalies", 0]}},
+            "wake_on_lan_events": {"$sum": {"$ifNull": ["$monitors_summary.power_state.wol_events", 0]}},
+            # AutoThrottle Monitor
+            "throttled_processes": {"$sum": {"$ifNull": ["$monitors_summary.auto_throttle.throttled_count", 0]}},
+            "cryptominers": {"$sum": {"$ifNull": ["$monitors_summary.auto_throttle.cryptominers_detected", 0]}},
+            # Firewall Monitor
+            "firewall_disabled": {"$sum": {"$ifNull": ["$monitors_summary.firewall.disabled_count", 0]}},
+            "firewall_rules": {"$sum": {"$ifNull": ["$monitors_summary.firewall.suspicious_rules", 0]}},
+            # WebView2 Monitor
+            "webview2_suspicious": {"$sum": {"$ifNull": ["$monitors_summary.webview2.suspicious_instances", 0]}},
+            "webview2_debug": {"$sum": {"$ifNull": ["$monitors_summary.webview2.remote_debug_active", 0]}},
+            # CLI Telemetry
+            "cli_commands": {"$sum": {"$ifNull": ["$monitors_summary.cli_telemetry.commands_captured", 0]}},
+            "cli_lolbins": {"$sum": {"$ifNull": ["$monitors_summary.cli_telemetry.lolbin_executions", 0]}},
+            # Hidden File Scanner
+            "hidden_files": {"$sum": {"$ifNull": ["$monitors_summary.hidden_file.hidden_count", 0]}},
+            "ads_found": {"$sum": {"$ifNull": ["$monitors_summary.hidden_file.ads_streams", 0]}},
+            # Alias/Rename Monitor
+            "renamed_exes": {"$sum": {"$ifNull": ["$monitors_summary.alias_rename.renamed_executables", 0]}},
+            "path_hijacks": {"$sum": {"$ifNull": ["$monitors_summary.alias_rename.path_hijack_risks", 0]}},
+            # Privilege Escalation
+            "dangerous_privs": {"$sum": {"$ifNull": ["$monitors_summary.privilege_escalation.dangerous_privileges", 0]}},
+            "system_processes": {"$sum": {"$ifNull": ["$monitors_summary.privilege_escalation.system_processes", 0]}},
+            "system_tasks": {"$sum": {"$ifNull": ["$monitors_summary.privilege_escalation.non_ms_system_tasks", 0]}}
+        }}
+    ]
+    
+    result = await db.unified_agents.aggregate(pipeline).to_list(1)
+    
+    if not result:
+        return {
+            "total_agents": 0,
+            "monitors": {}
+        }
+    
+    stats = result[0]
+    del stats["_id"]
+    
+    # Organize into categories
+    return {
+        "total_agents_with_monitors": stats.pop("total_agents", 0),
+        "threat_summary": {
+            "registry_persistence": stats.get("registry_persistence", 0),
+            "process_anomalies": stats.get("process_tree_anomalies", 0),
+            "lolbin_abuse": stats.get("lolbin_detections", 0),
+            "memory_injections": stats.get("memory_injections", 0),
+            "dga_domains": stats.get("dga_detections", 0),
+            "amsi_threats": stats.get("amsi_threats", 0),
+            # Ransomware
+            "canary_alerts": stats.get("canary_alerts", 0),
+            "shadow_copy_attempts": stats.get("shadow_copy_attempts", 0),
+            "entropy_alerts": stats.get("entropy_alerts", 0),
+            # Rootkit
+            "hidden_processes": stats.get("hidden_processes", 0),
+            "kernel_module_threats": stats.get("kernel_module_threats", 0),
+            "dkom_detections": stats.get("dkom_detections", 0),
+            # Kernel Security
+            "syscall_anomalies": stats.get("syscall_anomalies", 0),
+            "ptrace_detections": stats.get("ptrace_detections", 0),
+            "audit_log_alerts": stats.get("audit_log_alerts", 0),
+            # Self Protection
+            "tamper_events": stats.get("tamper_events", 0),
+            "debug_attempts": stats.get("debug_attempts", 0),
+            "injection_attempts": stats.get("injection_attempts", 0),
+            # Identity Protection
+            "credential_tools": stats.get("credential_tools", 0),
+            "lsass_access": stats.get("lsass_access", 0),
+            "kerberos_anomalies": stats.get("kerberos_anomalies", 0),
+            # ============================================
+            # NEW MONITORS - Unified Agent v2.0
+            # ============================================
+            # Trusted AI Detection
+            "trusted_ai_violations": stats.get("trusted_ai_violations", 0),
+            "untrusted_models": stats.get("untrusted_models", 0),
+            "ai_processes": stats.get("ai_processes", 0),
+            # Bootkit Detection
+            "bootkit_threats": stats.get("bootkit_threats", 0),
+            "mbr_anomalies": stats.get("mbr_anomalies", 0),
+            "uefi_violations": stats.get("uefi_violations", 0),
+            # Certificate Authority Monitor
+            "rogue_ca_certs": stats.get("rogue_ca_certs", 0),
+            "untrusted_roots": stats.get("untrusted_roots", 0),
+            # BIOS/UEFI Security
+            "bios_threats": stats.get("bios_threats", 0),
+            "secure_boot_disabled": stats.get("secure_boot_disabled", 0),
+            # Scheduled Task Monitor
+            "suspicious_tasks": stats.get("suspicious_tasks", 0),
+            "hidden_tasks": stats.get("hidden_tasks", 0),
+            # Service Integrity Monitor
+            "suspicious_services": stats.get("suspicious_services", 0),
+            "service_dll_hijacks": stats.get("service_dll_hijacks", 0),
+            # WMI Persistence Monitor
+            "wmi_consumers": stats.get("wmi_consumers", 0),
+            "wmi_subscriptions": stats.get("wmi_subscriptions", 0),
+            # USB Device Monitor
+            "usb_violations": stats.get("usb_violations", 0),
+            "unauthorized_usb": stats.get("unauthorized_usb", 0),
+            # Power State Monitor
+            "power_anomalies": stats.get("power_anomalies", 0),
+            "wake_on_lan_events": stats.get("wake_on_lan_events", 0),
+            # AutoThrottle Monitor
+            "throttled_processes": stats.get("throttled_processes", 0),
+            "cryptominers": stats.get("cryptominers", 0),
+            # Firewall Monitor
+            "firewall_disabled": stats.get("firewall_disabled", 0),
+            "firewall_rules": stats.get("firewall_rules", 0),
+            # WebView2 Monitor
+            "webview2_suspicious": stats.get("webview2_suspicious", 0),
+            "webview2_debug": stats.get("webview2_debug", 0),
+            # CLI Telemetry
+            "cli_commands": stats.get("cli_commands", 0),
+            "cli_lolbins": stats.get("cli_lolbins", 0),
+            # Hidden File Scanner
+            "hidden_files": stats.get("hidden_files", 0),
+            "ads_found": stats.get("ads_found", 0),
+            # Alias/Rename Monitor
+            "renamed_exes": stats.get("renamed_exes", 0),
+            "path_hijacks": stats.get("path_hijacks", 0),
+            # Privilege Escalation
+            "dangerous_privs": stats.get("dangerous_privs", 0),
+            "system_processes": stats.get("system_processes", 0),
+            "system_tasks": stats.get("system_tasks", 0)
+        },
+        "compliance_summary": {
+            "unsigned_binaries": stats.get("unsigned_binaries", 0),
+            "whitelist_violations": stats.get("whitelist_violations", 0),
+            "dlp_alerts": stats.get("dlp_alerts", 0),
+            "critical_vulnerabilities": stats.get("vulnerabilities_critical", 0),
+            "high_vulnerabilities": stats.get("vulnerabilities_high", 0)
+        },
+        "raw_stats": stats
+    }
+
+
+@router.get("/monitors/alerts")
+async def get_recent_monitor_alerts(
+    limit: int = 50,
+    monitor_type: Optional[str] = None,
+    severity: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get recent alerts from all monitors across all agents."""
+    # Build match conditions
+    match_conditions = {}
+    
+    if monitor_type:
+        valid_monitors = [
+            "registry", "process_tree", "lolbin", "code_signing", "dns",
+            "memory", "app_whitelist", "dlp", "vulnerability", "amsi",
+            "ransomware", "rootkit", "kernel_security", "self_protection", "identity"
+        ]
+        if monitor_type not in valid_monitors:
+            raise HTTPException(status_code=400, detail=f"Invalid monitor type")
+        match_conditions[f"monitors.{monitor_type}"] = {"$exists": True}
+    
+    # Fetch recent telemetry with alerts
+    cursor = db.agent_monitor_telemetry.find(
+        match_conditions,
+        {"agent_id": 1, "timestamp": 1, "monitors": 1, "_id": 0}
+    ).sort("timestamp", -1).limit(limit)
+    
+    alerts = []
+    async for doc in cursor:
+        monitors = doc.get("monitors", {})
+        for mon_name, mon_data in monitors.items():
+            if isinstance(mon_data, dict):
+                # Check for alerts/detections in this monitor
+                alert_count = (
+                    mon_data.get("alerts", 0) or
+                    mon_data.get("detections", 0) or
+                    mon_data.get("threats_detected", 0) or
+                    mon_data.get("total_alerts", 0) or
+                    mon_data.get("anomalies_detected", 0) or
+                    mon_data.get("injections_detected", 0)
+                )
+                if alert_count and alert_count > 0:
+                    alerts.append({
+                        "agent_id": doc.get("agent_id"),
+                        "monitor": mon_name,
+                        "timestamp": doc.get("timestamp"),
+                        "alert_count": alert_count,
+                        "details": mon_data
+                    })
+    
+    return {
+        "alerts": alerts,
+        "count": len(alerts),
+        "filter": {
+            "monitor_type": monitor_type,
+            "severity": severity
+        }
+    }
