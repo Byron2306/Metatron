@@ -112,6 +112,11 @@ from routers.extension import router as extension_router
 # Import Multi-Tenant router
 from routers.multi_tenant import router as multi_tenant_router
 
+# Import Tier 1 Enterprise Security routers
+from routers.attack_paths import router as attack_paths_router
+from routers.secure_boot import router as secure_boot_router
+from routers.kernel_sensors import router as kernel_sensors_router
+
 # Initialize ML service with database
 from ml_threat_prediction import ml_predictor
 ml_predictor.set_database(db)
@@ -157,6 +162,11 @@ app.include_router(extension_router, prefix="/api")
 # Register Multi-Tenant router
 app.include_router(multi_tenant_router, prefix="/api")
 
+# Register Tier 1 Enterprise Security routers
+app.include_router(attack_paths_router)  # Already has /api/v1 prefix
+app.include_router(secure_boot_router)   # Already has /api/v1 prefix
+app.include_router(kernel_sensors_router)  # Already has /api/v1 prefix
+
 # Import agent commands router
 from routers.agent_commands import router as agent_commands_router
 app.include_router(agent_commands_router, prefix="/api")
@@ -177,6 +187,10 @@ app.include_router(ai_threats_router, prefix="/api")
 # Import Enterprise Security router (Identity, Policy, Tokens, Tools, Telemetry)
 from routers.enterprise import router as enterprise_router
 app.include_router(enterprise_router, prefix="/api")
+
+# Import CSPM (Cloud Security Posture Management) router
+from routers.cspm import router as cspm_router
+app.include_router(cspm_router)  # Already has /api/v1 prefix
 
 # Import Advanced Security router (MCP, Vector Memory, VNS, Quantum, AI)
 from routers.advanced import router as advanced_router

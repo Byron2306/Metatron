@@ -35,7 +35,11 @@ import {
   Map,
   Mail,
   Chrome,
-  Server
+  Server,
+  Cloud,
+  Route,
+  Eye,
+  Fingerprint
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -72,6 +76,12 @@ const Layout = () => {
     { path: '/correlation', icon: GitBranch, label: 'Correlation' },
     { path: '/ransomware', icon: ShieldAlert, label: 'Ransomware' },
     { path: '/containers', icon: Container, label: 'Containers' },
+    { path: '/cspm', icon: Cloud, label: 'Cloud Security' },
+    { path: '/attack-paths', icon: Route, label: 'Attack Paths' },
+    { path: '/deception', icon: Eye, label: 'Deception' },
+    { path: '/kernel-sensors', icon: Cpu, label: 'Kernel Sensors' },
+    { path: '/secure-boot', icon: ShieldCheck, label: 'Secure Boot' },
+    { path: '/identity', icon: Fingerprint, label: 'Identity' },
     { path: '/vpn', icon: Lock, label: 'VPN' },
     { path: '/edr', icon: Brain, label: 'EDR' },
     { path: '/soar', icon: Workflow, label: 'SOAR' },

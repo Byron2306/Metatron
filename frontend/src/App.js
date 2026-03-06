@@ -42,6 +42,12 @@ import BrowserExtensionPage from "./pages/BrowserExtensionPage";
 import SetupGuidePage from "./pages/SetupGuidePage";
 import TenantsPage from "./pages/TenantsPage";
 import UnifiedAgentPage from "./pages/UnifiedAgentPage";
+import CSPMPage from "./pages/CSPMPage";
+import AttackPathsPage from "./pages/AttackPathsPage";
+import DeceptionPage from "./pages/DeceptionPage";
+import KernelSensorsPage from "./pages/KernelSensorsPage";
+import SecureBootPage from "./pages/SecureBootPage";
+import IdentityProtectionPage from "./pages/IdentityProtectionPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -121,6 +127,12 @@ function App() {
               <Route path="setup-guide" element={<SetupGuidePage />} />
               <Route path="tenants" element={<TenantsPage />} />
               <Route path="unified-agent" element={<UnifiedAgentPage />} />
+              <Route path="cspm" element={<CSPMPage />} />
+              <Route path="attack-paths" element={<AttackPathsPage />} />
+              <Route path="deception" element={<DeceptionPage />} />
+              <Route path="kernel-sensors" element={<KernelSensorsPage />} />
+              <Route path="secure-boot" element={<SecureBootPage />} />
+              <Route path="identity" element={<IdentityProtectionPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

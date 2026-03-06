@@ -20,6 +20,10 @@ COPY . .
 ARG REACT_APP_BACKEND_URL=
 ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 
+# Increase Node.js memory for build
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV GENERATE_SOURCEMAP=false
+
 # Build the application
 RUN yarn build
 

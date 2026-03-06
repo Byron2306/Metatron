@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Trivy binary
 RUN set -eux; \
-        TRIVY_VERSION="0.57.1"; \
+        TRIVY_VERSION="0.69.3"; \
         ARCH="$(dpkg --print-architecture)"; \
         case "$ARCH" in \
             amd64) TRIVY_ARCH="64bit" ;; \
