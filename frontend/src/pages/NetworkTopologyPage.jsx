@@ -22,7 +22,10 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const NetworkTopologyPage = () => {
   const { getAuthHeaders } = useAuth();

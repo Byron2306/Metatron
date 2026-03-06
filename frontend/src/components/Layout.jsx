@@ -35,7 +35,11 @@ import {
   Map,
   Mail,
   Chrome,
-  Server
+  Server,
+  Cloud,
+  Route,
+  Eye,
+  Fingerprint
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -53,12 +57,11 @@ const Layout = () => {
 
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/unified-agent', icon: Cpu, label: 'Unified Agent' },
     { path: '/command-center', icon: ShieldAlert, label: 'Command Center' },
-    { path: '/swarm', icon: Radio, label: 'Swarm Command' },
     { path: '/advanced', icon: Cpu, label: 'Advanced Services' },
     { path: '/heatmap', icon: Map, label: 'Threat Heatmap' },
     { path: '/ai-threats', icon: Brain, label: 'AI Threats (AATL)' },
-    { path: '/agents', icon: Monitor, label: 'Agents' },
     { path: '/cli-sessions', icon: Brain, label: 'AI Detection' },
     { path: '/threats', icon: AlertTriangle, label: 'Threats' },
     { path: '/alerts', icon: Bell, label: 'Alerts' },
@@ -73,6 +76,12 @@ const Layout = () => {
     { path: '/correlation', icon: GitBranch, label: 'Correlation' },
     { path: '/ransomware', icon: ShieldAlert, label: 'Ransomware' },
     { path: '/containers', icon: Container, label: 'Containers' },
+    { path: '/cspm', icon: Cloud, label: 'Cloud Security' },
+    { path: '/attack-paths', icon: Route, label: 'Attack Paths' },
+    { path: '/deception', icon: Eye, label: 'Deception' },
+    { path: '/kernel-sensors', icon: Cpu, label: 'Kernel Sensors' },
+    { path: '/secure-boot', icon: ShieldCheck, label: 'Secure Boot' },
+    { path: '/identity', icon: Fingerprint, label: 'Identity' },
     { path: '/vpn', icon: Lock, label: 'VPN' },
     { path: '/edr', icon: Brain, label: 'EDR' },
     { path: '/soar', icon: Workflow, label: 'SOAR' },
@@ -83,11 +92,9 @@ const Layout = () => {
     { path: '/browser-isolation', icon: Globe, label: 'Browser Isolation' },
     { path: '/browser-extension', icon: Chrome, label: 'Browser Extension' },
     { path: '/kibana', icon: BarChart3, label: 'Kibana' },
-    { path: '/agent-commands', icon: Terminal, label: 'Agent Commands' },
     { path: '/reports', icon: FileText, label: 'Reports' },
     { path: '/audit', icon: ScrollText, label: 'Audit Logs' },
     { path: '/tenants', icon: Globe, label: 'Tenants' },
-    { path: '/unified-agent', icon: Cpu, label: 'Unified Agent' },
     { path: '/setup-guide', icon: Server, label: 'Setup Guide' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];

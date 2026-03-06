@@ -39,7 +39,10 @@ import {
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const ThreatTypeIcon = ({ type }) => {
   const icons = {
@@ -269,7 +272,11 @@ const ThreatsPage = () => {
         </div>
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
           <DialogTrigger asChild>
-            <Button className="bg-blue-600 hover:bg-blue-500 shadow-glow-blue" data-testid="add-threat-btn">
+            <Button
+              className="bg-blue-600 hover:bg-blue-500 shadow-glow-blue"
+              onClick={() => setShowAddDialog(true)}
+              data-testid="add-threat-btn"
+            >
               <Plus className="w-4 h-4 mr-2" />
               Log Threat
             </Button>

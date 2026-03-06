@@ -4,14 +4,17 @@ import { useAuth } from '../context/AuthContext';
 import { 
   Terminal, Shield, AlertTriangle, CheckCircle, XCircle,
   RefreshCw, Send, Clock, Activity, Cpu, HardDrive,
-  Users, Eye, Lock, Trash2, Play, Pause, ChevronDown, ChevronRight, ExternalLink
+  Users, Eye, Lock, Trash2, Play, Pause, ChevronDown, ChevronRight, ExternalLink, Brain
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? ''
+  : envBackendUrl.replace(/\/+$/, '');
 
 const AgentCommandsPage = () => {
   const navigate = useNavigate();
@@ -34,6 +37,8 @@ const AgentCommandsPage = () => {
     parameters: {},
     priority: 'medium'
   });
+  const [aiObjective, setAiObjective] = useState('Contain suspicious beaconing and collect forensics');
+  const [aiRecommending, setAiRecommending] = useState(false);
   const [expandedAlerts, setExpandedAlerts] = useState({});
 
   useEffect(() => {
@@ -131,6 +136,53 @@ const AgentCommandsPage = () => {
       }
     } catch (error) {
       toast.error('Failed to update command');
+    }
+  };
+
+  const recommendWithAI = async () => {
+    setAiRecommending(true);
+    try {
+      const response = await fetch(`${API_URL}/api/agent-commands/recommend`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          objective: aiObjective,
+          agent_id: newCommand.agent_id || selectedAgent || null,
+          context: {
+            selected_agent: selectedAgent,
+            alert_count: agentAlerts.length,
+            recent_scan_count: agentScans.length
+          },
+          max_recommendations: 3
+        })
+      });
+
+      if (!response.ok) {
+        toast.error('AI recommendation failed');
+        return;
+      }
+
+      const data = await response.json();
+      const first = data.recommended_commands?.[0];
+      if (!first) {
+        toast.warning('No recommendations returned');
+        return;
+      }
+
+      setNewCommand((prev) => ({
+        ...prev,
+        command_type: first.command_type || prev.command_type,
+        priority: first.priority || prev.priority,
+        parameters: first.parameters || {}
+      }));
+      toast.success(`AI recommendation applied (${data.method || 'assistant'})`);
+    } catch (error) {
+      toast.error('AI recommendation failed');
+    } finally {
+      setAiRecommending(false);
     }
   };
 
@@ -535,6 +587,27 @@ const AgentCommandsPage = () => {
                   </Button>
                 ))}
               </div>
+            </div>
+
+            <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-700 space-y-3">
+              <label className="text-slate-300 text-sm block">AI Objective</label>
+              <textarea
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm"
+                rows={2}
+                value={aiObjective}
+                onChange={(e) => setAiObjective(e.target.value)}
+                placeholder="Describe what you want the agent to accomplish"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="border-purple-500/40 text-purple-300"
+                onClick={recommendWithAI}
+                disabled={aiRecommending || !aiObjective.trim()}
+              >
+                <Brain className={`w-4 h-4 mr-2 ${aiRecommending ? 'animate-pulse' : ''}`} />
+                {aiRecommending ? 'Analyzing...' : 'Recommend With Ollama'}
+              </Button>
             </div>
 
             <Button

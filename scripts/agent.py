@@ -41,7 +41,7 @@ from collections import deque
 
 # Default configuration - will be overridden by config.json if exists
 DEFAULT_CONFIG = {
-    "api_url": "https://agentic-armor.preview.emergentagent.com/api",
+    "api_url": "https://agentic-armor.preview.emergentagent.com",
     "agent_key": "local-agent",
     "agent_name": platform.node() or "local-agent",
     "local_dashboard_port": 5000,
@@ -65,6 +65,18 @@ DEFAULT_CONFIG = {
         "local_dashboard": True,
     }
 }
+
+
+def normalize_server_url(url):
+    """Normalize a base server URL to avoid duplicate /api path segments."""
+    if not url:
+        return ""
+
+    normalized = str(url).strip().rstrip("/")
+    if normalized.lower().endswith("/api"):
+        normalized = normalized[:-4]
+
+    return normalized.rstrip("/")
 
 # =============================================================================
 # IMPORTS - Check and install missing packages
@@ -155,7 +167,7 @@ state = AgentState()
 
 class CloudAPIClient:
     def __init__(self, config):
-        self.api_url = config.get("api_url", DEFAULT_CONFIG["api_url"])
+        self.api_url = normalize_server_url(config.get("api_url", DEFAULT_CONFIG["api_url"]))
         self.agent_id = hashlib.md5(platform.node().encode()).hexdigest()[:16]
         self.agent_name = config.get("agent_name", DEFAULT_CONFIG["agent_name"])
         self.session = requests.Session()
@@ -185,7 +197,7 @@ class CloudAPIClient:
         # Send to cloud
         try:
             response = self.session.post(
-                f"{self.api_url}/agent/event",
+                f"{self.api_url}/api/agent/event",
                 json=payload,
                 timeout=10
             )
@@ -859,7 +871,7 @@ def create_dashboard_app(config):
     def index():
         return render_template_string(
             DASHBOARD_HTML,
-            cloud_url=config.get("api_url", "").replace("/api", "")
+            cloud_url=normalize_server_url(config.get("api_url", ""))
         )
     
     @app.route('/api/status')
@@ -1065,6 +1077,8 @@ def main():
                 config.update(loaded_config)
             print(f"[*] Loaded config from {config_path}")
             break
+
+    config["api_url"] = normalize_server_url(config.get("api_url", DEFAULT_CONFIG["api_url"]))
     
     # Check permissions
     if platform.system() != "Windows" and os.geteuid() != 0:

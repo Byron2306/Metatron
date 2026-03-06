@@ -34,6 +34,9 @@ class HuntingRule:
     command_patterns: List[str] = field(default_factory=list)
     network_indicators: Dict = field(default_factory=dict)
     file_indicators: List[str] = field(default_factory=list)
+    registry_indicators: List[str] = field(default_factory=list)
+    parent_process_patterns: Dict = field(default_factory=dict)
+    behavioral_indicators: Dict = field(default_factory=dict)
     enabled: bool = True
     false_positive_notes: str = ""
     response_actions: List[str] = field(default_factory=list)
@@ -498,6 +501,576 @@ class ThreatHuntingEngine:
                 r"find\s+-name.*password"
             ],
             response_actions=["log_recon"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1082",
+            name="System Information Discovery",
+            description="Detects enumeration of system information",
+            mitre_technique="T1082",
+            mitre_tactic="TA0007",
+            severity="low",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"systeminfo",
+                r"hostname",
+                r"ver\s*$",
+                r"uname\s+-a",
+                r"cat\s+/etc/os-release",
+                r"wmic\s+os\s+get",
+                r"get-computerinfo"
+            ],
+            response_actions=["log_recon"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1057",
+            name="Process Discovery",
+            description="Detects enumeration of running processes",
+            mitre_technique="T1057",
+            mitre_tactic="TA0007",
+            severity="low",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"tasklist",
+                r"get-process",
+                r"ps\s+aux",
+                r"ps\s+-ef",
+                r"wmic\s+process\s+list",
+                r"query\s+process"
+            ],
+            response_actions=["log_recon"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1018",
+            name="Remote System Discovery",
+            description="Detects enumeration of remote systems",
+            mitre_technique="T1018",
+            mitre_tactic="TA0007",
+            severity="medium",
+            data_sources=["process", "command_line", "network"],
+            command_patterns=[
+                r"net\s+view",
+                r"net\s+group.*domain",
+                r"nltest\s+\/dclist",
+                r"ping\s+-n\s+1\s+\d",
+                r"arp\s+-a",
+                r"nbtstat\s+-n",
+                r"get-adcomputer",
+                r"dsquery\s+computer"
+            ],
+            response_actions=["log_recon", "alert_medium"]
+        ))
+        
+        # ============================================================
+        # INITIAL ACCESS (TA0001)
+        # ============================================================
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1566.001",
+            name="Spearphishing Attachment Execution",
+            description="Detects execution of files from common phishing locations",
+            mitre_technique="T1566.001",
+            mitre_tactic="TA0001",
+            severity="high",
+            data_sources=["process", "file", "command_line"],
+            command_patterns=[
+                r"\\AppData\\Local\\Temp\\.*\.(exe|scr|hta|js|vbs)",
+                r"\\Downloads\\.*\.(exe|scr|hta|js|vbs)",
+                r"\\INetCache\\.*\.(exe|scr|hta)",
+                r"cmd.*\/c.*\.lnk",
+                r"wscript.*\\temp\\",
+                r"mshta.*http"
+            ],
+            file_indicators=[r".*\\Outlook.*\\.*\.(exe|scr)$", r".*\\Downloads\\.*\.(hta|js|vbs)$"],
+            response_actions=["alert_high", "quarantine_file"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1190",
+            name="Exploit Public-Facing Application",
+            description="Detects potential exploitation of web applications",
+            mitre_technique="T1190",
+            mitre_tactic="TA0001",
+            severity="critical",
+            data_sources=["process", "network", "command_line"],
+            command_patterns=[
+                r"w3wp.*cmd.*\/c",
+                r"httpd.*\/bin\/sh",
+                r"java.*runtime.*exec",
+                r"php.*system\(",
+                r"node.*child_process",
+                r"python.*subprocess"
+            ],
+            process_names=["w3wp", "httpd", "nginx", "apache", "tomcat"],
+            network_indicators={"suspicious_response_codes": [500, 502, 503]},
+            response_actions=["alert_critical", "isolate_system"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1133",
+            name="External Remote Services Abuse",
+            description="Detects suspicious remote service connections",
+            mitre_technique="T1133",
+            mitre_tactic="TA0001",
+            severity="medium",
+            data_sources=["network", "authentication"],
+            network_indicators={
+                "ports": [3389, 22, 5900, 5901, 5985, 5986],
+                "suspicious_geolocations": True
+            },
+            response_actions=["alert_medium", "log_authentication"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1078",
+            name="Valid Accounts - Suspicious Use",
+            description="Detects suspicious use of valid credentials",
+            mitre_technique="T1078",
+            mitre_tactic="TA0001",
+            severity="high",
+            data_sources=["authentication", "process"],
+            command_patterns=[
+                r"runas\s+\/user",
+                r"psexec.*-u\s+",
+                r"net\s+use.*\/user",
+                r"su\s+-\s+",
+                r"sudo\s+-u"
+            ],
+            response_actions=["alert_high", "log_authentication"]
+        ))
+        
+        # ============================================================
+        # PRIVILEGE ESCALATION (TA0004)
+        # ============================================================
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1134",
+            name="Access Token Manipulation",
+            description="Detects token manipulation for privilege escalation",
+            mitre_technique="T1134",
+            mitre_tactic="TA0004",
+            severity="critical",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"incognito.*list_tokens",
+                r"incognito.*impersonate",
+                r"invoke-tokenmanipulation",
+                r"getsystem",
+                r"tokenvator",
+                r"maketoken"
+            ],
+            response_actions=["alert_critical", "terminate_process"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1055",
+            name="Process Injection",
+            description="Detects process injection techniques",
+            mitre_technique="T1055",
+            mitre_tactic="TA0004",
+            severity="critical",
+            data_sources=["process", "memory"],
+            command_patterns=[
+                r"invoke-reflectivepeinjection",
+                r"invoke-shellcode",
+                r"meterpreter.*migrate",
+                r"inject.*pid",
+                r"hollowing"
+            ],
+            process_names=["notepad", "explorer", "svchost", "rundll32"],
+            response_actions=["alert_critical", "memory_dump", "terminate_process"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1068",
+            name="Exploitation for Privilege Escalation",
+            description="Detects local privilege escalation exploits",
+            mitre_technique="T1068",
+            mitre_tactic="TA0004",
+            severity="critical",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"juicypotato",
+                r"rottenpotato",
+                r"sweetpotato",
+                r"printspoofer",
+                r"godpotato",
+                r"localpotato",
+                r"pspy",
+                r"linpeas",
+                r"winpeas"
+            ],
+            response_actions=["alert_critical", "isolate_system"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1548.002",
+            name="UAC Bypass",
+            description="Detects User Account Control bypass attempts",
+            mitre_technique="T1548.002",
+            mitre_tactic="TA0004",
+            severity="high",
+            data_sources=["process", "command_line", "registry"],
+            command_patterns=[
+                r"fodhelper",
+                r"eventvwr.*mmc",
+                r"sdclt.*\/kickoffelev",
+                r"computerdefaults",
+                r"cmstp.*\/s",
+                r"uacme"
+            ],
+            registry_indicators=[r"HKCU\\Software\\Classes\\ms-settings\\shell"],
+            response_actions=["alert_high", "block_execution"]
+        ))
+        
+        # ============================================================
+        # COLLECTION (TA0009)
+        # ============================================================
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1560",
+            name="Archive Collected Data",
+            description="Detects data compression for exfiltration staging",
+            mitre_technique="T1560",
+            mitre_tactic="TA0009",
+            severity="medium",
+            data_sources=["process", "file", "command_line"],
+            command_patterns=[
+                r"7z\s+a.*-p",
+                r"rar\s+a.*-hp",
+                r"zip.*-e",
+                r"tar.*czf",
+                r"compress-archive",
+                r"makecab"
+            ],
+            file_indicators=[r"\.7z$", r"\.rar$", r"\.zip$", r"\.tar\.gz$"],
+            response_actions=["alert_medium", "log_file_activity"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1113",
+            name="Screen Capture",
+            description="Detects screen capture activities",
+            mitre_technique="T1113",
+            mitre_tactic="TA0009",
+            severity="medium",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"screenshot",
+                r"nircmd.*savescreenshot",
+                r"import\s+-window\s+root",
+                r"scrot",
+                r"gnome-screenshot",
+                r"psr\.exe"
+            ],
+            response_actions=["alert_medium", "log_collection"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1123",
+            name="Audio Capture",
+            description="Detects audio recording activities",
+            mitre_technique="T1123",
+            mitre_tactic="TA0009",
+            severity="high",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"ffmpeg.*-f\s+alsa",
+                r"ffmpeg.*-f\s+dshow",
+                r"sox.*-d",
+                r"arecord",
+                r"soundrecorder"
+            ],
+            response_actions=["alert_high", "terminate_process"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1125",
+            name="Video Capture",
+            description="Detects webcam/video capture activities",
+            mitre_technique="T1125",
+            mitre_tactic="TA0009",
+            severity="high",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"ffmpeg.*-f\s+v4l2",
+                r"ffmpeg.*-f\s+video4linux",
+                r"ffmpeg.*webcam",
+                r"cheese",
+                r"cameracapture"
+            ],
+            response_actions=["alert_high", "terminate_process"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1115",
+            name="Clipboard Data Collection",
+            description="Detects clipboard monitoring/theft",
+            mitre_technique="T1115",
+            mitre_tactic="TA0009",
+            severity="medium",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"get-clipboard",
+                r"xclip",
+                r"xsel",
+                r"pbpaste",
+                r"powershell.*clipboard"
+            ],
+            response_actions=["alert_medium", "log_collection"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1074",
+            name="Data Staging",
+            description="Detects data staging for exfiltration",
+            mitre_technique="T1074",
+            mitre_tactic="TA0009",
+            severity="high",
+            data_sources=["file", "process", "command_line"],
+            command_patterns=[
+                r"copy.*\\staging",
+                r"xcopy.*\\temp\\data",
+                r"move.*\\public\\",
+                r"cp.*\/tmp\/exfil"
+            ],
+            file_indicators=[r"\\staging\\", r"\\exfil\\", r"\\collect\\"],
+            response_actions=["alert_high", "monitor_network"]
+        ))
+        
+        # ============================================================
+        # IMPACT (TA0040)
+        # ============================================================
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1486",
+            name="Data Encrypted for Impact (Ransomware)",
+            description="Detects ransomware encryption behavior",
+            mitre_technique="T1486",
+            mitre_tactic="TA0040",
+            severity="critical",
+            data_sources=["process", "file", "command_line"],
+            command_patterns=[
+                r"vssadmin.*delete\s+shadows",
+                r"wmic.*shadowcopy.*delete",
+                r"bcdedit.*recoveryenabled.*no",
+                r"bcdedit.*bootstatuspolicy.*ignoreallfailures",
+                r"wbadmin\s+delete",
+                r"cipher\s+\/w"
+            ],
+            file_indicators=[r"\.encrypted$", r"\.locked$", r"\.crypt$", r"readme.*ransom", r"how.*decrypt"],
+            response_actions=["alert_critical", "isolate_system", "kill_encryption_process"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1485",
+            name="Data Destruction",
+            description="Detects data destruction/wiper behavior",
+            mitre_technique="T1485",
+            mitre_tactic="TA0040",
+            severity="critical",
+            data_sources=["process", "file", "command_line"],
+            command_patterns=[
+                r"format\s+c:",
+                r"dd\s+if=\/dev\/zero",
+                r"dd\s+if=\/dev\/urandom",
+                r"shred\s+-",
+                r"secure-delete",
+                r"sdelete",
+                r"eraser"
+            ],
+            response_actions=["alert_critical", "isolate_system", "terminate_process"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1490",
+            name="Inhibit System Recovery",
+            description="Detects attempts to disable system recovery",
+            mitre_technique="T1490",
+            mitre_tactic="TA0040",
+            severity="critical",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"vssadmin.*delete",
+                r"wmic.*shadowcopy.*delete",
+                r"bcdedit.*recoveryenabled.*no",
+                r"bcdedit.*safeboot",
+                r"reagentc.*\/disable",
+                r"wbadmin.*delete.*catalog",
+                r"del.*\\windows\\system32\\config"
+            ],
+            response_actions=["alert_critical", "block_command", "isolate_system"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1489",
+            name="Service Stop",
+            description="Detects stopping of critical services",
+            mitre_technique="T1489",
+            mitre_tactic="TA0040",
+            severity="high",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"net\s+stop.*sql",
+                r"net\s+stop.*backup",
+                r"net\s+stop.*exchange",
+                r"net\s+stop.*vss",
+                r"sc\s+stop.*sql",
+                r"taskkill.*sql",
+                r"systemctl\s+stop"
+            ],
+            response_actions=["alert_high", "restore_service"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1561",
+            name="Disk Wipe",
+            description="Detects disk wiping activities",
+            mitre_technique="T1561",
+            mitre_tactic="TA0040",
+            severity="critical",
+            data_sources=["process", "command_line"],
+            command_patterns=[
+                r"dd\s+if=.*of=\/dev\/sd",
+                r"dd\s+if=.*of=\\\\\.\\Physical",
+                r"diskpart.*clean.*all",
+                r"wipefs",
+                r"bootkit"
+            ],
+            response_actions=["alert_critical", "isolate_system", "emergency_shutdown"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-T1496",
+            name="Resource Hijacking (Cryptomining)",
+            description="Detects unauthorized cryptocurrency mining",
+            mitre_technique="T1496",
+            mitre_tactic="TA0040",
+            severity="high",
+            data_sources=["process", "network", "command_line"],
+            command_patterns=[
+                r"xmrig",
+                r"minerd",
+                r"cgminer",
+                r"bfgminer",
+                r"cpuminer",
+                r"stratum\+tcp",
+                r"nicehash"
+            ],
+            network_indicators={
+                "ports": [3333, 4444, 5555, 14444, 45700],
+                "pool_domains": ["pool.minergate.com", "xmrpool.net"]
+            },
+            response_actions=["alert_high", "terminate_process", "block_mining_pools"]
+        ))
+        
+        # ============================================================
+        # BEHAVIORAL HUNTING PATTERNS
+        # ============================================================
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-BEHAV-001",
+            name="Suspicious Parent-Child Process",
+            description="Detects unusual parent-child process relationships",
+            mitre_technique="T1059",
+            mitre_tactic="TA0002",
+            severity="high",
+            data_sources=["process"],
+            process_names=["cmd", "powershell", "wscript", "cscript", "mshta"],
+            parent_process_patterns={
+                "suspicious_parents": ["winword", "excel", "outlook", "powerpnt", "msaccess", "onenote"],
+                "suspicious_children": ["cmd", "powershell", "mshta", "wscript", "cscript", "certutil"]
+            },
+            response_actions=["alert_high", "terminate_process"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-BEHAV-002",
+            name="Rapid File Encryption Pattern",
+            description="Detects rapid file modification indicative of ransomware",
+            mitre_technique="T1486",
+            mitre_tactic="TA0040",
+            severity="critical",
+            data_sources=["file"],
+            behavioral_indicators={
+                "file_operations_per_minute": 100,
+                "extension_changes": True,
+                "entropy_increase": True
+            },
+            response_actions=["alert_critical", "isolate_system", "terminate_suspicious_process"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-BEHAV-003",
+            name="Beaconing Behavior",
+            description="Detects periodic C2 communication patterns",
+            mitre_technique="T1071",
+            mitre_tactic="TA0011",
+            severity="high",
+            data_sources=["network"],
+            behavioral_indicators={
+                "periodic_connections": True,
+                "jitter_threshold": 0.2,
+                "min_beacon_count": 10
+            },
+            response_actions=["alert_high", "capture_traffic", "block_destination"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-BEHAV-004",
+            name="Large Data Transfer to External",
+            description="Detects large outbound data transfers",
+            mitre_technique="T1041",
+            mitre_tactic="TA0010",
+            severity="high",
+            data_sources=["network"],
+            behavioral_indicators={
+                "data_threshold_mb": 100,
+                "external_destination": True,
+                "unusual_protocol": True
+            },
+            response_actions=["alert_high", "throttle_connection", "capture_traffic"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-BEHAV-005",
+            name="Credential Access Sequence",
+            description="Detects sequence of credential access activities",
+            mitre_technique="T1003",
+            mitre_tactic="TA0006",
+            severity="critical",
+            data_sources=["process", "file", "memory"],
+            behavioral_indicators={
+                "lsass_access": True,
+                "sam_access": True,
+                "ntds_access": True,
+                "sequence_window_seconds": 300
+            },
+            response_actions=["alert_critical", "isolate_system", "credential_rotation"]
+        ))
+        
+        self.add_rule(HuntingRule(
+            rule_id="hunt-BEHAV-006",
+            name="Living Off The Land Attack Pattern",
+            description="Detects LOTL techniques using multiple native tools",
+            mitre_technique="T1218",
+            mitre_tactic="TA0005",
+            severity="high",
+            data_sources=["process", "command_line"],
+            behavioral_indicators={
+                "lolbin_sequence": ["certutil", "mshta", "regsvr32", "rundll32", "bitsadmin"],
+                "sequence_window_seconds": 60
+            },
+            command_patterns=[
+                r"certutil.*-urlcache",
+                r"mshta.*vbscript",
+                r"regsvr32.*\/s.*\/u.*scrobj",
+                r"rundll32.*javascript",
+                r"bitsadmin.*\/transfer"
+            ],
+            response_actions=["alert_high", "terminate_chain", "isolate_system"]
         ))
         
         self.stats["rules_loaded"] = len(self.rules)

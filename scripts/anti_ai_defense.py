@@ -33,7 +33,19 @@ from collections import deque
 # CONFIGURATION
 # =============================================================================
 
-CLOUD_API_URL = "https://agentic-armor.preview.emergentagent.com/api"
+def normalize_server_url(url: str) -> str:
+    """Normalize a base server URL to avoid duplicate /api path segments."""
+    if not url:
+        return ""
+
+    normalized = str(url).strip().rstrip("/")
+    if normalized.lower().endswith("/api"):
+        normalized = normalized[:-4]
+
+    return normalized.rstrip("/")
+
+
+CLOUD_API_URL = normalize_server_url(os.getenv("METATRON_API_URL", "https://agentic-armor.preview.emergentagent.com"))
 DASHBOARD_PORT = 5000
 AGENT_NAME = platform.node() or "local-agent"
 AGENT_ID = hashlib.md5(platform.node().encode()).hexdigest()[:16]
@@ -279,7 +291,7 @@ def send_to_cloud(event_type, data):
     """Send event to cloud API"""
     try:
         response = requests.post(
-            f"{CLOUD_API_URL}/agent/event",
+            f"{CLOUD_API_URL}/api/agent/event",
             json={
                 "agent_id": AGENT_ID,
                 "agent_name": AGENT_NAME,
@@ -508,7 +520,7 @@ DASHBOARD_HTML = '''
 </div>
 <div class="mt-4 bg-slate-900/50 rounded p-4 border border-slate-800">
 <h3 class="font-semibold mb-3">Malware Detections</h3><div id="threats" class="text-sm"></div></div>
-<p class="text-center text-slate-500 text-xs mt-6">Cloud: <a href="''' + CLOUD_API_URL.replace('/api','') + '''" class="text-blue-400">''' + CLOUD_API_URL.replace('/api','') + '''</a></p>
+<p class="text-center text-slate-500 text-xs mt-6">Cloud: <a href="''' + CLOUD_API_URL + '''" class="text-blue-400">''' + CLOUD_API_URL + '''</a></p>
 </div>
 <script>
 async function update(){

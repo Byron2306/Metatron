@@ -1,21 +1,60 @@
 """
 Agents Router - Handle local security agents
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any
 from pathlib import Path
 import uuid
 import json
 import io
+from enum import Enum
+from fastapi.responses import RedirectResponse
 
 from .dependencies import (
-    AgentEvent, AgentInfo, get_current_user, get_db, logger
+    AgentEvent, AgentInfo, get_current_user, get_db, logger, check_permission
 )
 from .honeypots import ws_manager
 
 router = APIRouter(prefix="/agent", tags=["Agents"])
+
+
+def _deprecated_redirect(replacement: str) -> RedirectResponse:
+    return RedirectResponse(
+        url=replacement,
+        status_code=307,
+        headers={
+            "X-Seraph-Deprecated": "true",
+            "X-Seraph-Replacement": replacement
+        }
+    )
+
+
+async def _track_deprecated_alias_hit(request: Request, legacy_path: str, replacement: str):
+    """Track legacy alias usage for sunset planning"""
+    try:
+        db = get_db()
+        await db.api_deprecation_hits.insert_one({
+            "legacy_path": legacy_path,
+            "replacement": replacement,
+            "method": request.method,
+            "user_agent": request.headers.get("user-agent"),
+            "client_ip": request.client.host if request.client else None,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+    except Exception as exc:
+        logger.warning(f"Failed to track deprecated alias hit for {legacy_path}: {exc}")
+
+
+class LegacyDownloadPlatform(str, Enum):
+    linux = "linux"
+    windows = "windows"
+    macos = "macos"
+    android = "android"
+    ios = "ios"
+    v7 = "v7"
+    browser_extension = "browser-extension"
 
 @router.post("/event")
 async def receive_agent_event(event: AgentEvent):
@@ -222,6 +261,99 @@ async def download_advanced_agent():
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Advanced agent not found")
+
+
+@router.get("/download")
+async def legacy_download_bundle_alias(request: Request):
+    """Legacy alias: redirect to canonical unified bundle endpoint"""
+    replacement = "/api/unified/agent/download"
+    await _track_deprecated_alias_hit(request, "/api/agent/download", replacement)
+    return _deprecated_redirect(replacement)
+
+
+@router.get("/download/{platform}")
+async def legacy_platform_download_alias(platform: LegacyDownloadPlatform, request: Request):
+    """Legacy alias: redirect to canonical swarm platform download endpoint"""
+    legacy_path = f"/api/agent/download/{platform.value}"
+    replacement = f"/api/swarm/agent/download/{platform.value}"
+    await _track_deprecated_alias_hit(request, legacy_path, replacement)
+    return _deprecated_redirect(replacement)
+
+
+@router.get("/install")
+async def legacy_install_alias(request: Request):
+    """Legacy alias: redirect to canonical unified linux install script endpoint"""
+    replacement = "/api/unified/agent/install-script"
+    await _track_deprecated_alias_hit(request, "/api/agent/install", replacement)
+    return _deprecated_redirect(replacement)
+
+
+@router.get("/install-script")
+async def legacy_install_script_alias(request: Request):
+    """Legacy alias: redirect to canonical unified linux install script endpoint"""
+    replacement = "/api/unified/agent/install-script"
+    await _track_deprecated_alias_hit(request, "/api/agent/install-script", replacement)
+    return _deprecated_redirect(replacement)
+
+
+@router.get("/install-windows")
+async def legacy_install_windows_alias(request: Request):
+    """Legacy alias: redirect to canonical unified windows install script endpoint"""
+    replacement = "/api/unified/agent/install-windows"
+    await _track_deprecated_alias_hit(request, "/api/agent/install-windows", replacement)
+    return _deprecated_redirect(replacement)
+
+
+@router.get("/deprecations/usage")
+async def get_deprecation_usage(
+    days: int = 30,
+    limit: int = 20,
+    current_user: dict = Depends(check_permission("admin"))
+):
+    """Get deprecated alias usage summary for migration tracking."""
+    db = get_db()
+
+    days = max(1, min(days, 365))
+    limit = max(1, min(limit, 200))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    pipeline = [
+        {"$match": {"timestamp": {"$gte": since}}},
+        {"$group": {
+            "_id": {
+                "legacy_path": "$legacy_path",
+                "replacement": "$replacement"
+            },
+            "hits": {"$sum": 1},
+            "last_seen": {"$max": "$timestamp"},
+            "methods": {"$addToSet": "$method"},
+            "user_agents": {"$addToSet": "$user_agent"}
+        }},
+        {"$sort": {"hits": -1, "last_seen": -1}},
+        {"$limit": limit}
+    ]
+
+    rows = await db.api_deprecation_hits.aggregate(pipeline).to_list(limit)
+
+    summary = []
+    for row in rows:
+        summary.append({
+            "legacy_path": row.get("_id", {}).get("legacy_path"),
+            "replacement": row.get("_id", {}).get("replacement"),
+            "hits": row.get("hits", 0),
+            "last_seen": row.get("last_seen"),
+            "methods": row.get("methods", []),
+            "sample_user_agents": [ua for ua in row.get("user_agents", []) if ua][:3]
+        })
+
+    total_hits = await db.api_deprecation_hits.count_documents({"timestamp": {"$gte": since}})
+
+    return {
+        "window_days": days,
+        "since": since,
+        "total_hits": total_hits,
+        "top_paths": summary
+    }
 
 # Agents list endpoint
 agents_router = APIRouter(prefix="/agents", tags=["Agents"])

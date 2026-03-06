@@ -29,6 +29,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from enum import Enum
 import platform
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,7 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-FORENSICS_DIR = Path("/var/lib/anti-ai-defense/forensics")
-FORENSICS_DIR.mkdir(parents=True, exist_ok=True)
+FORENSICS_DIR = ensure_data_dir("forensics")
 
 FIM_BASELINE_FILE = FORENSICS_DIR / "fim_baseline.json"
 USB_POLICY_FILE = FORENSICS_DIR / "usb_policy.json"
@@ -585,6 +585,7 @@ class MemoryForensics:
     """
     
     def __init__(self):
+        self.use_module_fallback = False
         self.volatility_path = self._find_volatility()
         self._db = None
     
@@ -604,7 +605,8 @@ class MemoryForensics:
             if full_path:
                 try:
                     result = subprocess.run([full_path, "-h"], capture_output=True, timeout=10)
-                    if result.returncode == 0 and b"volatility" in result.stdout.lower():
+                    output = (result.stdout or b"") + (result.stderr or b"")
+                    if result.returncode == 0 and b"volatility" in output.lower():
                         logger.info(f"Found Volatility 3 at: {full_path}")
                         return full_path
                 except Exception as e:
@@ -614,11 +616,23 @@ class MemoryForensics:
             # Also try the path directly
             try:
                 result = subprocess.run([path, "-h"], capture_output=True, timeout=10)
-                if result.returncode == 0 and b"volatility" in result.stdout.lower():
+                output = (result.stdout or b"") + (result.stderr or b"")
+                if result.returncode == 0 and b"volatility" in output.lower():
                     logger.info(f"Found Volatility 3 at: {path}")
                     return path
             except Exception:
                 continue
+
+        # Fallback: module invocation if command entrypoint is missing
+        try:
+            import importlib
+            import sys
+            importlib.import_module("volatility3")
+            self.use_module_fallback = True
+            logger.info("Using Volatility 3 via python -m volatility3")
+            return sys.executable
+        except Exception:
+            pass
         
         logger.warning("Volatility 3 not found - install with: pip install volatility3")
         return None
@@ -658,8 +672,13 @@ class MemoryForensics:
             
             for plugin, finding_type in plugins:
                 try:
+                    command = [self.volatility_path]
+                    if self.use_module_fallback:
+                        command.extend(["-m", "volatility3"])
+                    command.extend(["-f", dump_path, plugin])
+
                     proc = await asyncio.create_subprocess_exec(
-                        self.volatility_path, "-f", dump_path, plugin,
+                        *command,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
@@ -732,6 +751,7 @@ class MemoryForensics:
         return {
             "volatility_installed": self.volatility_path is not None,
             "volatility_path": self.volatility_path,
+            "volatility_mode": "module" if self.use_module_fallback else "binary",
             "supported_os": ["Windows", "Linux", "macOS"]
         }
 

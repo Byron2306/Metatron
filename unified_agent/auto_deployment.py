@@ -51,16 +51,31 @@ class AutoDeploymentSystem:
             'ios': 'unified_agent/ui/ios/dist/MetatronAgent.ipa'
         }
 
+    @staticmethod
+    def normalize_server_url(url: str) -> str:
+        """Normalize a base server URL to avoid duplicate /api path segments."""
+        if not url:
+            return ""
+
+        normalized = str(url).strip().rstrip('/')
+        if normalized.lower().endswith('/api'):
+            normalized = normalized[:-4]
+
+        return normalized.rstrip('/')
+
     def load_config(self) -> Dict:
         """Load deployment configuration"""
         config_file = 'auto_deployment_config.json'
+        default_server_url = self.normalize_server_url(
+            os.getenv('METATRON_SERVER_URL', 'http://localhost:8001')
+        )
         default_config = {
             'network_range': '192.168.1.0/24',
             'deployment_port': 8002,
             'scan_interval': 30,
             'auto_deploy': True,
             'supported_platforms': ['windows', 'linux', 'macos', 'android'],
-            'server_url': 'http://localhost:8002',
+            'server_url': default_server_url,
             'agent_version': '1.0.0'
         }
 
@@ -71,6 +86,8 @@ class AutoDeploymentSystem:
                     default_config.update(loaded_config)
             except Exception as e:
                 logger.error(f"Failed to load config: {e}")
+
+        default_config['server_url'] = self.normalize_server_url(default_config.get('server_url'))
 
         return default_config
 

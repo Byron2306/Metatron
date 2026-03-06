@@ -13,7 +13,10 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card'
 import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const CorrelationPage = () => {
   const { token } = useAuth();
@@ -23,6 +26,7 @@ const CorrelationPage = () => {
   const [autoCorrelate, setAutoCorrelate] = useState(true);
   const [loading, setLoading] = useState(false);
   const [correlating, setCorrelating] = useState(false);
+  const [aiSummary, setAiSummary] = useState(null);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -65,7 +69,12 @@ const CorrelationPage = () => {
     try {
       const res = await axios.post(`${API}/correlation/all-active`, {}, { headers });
       toast.success(`Correlated ${res.data.summary?.total || 0} threats`);
-      fetchCorrelations();
+      if (Array.isArray(res.data.correlations) && res.data.correlations.length > 0) {
+        setCorrelations(res.data.correlations);
+      } else {
+        fetchCorrelations();
+      }
+      setAiSummary(res.data.ai_summary || null);
       fetchStats();
     } catch (err) {
       toast.error('Failed to correlate threats');
@@ -181,6 +190,27 @@ const CorrelationPage = () => {
           </div>
         </motion.div>
       </div>
+
+      {aiSummary && (
+        <Card className="bg-slate-900/50 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Brain className="w-5 h-5 text-purple-400" />
+              AI Correlation Summary
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-slate-200 text-sm mb-3">{aiSummary.conclusion || 'No conclusion returned'}</p>
+            {Array.isArray(aiSummary.recommendations) && aiSummary.recommendations.length > 0 && (
+              <ul className="space-y-1 text-slate-300 text-sm list-disc list-inside">
+                {aiSummary.recommendations.slice(0, 5).map((rec, idx) => (
+                  <li key={idx}>{rec}</li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Correlations */}
       <Card className="bg-slate-900/50 border-slate-800">

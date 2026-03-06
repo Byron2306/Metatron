@@ -16,8 +16,8 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '../co
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
+import { API_ROOT as API } from '../lib/api';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const AIThreatIntelligence = () => {
   const { token } = useAuth();

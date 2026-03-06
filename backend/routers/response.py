@@ -201,7 +201,7 @@ async def analyze_with_openclaw(threat_data: dict, current_user: dict = Depends(
             threat_type=threat_data.get("type", "unknown"),
             severity=threat_data.get("severity", "medium"),
             source_ip=threat_data.get("source_ip"),
-            target_system=threat_data.get("target_system"),
+            target_ip=threat_data.get("target_ip") or threat_data.get("target_system"),
             indicators=threat_data.get("indicators", []),
             timestamp=datetime.now(timezone.utc).isoformat()
         )

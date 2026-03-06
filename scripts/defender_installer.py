@@ -67,8 +67,21 @@ RECOVERY_DIR = INSTALL_DIR / "recovery"
 MODULES_DIR = INSTALL_DIR / "modules"
 CONFIG_FILE = INSTALL_DIR / "config.json"
 
+
+def normalize_server_url(url: str) -> str:
+    """Normalize a base server URL to avoid duplicate /api path segments."""
+    if not url:
+        return ""
+
+    normalized = str(url).strip().rstrip("/")
+    if normalized.lower().endswith("/api"):
+        normalized = normalized[:-4]
+
+    return normalized.rstrip("/")
+
+
 # Cloud API endpoint - UPDATE THIS TO YOUR DEPLOYMENT
-CLOUD_API_URL = "https://agentic-armor.preview.emergentagent.com/api"
+CLOUD_API_URL = normalize_server_url(os.getenv("METATRON_API_URL", "https://agentic-armor.preview.emergentagent.com"))
 
 # Python packages required
 PYTHON_PACKAGES = [
@@ -943,7 +956,9 @@ state = AgentState()
 
 class CloudAPI:
     def __init__(self):
-        self.url = CONFIG.get("api_url", "")
+        self.url = str(CONFIG.get("api_url", "")).strip().rstrip('/')
+        if self.url.lower().endswith('/api'):
+            self.url = self.url[:-4]
         self.agent_id = CONFIG.get("agent_id", hashlib.md5(platform.node().encode()).hexdigest()[:16])
         self.agent_name = CONFIG.get("agent_name", platform.node())
         self.session = requests.Session()
@@ -964,7 +979,7 @@ class CloudAPI:
         state.events.append({"type": event_type, "data": data, "timestamp": datetime.now().isoformat()})
         
         try:
-            resp = self.session.post(f"{self.url}/agent/event", json=payload, timeout=10)
+            resp = self.session.post(f"{self.url}/api/agent/event", json=payload, timeout=10)
             state.cloud_connected = resp.status_code == 200
             return resp.status_code == 200
         except:
@@ -2310,7 +2325,7 @@ def install(auto=False):
     print(f"  sudo {get_python()} {INSTALL_DIR}/defender_agent.py")
     print()
     print(f"Local dashboard will be at: http://localhost:5000")
-    print(f"Cloud dashboard: {CLOUD_API_URL.replace('/api', '')}")
+    print(f"Cloud dashboard: {CLOUD_API_URL}")
     print()
     print("Installed components:")
     print(f"  - Core Agent: {INSTALL_DIR}/defender_agent.py")

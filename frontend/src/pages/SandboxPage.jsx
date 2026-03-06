@@ -20,7 +20,10 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? ''
+  : envBackendUrl.replace(/\/+$/, '');
 
 const SandboxPage = () => {
   const { token } = useAuth();

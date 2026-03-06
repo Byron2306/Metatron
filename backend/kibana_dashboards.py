@@ -288,20 +288,46 @@ class KibanaDashboardService:
         self.dashboards = KIBANA_DASHBOARDS
         self.elasticsearch_url = os.environ.get("ELASTICSEARCH_URL")
         self.api_key = os.environ.get("ELASTICSEARCH_API_KEY")
+        self.elasticsearch_username = os.environ.get("ELASTICSEARCH_USERNAME")
+        self.elasticsearch_password = os.environ.get("ELASTICSEARCH_PASSWORD")
         self.kibana_url = None
         
         # Auto-configure if environment variables are set
-        if self.elasticsearch_url and self.api_key:
+        if self.elasticsearch_url:
             # Derive Kibana URL from ES URL
             self.kibana_url = self.elasticsearch_url.replace(":443", ":443").replace(":9243", ":5601")
             logger.info(f"Kibana configured from environment: {self.elasticsearch_url}")
     
-    def configure(self, elasticsearch_url: str, api_key: str, kibana_url: Optional[str] = None):
+    def configure(
+        self,
+        elasticsearch_url: str,
+        api_key: Optional[str] = None,
+        kibana_url: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None
+    ):
         """Configure Elasticsearch/Kibana connection"""
         self.elasticsearch_url = elasticsearch_url
         self.api_key = api_key
+        self.elasticsearch_username = username
+        self.elasticsearch_password = password
         # Derive Kibana URL from ES URL if not provided
         self.kibana_url = kibana_url or elasticsearch_url.replace(":9243", ":5601").replace(":443", ":5601")
+
+    def _get_auth_headers(self) -> Dict[str, str]:
+        headers = {
+            "Content-Type": "application/json",
+            "kbn-xsrf": "true"
+        }
+        if self.api_key:
+            headers["Authorization"] = f"ApiKey {self.api_key}"
+        elif self.elasticsearch_username and self.elasticsearch_password:
+            import base64
+            basic_token = base64.b64encode(
+                f"{self.elasticsearch_username}:{self.elasticsearch_password}".encode()
+            ).decode()
+            headers["Authorization"] = f"Basic {basic_token}"
+        return headers
     
     def get_available_dashboards(self) -> List[Dict]:
         """Get list of available pre-built dashboards"""
@@ -321,15 +347,11 @@ class KibanaDashboardService:
     
     async def create_index_pattern(self) -> Dict:
         """Create the security-events index pattern in Kibana"""
-        if not self.elasticsearch_url or not self.api_key:
+        if not self.elasticsearch_url:
             return {"success": False, "error": "Not configured"}
         
         # Create index pattern via Kibana API
-        headers = {
-            "Content-Type": "application/json",
-            "kbn-xsrf": "true",
-            "Authorization": f"ApiKey {self.api_key}"
-        }
+        headers = self._get_auth_headers()
         
         index_pattern = {
             "attributes": {

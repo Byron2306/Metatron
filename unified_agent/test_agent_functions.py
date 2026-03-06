@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Test all UnifiedAgentCore local functions."""
+import os
 import sys, json, time
 sys.path.insert(0, 'ui/desktop')
 from main import UnifiedAgentCore
+
+BACKEND_URL = os.getenv('METATRON_BACKEND_URL', 'http://localhost:8001').rstrip('/')
+UNIFIED_URL = os.getenv('METATRON_UNIFIED_URL', os.getenv('METATRON_SERVER_URL', BACKEND_URL)).rstrip('/')
 
 agent = UnifiedAgentCore()
 agent.registered = True
@@ -72,15 +76,20 @@ print('Backend heartbeat event sent successfully')
 # Test 9: Check dashboard sees us
 print('\n=== DASHBOARD CHECK ===')
 import requests
-r = requests.get('http://localhost:8002/user/dashboard', timeout=5)
-dash = r.json()
-print(f'Agents total: {dash["agents"]["total"]}')
-print(f'Agents online: {dash["agents"]["online"]}')
-for a in dash["agents"]["list"]:
-    print(f'  {a["id"]} | {a["hostname"]} | {a["status"]} | {a["ip"]}')
+r = requests.get(f'{UNIFIED_URL}/user/dashboard', timeout=5)
+if r.status_code == 200:
+    dash = r.json()
+    print(f'Agents total: {dash["agents"]["total"]}')
+    print(f'Agents online: {dash["agents"]["online"]}')
+    for a in dash["agents"]["list"]:
+        print(f'  {a["id"]} | {a["hostname"]} | {a["status"]} | {a["ip"]}')
+else:
+    print(f'Unified dashboard endpoint unavailable on {UNIFIED_URL} (status {r.status_code}), falling back to backend stats')
+    fallback = requests.get(f'{BACKEND_URL}/api/dashboard/stats', timeout=5)
+    print(f'Backend stats status: {fallback.status_code}')
 
 # Check backend agent list
-r2 = requests.get('http://localhost:8001/api/agents', timeout=5)
+r2 = requests.get(f'{BACKEND_URL}/api/agents', timeout=5)
 print(f'\nBackend agents: {r2.status_code}')
 if r2.status_code == 200:
     agents_data = r2.json()

@@ -112,6 +112,11 @@ from routers.extension import router as extension_router
 # Import Multi-Tenant router
 from routers.multi_tenant import router as multi_tenant_router
 
+# Import Tier 1 Enterprise Security routers
+from routers.attack_paths import router as attack_paths_router
+from routers.secure_boot import router as secure_boot_router
+from routers.kernel_sensors import router as kernel_sensors_router
+
 # Initialize ML service with database
 from ml_threat_prediction import ml_predictor
 ml_predictor.set_database(db)
@@ -157,6 +162,11 @@ app.include_router(extension_router, prefix="/api")
 # Register Multi-Tenant router
 app.include_router(multi_tenant_router, prefix="/api")
 
+# Register Tier 1 Enterprise Security routers
+app.include_router(attack_paths_router)  # Already has /api/v1 prefix
+app.include_router(secure_boot_router)   # Already has /api/v1 prefix
+app.include_router(kernel_sensors_router)  # Already has /api/v1 prefix
+
 # Import agent commands router
 from routers.agent_commands import router as agent_commands_router
 app.include_router(agent_commands_router, prefix="/api")
@@ -178,6 +188,10 @@ app.include_router(ai_threats_router, prefix="/api")
 from routers.enterprise import router as enterprise_router
 app.include_router(enterprise_router, prefix="/api")
 
+# Import CSPM (Cloud Security Posture Management) router
+from routers.cspm import router as cspm_router
+app.include_router(cspm_router)  # Already has /api/v1 prefix
+
 # Import Advanced Security router (MCP, Vector Memory, VNS, Quantum, AI)
 from routers.advanced import router as advanced_router
 app.include_router(advanced_router, prefix="/api")
@@ -185,6 +199,20 @@ app.include_router(advanced_router, prefix="/api")
 # Import Unified Agent router (Metatron integration)
 from routers.unified_agent import router as unified_agent_router
 app.include_router(unified_agent_router, prefix="/api")
+
+# ============ DECEPTION ENGINE ============
+# Import advanced deception system with Pebbles, Mystique, and Stonewall
+from routers.deception import router as deception_engine_router
+app.include_router(deception_engine_router, prefix="/api")  # Now /api/deception
+
+# Initialize deception engine and integrate with existing systems
+from deception_engine import deception_engine, integrate_with_honey_tokens, integrate_with_ransomware_protection
+from honey_tokens import honey_token_manager
+from ransomware_protection import ransomware_protection as ransomware_mgr
+
+deception_engine.set_database(db)
+integrate_with_honey_tokens(honey_token_manager)
+integrate_with_ransomware_protection(ransomware_mgr.behavior_detector)
 
 # ============ WEBSOCKET ENDPOINTS ============
 
@@ -240,7 +268,11 @@ async def root():
             "vpn_integration",
             "threat_correlation",
             "edr_capabilities",
-            "memory_forensics"
+            "memory_forensics",
+            "deception_engine",
+            "campaign_tracking_pebbles",
+            "adaptive_deception_mystique",
+            "progressive_escalation_stonewall"
         ]
     }
 

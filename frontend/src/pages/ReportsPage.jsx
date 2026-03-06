@@ -17,7 +17,10 @@ import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const ReportsPage = () => {
   const { getAuthHeaders } = useAuth();

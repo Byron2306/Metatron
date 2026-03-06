@@ -1,14 +1,31 @@
 """
 Honey Tokens Router - Deception Technology API
+===============================================
+Integrated with Seraph Deception Engine for campaign tracking.
 """
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Optional, Dict, List
 from pydantic import BaseModel
+import asyncio
 
 from .dependencies import get_current_user, check_permission, logger
 from honey_tokens import honey_token_manager
 
 router = APIRouter(prefix="/honey-tokens", tags=["Honey Tokens"])
+
+# Deception engine integration (lazy import to avoid circular deps)
+_deception_engine = None
+
+def get_deception_engine():
+    """Lazy load deception engine to avoid circular imports"""
+    global _deception_engine
+    if _deception_engine is None:
+        try:
+            from deception_engine import deception_engine
+            _deception_engine = deception_engine
+        except ImportError:
+            pass
+    return _deception_engine
 
 class CreateTokenRequest(BaseModel):
     name: str
@@ -96,21 +113,45 @@ async def check_honey_token(
     """Check if a value matches any honey token (for testing/validation)"""
     token = honey_token_manager.check_token(request.value)
     if token:
+        source_ip = req.client.host if req.client else "unknown"
+        headers = dict(req.headers)
+        
         # This is a match - record the access
         access = honey_token_manager.record_access(
             token_id=token.id,
-            source_ip=req.client.host if req.client else "unknown",
+            source_ip=source_ip,
             user_agent=req.headers.get("user-agent"),
             request_path="/api/honey-tokens/check",
             request_method="POST",
-            headers=dict(req.headers)
+            headers=headers
         )
+        
+        # Notify deception engine for campaign tracking
+        deception = get_deception_engine()
+        campaign_info = None
+        if deception:
+            try:
+                assessment = await deception.record_decoy_interaction(
+                    ip=source_ip,
+                    decoy_type="honey_token",
+                    decoy_id=token.id,
+                    headers=headers
+                )
+                campaign_info = {
+                    "campaign_id": assessment.campaign_id,
+                    "escalation_level": assessment.escalation_level.value,
+                    "risk_score": assessment.score
+                }
+            except Exception as e:
+                logger.warning(f"Deception engine notification failed: {e}")
+        
         return {
             "matched": True,
             "token_name": token.name,
             "token_type": token.token_type.value,
             "alert": "CRITICAL: Honey token accessed!",
-            "access_id": access.id
+            "access_id": access.id,
+            "campaign_tracking": campaign_info
         }
     return {"matched": False}
 

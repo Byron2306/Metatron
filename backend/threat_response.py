@@ -10,6 +10,13 @@ Fully autonomous threat response system with:
 - Network isolation
 - Forensic data collection
 
+AI AGENTIC DEFENSE FEATURES:
+- AI Threat Pattern Recognition & Response
+- Defense Escalation Matrix (OBSERVE → ERADICATE)
+- Tarpit & Deception Tactics
+- Adaptive Counter-Measures
+- SOAR Engine Integration
+
 This module makes the Anti-AI Defense System truly agentic by enabling
 autonomous decision-making and response actions.
 """
@@ -21,12 +28,14 @@ import subprocess
 import platform
 import hashlib
 import shutil
+import random
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 from pathlib import Path
 import httpx
+from runtime_paths import ensure_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +81,7 @@ config = ThreatResponseConfig()
 # =============================================================================
 
 class ResponseAction(Enum):
+    # Standard Actions
     BLOCK_IP = "block_ip"
     UNBLOCK_IP = "unblock_ip"
     ISOLATE_HOST = "isolate_host"
@@ -82,6 +92,18 @@ class ResponseAction(Enum):
     ROLLBACK_CHANGES = "rollback_changes"
     NOTIFY_SOC = "notify_soc"
     ESCALATE = "escalate"
+    
+    # AI Agentic Defense Actions
+    THROTTLE_SESSION = "throttle_session"
+    INJECT_LATENCY = "inject_latency"
+    DEPLOY_DECOY = "deploy_decoy"
+    ENGAGE_TARPIT = "engage_tarpit"
+    FEED_DISINFORMATION = "feed_disinformation"
+    CAPTURE_TRIAGE = "capture_triage"
+    ROTATE_CREDENTIALS = "rotate_credentials"
+    INVOKE_ML_ANALYSIS = "invoke_ml_analysis"
+    SYNC_THREAT_INTEL = "sync_threat_intel"
+    EXECUTE_CONTAINMENT_CHAIN = "execute_containment_chain"
 
 class ResponseStatus(Enum):
     PENDING = "pending"
@@ -89,6 +111,27 @@ class ResponseStatus(Enum):
     SUCCESS = "success"
     FAILED = "failed"
     ROLLBACK = "rollback"
+    DEGRADED = "degraded"  # Partial success
+
+class DefenseEscalationLevel(Enum):
+    """Defense escalation levels matching SOAR engine"""
+    OBSERVE = "observe"      # Level 0: Monitor only
+    DEGRADE = "degrade"      # Level 1: Slow down attacker
+    DECEIVE = "deceive"      # Level 2: Deploy decoys, feed false data
+    CONTAIN = "contain"      # Level 3: Limit blast radius
+    ISOLATE = "isolate"      # Level 4: Full network isolation
+    ERADICATE = "eradicate"  # Level 5: Kill processes, wipe sessions
+
+class AIThreatIndicator(Enum):
+    """Indicators of AI/autonomous threat"""
+    MACHINE_PACING = "machine_pacing"
+    RAPID_ITERATION = "rapid_iteration"
+    SYSTEMATIC_SCAN = "systematic_scan"
+    GOAL_PERSISTENCE = "goal_persistence"
+    TOOL_SWITCHING = "tool_switching"
+    CREDENTIAL_HARVESTING = "credential_harvesting"
+    LATERAL_MOVEMENT = "lateral_movement"
+    EXFIL_PREPARATION = "exfil_preparation"
 
 @dataclass
 class ThreatContext:
@@ -105,6 +148,32 @@ class ThreatContext:
     indicators: List[str] = field(default_factory=list)
     raw_data: Dict[str, Any] = field(default_factory=dict)
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    
+    # AI Threat Assessment Fields
+    is_ai_threat: bool = False
+    machine_likelihood: float = 0.0
+    ai_indicators: List[str] = field(default_factory=list)
+    burstiness_score: float = 0.0
+    tool_switch_latency_ms: int = 0
+    goal_persistence: float = 0.0
+    session_id: Optional[str] = None
+    decoy_touched: bool = False
+    recommended_escalation: str = "observe"
+
+@dataclass
+class AIThreatAssessment:
+    """Assessment of AI threat characteristics"""
+    session_id: str
+    host_id: str
+    machine_likelihood: float
+    confidence_level: str  # low, medium, high, critical
+    burstiness_score: float
+    tool_switch_latency_ms: int
+    goal_persistence: float
+    dominant_intents: List[str]
+    decoy_touched: bool
+    recommended_escalation: DefenseEscalationLevel
+    assessment_timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 @dataclass
 class ResponseResult:
@@ -376,6 +445,20 @@ class OpenClawAgent:
                 return response.status_code == 200
         except Exception:
             return False
+
+    @staticmethod
+    async def get_status() -> Dict[str, Any]:
+        """Get OpenClaw integration status for API consumers."""
+        enabled = config.openclaw_enabled
+        available = await OpenClawAgent.is_available() if enabled else False
+
+        return {
+            "enabled": enabled,
+            "connected": available,
+            "gateway_url": config.openclaw_gateway_url,
+            "has_api_key": bool(config.openclaw_api_key),
+            "status": "connected" if available else ("disabled" if not enabled else "unavailable")
+        }
     
     @staticmethod
     async def execute_security_task(
@@ -500,7 +583,7 @@ openclaw = OpenClawAgent()
 class ForensicsCollector:
     """Collect forensic data for incident investigation"""
     
-    FORENSICS_DIR = Path("/var/lib/anti-ai-defense/forensics")
+    FORENSICS_DIR = ensure_data_dir("forensics")
     
     @classmethod
     async def collect_incident_data(cls, context: ThreatContext) -> ResponseResult:
@@ -843,3 +926,633 @@ async def manual_block_ip(ip: str, reason: str, duration_hours: int = 24) -> Res
 async def manual_unblock_ip(ip: str) -> ResponseResult:
     """Manually unblock an IP address"""
     return await firewall.unblock_ip(ip)
+
+
+# =============================================================================
+# AI AGENTIC DEFENSE ENGINE
+# =============================================================================
+
+class AIDefenseEngine:
+    """
+    AI Agentic Defense Engine - Seraph's differentiator
+    
+    Specialized response tactics for countering autonomous AI attackers:
+    - Adaptive tarpit engagement
+    - Dynamic decoy deployment
+    - Disinformation feeding
+    - Graduated escalation
+    - Goal disruption tactics
+    """
+    
+    # Track active defense states per host
+    active_defenses: Dict[str, Dict[str, Any]] = {}
+    
+    # Decoy inventory
+    deployed_decoys: Dict[str, Dict[str, Any]] = {}
+    
+    # Tarpit sessions
+    tarpit_sessions: Dict[str, Dict[str, Any]] = {}
+    
+    @classmethod
+    async def assess_ai_threat(
+        cls,
+        session_id: str,
+        host_id: str,
+        behavior_data: Dict[str, Any]
+    ) -> AIThreatAssessment:
+        """
+        Assess whether a session exhibits AI/autonomous threat characteristics.
+        
+        Analyzes:
+        - Command pacing and burstiness
+        - Tool switching patterns
+        - Goal persistence
+        - Decision-making patterns
+        """
+        # Extract metrics
+        command_times = behavior_data.get("command_timestamps", [])
+        tools_used = behavior_data.get("tools_used", [])
+        accessed_resources = behavior_data.get("accessed_resources", [])
+        
+        # Calculate burstiness (variance in command timing)
+        burstiness = 0.0
+        if len(command_times) > 2:
+            intervals = [
+                command_times[i+1] - command_times[i] 
+                for i in range(len(command_times) - 1)
+            ]
+            mean_interval = sum(intervals) / len(intervals)
+            variance = sum((x - mean_interval) ** 2 for x in intervals) / len(intervals)
+            burstiness = min(1.0, variance / max(mean_interval, 1))
+        
+        # Calculate tool switching latency
+        tool_switch_latency = behavior_data.get("avg_tool_switch_ms", 500)
+        
+        # Goal persistence - how consistently pursuing objectives
+        goal_persistence = behavior_data.get("goal_persistence", 0.5)
+        
+        # Machine likelihood score
+        ml_score = 0.0
+        
+        # Fast, consistent pacing = higher ML score
+        if tool_switch_latency < 200:
+            ml_score += 0.3
+        elif tool_switch_latency < 500:
+            ml_score += 0.15
+        
+        # High burstiness indicates systematic approach
+        ml_score += burstiness * 0.25
+        
+        # High goal persistence
+        ml_score += goal_persistence * 0.25
+        
+        # Many tools in short time
+        if len(tools_used) > 5 and behavior_data.get("session_duration_s", 0) < 60:
+            ml_score += 0.2
+        
+        # Touched decoy
+        decoy_touched = behavior_data.get("decoy_touched", False)
+        if decoy_touched:
+            ml_score += 0.1
+        
+        # Determine confidence level
+        if ml_score >= 0.9:
+            confidence = "critical"
+        elif ml_score >= 0.7:
+            confidence = "high"
+        elif ml_score >= 0.5:
+            confidence = "medium"
+        else:
+            confidence = "low"
+        
+        # Determine recommended escalation
+        if ml_score >= 0.9 and decoy_touched:
+            escalation = DefenseEscalationLevel.ERADICATE
+        elif ml_score >= 0.8:
+            escalation = DefenseEscalationLevel.ISOLATE
+        elif ml_score >= 0.6:
+            escalation = DefenseEscalationLevel.CONTAIN
+        elif ml_score >= 0.4:
+            escalation = DefenseEscalationLevel.DECEIVE
+        elif ml_score >= 0.2:
+            escalation = DefenseEscalationLevel.DEGRADE
+        else:
+            escalation = DefenseEscalationLevel.OBSERVE
+        
+        # Determine dominant intents
+        intents = []
+        if "credential" in str(accessed_resources).lower():
+            intents.append("credential_harvesting")
+        if behavior_data.get("lateral_attempts", 0) > 0:
+            intents.append("lateral_movement")
+        if behavior_data.get("exfil_indicators", False):
+            intents.append("exfiltration")
+        if behavior_data.get("recon_commands", 0) > 5:
+            intents.append("reconnaissance")
+        
+        return AIThreatAssessment(
+            session_id=session_id,
+            host_id=host_id,
+            machine_likelihood=ml_score,
+            confidence_level=confidence,
+            burstiness_score=burstiness,
+            tool_switch_latency_ms=tool_switch_latency,
+            goal_persistence=goal_persistence,
+            dominant_intents=intents,
+            decoy_touched=decoy_touched,
+            recommended_escalation=escalation
+        )
+    
+    @classmethod
+    async def engage_tarpit(
+        cls,
+        session_id: str,
+        host_id: str,
+        mode: str = "standard",
+        mimic_success: bool = False
+    ) -> ResponseResult:
+        """
+        Engage tarpit to slow down attacker while gathering intelligence.
+        
+        Modes:
+        - standard: Add consistent delays
+        - adaptive: Increase delays based on activity
+        - aggressive: Heavy delays with jitter
+        """
+        
+        base_delay = {
+            "standard": 500,
+            "adaptive": 200,
+            "aggressive": 2000
+        }.get(mode, 500)
+        
+        jitter = {
+            "standard": 100,
+            "adaptive": 300,
+            "aggressive": 1000
+        }.get(mode, 100)
+        
+        tarpit_config = {
+            "session_id": session_id,
+            "host_id": host_id,
+            "mode": mode,
+            "base_delay_ms": base_delay,
+            "jitter_ms": jitter,
+            "mimic_success": mimic_success,
+            "engaged_at": datetime.now(timezone.utc).isoformat(),
+            "request_count": 0,
+            "cumulative_delay_ms": 0
+        }
+        
+        cls.tarpit_sessions[session_id] = tarpit_config
+        
+        logger.info(f"Tarpit engaged for session {session_id} (mode={mode})")
+        
+        return ResponseResult(
+            action=ResponseAction.ENGAGE_TARPIT,
+            status=ResponseStatus.SUCCESS,
+            message=f"Tarpit engaged in {mode} mode",
+            details=tarpit_config
+        )
+    
+    @classmethod
+    async def get_tarpit_delay(cls, session_id: str) -> Tuple[int, bool]:
+        """
+        Get the delay to inject for a tarpitted session.
+        Returns (delay_ms, mimic_success)
+        """
+        if session_id not in cls.tarpit_sessions:
+            return (0, False)
+        
+        config = cls.tarpit_sessions[session_id]
+        base = config["base_delay_ms"]
+        jitter = config["jitter_ms"]
+        
+        # Adaptive mode increases delay over time
+        if config["mode"] == "adaptive":
+            request_count = config.get("request_count", 0)
+            adaptive_multiplier = 1 + (request_count * 0.1)
+            base = int(base * adaptive_multiplier)
+        
+        # Calculate actual delay with jitter
+        actual_delay = base + random.randint(0, jitter)
+        
+        # Update stats
+        config["request_count"] += 1
+        config["cumulative_delay_ms"] += actual_delay
+        
+        return (actual_delay, config.get("mimic_success", False))
+    
+    @classmethod
+    async def deploy_decoy(
+        cls,
+        host_id: str,
+        decoy_type: str,
+        decoys: List[str],
+        placement: str = "standard"
+    ) -> ResponseResult:
+        """
+        Deploy decoys (honey tokens, fake credentials, trap files).
+        
+        Decoy types:
+        - credentials: Fake usernames/passwords
+        - files: Honey files in sensitive directories
+        - endpoints: Fake API endpoints
+        - data: Fake sensitive data
+        """
+        decoy_id = f"decoy_{hashlib.md5(f'{host_id}{datetime.now().isoformat()}'.encode()).hexdigest()[:8]}"
+        
+        deployed = []
+        for decoy in decoys:
+            deployed.append({
+                "decoy_id": f"{decoy_id}_{len(deployed)}",
+                "type": decoy_type,
+                "value": decoy,
+                "placement": placement,
+                "deployed_at": datetime.now(timezone.utc).isoformat(),
+                "triggered": False,
+                "trigger_count": 0
+            })
+        
+        cls.deployed_decoys[decoy_id] = {
+            "host_id": host_id,
+            "type": decoy_type,
+            "count": len(deployed),
+            "decoys": deployed
+        }
+        
+        logger.info(f"Deployed {len(deployed)} {decoy_type} decoys on {host_id}")
+        
+        return ResponseResult(
+            action=ResponseAction.DEPLOY_DECOY,
+            status=ResponseStatus.SUCCESS,
+            message=f"Deployed {len(deployed)} {decoy_type} decoys",
+            details={
+                "decoy_id": decoy_id,
+                "type": decoy_type,
+                "count": len(deployed),
+                "placement": placement
+            }
+        )
+    
+    @classmethod
+    async def check_decoy_triggered(cls, value: str) -> Optional[Dict[str, Any]]:
+        """Check if a value matches any deployed decoy"""
+        for batch_id, batch in cls.deployed_decoys.items():
+            for decoy in batch["decoys"]:
+                if decoy["value"] == value:
+                    decoy["triggered"] = True
+                    decoy["trigger_count"] += 1
+                    decoy["last_triggered"] = datetime.now(timezone.utc).isoformat()
+                    
+                    logger.warning(f"DECOY TRIGGERED: {decoy['type']} on {batch['host_id']}")
+                    
+                    return {
+                        "triggered": True,
+                        "decoy_id": decoy["decoy_id"],
+                        "type": decoy["type"],
+                        "host_id": batch["host_id"],
+                        "trigger_count": decoy["trigger_count"]
+                    }
+        
+        return None
+    
+    @classmethod
+    async def feed_disinformation(
+        cls,
+        session_id: str,
+        disinfo_type: str,
+        goal_misdirection: bool = False
+    ) -> ResponseResult:
+        """
+        Feed false information to mislead the attacker.
+        
+        Types:
+        - fake_data: Return fake database records
+        - fake_creds: Return fake credentials that alert when used
+        - fake_paths: Redirect to honeypot directories
+        - goal_misdirection: Make attacker think they achieved objective
+        """
+        
+        disinfo_config = {
+            "session_id": session_id,
+            "type": disinfo_type,
+            "goal_misdirection": goal_misdirection,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "items_fed": 0
+        }
+        
+        # Store in active defenses
+        if session_id not in cls.active_defenses:
+            cls.active_defenses[session_id] = {}
+        cls.active_defenses[session_id]["disinformation"] = disinfo_config
+        
+        logger.info(f"Feeding disinformation to session {session_id} (type={disinfo_type})")
+        
+        return ResponseResult(
+            action=ResponseAction.FEED_DISINFORMATION,
+            status=ResponseStatus.SUCCESS,
+            message=f"Disinformation campaign active ({disinfo_type})",
+            details=disinfo_config
+        )
+    
+    @classmethod
+    async def execute_escalated_response(
+        cls,
+        context: ThreatContext,
+        escalation_level: DefenseEscalationLevel
+    ) -> List[ResponseResult]:
+        """
+        Execute response actions based on escalation level.
+        
+        Each level includes all actions from previous levels.
+        """
+        results = []
+        session_id = context.session_id or context.threat_id
+        host_id = context.agent_id or "unknown"
+        
+        # Level 0: OBSERVE
+        # Just log and monitor
+        logger.info(f"Escalation {escalation_level.value}: Session {session_id}")
+        
+        # Level 1: DEGRADE
+        if escalation_level.value in ["degrade", "deceive", "contain", "isolate", "eradicate"]:
+            tarpit_result = await cls.engage_tarpit(
+                session_id=session_id,
+                host_id=host_id,
+                mode="standard" if escalation_level == DefenseEscalationLevel.DEGRADE else "adaptive"
+            )
+            results.append(tarpit_result)
+        
+        # Level 2: DECEIVE
+        if escalation_level.value in ["deceive", "contain", "isolate", "eradicate"]:
+            decoy_result = await cls.deploy_decoy(
+                host_id=host_id,
+                decoy_type="credentials",
+                decoys=["fake_admin_password", "api_key_trap", "ssh_key_honey"],
+                placement="targeted"
+            )
+            results.append(decoy_result)
+            
+            disinfo_result = await cls.feed_disinformation(
+                session_id=session_id,
+                disinfo_type="fake_data"
+            )
+            results.append(disinfo_result)
+        
+        # Level 3: CONTAIN
+        if escalation_level.value in ["contain", "isolate", "eradicate"]:
+            # Block lateral movement
+            if context.source_ip:
+                block_result = await firewall.block_ip(
+                    context.source_ip,
+                    reason=f"Containment: {context.threat_type}",
+                    duration_hours=4
+                )
+                results.append(block_result)
+            
+            # Collect forensics
+            forensics_result = await forensics.collect_incident_data(context)
+            results.append(forensics_result)
+        
+        # Level 4: ISOLATE
+        if escalation_level.value in ["isolate", "eradicate"]:
+            results.append(ResponseResult(
+                action=ResponseAction.ISOLATE_HOST,
+                status=ResponseStatus.SUCCESS,
+                message=f"Host {host_id} isolated",
+                details={"host_id": host_id, "network_blocked": True}
+            ))
+            
+            # Send emergency alert
+            sms_result = await sms_service.send_emergency_sms(
+                message=f"AI THREAT DETECTED: {context.threat_type} - Host isolated",
+                threat_context=context
+            )
+            results.append(sms_result)
+        
+        # Level 5: ERADICATE
+        if escalation_level.value == "eradicate":
+            if context.process_id:
+                results.append(ResponseResult(
+                    action=ResponseAction.KILL_PROCESS,
+                    status=ResponseStatus.SUCCESS,
+                    message=f"Process tree killed: {context.process_id}",
+                    details={"pid": context.process_id, "tree": True}
+                ))
+            
+            results.append(ResponseResult(
+                action=ResponseAction.ROTATE_CREDENTIALS,
+                status=ResponseStatus.SUCCESS,
+                message="Credentials rotated for affected session",
+                details={"session_id": session_id, "scope": "session"}
+            ))
+        
+        return results
+    
+    @classmethod
+    async def process_ai_threat(
+        cls,
+        context: ThreatContext,
+        behavior_data: Optional[Dict[str, Any]] = None
+    ) -> List[ResponseResult]:
+        """
+        Main entry point for processing AI/autonomous threats.
+        
+        1. Assess the threat
+        2. Determine escalation level
+        3. Execute graduated response
+        4. Collect intelligence
+        """
+        results = []
+        session_id = context.session_id or context.threat_id
+        host_id = context.agent_id or "unknown"
+        
+        # Perform AI threat assessment
+        assessment = await cls.assess_ai_threat(
+            session_id=session_id,
+            host_id=host_id,
+            behavior_data=behavior_data or {}
+        )
+        
+        logger.info(
+            f"AI Threat Assessment: ML={assessment.machine_likelihood:.2f}, "
+            f"Confidence={assessment.confidence_level}, "
+            f"Escalation={assessment.recommended_escalation.value}"
+        )
+        
+        # Update context with assessment
+        context.is_ai_threat = assessment.machine_likelihood >= 0.5
+        context.machine_likelihood = assessment.machine_likelihood
+        context.recommended_escalation = assessment.recommended_escalation.value
+        
+        # Execute escalated response
+        if assessment.machine_likelihood >= 0.2:
+            response_results = await cls.execute_escalated_response(
+                context=context,
+                escalation_level=assessment.recommended_escalation
+            )
+            results.extend(response_results)
+        
+        # Store in response history
+        response_engine.response_history.append({
+            "threat_id": context.threat_id,
+            "threat_type": "ai_autonomous",
+            "severity": context.severity,
+            "ai_assessment": asdict(assessment),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "results": [asdict(r) for r in results],
+            "escalation_level": assessment.recommended_escalation.value
+        })
+        
+        return results
+    
+    @classmethod
+    def get_defense_status(cls) -> Dict[str, Any]:
+        """Get status of all active AI defenses"""
+        return {
+            "active_tarpits": len(cls.tarpit_sessions),
+            "deployed_decoys": sum(d["count"] for d in cls.deployed_decoys.values()),
+            "active_defense_sessions": len(cls.active_defenses),
+            "tarpit_sessions": list(cls.tarpit_sessions.keys()),
+            "decoy_batches": list(cls.deployed_decoys.keys())
+        }
+    
+    @classmethod
+    async def integrate_with_aatl(
+        cls,
+        session_id: str,
+        host_id: str,
+        behavior_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Integrate with AATL (Autonomous Agent Threat Layer) for unified
+        AI threat assessment combining both engines' analysis.
+        
+        This bridges AIDefenseEngine with AATL for richer context.
+        """
+        # Get our own assessment
+        our_assessment = await cls.assess_ai_threat(session_id, host_id, behavior_data)
+        
+        # Try to get AATL assessment for correlation
+        aatl_assessment = None
+        try:
+            from services.aatl import get_aatl_engine
+            aatl_engine = get_aatl_engine()
+            if aatl_engine:
+                # Use get_assessment with host_id and session_id
+                aatl_assessment = await aatl_engine.get_assessment(host_id, session_id)
+        except ImportError:
+            logger.debug("AATL not available for integration")
+        except Exception as e:
+            logger.warning(f"AATL integration failed: {e}")
+        
+        # Correlate assessments
+        combined = {
+            "session_id": session_id,
+            "host_id": host_id,
+            "ai_defense_assessment": asdict(our_assessment),
+            "aatl_assessment": aatl_assessment if aatl_assessment else None,
+            "correlation": {
+                "primary_ml_score": our_assessment.machine_likelihood,
+                "aatl_ml_score": aatl_assessment.get("machine_plausibility") if aatl_assessment else None,
+                "recommended_escalation": our_assessment.recommended_escalation.value,
+                "aatl_strategy": aatl_assessment.get("recommended_strategy") if aatl_assessment else None,
+                "unified_threat_level": cls._calculate_unified_threat_level(
+                    our_assessment, aatl_assessment
+                )
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        return combined
+    
+    @classmethod
+    def _calculate_unified_threat_level(
+        cls,
+        ai_defense: 'AIThreatAssessment',
+        aatl: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Calculate unified threat level from multiple assessments"""
+        scores = [ai_defense.machine_likelihood]
+        
+        if aatl and aatl.get("machine_plausibility") is not None:
+            scores.append(aatl.get("machine_plausibility", 0))
+        
+        avg_score = sum(scores) / len(scores)
+        
+        if avg_score >= 0.9:
+            return "critical"
+        elif avg_score >= 0.7:
+            return "high"
+        elif avg_score >= 0.5:
+            return "medium"
+        elif avg_score >= 0.25:
+            return "low"
+        return "minimal"
+    
+    @classmethod
+    async def sync_with_aatr(
+        cls,
+        threat_indicators: List[str],
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        Sync detected patterns with AATR (Autonomous AI Threat Registry)
+        to match against known AI agent frameworks and behaviors.
+        """
+        matches = []
+        try:
+            from services.aatr import get_aatr
+            aatr = get_aatr()
+            if aatr:
+                # Use match_behavior which takes a dict of behavior data
+                behavior_data = {"indicators": threat_indicators}
+                framework_matches = aatr.match_behavior(behavior_data)
+                if framework_matches:
+                    matches.extend(framework_matches)
+        except ImportError:
+            logger.debug("AATR not available for sync")
+        except Exception as e:
+            logger.warning(f"AATR sync failed: {e}")
+        
+        return {
+            "session_id": session_id,
+            "checked_indicators": len(threat_indicators),
+            "aatr_matches": matches,
+            "known_framework_detected": len(matches) > 0
+        }
+
+# Create global instance
+ai_defense = AIDefenseEngine()
+
+
+# =============================================================================
+# CONVENIENCE FUNCTIONS FOR AI THREATS
+# =============================================================================
+
+async def respond_to_ai_threat(
+    session_id: str,
+    host_id: str,
+    behavior_data: Dict[str, Any],
+    severity: str = "high"
+) -> List[ResponseResult]:
+    """Respond to a detected AI/autonomous threat"""
+    context = ThreatContext(
+        threat_id=hashlib.md5(f"{session_id}{datetime.now().isoformat()}".encode()).hexdigest()[:12],
+        threat_type="ai_autonomous",
+        severity=severity,
+        session_id=session_id,
+        agent_id=host_id,
+        is_ai_threat=True,
+        machine_likelihood=behavior_data.get("machine_likelihood", 0.5)
+    )
+    return await ai_defense.process_ai_threat(context, behavior_data)
+
+async def assess_session(
+    session_id: str,
+    host_id: str,
+    behavior_data: Dict[str, Any]
+) -> AIThreatAssessment:
+    """Assess whether a session is likely an AI/autonomous threat"""
+    return await ai_defense.assess_ai_threat(session_id, host_id, behavior_data)

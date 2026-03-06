@@ -1,5 +1,7 @@
 """
 Honeypots Router
+================
+Integrated with Seraph Deception Engine for campaign tracking.
 """
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from datetime import datetime, timezone
@@ -12,6 +14,20 @@ from .dependencies import (
 )
 
 router = APIRouter(prefix="/honeypots", tags=["Honeypots"])
+
+# Deception engine integration (lazy import to avoid circular deps)
+_deception_engine = None
+
+def get_deception_engine():
+    """Lazy load deception engine to avoid circular imports"""
+    global _deception_engine
+    if _deception_engine is None:
+        try:
+            from deception_engine import deception_engine
+            _deception_engine = deception_engine
+        except ImportError:
+            pass
+    return _deception_engine
 
 # WebSocket manager for real-time updates
 class ConnectionManager:
@@ -107,6 +123,28 @@ async def record_honeypot_interaction(honeypot_id: str, source_ip: str, action: 
         }
     )
     
+    # Notify deception engine for campaign tracking
+    deception = get_deception_engine()
+    campaign_info = None
+    if deception:
+        try:
+            headers = data.get("headers", {})
+            assessment = await deception.record_decoy_interaction(
+                ip=source_ip,
+                decoy_type="honeypot",
+                decoy_id=honeypot_id,
+                headers=headers
+            )
+            campaign_info = {
+                "campaign_id": assessment.campaign_id,
+                "escalation_level": assessment.escalation_level.value,
+                "risk_score": assessment.score
+            }
+            interaction_doc["campaign_id"] = assessment.campaign_id
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Deception engine notification failed: {e}")
+    
     # Auto-create threat if high severity
     if threat_levels.get(action) == "high":
         threat_doc = {
@@ -134,7 +172,10 @@ async def record_honeypot_interaction(honeypot_id: str, source_ip: str, action: 
             "threat_level": "high"
         })
     
-    return {"message": "Interaction recorded", "id": interaction_id, "threat_level": threat_levels.get(action)}
+    response = {"message": "Interaction recorded", "id": interaction_id, "threat_level": threat_levels.get(action)}
+    if campaign_info:
+        response["campaign_tracking"] = campaign_info
+    return response
 
 @router.get("/{honeypot_id}/interactions", response_model=List[HoneypotInteraction])
 async def get_honeypot_interactions(honeypot_id: str, current_user: dict = Depends(get_current_user)):

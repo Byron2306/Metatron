@@ -14,7 +14,10 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const AgentDetailsPage = () => {
   const { agentId } = useParams();

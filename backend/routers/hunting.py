@@ -22,6 +22,12 @@ class RuleToggleRequest(BaseModel):
     enabled: bool
 
 
+class HypothesisGenerateRequest(BaseModel):
+    focus: Optional[str] = None
+    recent_matches: List[Dict[str, Any]] = []
+    telemetry: Optional[Dict[str, Any]] = None
+
+
 @router.get("/status")
 async def get_hunting_status(current_user: dict = Depends(get_current_user)):
     """Get threat hunting engine status"""
@@ -206,3 +212,79 @@ async def get_mitre_techniques(current_user: dict = Depends(get_current_user)):
         techniques[tech]["rules"].append(rule.rule_id)
     
     return {"techniques": list(techniques.values())}
+
+
+@router.post("/hypotheses/generate")
+async def generate_hunting_hypotheses(
+    request: HypothesisGenerateRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Generate threat hunting hypotheses using Ollama when available, with safe fallback."""
+    from services.ai_reasoning import ai_reasoning
+    from services.threat_hunting import threat_hunting_engine
+
+    focus = request.focus or "general threat hunting"
+    recent_matches = request.recent_matches or []
+    in_memory_matches = threat_hunting_engine.matches[-20:]
+
+    if not recent_matches and in_memory_matches:
+        recent_matches = [
+            {
+                "rule_id": m.rule_id,
+                "severity": m.severity,
+                "mitre_tactic": m.mitre_tactic,
+                "mitre_technique": m.mitre_technique,
+                "description": m.description
+            }
+            for m in in_memory_matches
+        ]
+
+    system_prompt = (
+        "You are a SOC threat hunter. Return concise, actionable hunting hypotheses. "
+        "Output as plain text bullet points, one hypothesis per line, max 8 lines."
+    )
+    prompt = (
+        f"Generate hunting hypotheses for focus: {focus}.\n"
+        f"Recent matches: {recent_matches[:10]}\n"
+        f"Telemetry context: {request.telemetry or {}}\n"
+        "Include MITRE-aligned clues and what to validate next."
+    )
+
+    method = "fallback"
+    hypotheses: List[str] = []
+    ollama_result = await ai_reasoning.ollama_generate(prompt=prompt, system_prompt=system_prompt)
+
+    if "error" not in ollama_result:
+        method = "ollama"
+        text = (ollama_result.get("response") or "").strip()
+        for line in text.splitlines():
+            cleaned = line.strip().lstrip("-•0123456789. ").strip()
+            if cleaned:
+                hypotheses.append(cleaned)
+
+    if not hypotheses:
+        method = "rule_based"
+        top_tactics = {}
+        for item in recent_matches[:15]:
+            tactic = item.get("mitre_tactic") or "unknown"
+            top_tactics[tactic] = top_tactics.get(tactic, 0) + 1
+
+        if top_tactics:
+            ordered = sorted(top_tactics.items(), key=lambda kv: kv[1], reverse=True)
+            hypotheses = [
+                f"Investigate repeated activity under tactic {tactic} (seen {count} times) for hidden lateral movement or persistence."
+                for tactic, count in ordered[:5]
+            ]
+        else:
+            hypotheses = [
+                "Validate suspicious process chains against MITRE ATT&CK execution and persistence techniques.",
+                "Hunt for beaconing patterns and rare outbound connections from high-value hosts.",
+                "Check credential access signals tied to abnormal authentication timing and source diversity."
+            ]
+
+    return {
+        "focus": focus,
+        "hypotheses": hypotheses[:8],
+        "count": len(hypotheses[:8]),
+        "method": method
+    }

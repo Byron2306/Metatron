@@ -110,6 +110,18 @@ SYSTEM_PACKAGES = {
     }
 }
 
+
+def normalize_server_url(url: str) -> str:
+    """Normalize a base server URL to avoid duplicate /api path segments."""
+    if not url:
+        return ""
+
+    normalized = str(url).strip().rstrip("/")
+    if normalized.lower().endswith("/api"):
+        normalized = normalized[:-4]
+
+    return normalized.rstrip("/")
+
 # =============================================================================
 # UTILITIES
 # =============================================================================
@@ -535,7 +547,7 @@ The installer will:
     # Create configuration
     print_step("Creating configuration...")
     config = {
-        "api_url": "https://agentic-armor.preview.emergentagent.com/api",
+        "api_url": normalize_server_url(os.getenv("METATRON_API_URL", "https://agentic-armor.preview.emergentagent.com")),
         "agent_name": platform.node(),
         "install_dir": str(INSTALL_DIR),
         "venv_dir": str(VENV_DIR),

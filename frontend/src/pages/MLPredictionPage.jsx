@@ -19,7 +19,16 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? ''
+  : envBackendUrl.replace(/\/+$/, '');
+const PREDICTION_ENDPOINTS = {
+  network: '/api/ml/predict/network',
+  process: '/api/ml/predict/process',
+  file: '/api/ml/predict/file',
+  user: '/api/ml/predict/user'
+};
 
 const MLPredictionPage = () => {
   const { token } = useAuth();
@@ -63,7 +72,13 @@ const MLPredictionPage = () => {
 
   const runPrediction = async (type, data) => {
     try {
-      const response = await fetch(`${API_URL}/api/ml/predict/${type}`, {
+      const endpoint = PREDICTION_ENDPOINTS[type];
+      if (!endpoint) {
+        toast.error(`Unsupported prediction type: ${type}`);
+        return;
+      }
+
+      const response = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

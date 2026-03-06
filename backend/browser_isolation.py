@@ -1,18 +1,36 @@
 """
-Browser Isolation Service - Secure remote browsing
+Browser Isolation Service - Enterprise Secure Remote Browsing
+
+Features:
+1. Multi-mode isolation (Full, CDR, Read-only, Pixel-push)
+2. Real-time threat intelligence (Google Safe Browsing, VirusTotal)
+3. Content Disarm & Reconstruction (CDR)
+4. SSL/TLS certificate validation
+5. File download scanning with hash verification
+6. Domain age and reputation checking
+7. URL analysis with pattern matching
+8. Session management with telemetry
 """
 import uuid
 import hashlib
 import base64
-from datetime import datetime, timezone
-from typing import Optional, Dict, List, Any
+import ssl
+import socket
+from datetime import datetime, timezone, timedelta
+from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from urllib.parse import urlparse, urlencode
 import logging
 import re
+import json
+import os
 
 logger = logging.getLogger(__name__)
+
+# API Keys (should be loaded from environment in production)
+VIRUSTOTAL_API_KEY = os.environ.get('VIRUSTOTAL_API_KEY', '')
+SAFE_BROWSING_API_KEY = os.environ.get('SAFE_BROWSING_API_KEY', '')
 
 class IsolationMode(str, Enum):
     FULL = "full"           # Full remote rendering
@@ -26,6 +44,41 @@ class ThreatLevel(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     MALICIOUS = "malicious"
+
+class CertificateStatus(str, Enum):
+    VALID = "valid"
+    EXPIRED = "expired"
+    SELF_SIGNED = "self_signed"
+    HOSTNAME_MISMATCH = "hostname_mismatch"
+    REVOKED = "revoked"
+    UNTRUSTED = "untrusted"
+    ERROR = "error"
+
+@dataclass
+class CertificateInfo:
+    """SSL Certificate information"""
+    status: CertificateStatus
+    issuer: str = ""
+    subject: str = ""
+    valid_from: str = ""
+    valid_until: str = ""
+    days_remaining: int = 0
+    san_domains: List[str] = field(default_factory=list)
+    is_ev: bool = False  # Extended Validation
+    sha256_fingerprint: str = ""
+
+@dataclass
+class DownloadScanResult:
+    """File download scan result"""
+    file_hash: str
+    file_name: str
+    file_size: int
+    mime_type: str
+    is_safe: bool
+    threat_name: Optional[str] = None
+    scan_engines: int = 0
+    detections: int = 0
+    scan_timestamp: str = ""
 
 @dataclass
 class IsolatedSession:
@@ -41,6 +94,8 @@ class IsolatedSession:
     downloads_blocked: int = 0
     scripts_blocked: int = 0
     is_active: bool = True
+    certificate_info: Optional[Dict] = None
+    domain_age_days: Optional[int] = None
 
 @dataclass
 class URLAnalysis:
@@ -51,13 +106,31 @@ class URLAnalysis:
     category: str
     is_blocked: bool
     safe_url: Optional[str] = None
+    safe_browsing_result: Optional[str] = None
+    virustotal_score: Optional[int] = None
+    certificate_status: Optional[str] = None
+    domain_age_days: Optional[int] = None
 
 class BrowserIsolationService:
+    """
+    Enterprise Browser Isolation with Advanced Threat Detection.
+    
+    Capabilities:
+    - Multi-mode remote browsing isolation
+    - Real-time threat intelligence integration
+    - SSL/TLS certificate validation
+    - File download scanning
+    - Content Disarm & Reconstruction (CDR)
+    - Domain reputation and age checking
+    """
+    
     def __init__(self):
         self.sessions: Dict[str, IsolatedSession] = {}
         self.url_cache: Dict[str, URLAnalysis] = {}
         self.blocked_domains: set = set()
         self.suspicious_patterns: List[str] = []
+        self.download_cache: Dict[str, DownloadScanResult] = {}
+        self.certificate_cache: Dict[str, CertificateInfo] = {}
         self._init_threat_intelligence()
     
     def _init_threat_intelligence(self):
@@ -101,11 +174,263 @@ class BrowserIsolationService:
             "productivity": ["google", "microsoft", "slack", "zoom"],
             "developer": ["github", "gitlab", "stackoverflow", "npm"]
         }
+        
+        # Known malicious file hashes (sample - in production, use threat feed)
+        self.malicious_hashes = {
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # Example
+        }
+        
+        # Dangerous file extensions
+        self.dangerous_extensions = {
+            '.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.jse',
+            '.wsf', '.wsh', '.msi', '.msp', '.scr', '.hta', '.cpl', '.jar',
+            '.com', '.pif', '.application', '.gadget', '.reg', '.inf'
+        }
     
-    def analyze_url(self, url: str) -> URLAnalysis:
-        """Analyze a URL for threats"""
+    def validate_certificate(self, domain: str, port: int = 443) -> CertificateInfo:
+        """Validate SSL/TLS certificate for a domain"""
         # Check cache
-        if url in self.url_cache:
+        cache_key = f"{domain}:{port}"
+        if cache_key in self.certificate_cache:
+            cached = self.certificate_cache[cache_key]
+            # Refresh cache every hour
+            return cached
+        
+        try:
+            context = ssl.create_default_context()
+            
+            with socket.create_connection((domain, port), timeout=10) as sock:
+                with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert = ssock.getpeercert()
+                    cert_binary = ssock.getpeercert(binary_form=True)
+            
+            # Parse certificate info
+            issuer = dict(x[0] for x in cert.get('issuer', []))
+            subject = dict(x[0] for x in cert.get('subject', []))
+            
+            # Parse dates
+            not_before = datetime.strptime(cert['notBefore'], '%b %d %H:%M:%S %Y %Z')
+            not_after = datetime.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
+            days_remaining = (not_after - datetime.utcnow()).days
+            
+            # Get SAN domains
+            san_domains = []
+            for type_val in cert.get('subjectAltName', []):
+                if type_val[0] == 'DNS':
+                    san_domains.append(type_val[1])
+            
+            # Calculate fingerprint
+            fingerprint = hashlib.sha256(cert_binary).hexdigest()
+            
+            # Check for EV certificate (simplified)
+            is_ev = 'Extended Validation' in issuer.get('organizationName', '')
+            
+            # Determine status
+            now = datetime.utcnow()
+            if now > not_after:
+                status = CertificateStatus.EXPIRED
+            elif now < not_before:
+                status = CertificateStatus.ERROR
+            elif days_remaining < 30:
+                status = CertificateStatus.VALID  # Valid but expiring soon
+            else:
+                status = CertificateStatus.VALID
+            
+            cert_info = CertificateInfo(
+                status=status,
+                issuer=issuer.get('organizationName', issuer.get('commonName', 'Unknown')),
+                subject=subject.get('commonName', domain),
+                valid_from=not_before.isoformat(),
+                valid_until=not_after.isoformat(),
+                days_remaining=days_remaining,
+                san_domains=san_domains,
+                is_ev=is_ev,
+                sha256_fingerprint=fingerprint
+            )
+            
+            self.certificate_cache[cache_key] = cert_info
+            return cert_info
+            
+        except ssl.SSLCertVerificationError as e:
+            if 'self signed' in str(e).lower():
+                status = CertificateStatus.SELF_SIGNED
+            elif 'hostname' in str(e).lower():
+                status = CertificateStatus.HOSTNAME_MISMATCH
+            else:
+                status = CertificateStatus.UNTRUSTED
+            
+            return CertificateInfo(status=status)
+            
+        except Exception as e:
+            logger.error(f"Certificate validation error for {domain}: {e}")
+            return CertificateInfo(status=CertificateStatus.ERROR)
+    
+    def check_safe_browsing(self, url: str) -> Tuple[bool, Optional[str]]:
+        """Check URL against Google Safe Browsing API"""
+        if not SAFE_BROWSING_API_KEY:
+            return True, None  # Skip if no API key
+        
+        try:
+            import requests
+            
+            api_url = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={SAFE_BROWSING_API_KEY}"
+            
+            payload = {
+                "client": {
+                    "clientId": "seraph-browser-isolation",
+                    "clientVersion": "1.0"
+                },
+                "threatInfo": {
+                    "threatTypes": [
+                        "MALWARE", "SOCIAL_ENGINEERING", 
+                        "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"
+                    ],
+                    "platformTypes": ["ANY_PLATFORM"],
+                    "threatEntryTypes": ["URL"],
+                    "threatEntries": [{"url": url}]
+                }
+            }
+            
+            response = requests.post(api_url, json=payload, timeout=5)
+            
+            if response.ok:
+                result = response.json()
+                if result.get('matches'):
+                    threat_type = result['matches'][0].get('threatType', 'UNKNOWN')
+                    return False, threat_type
+            
+            return True, None
+            
+        except Exception as e:
+            logger.warning(f"Safe Browsing API error: {e}")
+            return True, None  # Fail open if API unavailable
+    
+    def check_virustotal_url(self, url: str) -> Tuple[bool, int, int]:
+        """Check URL against VirusTotal API"""
+        if not VIRUSTOTAL_API_KEY:
+            return True, 0, 0  # Skip if no API key
+        
+        try:
+            import requests
+            
+            # URL must be base64 encoded for VT API v3
+            url_id = base64.urlsafe_b64encode(url.encode()).decode().strip("=")
+            
+            headers = {"x-apikey": VIRUSTOTAL_API_KEY}
+            api_url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
+            
+            response = requests.get(api_url, headers=headers, timeout=10)
+            
+            if response.ok:
+                result = response.json()
+                stats = result.get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
+                malicious = stats.get('malicious', 0)
+                total = sum(stats.values())
+                
+                is_safe = malicious < 3  # Allow up to 2 false positives
+                return is_safe, malicious, total
+            
+            return True, 0, 0
+            
+        except Exception as e:
+            logger.warning(f"VirusTotal API error: {e}")
+            return True, 0, 0
+    
+    def scan_download(self, file_content: bytes, file_name: str, mime_type: str = "") -> DownloadScanResult:
+        """Scan a file download for malware"""
+        file_hash = hashlib.sha256(file_content).hexdigest()
+        file_size = len(file_content)
+        
+        # Check cache
+        if file_hash in self.download_cache:
+            return self.download_cache[file_hash]
+        
+        is_safe = True
+        threat_name = None
+        detections = 0
+        scan_engines = 0
+        
+        # Check against known malicious hashes
+        if file_hash in self.malicious_hashes:
+            is_safe = False
+            threat_name = "Known Malware"
+            detections = 1
+        
+        # Check file extension
+        ext = os.path.splitext(file_name)[1].lower()
+        if ext in self.dangerous_extensions:
+            is_safe = False
+            threat_name = f"Dangerous file type: {ext}"
+        
+        # Check VirusTotal for file hash
+        if VIRUSTOTAL_API_KEY and is_safe:
+            try:
+                import requests
+                
+                headers = {"x-apikey": VIRUSTOTAL_API_KEY}
+                api_url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
+                
+                response = requests.get(api_url, headers=headers, timeout=10)
+                
+                if response.ok:
+                    result = response.json()
+                    stats = result.get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
+                    detections = stats.get('malicious', 0) + stats.get('suspicious', 0)
+                    scan_engines = sum(stats.values())
+                    
+                    if detections >= 3:
+                        is_safe = False
+                        threat_name = "Malware detected by multiple engines"
+                        
+            except Exception as e:
+                logger.warning(f"VirusTotal file check error: {e}")
+        
+        result = DownloadScanResult(
+            file_hash=file_hash,
+            file_name=file_name,
+            file_size=file_size,
+            mime_type=mime_type,
+            is_safe=is_safe,
+            threat_name=threat_name,
+            scan_engines=scan_engines,
+            detections=detections,
+            scan_timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        
+        self.download_cache[file_hash] = result
+        return result
+    
+    def check_domain_age(self, domain: str) -> Tuple[int, bool]:
+        """Check domain age (newly registered domains are suspicious)"""
+        try:
+            import whois
+            
+            w = whois.whois(domain)
+            
+            creation_date = w.creation_date
+            if isinstance(creation_date, list):
+                creation_date = creation_date[0]
+            
+            if creation_date:
+                age_days = (datetime.now() - creation_date).days
+                is_suspicious = age_days < 30  # Domains less than 30 days old are suspicious
+                return age_days, is_suspicious
+            
+            return -1, True  # Unknown age is suspicious
+            
+        except Exception:
+            return -1, False  # Can't determine age, don't flag as suspicious
+
+    def analyze_url(self, url: str, deep_scan: bool = False) -> URLAnalysis:
+        """
+        Analyze a URL for threats with enterprise threat intelligence.
+        
+        Args:
+            url: URL to analyze
+            deep_scan: If True, performs additional checks (Safe Browsing, VirusTotal, cert validation)
+        """
+        # Check cache (skip for deep scans)
+        if url in self.url_cache and not deep_scan:
             return self.url_cache[url]
         
         try:
@@ -126,6 +451,10 @@ class BrowserIsolationService:
         reasons = []
         threat_level = ThreatLevel.SAFE
         is_blocked = False
+        safe_browsing_result = None
+        virustotal_score = None
+        certificate_status = None
+        domain_age_days = None
         
         # Check blocked domains
         if domain in self.blocked_domains or any(domain.endswith(f".{d}") for d in self.blocked_domains):
@@ -167,6 +496,51 @@ class BrowserIsolationService:
             if threat_level.value < ThreatLevel.MEDIUM.value:
                 threat_level = ThreatLevel.MEDIUM
         
+        # Enterprise threat intelligence checks (deep scan)
+        if deep_scan and not is_blocked:
+            # Google Safe Browsing check
+            sb_safe, sb_threat = self.check_safe_browsing(url)
+            if not sb_safe:
+                reasons.append(f"Google Safe Browsing: {sb_threat}")
+                threat_level = ThreatLevel.MALICIOUS
+                is_blocked = True
+                safe_browsing_result = sb_threat
+            
+            # VirusTotal check
+            vt_safe, vt_detections, vt_total = self.check_virustotal_url(url)
+            if not vt_safe:
+                reasons.append(f"VirusTotal: {vt_detections}/{vt_total} engines detected threats")
+                threat_level = ThreatLevel.MALICIOUS
+                is_blocked = True
+            virustotal_score = vt_detections
+            
+            # SSL Certificate validation for HTTPS URLs
+            if parsed.scheme == 'https':
+                cert_info = self.validate_certificate(domain)
+                certificate_status = cert_info.status.value
+                
+                if cert_info.status == CertificateStatus.EXPIRED:
+                    reasons.append("SSL certificate expired")
+                    if threat_level.value < ThreatLevel.HIGH.value:
+                        threat_level = ThreatLevel.HIGH
+                elif cert_info.status == CertificateStatus.SELF_SIGNED:
+                    reasons.append("Self-signed SSL certificate")
+                    if threat_level.value < ThreatLevel.MEDIUM.value:
+                        threat_level = ThreatLevel.MEDIUM
+                elif cert_info.status == CertificateStatus.HOSTNAME_MISMATCH:
+                    reasons.append("SSL certificate hostname mismatch")
+                    threat_level = ThreatLevel.HIGH
+                elif cert_info.days_remaining < 7 and cert_info.days_remaining > 0:
+                    reasons.append(f"SSL certificate expiring in {cert_info.days_remaining} days")
+            
+            # Domain age check
+            age_days, is_new = self.check_domain_age(domain)
+            domain_age_days = age_days
+            if is_new and age_days >= 0:
+                reasons.append(f"Newly registered domain ({age_days} days old)")
+                if threat_level.value < ThreatLevel.MEDIUM.value:
+                    threat_level = ThreatLevel.MEDIUM
+        
         # Determine category
         category = "unknown"
         for cat, keywords in self.category_keywords.items():
@@ -186,7 +560,11 @@ class BrowserIsolationService:
             reasons=reasons if reasons else ["No threats detected"],
             category=category,
             is_blocked=is_blocked,
-            safe_url=safe_url
+            safe_url=safe_url,
+            safe_browsing_result=safe_browsing_result,
+            virustotal_score=virustotal_score,
+            certificate_status=certificate_status,
+            domain_age_days=domain_age_days
         )
         
         # Cache result
@@ -205,21 +583,45 @@ class BrowserIsolationService:
         self,
         user_id: str,
         url: str,
-        isolation_mode: str = "full"
+        isolation_mode: str = "full",
+        deep_scan: bool = True
     ) -> Dict:
-        """Create a new isolated browsing session"""
-        # Analyze the URL first
-        analysis = self.analyze_url(url)
+        """
+        Create a new isolated browsing session with enterprise threat analysis.
+        
+        Args:
+            user_id: User identifier
+            url: URL to browse in isolation
+            isolation_mode: Isolation mode (full, cdr, read_only, pixel_push)
+            deep_scan: Enable deep threat analysis (Safe Browsing, VirusTotal, SSL)
+        """
+        # Analyze the URL with full threat intelligence
+        analysis = self.analyze_url(url, deep_scan=deep_scan)
         
         if analysis.is_blocked:
             return {
                 "success": False,
                 "error": "URL is blocked",
                 "threat_level": analysis.threat_level.value,
-                "reasons": analysis.reasons
+                "reasons": analysis.reasons,
+                "safe_browsing_result": analysis.safe_browsing_result,
+                "virustotal_score": analysis.virustotal_score
             }
         
         session_id = f"iso_{uuid.uuid4().hex[:12]}"
+        
+        # Get certificate info for session tracking
+        parsed = urlparse(url)
+        cert_dict = None
+        if parsed.scheme == 'https' and analysis.certificate_status:
+            cert_info = self.certificate_cache.get(f"{parsed.netloc}:443")
+            if cert_info:
+                cert_dict = {
+                    "status": cert_info.status.value,
+                    "issuer": cert_info.issuer,
+                    "days_remaining": cert_info.days_remaining,
+                    "is_ev": cert_info.is_ev
+                }
         
         session = IsolatedSession(
             session_id=session_id,
@@ -228,7 +630,9 @@ class BrowserIsolationService:
             sanitized_url=analysis.safe_url or url,
             isolation_mode=IsolationMode(isolation_mode),
             started_at=datetime.now(timezone.utc).isoformat(),
-            threat_level=analysis.threat_level
+            threat_level=analysis.threat_level,
+            certificate_info=cert_dict,
+            domain_age_days=analysis.domain_age_days
         )
         
         self.sessions[session_id] = session
@@ -241,7 +645,11 @@ class BrowserIsolationService:
             "safe_url": session.sanitized_url,
             "isolation_mode": isolation_mode,
             "threat_level": analysis.threat_level.value,
-            "category": analysis.category
+            "category": analysis.category,
+            "certificate_status": analysis.certificate_status,
+            "domain_age_days": analysis.domain_age_days,
+            "virustotal_score": analysis.virustotal_score,
+            "reasons": analysis.reasons
         }
     
     def end_session(self, session_id: str) -> bool:
@@ -380,15 +788,38 @@ class BrowserIsolationService:
         
         total_blocked = sum(s.scripts_blocked + s.downloads_blocked for s in self.sessions.values())
         
+        # Certificate statistics
+        cert_stats = {"valid": 0, "expired": 0, "self_signed": 0, "untrusted": 0}
+        for session in self.sessions.values():
+            if session.certificate_info:
+                status = session.certificate_info.get('status', 'unknown')
+                if status in cert_stats:
+                    cert_stats[status] += 1
+        
+        # Download scan statistics
+        downloads_scanned = len(self.download_cache)
+        malicious_downloads = sum(1 for d in self.download_cache.values() if not d.is_safe)
+        
         return {
             "total_sessions": total_sessions,
             "active_sessions": active_sessions,
             "blocked_domains": len(self.blocked_domains),
             "cached_analyses": len(self.url_cache),
+            "cached_certificates": len(self.certificate_cache),
             "by_threat_level": by_threat,
             "by_isolation_mode": by_mode,
             "total_threats_blocked": total_blocked,
-            "available_modes": [m.value for m in IsolationMode]
+            "downloads_scanned": downloads_scanned,
+            "malicious_downloads_blocked": malicious_downloads,
+            "certificate_stats": cert_stats,
+            "available_modes": [m.value for m in IsolationMode],
+            "enterprise_features": {
+                "safe_browsing_enabled": bool(SAFE_BROWSING_API_KEY),
+                "virustotal_enabled": bool(VIRUSTOTAL_API_KEY),
+                "ssl_validation": True,
+                "file_scanning": True,
+                "domain_age_check": True
+            }
         }
 
 

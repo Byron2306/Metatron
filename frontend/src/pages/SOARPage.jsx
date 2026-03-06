@@ -6,7 +6,7 @@ import {
   Workflow, Play, Pause, Plus, Trash2, Edit, Clock, 
   CheckCircle, XCircle, AlertTriangle, Zap, Shield,
   ChevronRight, Settings, RefreshCw, Eye, Activity,
-  Brain, Target, Terminal, Cpu, Network, Lock
+  Brain, Target, Terminal, Cpu, Network, Lock, Key, Tag, Archive
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -15,7 +15,10 @@ import { Switch } from '../components/ui/switch';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const SOARPage = () => {
   const { token } = useAuth();
@@ -184,9 +187,13 @@ const SOARPage = () => {
   const getActionIcon = (action) => {
     if (action.includes('isolate') || action.includes('block')) return <Lock className="w-3 h-3" />;
     if (action.includes('kill') || action.includes('terminate')) return <XCircle className="w-3 h-3" />;
-    if (action.includes('capture') || action.includes('triage')) return <Terminal className="w-3 h-3" />;
-    if (action.includes('notify')) return <Activity className="w-3 h-3" />;
-    if (action.includes('throttle') || action.includes('latency')) return <Cpu className="w-3 h-3" />;
+    if (action.includes('capture') || action.includes('triage') || action.includes('memory')) return <Terminal className="w-3 h-3" />;
+    if (action.includes('notify') || action.includes('alert')) return <Activity className="w-3 h-3" />;
+    if (action.includes('throttle') || action.includes('latency') || action.includes('tarpit')) return <Cpu className="w-3 h-3" />;
+    if (action.includes('decoy') || action.includes('honeypot') || action.includes('disinfo')) return <Shield className="w-3 h-3" />;
+    if (action.includes('rotate') || action.includes('credential')) return <Key className="w-3 h-3" />;
+    if (action.includes('tag') || action.includes('session')) return <Tag className="w-3 h-3" />;
+    if (action.includes('quarantine') || action.includes('sandbox')) return <Archive className="w-3 h-3" />;
     return <Zap className="w-3 h-3" />;
   };
 

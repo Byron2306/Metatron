@@ -30,7 +30,10 @@ import {
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
+  ? '/api'
+  : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const AnalysisTypeCard = ({ type, icon: Icon, label, description, selected, onSelect }) => (
   <button

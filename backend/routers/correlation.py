@@ -33,8 +33,25 @@ async def correlate_threat(threat_id: str, current_user: dict = Depends(get_curr
     # Perform correlation
     from dataclasses import asdict
     result = await correlation_engine.correlate_threat(threat)
-    
-    return asdict(result)
+    response = asdict(result)
+
+    # Ollama-assisted reasoning enrichment (with graceful fallback)
+    try:
+        from services.ai_reasoning import ai_reasoning
+        ai_response = await ai_reasoning.ollama_analyze_threat({
+            "title": threat.get("name", f"Threat {threat_id}"),
+            "description": threat.get("description", ""),
+            "source": threat.get("source_ip"),
+            "indicators": threat.get("indicators", [])
+        })
+        response["ai_reasoning"] = ai_response
+    except Exception as e:
+        response["ai_reasoning"] = {
+            "method": "unavailable",
+            "error": str(e)
+        }
+
+    return response
 
 @router.get("/threat/{threat_id}")
 async def get_correlation(threat_id: str, current_user: dict = Depends(get_current_user)):
@@ -60,10 +77,41 @@ async def correlate_all_active(current_user: dict = Depends(check_permission("wr
     """Correlate all active threats"""
     from dataclasses import asdict
     results = await correlation_engine.correlate_all_active_threats()
-    
+    correlations = [asdict(r) for r in results]
+
+    # Add high-level AI recommendation for operator triage context
+    ai_summary = None
+    try:
+        from services.ai_reasoning import ai_reasoning
+        confidence_breakdown = {
+            "high": len([r for r in results if r.confidence == "high"]),
+            "medium": len([r for r in results if r.confidence == "medium"]),
+            "low": len([r for r in results if r.confidence == "low"]),
+            "none": len([r for r in results if r.confidence == "none"])
+        }
+        ai_summary_result = ai_reasoning.query(
+            "Prioritize correlation response actions for active threats",
+            {
+                "total_correlations": len(results),
+                "confidence": confidence_breakdown
+            }
+        )
+        ai_summary = {
+            "conclusion": ai_summary_result.conclusion,
+            "recommendations": ai_summary_result.recommendations,
+            "confidence": ai_summary_result.confidence,
+            "method": "rule_based_or_ollama"
+        }
+    except Exception as e:
+        ai_summary = {
+            "method": "unavailable",
+            "error": str(e)
+        }
+
     return {
         "message": f"Correlated {len(results)} active threats",
-        "correlations": [asdict(r) for r in results],
+        "correlations": correlations,
+        "ai_summary": ai_summary,
         "summary": {
             "total": len(results),
             "high_confidence": len([r for r in results if r.confidence == "high"]),
@@ -72,6 +120,12 @@ async def correlate_all_active(current_user: dict = Depends(check_permission("wr
             "no_correlation": len([r for r in results if r.confidence == "none"])
         }
     }
+
+
+@router.post("/threat/{threat_id}/ai")
+async def correlate_threat_with_ai(threat_id: str, current_user: dict = Depends(get_current_user)):
+    """Run correlation and return AI-assisted analysis for a single threat"""
+    return await correlate_threat(threat_id, current_user)
 
 @router.get("/history")
 async def get_correlation_history(limit: int = 50, current_user: dict = Depends(get_current_user)):

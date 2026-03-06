@@ -27,7 +27,8 @@ import {
   MessageSquare
 } from "lucide-react";
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || "").trim();
+const API_URL = (!envBackendUrl || envBackendUrl.includes("localhost")) ? "/api" : `${envBackendUrl}/api`;
 
 export default function AdvancedServicesPage() {
   const { user, token } = useAuth();
@@ -55,7 +56,7 @@ export default function AdvancedServicesPage() {
   const [aiAnalysis, setAiAnalysis] = useState(null);
   
   // Ollama State
-  const [ollamaConfig, setOllamaConfig] = useState({ base_url: "http://161.35.129.192:11434", model: "mistral" });
+  const [ollamaConfig, setOllamaConfig] = useState({ base_url: "http://host.docker.internal:11434", model: "mistral" });
   
   // Quantum State
   const [quantumKeypairs, setQuantumKeypairs] = useState([]);
@@ -66,7 +67,7 @@ export default function AdvancedServicesPage() {
 
   const fetchDashboard = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/advanced/dashboard`, {
+      const response = await fetch(`${API_URL}/advanced/dashboard`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await response.json();
@@ -80,7 +81,7 @@ export default function AdvancedServicesPage() {
 
   const fetchMCPTools = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/advanced/mcp/tools`, {
+      const response = await fetch(`${API_URL}/advanced/mcp/tools`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await response.json();
@@ -94,7 +95,7 @@ export default function AdvancedServicesPage() {
     if (!memoryQuery.trim()) return;
     setSearchingMemory(true);
     try {
-      const response = await fetch(`${API_URL}/api/advanced/memory/search`, {
+      const response = await fetch(`${API_URL}/advanced/memory/search`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -113,7 +114,7 @@ export default function AdvancedServicesPage() {
 
   const fetchVNSFlows = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/advanced/vns/flows?suspicious_only=true&limit=20`, {
+      const response = await fetch(`${API_URL}/advanced/vns/flows?suspicious_only=true&limit=20`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await response.json();
@@ -125,7 +126,7 @@ export default function AdvancedServicesPage() {
 
   const fetchVNSBeacons = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/advanced/vns/beacons`, {
+      const response = await fetch(`${API_URL}/advanced/vns/beacons`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await response.json();
@@ -138,7 +139,7 @@ export default function AdvancedServicesPage() {
   const queryAI = async () => {
     if (!aiQuery.trim()) return;
     try {
-      const response = await fetch(`${API_URL}/api/advanced/ai/query`, {
+      const response = await fetch(`${API_URL}/advanced/ai/query`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -156,7 +157,7 @@ export default function AdvancedServicesPage() {
   const analyzeThreat = async () => {
     if (!analyzeData.title.trim()) return;
     try {
-      const response = await fetch(`${API_URL}/api/advanced/ai/analyze`, {
+      const response = await fetch(`${API_URL}/advanced/ai/analyze`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -174,7 +175,7 @@ export default function AdvancedServicesPage() {
 
   const configureOllama = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/advanced/ai/ollama/configure`, {
+      const response = await fetch(`${API_URL}/advanced/ai/ollama/configure`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -196,10 +197,10 @@ export default function AdvancedServicesPage() {
 
   const generateQuantumKey = async (algorithm) => {
     try {
-      const endpoint = algorithm === "kyber" 
-        ? "/api/advanced/quantum/keypair/kyber" 
-        : "/api/advanced/quantum/keypair/dilithium";
-      const response = await fetch(`${API_URL}${endpoint}`, {
+      const endpoint = algorithm === "kyber"
+        ? `${API_URL}/advanced/quantum/keypair/kyber`
+        : `${API_URL}/advanced/quantum/keypair/dilithium`;
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -782,12 +783,12 @@ export default function AdvancedServicesPage() {
                     <Input
                       value={ollamaConfig.base_url}
                       onChange={(e) => setOllamaConfig({ ...ollamaConfig, base_url: e.target.value })}
-                      placeholder="http://localhost:11434"
+                      placeholder="http://host.docker.internal:11434"
                       className="bg-slate-800 border-slate-700"
                       data-testid="ollama-url-input"
                     />
                     <p className="text-xs text-slate-500 mt-1">
-                      Your Digital Ocean server: http://161.35.129.192:11434
+                      Use <code>http://host.docker.internal:11434</code> when Ollama runs on the host.
                     </p>
                   </div>
                   <div>
