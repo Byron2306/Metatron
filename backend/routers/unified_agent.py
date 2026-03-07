@@ -306,6 +306,7 @@ class AgentRegistrationModel(BaseModel):
     version: str
     capabilities: List[str] = []
     config: Optional[Dict[str, Any]] = None
+    local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
 
 
 # Monitor-specific telemetry models
@@ -416,6 +417,7 @@ class AgentHeartbeatModel(BaseModel):
     edm_hits: List[EDMHitTelemetryModel] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
+    local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
 
 
 class DeploymentRequestModel(BaseModel):
@@ -502,6 +504,7 @@ class AgentHeartbeatModel(BaseModel):
     edm_hits: List[EDMHitTelemetryModel] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
+    local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
 
 
 AgentHeartbeatModel.model_rebuild()
@@ -627,7 +630,8 @@ async def register_agent(
                 "config": agent.config,
                 "status": "online",
                 "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat()
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                **( {"local_ui_url": agent.local_ui_url} if agent.local_ui_url else {} )
             }}
         )
         logger.info(f"Agent re-registered: {agent.agent_id} ({agent.platform})")
@@ -654,7 +658,8 @@ async def register_agent(
         "threat_count": 0,
         "alerts_count": 0,
         "enrolled_from_ip": auth['ip'],
-        "enrollment_type": auth['type']
+        "enrollment_type": auth['type'],
+        "local_ui_url": agent.local_ui_url or "",
     }
     
     await db.unified_agents.insert_one(agent_doc)
@@ -697,6 +702,10 @@ async def agent_heartbeat(
         "network_connections": heartbeat.network_connections,
         "last_ip": auth['ip']
     }
+
+    # Persist local UI URL when provided
+    if heartbeat.local_ui_url:
+        update_data["local_ui_url"] = heartbeat.local_ui_url
     
     # Store monitor summary in agent document for quick access
     if heartbeat.monitors:

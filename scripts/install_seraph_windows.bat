@@ -136,12 +136,12 @@ try { ^
     @\"
 \$env:SERAPH_SERVER = '$SERAPH_SERVER'
 Set-Location '$INSTALL_DIR'
-& '$pyExe' core/agent.py --server \$env:SERAPH_SERVER
+& '$pyExe' core/agent.py --server \$env:SERAPH_SERVER --ui-port 5000
 \"@ | Set-Content -Path $startScript -Encoding UTF8; ^
     Write-OK \"Startup script: $startScript\"; ^
     ^
     Write-Step 'Registering scheduled task for auto-start...'; ^
-    \$action    = New-ScheduledTaskAction -Execute \$pyExe -Argument \"core\\agent.py --server $SERAPH_SERVER\" -WorkingDirectory \$INSTALL_DIR; ^
+    \$action    = New-ScheduledTaskAction -Execute \$pyExe -Argument "core\\agent.py --server $SERAPH_SERVER --ui-port 5000" -WorkingDirectory \$INSTALL_DIR; ^
     \$trigger   = New-ScheduledTaskTrigger -AtStartup; ^
     \$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest; ^
     \$settings  = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit 0; ^
@@ -164,6 +164,7 @@ Set-Location '$INSTALL_DIR'
     Write-Host ''; ^
     Write-Host \"  Install dir : $INSTALL_DIR\" -ForegroundColor White; ^
     Write-Host \"  Server      : $SERAPH_SERVER\" -ForegroundColor White; ^
+    Write-Host \"  Local UI    : http://localhost:5000\" -ForegroundColor Cyan; ^
     Write-Host \"  Task name   : $TASK_NAME\" -ForegroundColor White; ^
     Write-Host \"  Log file    : $LOG_PATH\" -ForegroundColor White; ^
     Write-Host ''; ^
