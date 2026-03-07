@@ -1,12 +1,11 @@
 """
-Test VPN and Network Scanning Features - Iteration 22
+Test VPN and Network Scanning Features - Iteration 22 (updated for Unified Agent)
 Tests:
 - GET /api/swarm/vpn/server-config - VPN server config with split_tunnel=true
 - POST /api/swarm/vpn/register-agent - Register agent for VPN access
 - GET /api/swarm/vpn/agents - List registered VPN agents
-- GET /api/swarm/agent/download/v7 - Agent script with network scanning classes
-- Verify seraph_defender_v7.py contains NetworkScanner, WiFiScanner, BluetoothScanner, WireGuardVPN
-- Verify seraph_mobile_v7.py contains MobileWiFiScanner, MobileBluetoothScanner
+- GET /api/swarm/agent/download/v7 - Unified agent tarball (seraph_defender_v7 removed)
+- Verify unified agent core/agent.py exists on disk
 """
 
 import pytest
@@ -80,200 +79,82 @@ class TestVPNEndpoints:
 
 
 class TestAgentDownloadV7:
-    """Test agent download endpoint returns script with network scanning"""
+    """Test that /api/swarm/agent/download/v7 now serves the unified agent tarball."""
     
     @pytest.fixture(autouse=True)
     def setup(self):
         """Setup test fixtures"""
         self.session = requests.Session()
     
-    def test_agent_download_v7_returns_script(self):
-        """GET /api/swarm/agent/download/v7 should return Python script"""
+    def test_agent_download_v7_returns_tarball(self):
+        """GET /api/swarm/agent/download/v7 should return unified agent tarball"""
         response = self.session.get(f"{BASE_URL}/api/swarm/agent/download/v7")
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         
-        # Check content type
         content_type = response.headers.get("Content-Type", "")
-        assert "text/x-python" in content_type or "application/octet-stream" in content_type or "text/plain" in content_type, \
-            f"Expected Python content type, got {content_type}"
+        assert (
+            "gzip" in content_type
+            or "octet-stream" in content_type
+            or "zip" in content_type
+            or "tar" in content_type
+        ), f"Expected archive content type, got {content_type}"
         
-        script_content = response.text
-        assert len(script_content) > 1000, "Script should be substantial"
-        print(f"✓ Agent v7 download: {len(script_content)} bytes")
+        assert len(response.content) > 100, "Response should be non-empty archive"
+        print(f"✓ Agent v7 download alias returns unified agent archive: {len(response.content)} bytes")
     
-    def test_agent_v7_contains_network_scanner(self):
-        """Agent v7 should contain NetworkScanner class"""
-        response = self.session.get(f"{BASE_URL}/api/swarm/agent/download/v7")
-        assert response.status_code == 200
-        
-        script = response.text
-        assert "class NetworkScanner:" in script, "Script should contain NetworkScanner class"
-        assert "def scan_port" in script, "NetworkScanner should have scan_port method"
-        assert "def scan_router" in script, "NetworkScanner should have scan_router method"
-        assert "def get_gateway" in script, "NetworkScanner should have get_gateway method"
-        print("✓ NetworkScanner class found with scan_port, scan_router, get_gateway methods")
-    
-    def test_agent_v7_contains_wifi_scanner(self):
-        """Agent v7 should contain WiFiScanner class"""
-        response = self.session.get(f"{BASE_URL}/api/swarm/agent/download/v7")
-        assert response.status_code == 200
-        
-        script = response.text
-        assert "class WiFiScanner:" in script, "Script should contain WiFiScanner class"
-        assert "def scan_networks" in script, "WiFiScanner should have scan_networks method"
-        print("✓ WiFiScanner class found with scan_networks method")
-    
-    def test_agent_v7_contains_bluetooth_scanner(self):
-        """Agent v7 should contain BluetoothScanner class"""
-        response = self.session.get(f"{BASE_URL}/api/swarm/agent/download/v7")
-        assert response.status_code == 200
-        
-        script = response.text
-        assert "class BluetoothScanner:" in script, "Script should contain BluetoothScanner class"
-        assert "def scan_devices" in script, "BluetoothScanner should have scan_devices method"
-        print("✓ BluetoothScanner class found with scan_devices method")
-    
-    def test_agent_v7_contains_wireguard_vpn(self):
-        """Agent v7 should contain WireGuardVPN class with split tunnel"""
-        response = self.session.get(f"{BASE_URL}/api/swarm/agent/download/v7")
-        assert response.status_code == 200
-        
-        script = response.text
-        assert "class WireGuardVPN:" in script, "Script should contain WireGuardVPN class"
-        assert "split tunnel" in script.lower() or "split_tunnel" in script.lower(), \
-            "WireGuardVPN should mention split tunnel mode"
-        assert "10.200.200" in script, "WireGuardVPN should use 10.200.200.x subnet"
-        assert "def auto_configure" in script, "WireGuardVPN should have auto_configure method"
-        assert "def connect" in script, "WireGuardVPN should have connect method"
-        assert "def disconnect" in script, "WireGuardVPN should have disconnect method"
-        print("✓ WireGuardVPN class found with split tunnel mode, auto_configure, connect, disconnect methods")
-    
-    def test_agent_v7_dashboard_has_new_tabs(self):
-        """Agent v7 dashboard should have Port/Router Scan, WiFi, Bluetooth, VPN tabs"""
-        response = self.session.get(f"{BASE_URL}/api/swarm/agent/download/v7")
-        assert response.status_code == 200
-        
-        script = response.text
-        # Check for dashboard tabs
-        assert "Port/Router Scan" in script or "netscan" in script, "Dashboard should have Port/Router Scan tab"
-        assert "WiFi Networks" in script or "wifi" in script, "Dashboard should have WiFi Networks tab"
-        assert "Bluetooth" in script or "bluetooth" in script, "Dashboard should have Bluetooth tab"
-        assert "VPN" in script or "vpn" in script, "Dashboard should have VPN tab"
-        print("✓ Dashboard has Port/Router Scan, WiFi Networks, Bluetooth, VPN tabs")
-    
-    def test_agent_v7_has_perform_network_scans(self):
-        """Agent v7 should have _perform_network_scans method in monitoring loop"""
-        response = self.session.get(f"{BASE_URL}/api/swarm/agent/download/v7")
-        assert response.status_code == 200
-        
-        script = response.text
-        assert "_perform_network_scans" in script, "Script should have _perform_network_scans method"
-        assert "def _perform_network_scans" in script, "Should define _perform_network_scans method"
-        print("✓ _perform_network_scans method found in agent monitoring loop")
+    def test_agent_v7_download_url_documented_in_installer(self):
+        """The new Windows installer should reference the unified agent download endpoint"""
+        bat_path = "/app/scripts/install_seraph_windows.bat"
+        if not os.path.exists(bat_path):
+            pytest.skip("Batch installer not mounted at /app/scripts")
+        with open(bat_path, "r") as f:
+            content = f.read()
+        assert "unified/agent/download" in content, (
+            "Windows installer should download from /api/unified/agent/download/windows"
+        )
+        print("✓ Windows installer references unified agent download endpoint")
 
 
-class TestSeraphDefenderV7File:
-    """Test seraph_defender_v7.py file directly"""
-    
-    def test_file_exists(self):
-        """seraph_defender_v7.py should exist"""
-        assert os.path.exists("/app/scripts/seraph_defender_v7.py"), "seraph_defender_v7.py should exist"
-        print("✓ seraph_defender_v7.py exists")
-    
-    def test_network_scanner_class(self):
-        """seraph_defender_v7.py should have NetworkScanner class"""
-        with open("/app/scripts/seraph_defender_v7.py", "r") as f:
-            content = f.read()
-        
-        assert "class NetworkScanner:" in content, "Should have NetworkScanner class"
-        assert "network_scanner = NetworkScanner()" in content, "Should instantiate network_scanner"
-        print("✓ NetworkScanner class defined and instantiated")
-    
-    def test_wifi_scanner_class(self):
-        """seraph_defender_v7.py should have WiFiScanner class"""
-        with open("/app/scripts/seraph_defender_v7.py", "r") as f:
-            content = f.read()
-        
-        assert "class WiFiScanner:" in content, "Should have WiFiScanner class"
-        assert "wifi_scanner = WiFiScanner()" in content, "Should instantiate wifi_scanner"
-        print("✓ WiFiScanner class defined and instantiated")
-    
-    def test_bluetooth_scanner_class(self):
-        """seraph_defender_v7.py should have BluetoothScanner class"""
-        with open("/app/scripts/seraph_defender_v7.py", "r") as f:
-            content = f.read()
-        
-        assert "class BluetoothScanner:" in content, "Should have BluetoothScanner class"
-        assert "bluetooth_scanner = BluetoothScanner()" in content, "Should instantiate bluetooth_scanner"
-        print("✓ BluetoothScanner class defined and instantiated")
-    
-    def test_wireguard_vpn_class(self):
-        """seraph_defender_v7.py should have WireGuardVPN class with split tunnel"""
-        with open("/app/scripts/seraph_defender_v7.py", "r") as f:
-            content = f.read()
-        
-        assert "class WireGuardVPN:" in content, "Should have WireGuardVPN class"
-        assert "wireguard_vpn = WireGuardVPN()" in content, "Should instantiate wireguard_vpn"
-        # Verify split tunnel mode
-        assert "split tunnel" in content.lower() or "split_tunnel" in content.lower(), \
-            "WireGuardVPN should mention split tunnel"
-        assert "10.200.200" in content, "Should use 10.200.200.x subnet for VPN"
-        # Verify it doesn't route all traffic
-        assert "0.0.0.0/0" not in content or "not all traffic" in content.lower() or "only route" in content.lower(), \
-            "VPN should NOT route all traffic (0.0.0.0/0)"
-        print("✓ WireGuardVPN class with split tunnel mode (10.200.200.0/24)")
-    
-    def test_perform_network_scans_method(self):
-        """seraph_defender_v7.py should have _perform_network_scans in monitoring loop"""
-        with open("/app/scripts/seraph_defender_v7.py", "r") as f:
-            content = f.read()
-        
-        assert "def _perform_network_scans" in content, "Should have _perform_network_scans method"
-        assert "_perform_network_scans()" in content, "Should call _perform_network_scans in loop"
-        print("✓ _perform_network_scans method defined and called in monitoring loop")
-    
-    def test_dashboard_tabs(self):
-        """seraph_defender_v7.py dashboard should have new tabs"""
-        with open("/app/scripts/seraph_defender_v7.py", "r") as f:
-            content = f.read()
-        
-        # Check for tab definitions in HTML
-        assert "Port/Router Scan" in content or 'data-panel="netscan"' in content, \
-            "Dashboard should have Port/Router Scan tab"
-        assert "WiFi Networks" in content or 'data-panel="wifi"' in content, \
-            "Dashboard should have WiFi Networks tab"
-        assert "Bluetooth" in content or 'data-panel="bluetooth"' in content, \
-            "Dashboard should have Bluetooth tab"
-        assert "VPN" in content or 'data-panel="vpn"' in content, \
-            "Dashboard should have VPN tab"
-        print("✓ Dashboard has Port/Router Scan, WiFi Networks, Bluetooth, VPN tabs")
+class TestUnifiedAgentFileOnDisk:
+    """Verify the unified agent file is present on disk (replaces TestSeraphDefenderV7File)."""
 
+    UNIFIED_AGENT_PATH = "/app/unified_agent/core/agent.py"
 
-class TestSeraphMobileV7File:
-    """Test seraph_mobile_v7.py file directly"""
-    
-    def test_file_exists(self):
-        """seraph_mobile_v7.py should exist"""
-        assert os.path.exists("/app/scripts/seraph_mobile_v7.py"), "seraph_mobile_v7.py should exist"
-        print("✓ seraph_mobile_v7.py exists")
-    
-    def test_mobile_wifi_scanner_class(self):
-        """seraph_mobile_v7.py should have MobileWiFiScanner class"""
-        with open("/app/scripts/seraph_mobile_v7.py", "r") as f:
-            content = f.read()
-        
-        assert "class MobileWiFiScanner:" in content, "Should have MobileWiFiScanner class"
-        assert "mobile_wifi_scanner = MobileWiFiScanner()" in content, "Should instantiate mobile_wifi_scanner"
-        print("✓ MobileWiFiScanner class defined and instantiated")
-    
-    def test_mobile_bluetooth_scanner_class(self):
-        """seraph_mobile_v7.py should have MobileBluetoothScanner class"""
-        with open("/app/scripts/seraph_mobile_v7.py", "r") as f:
-            content = f.read()
-        
-        assert "class MobileBluetoothScanner:" in content, "Should have MobileBluetoothScanner class"
-        assert "mobile_bluetooth_scanner = MobileBluetoothScanner()" in content, "Should instantiate mobile_bluetooth_scanner"
-        print("✓ MobileBluetoothScanner class defined and instantiated")
+    def test_unified_agent_exists(self):
+        """unified_agent/core/agent.py should exist and be the canonical agent"""
+        assert os.path.exists(self.UNIFIED_AGENT_PATH), (
+            f"Unified agent not found at {self.UNIFIED_AGENT_PATH}"
+        )
+        print(f"✓ Unified agent exists at {self.UNIFIED_AGENT_PATH}")
+
+    def test_unified_agent_is_substantial(self):
+        """Unified agent should be a large, comprehensive file (>14000 lines)"""
+        with open(self.UNIFIED_AGENT_PATH, "r", errors="replace") as f:
+            lines = f.readlines()
+        assert len(lines) > 14000, (
+            f"Expected >14000 lines, got {len(lines)}"
+        )
+        print(f"✓ Unified agent has {len(lines)} lines")
+
+    def test_mini_agents_removed(self):
+        """Legacy mini-agent files should no longer exist in /app/scripts"""
+        deleted = [
+            "/app/scripts/seraph_defender_v7.py",
+            "/app/scripts/seraph_defender.py",
+            "/app/scripts/seraph_defender_local.py",
+            "/app/scripts/seraph_mobile_v7.py",
+            "/app/scripts/seraph_mobile_agent.py",
+            "/app/scripts/advanced_agent.py",
+            "/app/scripts/agent.py",
+            "/app/scripts/local_agent.py",
+            "/app/scripts/anti_ai_defense.py",
+            "/app/scripts/seraph_network_scanner.py",
+        ]
+        for path in deleted:
+            assert not os.path.exists(path), (
+                f"Mini-agent {path} should have been removed; only the unified agent should exist"
+            )
+        print(f"✓ All {len(deleted)} legacy mini-agent files have been removed")
 
 
 if __name__ == "__main__":

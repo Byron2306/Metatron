@@ -6,20 +6,6 @@ API endpoints for the Metatron/Seraph unified agent management system.
 Provides cross-platform agent registration, heartbeat, deployment, and monitoring.
 """
 
-
-class EDMHitTelemetryModel(BaseModel):
-    """EDM match telemetry emitted by endpoint agents."""
-    dataset_id: str
-    record_id: Optional[str] = None
-    fingerprint: str
-    host: Optional[str] = None
-    process: Optional[str] = None
-    file_path_masked: Optional[str] = None
-    source: Optional[str] = None
-    timestamp: Optional[str] = None
-        # Additional field for telemetry
-        additional_info: Optional[str] = None
-
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect, Request, Header
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
@@ -33,6 +19,20 @@ import json
 import os
 import socket
 import ipaddress
+
+
+class EDMHitTelemetryModel(BaseModel):
+    """EDM match telemetry emitted by endpoint agents."""
+    dataset_id: str
+    record_id: Optional[str] = None
+    fingerprint: str
+    host: Optional[str] = None
+    process: Optional[str] = None
+    file_path_masked: Optional[str] = None
+    source: Optional[str] = None
+    timestamp: Optional[str] = None
+    # Additional field for telemetry
+    additional_info: Optional[str] = None
 
 from .dependencies import get_current_user, check_permission, db
 
@@ -306,6 +306,7 @@ class AgentRegistrationModel(BaseModel):
     version: str
     capabilities: List[str] = []
     config: Optional[Dict[str, Any]] = None
+    local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
 
 
 # Monitor-specific telemetry models
@@ -414,9 +415,9 @@ class AgentHeartbeatModel(BaseModel):
     alerts: List[Dict] = []
     telemetry: Optional[Dict] = None
     edm_hits: List[EDMHitTelemetryModel] = []
-        edm_hits: List['EDMHitTelemetryModel'] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
+    local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
 
 
 class DeploymentRequestModel(BaseModel):
@@ -503,6 +504,7 @@ class AgentHeartbeatModel(BaseModel):
     edm_hits: List[EDMHitTelemetryModel] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
+    local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
 
 
 AgentHeartbeatModel.model_rebuild()
@@ -628,7 +630,8 @@ async def register_agent(
                 "config": agent.config,
                 "status": "online",
                 "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat()
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                **( {"local_ui_url": agent.local_ui_url} if agent.local_ui_url else {} )
             }}
         )
         logger.info(f"Agent re-registered: {agent.agent_id} ({agent.platform})")
@@ -655,7 +658,8 @@ async def register_agent(
         "threat_count": 0,
         "alerts_count": 0,
         "enrolled_from_ip": auth['ip'],
-        "enrollment_type": auth['type']
+        "enrollment_type": auth['type'],
+        "local_ui_url": agent.local_ui_url or "",
     }
     
     await db.unified_agents.insert_one(agent_doc)
@@ -698,6 +702,10 @@ async def agent_heartbeat(
         "network_connections": heartbeat.network_connections,
         "last_ip": auth['ip']
     }
+
+    # Persist local UI URL when provided
+    if heartbeat.local_ui_url:
+        update_data["local_ui_url"] = heartbeat.local_ui_url
     
     # Store monitor summary in agent document for quick access
     if heartbeat.monitors:
@@ -1729,7 +1737,7 @@ async def create_edm_dataset_version(
     quality_report = _enforce_edm_publish_gates(payload.dataset, context="dataset version creation")
 
     latest = await db[EDM_DATASET_COLLECTION].find_one({"dataset_id": dataset_id}, {"_id": 0, "version": 1}, sort=[("version", -1)])
-    next_version
+    next_version = int(latest.get("version", 0)) + 1 if latest else 1
     checksum = _compute_edm_checksum(payload.dataset)
     signature = _sign_edm_metadata(dataset_id, next_version, checksum)
     now = datetime.now(timezone.utc).isoformat()
