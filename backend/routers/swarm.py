@@ -3,7 +3,7 @@ Swarm Management Router
 =======================
 Manages the agent swarm - discovery, deployment, telemetry.
 """
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
@@ -16,6 +16,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/swarm", tags=["Swarm Management"])
+
+# Default server URL embedded in the Windows batch installer.
+# Kept as a constant so it only needs to be updated in one place.
+_BAT_DEFAULT_SERVER_URL = "http://165.22.41.184:8001"
 
 SWARM_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
 
@@ -546,7 +550,15 @@ async def trigger_network_scan(
     
     discovery = get_network_discovery()
     if discovery is None:
-        raise HTTPException(status_code=503, detail="Network discovery service not running")
+        # Auto-start the discovery service on first use
+        try:
+            discovery = await start_network_discovery(db, scan_interval_s=300)
+            logger.info("Started NetworkDiscoveryService on demand for /swarm/scan")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Network discovery service could not be started: {exc}"
+            )
     
     # Run scan in background
     async def run_scan():
@@ -580,7 +592,7 @@ async def get_scan_status(current_user: dict = Depends(get_current_user)):
 # =============================================================================
 
 @router.get("/agent/download/{platform}")
-async def download_agent(platform: str):
+async def download_agent(platform: str, request: Request, server_url: Optional[str] = None):
     """
     Download the Seraph agent for the specified platform.
 
@@ -593,7 +605,7 @@ async def download_agent(platform: str):
       - windows-installer / batch  → install_seraph_windows.bat
       - browser-extension          → browser extension ZIP
     """
-    from fastapi.responses import FileResponse, StreamingResponse
+    from fastapi.responses import FileResponse, StreamingResponse, Response
     import io, os, zipfile, tarfile
 
     UNIFIED_AGENT_DIR = "/app/unified_agent"
@@ -603,10 +615,28 @@ async def download_agent(platform: str):
         batch_path = "/app/scripts/install_seraph_windows.bat"
         if not os.path.exists(batch_path):
             raise HTTPException(status_code=404, detail="Windows installer not found")
-        return FileResponse(
-            batch_path,
+
+        # Derive the backend server URL from the inbound request.
+        # In production, nginx sets the Host header correctly so
+        # request.base_url reflects the actual public address of the Droplet.
+        if not server_url:
+            base = request.base_url          # e.g. http://165.22.41.184:8001/
+            server_url = str(base).rstrip("/")
+
+        with open(batch_path, "r", encoding="utf-8") as fh:
+            content = fh.read()
+
+        # Replace the hard-coded default server URL with the live one.
+        content = content.replace(
+            f'set "SERAPH_SERVER={_BAT_DEFAULT_SERVER_URL}"',
+            f'set "SERAPH_SERVER={server_url}"',
+            1,
+        )
+
+        return Response(
+            content=content.encode("utf-8"),
             media_type="application/x-bat",
-            filename="install_seraph_windows.bat",
+            headers={"Content-Disposition": "attachment; filename=install_seraph_windows.bat"},
         )
 
     # ── Browser extension ZIP ────────────────────────────────────────────────

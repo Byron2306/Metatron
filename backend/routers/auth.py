@@ -22,13 +22,21 @@ async def register(user_data: UserCreate):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    # First user ever registered becomes an admin automatically.
+    # We check both total user count and existing admin count so the
+    # role assignment is correct even if a non-admin seed account
+    # was somehow created out-of-band before the first real registration.
+    user_count = await db.users.count_documents({})
+    admin_count = await db.users.count_documents({"role": "admin"})
+    role = "admin" if (user_count == 0 or admin_count == 0) else "analyst"
+
     user_id = str(uuid.uuid4())
     user_doc = {
         "id": user_id,
         "email": normalized_email,
         "password": hash_password(user_data.password),
         "name": user_data.name,
-        "role": "analyst",
+        "role": role,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.users.insert_one(user_doc)
@@ -40,7 +48,7 @@ async def register(user_data: UserCreate):
             id=user_id,
             email=normalized_email,
             name=user_data.name,
-            role="analyst",
+            role=role,
             created_at=user_doc["created_at"]
         )
     )
