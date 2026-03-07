@@ -542,7 +542,7 @@ export default function UnifiedAgentPage() {
                           </div>
                         </div>
                       </div>
-                      <div className="mt-4 flex gap-2">
+                      <div className="mt-4 flex gap-2 flex-wrap">
                         <Button size="sm" variant="outline" onClick={() => sendCommand(agent.agent_id, "scan")} className="text-cyan-400 border-cyan-500/30">
                           <Activity className="w-4 h-4 mr-1" /> Full Scan
                         </Button>
@@ -555,6 +555,13 @@ export default function UnifiedAgentPage() {
                         <Button size="sm" variant="outline" onClick={() => setSelectedAgent(agent)} className="text-purple-400 border-purple-500/30">
                           <Eye className="w-4 h-4 mr-1" /> Details
                         </Button>
+                        {agent.local_ui_url && /^https?:\/\//.test(agent.local_ui_url) && (
+                          <a href={agent.local_ui_url} target="_blank" rel="noopener noreferrer">
+                            <Button size="sm" variant="outline" className="text-amber-400 border-amber-500/30">
+                              <Monitor className="w-4 h-4 mr-1" /> Local Dashboard
+                            </Button>
+                          </a>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

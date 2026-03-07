@@ -517,6 +517,10 @@ class AgentConfig:
     splunk_hec_token: str = ""
     syslog_server: str = ""
     syslog_port: int = 514
+
+    # Local web UI
+    local_ui_enabled: bool = True
+    local_ui_port: int = 5000
     
     @classmethod
     def from_file(cls, path: str) -> 'AgentConfig':
@@ -13062,6 +13066,251 @@ class PrivilegeEscalationMonitor(MonitorModule):
 
 
 # =============================================================================
+# LOCAL WEB UI SERVER
+# =============================================================================
+
+class LocalWebUIServer:
+    """
+    Lightweight built-in HTTP dashboard for the deployed agent.
+
+    Uses only Python's standard library (http.server) – no Flask or external
+    packages required.  Starts on the configured port (default 5000) and falls
+    back to the next available port if the preferred one is busy.
+
+    Exposes:
+      GET /            → HTML dashboard (auto-refreshes every 5 s)
+      GET /api/status  → JSON agent status snapshot
+      GET /api/data    → JSON full dashboard data
+    """
+
+    # ------------------------------------------------------------------ HTML
+    DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Seraph Agent – Local Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#0f172a; color:#e2e8f0; font-family:sans-serif; }
+  .card { background:#1e293b; border:1px solid #334155; border-radius:8px; padding:1rem; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:.75rem; font-weight:600; }
+  .online  { background:#16a34a22; color:#4ade80; border:1px solid #16a34a55; }
+  .offline { background:#dc262622; color:#f87171; border:1px solid #dc262655; }
+  .bar-bg  { background:#334155; border-radius:4px; height:8px; overflow:hidden; }
+  .bar     { height:8px; border-radius:4px; transition:width .4s; }
+</style>
+</head>
+<body class="p-4 min-h-screen">
+
+<div class="max-w-4xl mx-auto space-y-4">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-cyan-400">⚡ Seraph Agent</h1>
+      <p class="text-slate-400 text-sm" id="subtitle">Local Security Dashboard</p>
+    </div>
+    <div>
+      <span class="badge online" id="status-badge">Loading…</span>
+      <p class="text-slate-500 text-xs mt-1" id="last-hb">–</p>
+    </div>
+  </div>
+
+  <!-- System metrics -->
+  <div class="grid grid-cols-3 gap-4">
+    <div class="card">
+      <p class="text-slate-400 text-xs mb-1">CPU</p>
+      <p class="text-2xl font-bold text-cyan-400" id="cpu">–</p>
+      <div class="bar-bg mt-2"><div class="bar bg-cyan-500" id="cpu-bar" style="width:0%"></div></div>
+    </div>
+    <div class="card">
+      <p class="text-slate-400 text-xs mb-1">Memory</p>
+      <p class="text-2xl font-bold text-purple-400" id="mem">–</p>
+      <div class="bar-bg mt-2"><div class="bar bg-purple-500" id="mem-bar" style="width:0%"></div></div>
+    </div>
+    <div class="card">
+      <p class="text-slate-400 text-xs mb-1">Disk</p>
+      <p class="text-2xl font-bold text-green-400" id="dsk">–</p>
+      <div class="bar-bg mt-2"><div class="bar bg-green-500" id="dsk-bar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="grid grid-cols-4 gap-4">
+    <div class="card text-center">
+      <p class="text-slate-400 text-xs">Threats</p>
+      <p class="text-xl font-bold text-red-400" id="threats">0</p>
+    </div>
+    <div class="card text-center">
+      <p class="text-slate-400 text-xs">Auto-Kills</p>
+      <p class="text-xl font-bold text-orange-400" id="kills">0</p>
+    </div>
+    <div class="card text-center">
+      <p class="text-slate-400 text-xs">Events</p>
+      <p class="text-xl font-bold text-blue-400" id="events">0</p>
+    </div>
+    <div class="card text-center">
+      <p class="text-slate-400 text-xs">Net Conn</p>
+      <p class="text-xl font-bold text-teal-400" id="conns">0</p>
+    </div>
+  </div>
+
+  <!-- Agent info -->
+  <div class="card">
+    <h2 class="font-semibold text-slate-300 mb-2">Agent Info</h2>
+    <div class="grid grid-cols-2 gap-2 text-sm">
+      <div><span class="text-slate-500">ID:</span> <span class="text-slate-300 font-mono text-xs" id="agent-id">–</span></div>
+      <div><span class="text-slate-500">Name:</span> <span class="text-slate-300" id="agent-name">–</span></div>
+      <div><span class="text-slate-500">Platform:</span> <span class="text-slate-300" id="platform">–</span></div>
+      <div><span class="text-slate-500">Version:</span> <span class="text-slate-300" id="version">–</span></div>
+      <div><span class="text-slate-500">Server:</span> <span class="text-slate-300 font-mono text-xs" id="server">–</span></div>
+      <div><span class="text-slate-500">Registered:</span> <span id="registered" class="badge online">Yes</span></div>
+    </div>
+  </div>
+
+  <!-- Recent threats -->
+  <div class="card">
+    <h2 class="font-semibold text-slate-300 mb-2">Recent Threats</h2>
+    <div id="threat-list" class="space-y-1 text-sm text-slate-400">None detected.</div>
+  </div>
+</div>
+
+<script>
+async function refresh() {
+  try {
+    const r = await fetch('/api/data');
+    const d = await r.json();
+    const a = d.agent || {};
+    const t = d.telemetry || {};
+    const s = d.stats || {};
+
+    document.getElementById('subtitle').textContent =
+      (a.hostname || 'unknown') + ' · ' + (a.agent_id || '');
+    document.getElementById('status-badge').textContent = a.running ? 'ONLINE' : 'STOPPED';
+    document.getElementById('status-badge').className = 'badge ' + (a.running ? 'online' : 'offline');
+    document.getElementById('last-hb').textContent = a.last_heartbeat
+      ? 'Last HB: ' + new Date(a.last_heartbeat).toLocaleTimeString() : '–';
+
+    const cpu = t.cpu_usage || 0;
+    const mem = t.memory_usage || 0;
+    const dsk = t.disk_usage || 0;
+    document.getElementById('cpu').textContent = cpu.toFixed(1) + '%';
+    document.getElementById('cpu-bar').style.width = cpu + '%';
+    document.getElementById('mem').textContent = mem.toFixed(1) + '%';
+    document.getElementById('mem-bar').style.width = mem + '%';
+    document.getElementById('dsk').textContent = dsk.toFixed(1) + '%';
+    document.getElementById('dsk-bar').style.width = dsk + '%';
+
+    document.getElementById('threats').textContent = a.threat_count || 0;
+    document.getElementById('kills').textContent = a.auto_kills || 0;
+    document.getElementById('events').textContent = a.event_count || 0;
+    document.getElementById('conns').textContent = t.connections ? t.connections.length : 0;
+
+    document.getElementById('agent-id').textContent = a.agent_id || '–';
+    document.getElementById('agent-name').textContent = a.agent_name || '–';
+    document.getElementById('platform').textContent = a.platform || '–';
+    document.getElementById('version').textContent = a.version || '–';
+    document.getElementById('server').textContent = a.server_url || 'Not configured';
+    document.getElementById('registered').textContent = a.registered ? 'Yes' : 'No';
+    document.getElementById('registered').className = 'badge ' + (a.registered ? 'online' : 'offline');
+
+    const threats = d.threats || [];
+    const tl = document.getElementById('threat-list');
+    if (threats.length === 0) {
+      tl.innerHTML = '<span class="text-green-400">✓ No threats detected.</span>';
+    } else {
+      tl.innerHTML = '';
+      threats.slice(-10).reverse().forEach(function(item) {
+        const row = document.createElement('div');
+        row.className = 'flex justify-between';
+        const title = document.createElement('span');
+        title.className = 'text-red-300';
+        title.textContent = item.title || item.threat_id || 'Unknown';
+        const sev = document.createElement('span');
+        sev.className = 'text-slate-500 text-xs';
+        sev.textContent = item.severity || '';
+        row.appendChild(title);
+        row.appendChild(sev);
+        tl.appendChild(row);
+      });
+    }
+  } catch(e) {
+    document.getElementById('status-badge').textContent = 'ERROR';
+  }
+}
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>"""
+
+    def __init__(self, agent: 'UnifiedAgent', port: int = 5000):
+        self.agent = agent
+        self.port = port
+        self._server = None
+        self._thread = None
+
+    def start(self) -> int:
+        """Start the HTTP server; returns the actual port bound (0 on failure)."""
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        import json as _json
+
+        agent_ref = self.agent
+
+        class _Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass  # suppress default request logging
+
+            def do_GET(self):
+                if self.path in ('/', '/index.html'):
+                    body = LocalWebUIServer.DASHBOARD_HTML.encode('utf-8')
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/html; charset=utf-8')
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif self.path == '/api/status':
+                    self._json(agent_ref.get_status())
+                elif self.path in ('/api/data', '/api/dashboard'):
+                    self._json(agent_ref.get_dashboard_data())
+                else:
+                    self.send_error(404, 'Not found')
+
+            def _json(self, data):
+                body = _json.dumps(data, default=str).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        # Try preferred port then up to 4 alternatives
+        for p in range(self.port, self.port + 5):
+            try:
+                self._server = HTTPServer(('0.0.0.0', p), _Handler)
+                self.port = p
+                break
+            except OSError:
+                continue
+        else:
+            logger.warning("LocalWebUIServer: could not bind to any port")
+            return 0
+
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, daemon=True, name='LocalWebUI'
+        )
+        self._thread.start()
+        logger.info(f"Local Web UI running at http://localhost:{self.port}")
+        return self.port
+
+    def stop(self):
+        if self._server:
+            self._server.shutdown()
+            self._server = None
+
+
+# =============================================================================
 # UNIFIED AGENT
 # =============================================================================
 
@@ -13184,6 +13433,10 @@ class UnifiedAgent:
         self.running = False
         self.registered = False
         self.last_heartbeat = None
+
+        # Local web UI server (started in start())
+        self.local_ui_server: Optional[LocalWebUIServer] = None
+        self._local_ui_url: str = ""
         
         # Stats
         self.stats = {
@@ -13243,7 +13496,8 @@ class UnifiedAgent:
                             'lan_discovery': True,
                             'vpn_enabled': True
                         }
-                    }
+                    },
+                    'local_ui_url': self._local_ui_url,
                 },
                 timeout=10
             )
@@ -13594,6 +13848,7 @@ class UnifiedAgent:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "telemetry": asdict(self.telemetry),
                     "edm_hits": outbound_hits,
+                    "local_ui_url": self._local_ui_url,
                 },
                 timeout=10
             )
@@ -13618,6 +13873,7 @@ class UnifiedAgent:
             "version": AGENT_VERSION,
             "running": self.running,
             "registered": self.registered,
+            "server_url": self.config.server_url,
             "last_heartbeat": self.last_heartbeat.isoformat() if self.last_heartbeat else None,
             "monitors": {name: monitor.enabled for name, monitor in self.monitors.items()},
             "threat_count": len(self.threat_history),
@@ -13626,6 +13882,7 @@ class UnifiedAgent:
             "stats": self.stats,
             "siem": {"enabled": self.siem.enabled, "type": self.siem.siem_type},
             "vpn": self.vpn.get_status(),
+            "local_ui_url": self._local_ui_url,
             "lan_discovery": {
                 "network": self.lan_discovery.network_cidr,
                 "devices_found": len(self.lan_discovery.discovered_devices)
@@ -14041,6 +14298,20 @@ class UnifiedAgent:
     def start(self, blocking: bool = True):
         """Start the agent"""
         self.running = True
+
+        # Start the built-in local web UI first so the URL is available
+        # before we register with the server.
+        if self.config.local_ui_enabled:
+            self.local_ui_server = LocalWebUIServer(self, self.config.local_ui_port)
+            bound_port = self.local_ui_server.start()
+            if bound_port:
+                try:
+                    local_ip = self._get_primary_ip()
+                except Exception:
+                    local_ip = "localhost"
+                self._local_ui_url = f"http://{local_ip}:{bound_port}"
+                logger.info(f"Local Web UI: {self._local_ui_url}")
+
         self.register()
         
         logger.info(f"Agent started: {self.config.agent_id}")
@@ -14103,135 +14374,48 @@ def create_agent(server_url: Optional[str] = None, **kwargs) -> UnifiedAgent:
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Metatron/Seraph Unified Security Agent")
     parser.add_argument("--server", "-s", help="Server URL", default="")
     parser.add_argument("--config", "-c", help="Config file path")
     parser.add_argument("--name", "-n", help="Agent name")
     parser.add_argument("--interval", "-i", type=int, default=30, help="Update interval")
     parser.add_argument("--no-auto-kill", action="store_true", help="Disable auto-kill")
-    
+    parser.add_argument("--ui-port", type=int, default=5000,
+                        help="Port for the built-in local web UI (default: 5000)")
+    parser.add_argument("--no-ui", action="store_true",
+                        help="Disable the built-in local web UI")
+
     args = parser.parse_args()
-    
+
     if args.config:
         agent = UnifiedAgent(config_path=args.config)
+        if args.ui_port != 5000:
+            agent.config.local_ui_port = args.ui_port
+        if args.no_ui:
+            agent.config.local_ui_enabled = False
     else:
         config = AgentConfig(
             server_url=args.server,
             agent_name=args.name or f"Metatron-{HOSTNAME}",
             update_interval=args.interval,
-            auto_remediate=not args.no_auto_kill
+            auto_remediate=not args.no_auto_kill,
+            local_ui_port=args.ui_port,
+            local_ui_enabled=not args.no_ui,
         )
         agent = UnifiedAgent(config=config)
-    
+
     print(f"""
-╔══════════════════════════════════════════════════════════════════╗
-║     ███╗   ███╗███████╗████████╗ █████╗ ████████╗██████╗  ██████╗ ███╗   ██╗
-║     ████╗ ████║██╔════╝╚══██╔══╝██╔══██╗╚══██╔══╝██╔══██╗██╔═══██╗████╗  ██║
-║     ██╔████╔██║█████╗     ██║   ███████║   ██║   ██████╔╝██║   ██║██╔██╗ ██║
-║     ██║╚██╔╝██║██╔══╝     ██║   ██╔══██║   ██║   ██╔══██╗██║   ██║██║╚██╗██║
-║     ██║ ╚═╝ ██║███████╗   ██║   ██║  ██║   ██║   ██║  ██║╚██████╔╝██║ ╚████║
-║     ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
-║                    UNIFIED SECURITY AGENT v{AGENT_VERSION}
-╚══════════════════════════════════════════════════════════════════╝
+\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
+\u2551                    UNIFIED SECURITY AGENT v{AGENT_VERSION}
+\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
 
-Agent ID: {agent.config.agent_id}
-Platform: {PLATFORM}
-Server: {agent.config.server_url or 'Not configured'}
-Auto-Kill: {'Enabled' if agent.config.auto_remediate else 'Disabled'}
-SIEM: {'Enabled' if agent.siem.enabled else 'Disabled'}
+Agent ID:    {agent.config.agent_id}
+Platform:    {PLATFORM}
+Server:      {agent.config.server_url or 'Not configured'}
+Auto-Kill:   {'Enabled' if agent.config.auto_remediate else 'Disabled'}
+SIEM:        {'Enabled' if agent.siem.enabled else 'Disabled'}
+Local Web UI: {'http://localhost:' + str(agent.config.local_ui_port) + ' (starting...)' if agent.config.local_ui_enabled else 'Disabled'}
 """)
-    
-    agent.start()
-    
-    def _run_loop(self):
-        """Main monitoring loop with MCP command polling"""
-        heartbeat_counter = 0
-        command_poll_counter = 0
-        command_poll_interval = 5  # Poll for commands every 5 seconds
-        
-        while self.running:
-            try:
-                self.scan_all()
-                
-                # Poll for server commands (MCP)
-                command_poll_counter += self.config.update_interval
-                if command_poll_counter >= command_poll_interval:
-                    commands = self.poll_commands()
-                    for cmd in commands:
-                        try:
-                            self.execute_command(cmd)
-                        except Exception as e:
-                            logger.error(f"Command execution failed: {e}")
-                    command_poll_counter = 0
-                
-                heartbeat_counter += self.config.update_interval
-                if heartbeat_counter >= self.config.heartbeat_interval:
-                    self.heartbeat()
-                    heartbeat_counter = 0
-                
-                time.sleep(self.config.update_interval)
-                
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                logger.error(f"Monitor loop error: {e}")
-                time.sleep(5)
-        
-        self.running = False
-        logger.info("Agent stopped")
-    
-    def stop(self):
-        """Stop the agent"""
-        self.running = False
 
-
-# Convenience function
-def create_agent(server_url: Optional[str] = None, **kwargs) -> UnifiedAgent:
-    """Create and configure a unified agent"""
-    config = AgentConfig(server_url=server_url or "", **kwargs)
-    return UnifiedAgent(config=config)
-
-
-if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Metatron/Seraph Unified Security Agent")
-    parser.add_argument("--server", "-s", help="Server URL", default="")
-    parser.add_argument("--config", "-c", help="Config file path")
-    parser.add_argument("--name", "-n", help="Agent name")
-    parser.add_argument("--interval", "-i", type=int, default=30, help="Update interval")
-    parser.add_argument("--no-auto-kill", action="store_true", help="Disable auto-kill")
-    
-    args = parser.parse_args()
-    
-    if args.config:
-        agent = UnifiedAgent(config_path=args.config)
-    else:
-        config = AgentConfig(
-            server_url=args.server,
-            agent_name=args.name or f"Metatron-{HOSTNAME}",
-            update_interval=args.interval,
-            auto_remediate=not args.no_auto_kill
-        )
-        agent = UnifiedAgent(config=config)
-    
-    print(f"""
-╔══════════════════════════════════════════════════════════════════╗
-║     ███╗   ███╗███████╗████████╗ █████╗ ████████╗██████╗  ██████╗ ███╗   ██╗
-║     ████╗ ████║██╔════╝╚══██╔══╝██╔══██╗╚══██╔══╝██╔══██╗██╔═══██╗████╗  ██║
-║     ██╔████╔██║█████╗     ██║   ███████║   ██║   ██████╔╝██║   ██║██╔██╗ ██║
-║     ██║╚██╔╝██║██╔══╝     ██║   ██╔══██║   ██║   ██╔══██╗██║   ██║██║╚██╗██║
-║     ██║ ╚═╝ ██║███████╗   ██║   ██║  ██║   ██║   ██║  ██║╚██████╔╝██║ ╚████║
-║     ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
-║                    UNIFIED SECURITY AGENT v{AGENT_VERSION}
-╚══════════════════════════════════════════════════════════════════╝
-
-Agent ID: {agent.config.agent_id}
-Platform: {PLATFORM}
-Server: {agent.config.server_url or 'Not configured'}
-Auto-Kill: {'Enabled' if agent.config.auto_remediate else 'Disabled'}
-SIEM: {'Enabled' if agent.siem.enabled else 'Disabled'}
-""")
-    
     agent.start()

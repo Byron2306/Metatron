@@ -67,7 +67,7 @@ app = FastAPI(
 )
 
 def _resolve_cors_origins() -> List[str]:
-    raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    raw = os.environ.get("CORS_ORIGINS", "http://165.22.41.184,http://165.22.41.184:3000,http://localhost:3000,http://127.0.0.1:3000")
     origins = [o.strip() for o in raw.split(",") if o.strip()]
     environment = os.environ.get("ENVIRONMENT", "").strip().lower()
     strict = os.environ.get("SERAPH_STRICT_SECURITY", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -76,7 +76,7 @@ def _resolve_cors_origins() -> List[str]:
     if prod_like and (not origins or "*" in origins):
         raise RuntimeError("CORS_ORIGINS must be explicit in production/strict mode; wildcard is not allowed.")
 
-    return origins or ["http://localhost:3000"]
+    return origins or ["http://165.22.41.184", "http://localhost:3000"]
 
 
 # Configure CORS
@@ -329,6 +329,51 @@ async def health_check():
 async def startup():
     """Initialize background services on startup"""
     logger.info("Starting Seraph AI Defense System services...")
+
+    # ------------------------------------------------------------------
+    # Seed initial admin account from environment variables.
+    # Only runs when no admin user exists, so it is safe to restart.
+    # Set ADMIN_EMAIL, ADMIN_PASSWORD, and ADMIN_NAME in your .env file.
+    # ------------------------------------------------------------------
+    try:
+        import uuid
+        from routers.dependencies import hash_password
+        admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+        admin_password = os.environ.get("ADMIN_PASSWORD", "").strip()
+        admin_name = os.environ.get("ADMIN_NAME", "Seraph Admin").strip()
+        if admin_email and admin_password:
+            existing_admin = await db.users.find_one({"role": "admin"})
+            if not existing_admin:
+                existing_user = await db.users.find_one({"email": admin_email})
+                if existing_user:
+                    # Promote existing account to admin
+                    await db.users.update_one(
+                        {"email": admin_email},
+                        {"$set": {"role": "admin"}}
+                    )
+                    logger.info(f"Promoted existing user '{admin_email}' to admin role")
+                else:
+                    user_id = str(uuid.uuid4())
+                    await db.users.insert_one({
+                        "id": user_id,
+                        "email": admin_email,
+                        "password": hash_password(admin_password),
+                        "name": admin_name,
+                        "role": "admin",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    logger.info(f"Admin account created for '{admin_email}'")
+            else:
+                logger.info("Admin account already exists – skipping seed")
+        else:
+            logger.warning(
+                "ADMIN_EMAIL / ADMIN_PASSWORD not set; skipping admin seed. "
+                "Set these in your .env file, or use POST /api/auth/setup "
+                "(with X-Setup-Token if SETUP_TOKEN is configured) to create "
+                "the first admin account manually."
+            )
+    except Exception as e:
+        logger.error(f"Failed to seed admin account: {e}")
     
     # Start the CCE (Cognition/Correlation Engine) Worker
     try:
@@ -349,7 +394,7 @@ async def startup():
     # Start Agent Deployment Service
     try:
         from services.agent_deployment import start_deployment_service
-        api_url = os.environ.get('API_URL', 'http://localhost:8001')
+        api_url = os.environ.get('API_URL', 'http://165.22.41.184:8001')
         await start_deployment_service(db, api_url)
         logger.info("Agent Deployment Service started successfully")
     except Exception as e:

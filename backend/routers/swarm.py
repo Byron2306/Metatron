@@ -3,7 +3,7 @@ Swarm Management Router
 =======================
 Manages the agent swarm - discovery, deployment, telemetry.
 """
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
@@ -16,6 +16,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/swarm", tags=["Swarm Management"])
+
+# Default server URL embedded in the Windows batch installer.
+# Kept as a constant so it only needs to be updated in one place.
+_BAT_DEFAULT_SERVER_URL = "http://165.22.41.184:8001"
 
 SWARM_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
 
@@ -546,7 +550,15 @@ async def trigger_network_scan(
     
     discovery = get_network_discovery()
     if discovery is None:
-        raise HTTPException(status_code=503, detail="Network discovery service not running")
+        # Auto-start the discovery service on first use
+        try:
+            discovery = await start_network_discovery(db, scan_interval_s=300)
+            logger.info("Started NetworkDiscoveryService on demand for /swarm/scan")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Network discovery service could not be started: {exc}"
+            )
     
     # Run scan in background
     async def run_scan():
@@ -580,113 +592,108 @@ async def get_scan_status(current_user: dict = Depends(get_current_user)):
 # =============================================================================
 
 @router.get("/agent/download/{platform}")
-async def download_agent(platform: str):
-    """Download the Seraph Defender agent for the specified platform"""
-    from fastapi.responses import FileResponse, PlainTextResponse
-    import os
-    
-    agent_path = "/app/scripts/seraph_defender.py"
-    local_agent_path = "/app/scripts/seraph_defender_local.py"
-    v7_agent_path = "/app/scripts/seraph_defender_v7.py"
-    
-    if platform == "linux":
-        return FileResponse(
-            agent_path,
-            media_type="text/x-python",
-            filename="seraph_defender.py"
-        )
-    elif platform == "windows":
-        return FileResponse(
-            agent_path,
-            media_type="text/x-python",
-            filename="seraph_defender.py"
-        )
-    elif platform == "macos":
-        return FileResponse(
-            agent_path,
-            media_type="text/x-python",
-            filename="seraph_defender.py"
-        )
-    elif platform == "local":
-        # Local dashboard version
-        if not os.path.exists(local_agent_path):
-            raise HTTPException(status_code=404, detail="Local agent not found")
-        return FileResponse(
-            local_agent_path,
-            media_type="text/x-python",
-            filename="seraph_defender_local.py"
-        )
-    elif platform == "v7" or platform == "full":
-        # Full protection with local dashboard
-        if not os.path.exists(v7_agent_path):
-            raise HTTPException(status_code=404, detail="V7 agent not found")
-        return FileResponse(
-            v7_agent_path,
-            media_type="text/x-python",
-            filename="seraph_defender_v7.py"
-        )
-    elif platform == "scanner":
-        scanner_path = "/app/scripts/seraph_network_scanner.py"
-        if not os.path.exists(scanner_path):
-            raise HTTPException(status_code=404, detail="Scanner not found")
-        return FileResponse(
-            scanner_path,
-            media_type="text/x-python",
-            filename="seraph_network_scanner.py"
-        )
-    elif platform == "mobile":
-        mobile_path = "/app/scripts/seraph_mobile_agent.py"
-        if not os.path.exists(mobile_path):
-            raise HTTPException(status_code=404, detail="Mobile agent not found")
-        return FileResponse(
-            mobile_path,
-            media_type="text/x-python",
-            filename="seraph_mobile_agent.py"
-        )
-    elif platform == "mobile-v7" or platform == "mobile-full":
-        mobile_v7_path = "/app/scripts/seraph_mobile_v7.py"
-        if not os.path.exists(mobile_v7_path):
-            raise HTTPException(status_code=404, detail="Mobile v7 agent not found")
-        return FileResponse(
-            mobile_v7_path,
-            media_type="text/x-python",
-            filename="seraph_mobile_v7.py"
-        )
-    elif platform == "windows-installer" or platform == "batch":
+async def download_agent(platform: str, request: Request, server_url: Optional[str] = None):
+    """
+    Download the Seraph agent for the specified platform.
+
+    All agent platforms now serve the Unified Agent package.
+    Legacy platform names (linux, windows, macos, local, v7, full, scanner,
+    mobile, mobile-v7, mobile-full) are silently mapped to the canonical
+    unified agent endpoints so existing bookmarks and installers keep working.
+
+    Special platforms that still serve distinct content:
+      - windows-installer / batch  → install_seraph_windows.bat
+      - browser-extension          → browser extension ZIP
+    """
+    from fastapi.responses import FileResponse, StreamingResponse, Response
+    import io, os, zipfile, tarfile
+
+    UNIFIED_AGENT_DIR = "/app/unified_agent"
+
+    # ── Windows batch installer ──────────────────────────────────────────────
+    if platform in ("windows-installer", "batch"):
         batch_path = "/app/scripts/install_seraph_windows.bat"
         if not os.path.exists(batch_path):
             raise HTTPException(status_code=404, detail="Windows installer not found")
-        return FileResponse(
-            batch_path,
-            media_type="application/x-bat",
-            filename="install_seraph_windows.bat"
+
+        # Derive the backend server URL from the inbound request.
+        # In production, nginx sets the Host header correctly so
+        # request.base_url reflects the actual public address of the Droplet.
+        if not server_url:
+            base = request.base_url          # e.g. http://165.22.41.184:8001/
+            server_url = str(base).rstrip("/")
+
+        with open(batch_path, "r", encoding="utf-8") as fh:
+            content = fh.read()
+
+        # Replace the hard-coded default server URL with the live one.
+        content = content.replace(
+            f'set "SERAPH_SERVER={_BAT_DEFAULT_SERVER_URL}"',
+            f'set "SERAPH_SERVER={server_url}"',
+            1,
         )
-    elif platform == "browser-extension":
-        # Create zip of browser extension
-        import zipfile
-        import io
-        
+
+        return Response(
+            content=content.encode("utf-8"),
+            media_type="application/x-bat",
+            headers={"Content-Disposition": "attachment; filename=install_seraph_windows.bat"},
+        )
+
+    # ── Browser extension ZIP ────────────────────────────────────────────────
+    if platform == "browser-extension":
         extension_dir = "/app/scripts/browser_extension"
         if not os.path.exists(extension_dir):
             raise HTTPException(status_code=404, detail="Browser extension not found")
-        
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk(extension_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arc_name = os.path.relpath(file_path, extension_dir)
-                    zf.write(file_path, arc_name)
-        
-        zip_buffer.seek(0)
-        from fastapi.responses import StreamingResponse
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, _dirs, files in os.walk(extension_dir):
+                for fname in files:
+                    fp = os.path.join(root, fname)
+                    zf.write(fp, os.path.relpath(fp, extension_dir))
+        buf.seek(0)
         return StreamingResponse(
-            zip_buffer,
+            buf,
             media_type="application/zip",
-            headers={"Content-Disposition": "attachment; filename=seraph_browser_shield.zip"}
+            headers={"Content-Disposition": "attachment; filename=seraph_browser_shield.zip"},
         )
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
+
+    # ── Windows ZIP (unified agent) ──────────────────────────────────────────
+    if platform in ("windows",):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for item in ("core", "requirements.txt"):
+                item_path = os.path.join(UNIFIED_AGENT_DIR, item)
+                if not os.path.exists(item_path):
+                    continue
+                if os.path.isdir(item_path):
+                    for root, _dirs, files in os.walk(item_path):
+                        for fname in files:
+                            fp = os.path.join(root, fname)
+                            zf.write(fp, os.path.relpath(fp, UNIFIED_AGENT_DIR))
+                else:
+                    zf.write(item_path, item)
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=seraph-agent-windows.zip"},
+        )
+
+    # ── All other platform names → unified agent tarball (Linux / macOS / etc.)
+    # Accepted aliases: linux, macos, local, v7, full, scanner, mobile,
+    #                   mobile-v7, mobile-full, and any future names.
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for item in ("core", "requirements.txt"):
+            item_path = os.path.join(UNIFIED_AGENT_DIR, item)
+            if os.path.exists(item_path):
+                tar.add(item_path, arcname=item)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/gzip",
+        headers={"Content-Disposition": "attachment; filename=seraph-agent.tar.gz"},
+    )
 
 
 # =============================================================================

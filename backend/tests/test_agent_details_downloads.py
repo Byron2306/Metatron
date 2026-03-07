@@ -16,20 +16,18 @@ BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'http://localhost:8001').rstr
 class TestAgentDownloads:
     """Test agent download endpoints"""
     
-    def test_download_advanced_agent(self):
-        """GET /api/agent/download/advanced-agent returns python script"""
-        response = requests.get(f"{BASE_URL}/api/agent/download/advanced-agent")
-        
-        assert response.status_code == 200
-        assert "text/x-python" in response.headers.get("content-type", "")
-        
-        # Verify it's the advanced agent script
-        content = response.text
-        assert "Anti-AI Defense System - Advanced Security Agent" in content
-        assert "v4.0" in content
-        assert "WebSocket" in content or "websocket" in content
-        assert "def " in content  # Contains Python functions
-        print("SUCCESS: Advanced agent download returns valid Python script")
+    def test_download_advanced_agent_redirects_to_unified(self):
+        """GET /api/agent/download/advanced-agent now redirects to the unified agent download"""
+        response = requests.get(f"{BASE_URL}/api/agent/download/advanced-agent", allow_redirects=False)
+        # Expect a redirect (307/308/301/302) to the unified agent download
+        assert response.status_code in (301, 302, 307, 308), (
+            f"Expected redirect, got {response.status_code}"
+        )
+        location = response.headers.get("location", "")
+        assert "unified" in location or "agent/download" in location, (
+            f"Redirect location unexpected: {location}"
+        )
+        print("SUCCESS: advanced-agent endpoint redirects to unified agent download")
     
     def test_download_defender_installer(self):
         """GET /api/agent/download/installer returns defender installer script"""
@@ -45,17 +43,11 @@ class TestAgentDownloads:
         print("SUCCESS: Defender installer download returns valid Python script")
     
     def test_download_content_disposition(self):
-        """Download endpoints set correct Content-Disposition header"""
-        # Advanced agent
-        response = requests.get(f"{BASE_URL}/api/agent/download/advanced-agent")
-        assert "attachment" in response.headers.get("content-disposition", "")
-        assert "advanced_agent.py" in response.headers.get("content-disposition", "")
-        
-        # Installer
+        """Installer endpoint sets correct Content-Disposition header"""
         response = requests.get(f"{BASE_URL}/api/agent/download/installer")
         assert "attachment" in response.headers.get("content-disposition", "")
         assert "defender_installer.py" in response.headers.get("content-disposition", "")
-        print("SUCCESS: Download endpoints set correct Content-Disposition headers")
+        print("SUCCESS: Installer download endpoint sets correct Content-Disposition header")
 
 
 class TestAgentCommandsAPI:
