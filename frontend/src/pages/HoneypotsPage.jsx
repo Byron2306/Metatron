@@ -237,7 +237,7 @@ const HoneypotsPage = () => {
       fetchHoneypots();
     } catch (error) {
       if (error.response?.status === 403) {
-        toast.error('Permission denied. Admin access required to deploy honeypots.');
+        toast.error('Permission denied. Write access required to deploy honeypots.');
       } else {
         toast.error('Failed to deploy honeypot');
       }

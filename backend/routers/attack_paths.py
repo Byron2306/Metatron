@@ -20,7 +20,7 @@ Version: 1.0.0
 
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
 import asyncio
 import logging
@@ -34,10 +34,121 @@ from attack_path_analysis import (
     AttackPath,
     BlastRadiusResult,
 )
+from .dependencies import check_permission, get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/attack-paths", tags=["Attack Path Analysis"])
+
+_CROWN_JEWELS_COLLECTION = "attack_path_crown_jewels"
+
+
+async def _persist_crown_jewel(asset: CrownJewelAsset) -> None:
+    db = get_db()
+    if db is None:
+        return
+    await db[_CROWN_JEWELS_COLLECTION].update_one(
+        {"asset_id": asset.asset_id},
+        {
+            "$set": {
+                "asset_id": asset.asset_id,
+                "name": asset.name,
+                "asset_type": asset.asset_type.value,
+                "identifier": asset.identifier,
+                "criticality": asset.criticality.value,
+                "description": asset.description,
+                "owner": asset.owner,
+                "data_classification": asset.data_classification,
+                "compliance_scope": asset.compliance_scope,
+                "tags": asset.tags,
+                "dependencies": asset.dependencies,
+                "network_zone": asset.network_zone,
+                "created_at": asset.created_at,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+        upsert=True,
+    )
+
+
+async def _remove_crown_jewel(asset_id: str) -> None:
+    db = get_db()
+    if db is None:
+        return
+    await db[_CROWN_JEWELS_COLLECTION].delete_one({"asset_id": asset_id})
+
+
+async def _hydrate_crown_jewels_from_db() -> None:
+    """Rehydrate in-memory analyzer from persisted crown jewel records."""
+    analyzer = get_attack_path_analyzer()
+    if analyzer.crown_jewels:
+        return
+
+    db = get_db()
+    if db is None:
+        return
+
+    docs = await db[_CROWN_JEWELS_COLLECTION].find({}, {"_id": 0}).to_list(1000)
+    for doc in docs:
+        try:
+            asset = CrownJewelAsset(
+                name=doc.get("name", "Unnamed Asset"),
+                asset_type=AssetType(doc.get("asset_type", "application_server")),
+                identifier=doc.get("identifier", "unknown"),
+                criticality=CriticalityLevel(doc.get("criticality", "high")),
+                description=doc.get("description", ""),
+                owner=doc.get("owner", ""),
+                data_classification=doc.get("data_classification", "confidential"),
+                compliance_scope=doc.get("compliance_scope", []),
+                tags=doc.get("tags", {}),
+                dependencies=doc.get("dependencies", []),
+                network_zone=doc.get("network_zone", "internal"),
+                asset_id=doc.get("asset_id"),
+                created_at=doc.get("created_at") or datetime.now(timezone.utc).isoformat(),
+                updated_at=doc.get("updated_at") or datetime.now(timezone.utc).isoformat(),
+            )
+            analyzer.register_crown_jewel(asset)
+        except Exception as exc:
+            logger.warning(f"Skipping invalid persisted crown jewel record: {exc}")
+
+
+async def _create_crown_jewel(request: "AssetCreateRequest") -> CrownJewelAsset:
+    try:
+        asset_type = AssetType(request.asset_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid asset type: {request.asset_type}. "
+                   f"Valid types: {[t.value for t in AssetType]}"
+        )
+
+    try:
+        criticality = CriticalityLevel(request.criticality)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid criticality: {request.criticality}. "
+                   f"Valid levels: {[c.value for c in CriticalityLevel]}"
+        )
+
+    analyzer = get_attack_path_analyzer()
+    asset = CrownJewelAsset(
+        name=request.name,
+        asset_type=asset_type,
+        identifier=request.identifier,
+        criticality=criticality,
+        description=request.description or "",
+        owner=request.owner or "",
+        data_classification=request.data_classification or "confidential",
+        compliance_scope=request.compliance_scope or [],
+        tags=request.tags or {},
+        dependencies=request.dependencies or [],
+        network_zone=request.network_zone or "internal",
+    )
+
+    analyzer.register_crown_jewel(asset)
+    await _persist_crown_jewel(asset)
+    return asset
 
 
 # =============================================================================
@@ -138,7 +249,10 @@ class GraphResponse(BaseModel):
 # =============================================================================
 
 @router.post("/assets", response_model=AssetResponse, status_code=201)
-async def register_asset(request: AssetCreateRequest):
+async def register_asset(
+    request: AssetCreateRequest,
+    current_user: dict = Depends(check_permission("manage_users")),
+):
     """
     Register a crown jewel asset for attack path monitoring.
     
@@ -149,41 +263,9 @@ async def register_asset(request: AssetCreateRequest):
     - Priority alerting
     - Compliance tracking
     """
-    try:
-        asset_type = AssetType(request.asset_type)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid asset type: {request.asset_type}. "
-                   f"Valid types: {[t.value for t in AssetType]}"
-        )
-    
-    try:
-        criticality = CriticalityLevel(request.criticality)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid criticality: {request.criticality}. "
-                   f"Valid levels: {[c.value for c in CriticalityLevel]}"
-        )
-    
-    analyzer = get_attack_path_analyzer()
-    
-    asset = CrownJewelAsset(
-        name=request.name,
-        asset_type=asset_type,
-        identifier=request.identifier,
-        criticality=criticality,
-        description=request.description or "",
-        owner=request.owner or "",
-        data_classification=request.data_classification or "confidential",
-        compliance_scope=request.compliance_scope or [],
-        tags=request.tags or {},
-        dependencies=request.dependencies or [],
-        network_zone=request.network_zone or "internal",
-    )
-    
-    analyzer.register_crown_jewel(asset)
+    _ = current_user
+    await _hydrate_crown_jewels_from_db()
+    asset = await _create_crown_jewel(request)
     
     return AssetResponse(
         asset_id=asset.asset_id,
@@ -217,6 +299,7 @@ async def list_assets(
     
     Supports filtering by various criteria.
     """
+    await _hydrate_crown_jewels_from_db()
     analyzer = get_attack_path_analyzer()
     assets = list(analyzer.crown_jewels.values())
     
@@ -263,6 +346,7 @@ async def list_assets(
 @router.get("/assets/{asset_id}", response_model=AssetResponse)
 async def get_asset(asset_id: str):
     """Get details of a specific crown jewel asset."""
+    await _hydrate_crown_jewels_from_db()
     analyzer = get_attack_path_analyzer()
     
     asset = analyzer.crown_jewels.get(asset_id)
@@ -289,14 +373,20 @@ async def get_asset(asset_id: str):
 
 
 @router.delete("/assets/{asset_id}")
-async def delete_asset(asset_id: str):
+async def delete_asset(
+    asset_id: str,
+    current_user: dict = Depends(check_permission("manage_users")),
+):
     """Remove a crown jewel asset from monitoring."""
+    _ = current_user
+    await _hydrate_crown_jewels_from_db()
     analyzer = get_attack_path_analyzer()
     
     if asset_id not in analyzer.crown_jewels:
         raise HTTPException(status_code=404, detail=f"Asset not found: {asset_id}")
     
     del analyzer.crown_jewels[asset_id]
+    await _remove_crown_jewel(asset_id)
     
     return {"message": f"Asset {asset_id} removed", "timestamp": datetime.now(timezone.utc).isoformat()}
 
@@ -312,6 +402,7 @@ async def get_blast_radius(
     Returns all assets that could be affected by the compromise,
     categorized by criticality and impact level.
     """
+    await _hydrate_crown_jewels_from_db()
     analyzer = get_attack_path_analyzer()
     
     if asset_id not in analyzer.crown_jewels:
@@ -356,6 +447,7 @@ async def get_attack_paths(
     Identifies potential attack chains from external or internal
     threat sources to the target asset.
     """
+    await _hydrate_crown_jewels_from_db()
     analyzer = get_attack_path_analyzer()
     
     if asset_id not in analyzer.crown_jewels:
@@ -409,6 +501,7 @@ async def run_full_analysis(
     - Common vulnerabilities across paths
     - Risk heatmap by asset and zone
     """
+    await _hydrate_crown_jewels_from_db()
     analyzer = get_attack_path_analyzer()
     
     if not analyzer.crown_jewels:
@@ -488,6 +581,7 @@ async def get_attack_graph(
     Returns nodes (assets) and edges (relationships/paths)
     suitable for graph visualization libraries.
     """
+    await _hydrate_crown_jewels_from_db()
     analyzer = get_attack_path_analyzer()
     
     # Build nodes
@@ -552,9 +646,231 @@ async def get_attack_graph(
     )
 
 
+# =============================================================================
+# FRONTEND COMPATIBILITY ENDPOINTS
+# =============================================================================
+
+@router.get("/analysis")
+async def get_analysis_compat():
+    """Compatibility endpoint for AttackPathsPage initial load."""
+    await _hydrate_crown_jewels_from_db()
+    analyzer = get_attack_path_analyzer()
+
+    # Reuse existing graph builder output and normalize key naming.
+    graph = await get_attack_graph(include_paths=True)
+    graph_data = graph.model_dump() if hasattr(graph, "model_dump") else graph.dict()
+
+    critical_paths = []
+    for path in sorted(analyzer.attack_paths.values(), key=lambda p: p.risk_score, reverse=True):
+        if path.risk_score < 70:
+            continue
+        critical_paths.append({
+            "id": path.path_id,
+            "name": f"{path.source_asset} -> {path.target_asset}",
+            "risk_score": path.risk_score,
+            "length": len(path.steps),
+            "techniques": path.mitre_techniques,
+            "blocked": False,
+        })
+
+    graph_nodes = graph_data.get("nodes", [])
+    graph_edges = graph_data.get("edges", [])
+
+    # If no attack-path assets are configured yet, show discovered fleet nodes so the UI is not empty.
+    if not graph_nodes:
+        try:
+            from routers.dependencies import get_db
+            db = get_db()
+            if db is not None:
+                discovered = await db.discovered_devices.find({}, {"_id": 0}).sort("last_seen", -1).to_list(40)
+                for d in discovered:
+                    ip = d.get("ip_address") or d.get("hostname")
+                    if not ip:
+                        continue
+                    graph_nodes.append({
+                        "id": ip,
+                        "label": d.get("hostname") or ip,
+                        "name": d.get("hostname") or ip,
+                        "type": "asset",
+                        "risk_score": d.get("risk_score", 50),
+                    })
+        except Exception:
+            # Keep empty fallback payload on db access issues.
+            pass
+
+    if not graph_nodes:
+        graph_nodes = [{
+            "id": "local-fleet",
+            "label": "Local Fleet",
+            "name": "Local Fleet",
+            "type": "asset",
+            "risk_score": 0,
+        }]
+
+    return {
+        "attack_graph": {
+            "nodes": graph_nodes,
+            "edges": graph_edges,
+        },
+        "critical_paths": critical_paths,
+    }
+
+
+@router.get("/crown-jewels")
+async def get_crown_jewels_compat():
+    """Compatibility endpoint for AttackPathsPage crown jewel panel."""
+    await _hydrate_crown_jewels_from_db()
+    analyzer = get_attack_path_analyzer()
+
+    crown_jewels = []
+    for asset in analyzer.crown_jewels.values():
+        inbound_paths = [p for p in analyzer.attack_paths.values() if p.target_asset == asset.asset_id]
+        crown_jewels.append({
+            "id": asset.asset_id,
+            "name": asset.name,
+            "criticality": asset.criticality.value,
+            "type": asset.asset_type.value,
+            "paths_to": len(inbound_paths),
+        })
+
+    return {"crown_jewels": crown_jewels, "count": len(crown_jewels)}
+
+
+@router.post("/crown-jewels")
+async def add_crown_jewel_compat(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(check_permission("manage_users")),
+):
+    """Compatibility endpoint for quickly adding crown jewels from the UI."""
+    _ = current_user
+    await _hydrate_crown_jewels_from_db()
+    name = (payload.get("name") or "").strip()
+    identifier = (payload.get("identifier") or payload.get("ip") or payload.get("hostname") or "").strip()
+    if not name or not identifier:
+        raise HTTPException(status_code=400, detail="name and identifier are required")
+
+    raw_asset_type = (payload.get("asset_type") or payload.get("type") or "application_server").strip().lower()
+    asset_type_aliases = {
+        "server": "application_server",
+        "database": "database_server",
+        "db": "database_server",
+        "identity": "domain_controller",
+        "secrets_vault": "secret_vault",
+        "network": "network_device",
+    }
+    normalized_asset_type = asset_type_aliases.get(raw_asset_type, raw_asset_type)
+
+    request = AssetCreateRequest(
+        name=name,
+        asset_type=normalized_asset_type,
+        identifier=identifier,
+        criticality=(payload.get("criticality") or "critical"),
+        description=payload.get("description"),
+        owner=payload.get("owner"),
+        data_classification=payload.get("data_classification"),
+        compliance_scope=payload.get("compliance_scope"),
+        tags=payload.get("tags"),
+        dependencies=payload.get("dependencies"),
+        network_zone=payload.get("network_zone"),
+    )
+
+    created_asset = await _create_crown_jewel(request)
+    created = AssetResponse(
+        asset_id=created_asset.asset_id,
+        name=created_asset.name,
+        asset_type=created_asset.asset_type.value,
+        identifier=created_asset.identifier,
+        criticality=created_asset.criticality.value,
+        criticality_score=created_asset.criticality_score,
+        description=created_asset.description,
+        owner=created_asset.owner,
+        data_classification=created_asset.data_classification,
+        compliance_scope=created_asset.compliance_scope,
+        tags=created_asset.tags,
+        dependencies=created_asset.dependencies,
+        network_zone=created_asset.network_zone,
+        created_at=created_asset.created_at,
+        updated_at=created_asset.updated_at,
+    )
+    created_data = created.model_dump() if hasattr(created, "model_dump") else created.dict()
+
+    return {
+        "status": "created",
+        "asset": {
+            "id": created_data.get("asset_id"),
+            "name": created_data.get("name"),
+            "criticality": created_data.get("criticality"),
+            "type": created_data.get("asset_type"),
+            "identifier": created_data.get("identifier"),
+        }
+    }
+
+
+@router.get("/stats")
+async def get_stats_compat():
+    """Compatibility endpoint for AttackPathsPage stat cards."""
+    await _hydrate_crown_jewels_from_db()
+    analyzer = get_attack_path_analyzer()
+    paths = list(analyzer.attack_paths.values())
+
+    total_assets = len(analyzer.crown_jewels)
+    critical_paths = len([p for p in paths if p.risk_score >= 70])
+    high_risk_nodes = len([a for a in analyzer.crown_jewels.values() if a.criticality_score >= 70])
+    avg_path_length = round((sum(len(p.steps) for p in paths) / len(paths)), 2) if paths else 0
+
+    return {
+        "total_assets": total_assets,
+        "critical_paths": critical_paths,
+        "high_risk_nodes": high_risk_nodes,
+        "avg_path_length": avg_path_length,
+        "blocked_paths": 0,
+    }
+
+
+@router.post("/analyze")
+async def analyze_compat(payload: Dict[str, Any]):
+    """Compatibility endpoint for AttackPathsPage manual analysis action."""
+    request = FullAnalysisRequest(
+        include_external_threats=bool(payload.get("include_external_threats", True)),
+        max_path_length=int(payload.get("max_depth", 10) or 10),
+        min_risk_score=int(payload.get("min_risk_score", 0) or 0),
+    )
+    result = await run_full_analysis(request=request, background_tasks=BackgroundTasks())
+    return result.model_dump() if hasattr(result, "model_dump") else result.dict()
+
+
+@router.get("/blast-radius/{node_id}")
+async def get_blast_radius_compat(node_id: str):
+    """Compatibility endpoint for AttackPathsPage node click blast-radius request."""
+    await _hydrate_crown_jewels_from_db()
+    analyzer = get_attack_path_analyzer()
+
+    # Frontend may click non-asset graph nodes; fail open with a neutral payload.
+    if node_id not in analyzer.crown_jewels:
+        return {
+            "source_node": node_id,
+            "affected_assets": 0,
+            "critical_assets_at_risk": 0,
+            "max_depth": 0,
+            "affected_nodes": [],
+        }
+
+    result = await analyzer.calculate_blast_radius(node_id, max_depth=3)
+    return {
+        "source_node": node_id,
+        "affected_assets": result.total_affected,
+        "critical_assets_at_risk": len([
+            a for a in result.affected_assets if getattr(a.criticality, "value", str(a.criticality)) in {"critical", "crown_jewel"}
+        ]),
+        "max_depth": 3,
+        "affected_nodes": [a.asset_id for a in result.affected_assets],
+    }
+
+
 @router.get("/health")
 async def health_check():
     """Health check for attack path analysis service."""
+    await _hydrate_crown_jewels_from_db()
     analyzer = get_attack_path_analyzer()
     
     return {

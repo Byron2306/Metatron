@@ -51,9 +51,13 @@ const VPNPage = () => {
   const handleInitialize = async () => {
     setLoading(true);
     try {
-      await axios.post(`${API}/vpn/initialize`, {}, { headers });
-      toast.success('VPN server initialized');
-      fetchStatus();
+      const res = await axios.post(`${API}/vpn/initialize`, {}, { headers });
+      if (res.data?.status === 'error') {
+        toast.error(res.data?.error || 'Failed to initialize VPN');
+      } else {
+        toast.success('VPN server initialized');
+        await fetchStatus();
+      }
     } catch (err) {
       toast.error('Failed to initialize VPN');
     } finally {
@@ -64,9 +68,13 @@ const VPNPage = () => {
   const handleStart = async () => {
     setLoading(true);
     try {
-      await axios.post(`${API}/vpn/start`, {}, { headers });
-      toast.success('VPN server started');
-      fetchStatus();
+      const res = await axios.post(`${API}/vpn/start`, {}, { headers });
+      if (res.data?.status === 'error') {
+        toast.error(res.data?.error || 'Failed to start VPN');
+      } else {
+        toast.success('VPN start requested');
+        await fetchStatus();
+      }
     } catch (err) {
       toast.error('Failed to start VPN');
     } finally {
@@ -77,9 +85,13 @@ const VPNPage = () => {
   const handleStop = async () => {
     setLoading(true);
     try {
-      await axios.post(`${API}/vpn/stop`, {}, { headers });
-      toast.info('VPN server stopped');
-      fetchStatus();
+      const res = await axios.post(`${API}/vpn/stop`, {}, { headers });
+      if (res.data?.status === 'error') {
+        toast.error(res.data?.error || 'Failed to stop VPN');
+      } else {
+        toast.info('VPN server stopped');
+        await fetchStatus();
+      }
     } catch (err) {
       toast.error('Failed to stop VPN');
     } finally {

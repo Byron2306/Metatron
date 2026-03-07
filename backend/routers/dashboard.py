@@ -10,6 +10,77 @@ from .dependencies import (
     DashboardStats, ThreatResponse, AlertResponse, get_current_user, get_db
 )
 
+from fastapi.responses import JSONResponse
+@router.get("/edm-dlp/aggregated-stats")
+async def get_edm_dlp_aggregated_stats(current_user: dict = Depends(get_current_user)):
+    db = get_db()
+
+    # EDM Hits
+    edm_hits = await db.agent_edm_hits.count_documents({})
+    edm_hits_timeline = []
+    edm_hits_by_dataset = []
+    edm_dataset_pipeline = [{"$group": {"_id": "$dataset", "value": {"$sum": 1}}}]
+    dataset_results = await db.agent_edm_hits.aggregate(edm_dataset_pipeline).to_list(10)
+    for r in dataset_results:
+        edm_hits_by_dataset.append({"dataset": r["_id"], "value": r["value"]})
+
+    # Timeline: last 24h (hourly)
+    from datetime import datetime, timedelta
+    now = datetime.now(timezone.utc)
+    for i in range(24):
+        hour = now - timedelta(hours=i)
+        count = await db.agent_edm_hits.count_documents({"timestamp": {"$gte": hour.replace(minute=0, second=0, microsecond=0), "$lt": hour.replace(minute=59, second=59, microsecond=999999)}})
+        edm_hits_timeline.append({"time": hour.strftime("%H:00"), "hits": count})
+    edm_hits_timeline.reverse()
+
+    # DLP Scans
+    dlp_scans = await db.agent_monitor_telemetry.count_documents({"dlp": {"$exists": True}})
+    dlp_scans_timeline = []
+    for i in range(24):
+        hour = now - timedelta(hours=i)
+        count = await db.agent_monitor_telemetry.count_documents({"timestamp": {"$gte": hour.replace(minute=0, second=0, microsecond=0), "$lt": hour.replace(minute=59, second=59, microsecond=999999)}, "dlp": {"$exists": True}})
+        dlp_scans_timeline.append({"time": hour.strftime("%H:00"), "scans": count})
+    dlp_scans_timeline.reverse()
+
+    # Policy Violations (DLP)
+    policy_pipeline = [{"$group": {"_id": "$dlp.policy", "value": {"$sum": 1}}}]
+    policy_results = await db.agent_monitor_telemetry.aggregate(policy_pipeline).to_list(10)
+    dlp_policy_violations = [{"policy": r["_id"], "value": r["value"]} for r in policy_results if r["_id"]]
+    total_policy_violations = sum([r["value"] for r in dlp_policy_violations])
+
+    # Suppression Events (EDM/DLP)
+    suppression_events = await db.agent_edm_hits.count_documents({"suppressed": True})
+
+    # Event Timeline (last 20 events)
+    event_timeline = []
+    edm_events = await db.agent_edm_hits.find({}, {"_id": 0, "timestamp": 1, "dataset": 1, "suppressed": 1}).sort("timestamp", -1).to_list(10)
+    for e in edm_events:
+        event_timeline.append({
+            "type": "EDM Hit",
+            "description": f"Dataset: {e.get('dataset', 'unknown')}, Suppressed: {e.get('suppressed', False)}",
+            "timestamp": e.get("timestamp")
+        })
+    dlp_events = await db.agent_monitor_telemetry.find({"dlp": {"$exists": True}}, {"_id": 0, "timestamp": 1, "dlp": 1}).sort("timestamp", -1).to_list(10)
+    for d in dlp_events:
+        event_timeline.append({
+            "type": "DLP Scan",
+            "description": f"Policy: {d.get('dlp', {}).get('policy', 'unknown')}, Violations: {d.get('dlp', {}).get('violations', 0)}",
+            "timestamp": d.get("timestamp")
+        })
+    event_timeline = sorted(event_timeline, key=lambda x: x["timestamp"], reverse=True)[:20]
+
+    return JSONResponse({
+        "total_edm_hits": edm_hits,
+        "edm_hits_timeline": edm_hits_timeline,
+        "edm_hits_by_dataset": edm_hits_by_dataset,
+        "total_dlp_scans": dlp_scans,
+        "dlp_scans_timeline": dlp_scans_timeline,
+        "dlp_policy_violations": dlp_policy_violations,
+        "total_policy_violations": total_policy_violations,
+        "total_suppression_events": suppression_events,
+        "event_timeline": event_timeline
+    })
+
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 @router.get("/stats", response_model=DashboardStats)

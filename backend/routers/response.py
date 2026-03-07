@@ -17,6 +17,11 @@ from threat_response import (
 
 router = APIRouter(prefix="/threat-response", tags=["Threat Response"])
 
+
+def _configure_response_engine_db(db):
+    """Ensure threat response durability writes use the active DB handle."""
+    response_engine.configure_db(db)
+
 class BlockIPRequest(BaseModel):
     ip: str
     reason: str = "Manual block"
@@ -29,18 +34,21 @@ class SMSTestRequest(BaseModel):
 @router.get("/stats")
 async def get_response_stats(current_user: dict = Depends(get_current_user)):
     """Get threat response statistics"""
+    _configure_response_engine_db(get_db())
     return await response_engine.get_response_stats()
 
 @router.get("/blocked-ips")
 async def get_blocked_ips(current_user: dict = Depends(get_current_user)):
     """Get list of blocked IPs"""
-    # get_blocked_ips is sync, not async
-    return firewall.get_blocked_ips()
+    _configure_response_engine_db(get_db())
+    # FirewallManager tracks state, but the public accessor is exposed on response_engine.
+    return response_engine.get_blocked_ips()
 
 @router.post("/block-ip")
 async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_permission("write"))):
     """Manually block an IP address"""
     try:
+        _configure_response_engine_db(get_db())
         result = await manual_block_ip(
             request.ip,
             request.reason,
@@ -56,6 +64,7 @@ async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_p
 async def unblock_ip(ip: str, current_user: dict = Depends(check_permission("write"))):
     """Unblock an IP address"""
     try:
+        _configure_response_engine_db(get_db())
         result = await manual_unblock_ip(ip, current_user.get("name", "admin"))
         return result
     except Exception as e:
@@ -66,6 +75,7 @@ async def unblock_ip(ip: str, current_user: dict = Depends(check_permission("wri
 async def get_response_history(limit: int = 50, current_user: dict = Depends(get_current_user)):
     """Get response action history"""
     db = get_db()
+    _configure_response_engine_db(db)
     history = await db.response_history.find({}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
     return {"history": history, "count": len(history)}
 

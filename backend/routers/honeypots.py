@@ -52,7 +52,7 @@ class ConnectionManager:
 ws_manager = ConnectionManager()
 
 @router.post("", response_model=HoneypotResponse)
-async def create_honeypot(honeypot_data: HoneypotCreate, current_user: dict = Depends(check_permission("manage_honeypots"))):
+async def create_honeypot(honeypot_data: HoneypotCreate, current_user: dict = Depends(check_permission("write"))):
     """Create a new honeypot"""
     db = get_db()
     honeypot_id = str(uuid.uuid4())
@@ -187,7 +187,7 @@ async def get_honeypot_interactions(honeypot_id: str, current_user: dict = Depen
     return [HoneypotInteraction(**i) for i in interactions]
 
 @router.patch("/{honeypot_id}/status")
-async def update_honeypot_status(honeypot_id: str, status: str, current_user: dict = Depends(check_permission("manage_honeypots"))):
+async def update_honeypot_status(honeypot_id: str, status: str, current_user: dict = Depends(check_permission("write"))):
     """Update honeypot status"""
     db = get_db()
     if status not in ["active", "inactive", "triggered"]:

@@ -15,6 +15,7 @@ from enum import Enum
 import logging
 
 from deception_engine import deception_engine, RouteDecision, EscalationLevel
+from .dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,13 @@ class DecoyInteractionRequest(BaseModel):
     headers: Dict[str, str] = Field(default_factory=dict)
 
 
+class DeployDecoyRequest(BaseModel):
+    host_id: str = Field(default="deception-engine")
+    decoy_type: str = Field(default="credentials")
+    decoys: List[str] = Field(default_factory=lambda: ["svc_backup:Winter2026!", "api_key_trap_01"])
+    placement: str = Field(default="standard")
+
+
 class IPRequest(BaseModel):
     ip: str
 
@@ -82,7 +90,19 @@ class EventQueryParams(BaseModel):
 @router.get("/status")
 async def get_deception_status():
     """Get deception engine status and configuration"""
-    return deception_engine.get_status()
+    status = deception_engine.get_status()
+
+    # Frontend compatibility: DeceptionPage expects top-level engine/status booleans.
+    config = status.get("config", {}) if isinstance(status, dict) else {}
+    return {
+        **status,
+        "engine": "Seraph Deception Engine",
+        "status": "active",
+        "uptime": status.get("uptime", "n/a") if isinstance(status, dict) else "n/a",
+        "pebbles_enabled": True,
+        "mystique_enabled": bool(config.get("mystique_enabled", True)),
+        "stonewall_enabled": bool(config.get("stonewall_enabled", True)),
+    }
 
 
 @router.get("/capabilities")
@@ -205,6 +225,24 @@ async def record_decoy_interaction(request: DecoyInteractionRequest):
         "campaign_id": assessment.campaign_id,
         "escalation_level": assessment.escalation_level.value
     }
+
+
+@router.post("/decoy/deploy")
+async def deploy_decoy(request: DeployDecoyRequest, current_user: dict = Depends(get_current_user)):
+    """Deploy decoys using the AI defense engine for Deception page quick actions."""
+    from threat_response import AIDefenseEngine
+    from dataclasses import asdict
+
+    result = await AIDefenseEngine.deploy_decoy(
+        host_id=request.host_id,
+        decoy_type=request.decoy_type,
+        decoys=request.decoys,
+        placement=request.placement,
+    )
+
+    payload = asdict(result)
+    payload["requested_by"] = current_user.get("email", "unknown")
+    return payload
 
 
 # =============================================================================

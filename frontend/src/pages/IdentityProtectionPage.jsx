@@ -179,13 +179,18 @@ const IdentityProtectionPage = () => {
       setScanning(true);
       toast.info('Running identity threat scan...');
       
-      await axios.post(`${API}/v1/identity/scan`, {
+      const res = await axios.post(`${API}/v1/identity/scan`, {
         include_kerberos: true,
         include_ldap: true,
         include_ntlm: true
       }, { headers: getAuthHeaders() });
-      
-      toast.success('Scan complete');
+
+      const activeThreats = res?.data?.active_threats ?? 0;
+      if (activeThreats > 0) {
+        toast.success(`Scan complete: ${activeThreats} active identity threats`);
+      } else {
+        toast.info('Scan complete: no active identity threats found in current telemetry window');
+      }
       await fetchData();
     } catch (error) {
       console.error('Scan failed:', error);
@@ -384,6 +389,11 @@ const IdentityProtectionPage = () => {
                 <Target className="h-5 w-5 text-red-400" />
                 Identity Threats
               </h3>
+              {threats.length === 0 && (
+                <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 text-center text-gray-400">
+                  No identity threats found yet. Run a scan or ingest AD/Kerberos/LDAP telemetry to populate this view.
+                </div>
+              )}
               {threats.map((threat, idx) => {
                 const Icon = getThreatIcon(threat.type);
                 return (
@@ -552,6 +562,11 @@ const IdentityProtectionPage = () => {
                 </h3>
               </div>
               <div className="divide-y divide-gray-800">
+                {alerts.length === 0 && (
+                  <div className="p-6 text-center text-gray-400">
+                    No identity alerts currently active.
+                  </div>
+                )}
                 {alerts.map((alert, idx) => (
                   <motion.div
                     key={alert.id}

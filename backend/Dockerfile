@@ -23,6 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     # WireGuard tools
     wireguard-tools \
+    iproute2 \
+    iptables \
+    openresolv \
     # Detection/forensics tooling
     suricata \
     yara \

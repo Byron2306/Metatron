@@ -148,6 +148,19 @@ class Playbook:
     is_template: bool = False
     template_id: Optional[str] = None  # If cloned from a template
     tags: List[str] = field(default_factory=list)
+    state_transition_log: List[Dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.state_transition_log:
+            self.state_transition_log = [
+                {
+                    "from_status": None,
+                    "to_status": self.status.value,
+                    "actor": self.created_by,
+                    "reason": "playbook created",
+                    "timestamp": self.created_at,
+                }
+            ]
 
 @dataclass
 class PlaybookTemplate:
@@ -178,6 +191,19 @@ class PlaybookExecution:
     ai_confidence: Optional[float] = None
     quarantine_refs: List[str] = field(default_factory=list)  # Links to quarantined items
     forensics_refs: List[str] = field(default_factory=list)   # Links to forensics data
+    state_transition_log: List[Dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.state_transition_log:
+            self.state_transition_log = [
+                {
+                    "from_status": None,
+                    "to_status": self.status.value,
+                    "actor": "system:soar-engine",
+                    "reason": "execution created",
+                    "timestamp": self.started_at,
+                }
+            ]
 
 
 # =============================================================================
@@ -995,7 +1021,18 @@ class SOAREngine:
         if "description" in data:
             pb.description = data["description"]
         if "status" in data:
+            previous_status = pb.status
             pb.status = PlaybookStatus(data["status"])
+            if pb.status != previous_status:
+                pb.state_transition_log.append(
+                    {
+                        "from_status": previous_status.value,
+                        "to_status": pb.status.value,
+                        "actor": data.get("updated_by", "system:soar-engine"),
+                        "reason": "playbook status updated",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
         if "trigger_conditions" in data:
             pb.trigger_conditions = data["trigger_conditions"]
         if "steps" in data:
@@ -1080,16 +1117,47 @@ class SOAREngine:
                 
                 if not step.continue_on_failure:
                     execution.step_results.append(step_result)
+                    previous_status = execution.status
                     execution.status = ExecutionStatus.FAILED
                     execution.error = f"Step {i+1} failed: {str(e)}"
+                    execution.state_transition_log.append(
+                        {
+                            "from_status": previous_status.value,
+                            "to_status": execution.status.value,
+                            "actor": "system:soar-engine",
+                            "reason": "playbook step failure",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "metadata": {"failed_step": i + 1, "action": step.action.value},
+                        }
+                    )
                     break
             
             execution.step_results.append(step_result)
         
         if all_success:
+            previous_status = execution.status
             execution.status = ExecutionStatus.COMPLETED
+            execution.state_transition_log.append(
+                {
+                    "from_status": previous_status.value,
+                    "to_status": execution.status.value,
+                    "actor": "system:soar-engine",
+                    "reason": "all playbook steps completed",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         elif execution.status != ExecutionStatus.FAILED:
+            previous_status = execution.status
             execution.status = ExecutionStatus.PARTIAL
+            execution.state_transition_log.append(
+                {
+                    "from_status": previous_status.value,
+                    "to_status": execution.status.value,
+                    "actor": "system:soar-engine",
+                    "reason": "playbook completed with partial failures",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         
         execution.completed_at = datetime.now(timezone.utc).isoformat()
         
@@ -2257,6 +2325,14 @@ class SOAREngine:
                     "priority": "critical" if "isolate" in action["action"] else "high",
                     "risk_level": "high",
                     "status": "pending_approval",
+                    "state_version": 1,
+                    "state_transition_log": [{
+                        "from_status": None,
+                        "to_status": "pending_approval",
+                        "actor": f"SOAR:{playbook_id}",
+                        "reason": "ai playbook queued command",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }],
                     "created_by": f"SOAR:{playbook_id}",
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "source": "ai_agentic_playbook",

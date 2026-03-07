@@ -1386,3 +1386,182 @@ attack_path_service = AttackPathService()
 def get_attack_path_service() -> AttackPathService:
     """Get the attack path service instance"""
     return attack_path_service
+
+
+# =============================================================================
+# LEGACY COMPATIBILITY SHIMS
+# =============================================================================
+
+class CriticalityLevel(Enum):
+    """Legacy criticality enum expected by routers.attack_paths."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+    CROWN_JEWEL = "crown_jewel"
+
+
+@dataclass
+class CrownJewelAsset:
+    """Legacy asset model expected by routers.attack_paths."""
+    name: str
+    asset_type: AssetType
+    identifier: str
+    criticality: CriticalityLevel
+    description: str = ""
+    owner: str = ""
+    data_classification: str = "confidential"
+    compliance_scope: List[str] = field(default_factory=list)
+    tags: Dict[str, str] = field(default_factory=dict)
+    dependencies: List[str] = field(default_factory=list)
+    network_zone: str = "internal"
+    asset_id: str = field(default_factory=lambda: f"cj-{uuid.uuid4().hex[:12]}")
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    @property
+    def criticality_score(self) -> int:
+        mapping = {
+            CriticalityLevel.CROWN_JEWEL: 100,
+            CriticalityLevel.CRITICAL: 90,
+            CriticalityLevel.HIGH: 70,
+            CriticalityLevel.MEDIUM: 50,
+            CriticalityLevel.LOW: 30,
+        }
+        return mapping.get(self.criticality, 10)
+
+
+@dataclass
+class BlastRadiusResult:
+    """Legacy blast-radius response model expected by routers.attack_paths."""
+    source_asset: str
+    total_affected: int
+    affected_by_criticality: Dict[CriticalityLevel, int]
+    affected_assets: List[CrownJewelAsset]
+    impact_by_asset: Dict[str, str]
+    blast_radius_score: int
+    max_criticality_affected: Optional[CriticalityLevel]
+    recommendations: List[str]
+
+
+class _LegacyAttackPathResult(NamedTuple):
+    path_id: str
+    source_asset: str
+    target_asset: str
+    risk_score: int
+    mitre_techniques: List[str]
+    steps: List[Dict[str, Any]]
+    mitigations: List[str]
+
+
+class _LegacyAttackPathAnalyzer:
+    """Minimal legacy analyzer interface used by routers.attack_paths."""
+
+    def __init__(self):
+        self.crown_jewels: Dict[str, CrownJewelAsset] = {}
+        self.attack_paths: Dict[str, _LegacyAttackPathResult] = {}
+
+    def register_crown_jewel(self, asset: CrownJewelAsset) -> str:
+        asset.updated_at = datetime.now(timezone.utc).isoformat()
+        self.crown_jewels[asset.asset_id] = asset
+        return asset.asset_id
+
+    async def calculate_blast_radius(self, asset_id: str, max_depth: int = 3) -> BlastRadiusResult:
+        source = self.crown_jewels.get(asset_id)
+        if not source:
+            raise ValueError(f"Asset not found: {asset_id}")
+
+        seen: Set[str] = {asset_id}
+        frontier: List[Tuple[str, int]] = [(asset_id, 0)]
+
+        while frontier:
+            current_id, depth = frontier.pop(0)
+            if depth >= max_depth:
+                continue
+            current = self.crown_jewels.get(current_id)
+            if not current:
+                continue
+            for dep_id in current.dependencies:
+                if dep_id in self.crown_jewels and dep_id not in seen:
+                    seen.add(dep_id)
+                    frontier.append((dep_id, depth + 1))
+
+        affected_assets = [self.crown_jewels[aid] for aid in seen if aid != asset_id]
+        by_criticality: Dict[CriticalityLevel, int] = defaultdict(int)
+        impact_by_asset: Dict[str, str] = {}
+        for a in affected_assets:
+            by_criticality[a.criticality] += 1
+            impact_by_asset[a.asset_id] = "high" if a.criticality_score >= 70 else "medium"
+
+        max_crit = max((a.criticality for a in affected_assets), key=lambda c: {
+            CriticalityLevel.CROWN_JEWEL: 5,
+            CriticalityLevel.CRITICAL: 4,
+            CriticalityLevel.HIGH: 3,
+            CriticalityLevel.MEDIUM: 2,
+            CriticalityLevel.LOW: 1,
+        }[c], default=None)
+
+        score = min(100, len(affected_assets) * 10 + source.criticality_score // 2)
+        recommendations = [
+            "Segment crown jewel dependencies with strict network policy",
+            "Apply MFA and least privilege on dependency chain",
+            "Prioritize hardening of highest criticality connected assets",
+        ]
+
+        return BlastRadiusResult(
+            source_asset=asset_id,
+            total_affected=len(affected_assets),
+            affected_by_criticality=dict(by_criticality),
+            affected_assets=affected_assets,
+            impact_by_asset=impact_by_asset,
+            blast_radius_score=score,
+            max_criticality_affected=max_crit,
+            recommendations=recommendations,
+        )
+
+    async def find_attack_paths(
+        self,
+        target_asset_id: str,
+        max_paths: int = 10,
+        min_risk_score: int = 0,
+    ) -> List[_LegacyAttackPathResult]:
+        paths: List[_LegacyAttackPathResult] = []
+        target = self.crown_jewels.get(target_asset_id)
+        if not target:
+            return paths
+
+        for source_id, source in self.crown_jewels.items():
+            if source_id == target_asset_id:
+                continue
+            risk = min(100, (source.criticality_score + target.criticality_score) // 2)
+            if risk < min_risk_score:
+                continue
+            step = {
+                "from": source_id,
+                "to": target_asset_id,
+                "technique": "T1078",
+                "description": "Potential lateral movement via trusted relationship",
+            }
+            result = _LegacyAttackPathResult(
+                path_id=f"path-{uuid.uuid4().hex[:10]}",
+                source_asset=source_id,
+                target_asset=target_asset_id,
+                risk_score=risk,
+                mitre_techniques=["T1078"],
+                steps=[step],
+                mitigations=["Enforce MFA", "Review trust relationships", "Segment network zones"],
+            )
+            self.attack_paths[result.path_id] = result
+            paths.append(result)
+            if len(paths) >= max_paths:
+                break
+
+        return paths
+
+
+_legacy_attack_path_analyzer = _LegacyAttackPathAnalyzer()
+
+
+def get_attack_path_analyzer() -> _LegacyAttackPathAnalyzer:
+    """Legacy accessor retained for router compatibility."""
+    return _legacy_attack_path_analyzer

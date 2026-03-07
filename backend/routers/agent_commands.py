@@ -10,14 +10,537 @@ import uuid
 import json
 import asyncio
 
-from .dependencies import get_current_user, check_permission, get_db
+from .dependencies import get_current_user, check_permission, get_db, logger
 
 router = APIRouter(prefix="/agent-commands", tags=["Agent Commands"])
+
+COMMAND_TERMINAL_STATUSES = {"completed", "failed", "rejected"}
+CONNECTION_STATUSES = {"connected", "disconnected"}
+AGENT_STATUS_SNAPSHOT_STATUSES = {"snapshot"}
 
 # In-memory storage for connected agents and pending commands
 connected_agents: Dict[str, WebSocket] = {}
 pending_commands: Dict[str, Dict] = {}
 command_results: Dict[str, Dict] = {}
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _transition_entry(
+    from_status: Optional[str],
+    to_status: str,
+    actor: str,
+    reason: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    entry = {
+        "timestamp": _iso_now(),
+        "from_status": from_status,
+        "to_status": to_status,
+        "actor": actor,
+        "reason": reason,
+    }
+    if metadata:
+        entry["metadata"] = metadata
+    return entry
+
+
+async def _guarded_command_transition(
+    db,
+    *,
+    command_id: str,
+    expected_statuses: List[str],
+    next_status: str,
+    actor: str,
+    reason: str,
+    expected_state_version: Optional[int] = None,
+    extra_updates: Optional[Dict[str, Any]] = None,
+    transition_metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    command = await db.agent_commands.find_one({"command_id": command_id}, {"_id": 0})
+    if not command:
+        return False
+
+    from_status = str(command.get("status") or "").lower().strip()
+    if from_status not in expected_statuses:
+        return False
+
+    resolved_version = expected_state_version
+    if resolved_version is None:
+        resolved_version = int(command.get("state_version") or 0)
+
+    query: Dict[str, Any] = {
+        "command_id": command_id,
+        "status": {"$in": expected_statuses},
+    }
+    if resolved_version <= 0:
+        query["$or"] = [{"state_version": {"$exists": False}}, {"state_version": 0}]
+    else:
+        query["state_version"] = resolved_version
+
+    set_doc = {
+        "status": next_status,
+        "updated_at": _iso_now(),
+    }
+    if extra_updates:
+        set_doc.update(extra_updates)
+
+    transition = _transition_entry(
+        from_status=from_status,
+        to_status=next_status,
+        actor=actor,
+        reason=reason,
+        metadata=transition_metadata,
+    )
+
+    update = {
+        "$set": set_doc,
+        "$inc": {"state_version": 1},
+        "$push": {"state_transition_log": transition},
+    }
+
+    result = await db.agent_commands.update_one(query, update)
+    return bool(getattr(result, "modified_count", 0))
+
+
+async def _ensure_command_state_fields(
+    db,
+    *,
+    command_id: str,
+    actor: str,
+    reason: str,
+) -> Dict[str, Any]:
+    command = await db.agent_commands.find_one({"command_id": command_id}, {"_id": 0})
+    if not command:
+        return {}
+
+    if command.get("state_version") is not None and command.get("state_transition_log") is not None:
+        return command
+
+    current_status = str(command.get("status") or "pending_approval").lower().strip()
+    bootstrap = {
+        "state_version": int(command.get("state_version") or 1),
+        "state_transition_log": command.get("state_transition_log")
+        or [
+            _transition_entry(
+                from_status=None,
+                to_status=current_status,
+                actor=actor,
+                reason=reason,
+            )
+        ],
+    }
+    await db.agent_commands.update_one({"command_id": command_id}, {"$set": bootstrap})
+    return await db.agent_commands.find_one({"command_id": command_id}, {"_id": 0}) or {}
+
+
+def _connection_transition_entry(
+    from_status: Optional[str],
+    to_status: str,
+    actor: str,
+    reason: str,
+    session_id: Optional[str],
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    entry = {
+        "timestamp": _iso_now(),
+        "from_status": from_status,
+        "to_status": to_status,
+        "actor": actor,
+        "reason": reason,
+        "session_id": session_id,
+    }
+    if metadata:
+        entry["metadata"] = metadata
+    return entry
+
+
+async def _ensure_connection_state_fields(
+    db,
+    *,
+    agent_id: str,
+    actor: str,
+    reason: str,
+) -> Dict[str, Any]:
+    connection = await db.connected_agents.find_one({"agent_id": agent_id}, {"_id": 0})
+    if not connection:
+        return {}
+
+    if (
+        connection.get("connection_state_version") is not None
+        and connection.get("connection_transition_log") is not None
+    ):
+        return connection
+
+    current_status = str(connection.get("status") or "disconnected").lower().strip()
+    if current_status not in CONNECTION_STATUSES:
+        current_status = "disconnected"
+
+    bootstrap = {
+        "connection_state_version": int(connection.get("connection_state_version") or 1),
+        "connection_transition_log": connection.get("connection_transition_log")
+        or [
+            _connection_transition_entry(
+                from_status=None,
+                to_status=current_status,
+                actor=actor,
+                reason=reason,
+                session_id=connection.get("session_id"),
+            )
+        ],
+        "updated_at": _iso_now(),
+    }
+    await db.connected_agents.update_one({"agent_id": agent_id}, {"$set": bootstrap})
+    return await db.connected_agents.find_one({"agent_id": agent_id}, {"_id": 0}) or {}
+
+
+async def _transition_connection_state(
+    db,
+    *,
+    agent_id: str,
+    expected_statuses: List[str],
+    next_status: str,
+    actor: str,
+    reason: str,
+    session_id: Optional[str],
+    expected_state_version: Optional[int] = None,
+    required_current_session_id: Optional[str] = None,
+    extra_updates: Optional[Dict[str, Any]] = None,
+    transition_metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    connection = await db.connected_agents.find_one({"agent_id": agent_id}, {"_id": 0})
+    if not connection:
+        return False
+
+    from_status = str(connection.get("status") or "").lower().strip()
+    if from_status not in expected_statuses:
+        return False
+
+    if required_current_session_id and connection.get("session_id") != required_current_session_id:
+        return False
+
+    resolved_version = expected_state_version
+    if resolved_version is None:
+        resolved_version = int(connection.get("connection_state_version") or 0)
+
+    query: Dict[str, Any] = {
+        "agent_id": agent_id,
+        "status": {"$in": expected_statuses},
+    }
+    if required_current_session_id:
+        query["session_id"] = required_current_session_id
+
+    if resolved_version <= 0:
+        query["$or"] = [
+            {"connection_state_version": {"$exists": False}},
+            {"connection_state_version": 0},
+        ]
+    else:
+        query["connection_state_version"] = resolved_version
+
+    set_doc = {
+        "status": next_status,
+        "session_id": session_id,
+        "updated_at": _iso_now(),
+    }
+    if extra_updates:
+        set_doc.update(extra_updates)
+
+    transition = _connection_transition_entry(
+        from_status=from_status,
+        to_status=next_status,
+        actor=actor,
+        reason=reason,
+        session_id=session_id,
+        metadata=transition_metadata,
+    )
+
+    result = await db.connected_agents.update_one(
+        query,
+        {
+            "$set": set_doc,
+            "$inc": {"connection_state_version": 1},
+            "$push": {"connection_transition_log": transition},
+        },
+    )
+    return bool(getattr(result, "modified_count", 0))
+
+
+async def _register_connected_session(
+    db,
+    *,
+    agent_id: str,
+    session_id: str,
+) -> bool:
+    now = _iso_now()
+    existing = await db.connected_agents.find_one({"agent_id": agent_id}, {"_id": 0})
+    if not existing:
+        await db.connected_agents.update_one(
+            {"agent_id": agent_id},
+            {
+                "$set": {
+                    "agent_id": agent_id,
+                    "connected_at": now,
+                    "status": "connected",
+                    "session_id": session_id,
+                    "last_heartbeat": now,
+                    "updated_at": now,
+                    "connection_state_version": 1,
+                    "connection_transition_log": [
+                        _connection_transition_entry(
+                            from_status=None,
+                            to_status="connected",
+                            actor="system:websocket",
+                            reason="websocket session connected",
+                            session_id=session_id,
+                        )
+                    ],
+                }
+            },
+            upsert=True,
+        )
+        return True
+
+    existing = await _ensure_connection_state_fields(
+        db,
+        agent_id=agent_id,
+        actor="system:websocket",
+        reason="bootstrap connection durability fields",
+    )
+    current_version = int(existing.get("connection_state_version") or 0)
+    current_session = existing.get("session_id")
+
+    return await _transition_connection_state(
+        db,
+        agent_id=agent_id,
+        expected_statuses=["connected", "disconnected"],
+        next_status="connected",
+        actor="system:websocket",
+        reason="websocket session connected",
+        session_id=session_id,
+        expected_state_version=current_version,
+        extra_updates={
+            "connected_at": now,
+            "last_heartbeat": now,
+            "disconnected_at": None,
+        },
+        transition_metadata={"previous_session_id": current_session},
+    )
+
+
+async def _mark_session_disconnected(
+    db,
+    *,
+    agent_id: str,
+    session_id: str,
+) -> bool:
+    existing = await _ensure_connection_state_fields(
+        db,
+        agent_id=agent_id,
+        actor="system:websocket",
+        reason="bootstrap connection durability fields",
+    )
+    if not existing:
+        return False
+
+    current_version = int(existing.get("connection_state_version") or 0)
+    return await _transition_connection_state(
+        db,
+        agent_id=agent_id,
+        expected_statuses=["connected"],
+        next_status="disconnected",
+        actor="system:websocket",
+        reason="websocket session disconnected",
+        session_id=session_id,
+        required_current_session_id=session_id,
+        expected_state_version=current_version,
+        extra_updates={"disconnected_at": _iso_now()},
+    )
+
+
+async def _record_session_heartbeat(
+    db,
+    *,
+    agent_id: str,
+    session_id: str,
+) -> bool:
+    existing = await _ensure_connection_state_fields(
+        db,
+        agent_id=agent_id,
+        actor="system:websocket",
+        reason="bootstrap connection durability fields",
+    )
+    if not existing:
+        return False
+
+    current_version = int(existing.get("connection_state_version") or 0)
+    return await _transition_connection_state(
+        db,
+        agent_id=agent_id,
+        expected_statuses=["connected"],
+        next_status="connected",
+        actor="system:websocket",
+        reason="websocket heartbeat",
+        session_id=session_id,
+        required_current_session_id=session_id,
+        expected_state_version=current_version,
+        extra_updates={"last_heartbeat": _iso_now()},
+    )
+
+
+def _agent_status_transition_entry(
+    from_status: Optional[str],
+    to_status: str,
+    actor: str,
+    reason: str,
+    session_id: Optional[str],
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    entry = {
+        "timestamp": _iso_now(),
+        "from_status": from_status,
+        "to_status": to_status,
+        "actor": actor,
+        "reason": reason,
+        "session_id": session_id,
+    }
+    if metadata:
+        entry["metadata"] = metadata
+    return entry
+
+
+async def _ensure_agent_status_state_fields(
+    db,
+    *,
+    agent_id: str,
+    actor: str,
+    reason: str,
+) -> Dict[str, Any]:
+    status_doc = await db.agent_status.find_one({"agent_id": agent_id}, {"_id": 0})
+    if not status_doc:
+        return {}
+
+    if (
+        status_doc.get("state_version") is not None
+        and status_doc.get("state_transition_log") is not None
+    ):
+        return status_doc
+
+    current_status = str(status_doc.get("status") or "snapshot").lower().strip()
+    if current_status not in AGENT_STATUS_SNAPSHOT_STATUSES:
+        current_status = "snapshot"
+
+    bootstrap = {
+        "state_version": int(status_doc.get("state_version") or 1),
+        "state_transition_log": status_doc.get("state_transition_log")
+        or [
+            _agent_status_transition_entry(
+                from_status=None,
+                to_status=current_status,
+                actor=actor,
+                reason=reason,
+                session_id=status_doc.get("last_session_id"),
+            )
+        ],
+        "status": current_status,
+        "updated_at": _iso_now(),
+    }
+    await db.agent_status.update_one({"agent_id": agent_id}, {"$set": bootstrap})
+    return await db.agent_status.find_one({"agent_id": agent_id}, {"_id": 0}) or {}
+
+
+async def _record_agent_status_snapshot(
+    db,
+    *,
+    agent_id: str,
+    session_id: str,
+    snapshot: Dict[str, Any],
+) -> bool:
+    now = _iso_now()
+    existing = await db.agent_status.find_one({"agent_id": agent_id}, {"_id": 0})
+    if not existing:
+        bootstrap = {
+            "agent_id": agent_id,
+            "hostname": snapshot.get("hostname"),
+            "os": snapshot.get("os"),
+            "ip_address": snapshot.get("ip_address"),
+            "security_status": snapshot.get("security_status") or {},
+            "last_scan": snapshot.get("last_scan"),
+            "last_session_id": session_id,
+            "status": "snapshot",
+            "updated_at": now,
+            "state_version": 1,
+            "state_transition_log": [
+                _agent_status_transition_entry(
+                    from_status=None,
+                    to_status="snapshot",
+                    actor="system:websocket",
+                    reason="initial agent status snapshot",
+                    session_id=session_id,
+                )
+            ],
+        }
+        await db.agent_status.update_one({"agent_id": agent_id}, {"$set": bootstrap}, upsert=True)
+        return True
+
+    existing = await _ensure_agent_status_state_fields(
+        db,
+        agent_id=agent_id,
+        actor="system:websocket",
+        reason="bootstrap agent status durability fields",
+    )
+    if not existing:
+        return False
+
+    current_session = existing.get("last_session_id")
+    if current_session and current_session != session_id:
+        return False
+
+    current_status = str(existing.get("status") or "snapshot").lower().strip()
+    if current_status not in AGENT_STATUS_SNAPSHOT_STATUSES:
+        return False
+
+    current_version = int(existing.get("state_version") or 0)
+    query: Dict[str, Any] = {
+        "agent_id": agent_id,
+        "status": "snapshot",
+    }
+    if current_session:
+        query["last_session_id"] = session_id
+    if current_version <= 0:
+        query["$or"] = [{"state_version": {"$exists": False}}, {"state_version": 0}]
+    else:
+        query["state_version"] = current_version
+
+    result = await db.agent_status.update_one(
+        query,
+        {
+            "$set": {
+                "agent_id": agent_id,
+                "hostname": snapshot.get("hostname"),
+                "os": snapshot.get("os"),
+                "ip_address": snapshot.get("ip_address"),
+                "security_status": snapshot.get("security_status") or {},
+                "last_scan": snapshot.get("last_scan"),
+                "last_session_id": session_id,
+                "status": "snapshot",
+                "updated_at": now,
+            },
+            "$inc": {"state_version": 1},
+            "$push": {
+                "state_transition_log": _agent_status_transition_entry(
+                    from_status=current_status,
+                    to_status="snapshot",
+                    actor="system:websocket",
+                    reason="agent status snapshot update",
+                    session_id=session_id,
+                )
+            },
+        },
+    )
+    return bool(getattr(result, "modified_count", 0))
 
 
 class CommandRequest(BaseModel):
@@ -214,6 +737,16 @@ async def create_command(
         "status": "pending_approval",
         "created_by": current_user.get("email", current_user.get("id")),
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "state_version": 1,
+        "state_transition_log": [
+            _transition_entry(
+                from_status=None,
+                to_status="pending_approval",
+                actor=current_user.get("email", current_user.get("id")) or "unknown",
+                reason="command created",
+            )
+        ],
         "approved_by": None,
         "approved_at": None,
         "executed_at": None,
@@ -248,25 +781,42 @@ async def approve_command(
 ):
     """Approve or reject a pending command"""
     db = get_db()
-    
-    command = await db.agent_commands.find_one({"command_id": command_id}, {"_id": 0})
+
+    command = await _ensure_command_state_fields(
+        db,
+        command_id=command_id,
+        actor=current_user.get("email", current_user.get("id")) or "unknown",
+        reason="bootstrap legacy command durability fields",
+    )
     if not command:
         raise HTTPException(status_code=404, detail="Command not found")
-    
+
     if command["status"] != "pending_approval":
         raise HTTPException(status_code=400, detail=f"Command already {command['status']}")
-    
+
     new_status = "approved" if approval.approved else "rejected"
-    
-    await db.agent_commands.update_one(
-        {"command_id": command_id},
-        {"$set": {
-            "status": new_status,
-            "approved_by": current_user.get("email", current_user.get("id")),
-            "approved_at": datetime.now(timezone.utc).isoformat(),
-            "approval_notes": approval.notes
-        }}
+
+    current_version = int(command.get("state_version") or 0)
+    approved_by = current_user.get("email", current_user.get("id"))
+    transitioned = await _guarded_command_transition(
+        db,
+        command_id=command_id,
+        expected_statuses=["pending_approval"],
+        next_status=new_status,
+        actor=approved_by or "unknown",
+        reason="manual command approval decision",
+        expected_state_version=current_version,
+        extra_updates={
+            "approved_by": approved_by,
+            "approved_at": _iso_now(),
+            "approval_notes": approval.notes,
+        },
+        transition_metadata={"approved": bool(approval.approved)},
     )
+    if not transitioned:
+        raise HTTPException(status_code=409, detail="Command approval conflict; state changed concurrently")
+
+    post_approval_version = current_version + 1
     
     # If approved, queue for agent pickup or send via WebSocket if connected
     if approval.approved:
@@ -292,17 +842,37 @@ async def approve_command(
                     "command_type": command["command_type"],
                     "parameters": command["parameters"]
                 })
-                await db.agent_commands.update_one(
-                    {"command_id": command_id},
-                    {"$set": {"status": "sent_to_agent"}}
+                await _guarded_command_transition(
+                    db,
+                    command_id=command_id,
+                    expected_statuses=["approved", "queued_for_pickup"],
+                    next_status="sent_to_agent",
+                    actor="system:command-dispatch",
+                    reason="command pushed over websocket during approval",
+                    expected_state_version=post_approval_version,
                 )
             except Exception as e:
                 logger.debug(f"Could not send to agent {agent_id} via WS: {e}")
+                await _guarded_command_transition(
+                    db,
+                    command_id=command_id,
+                    expected_statuses=["approved"],
+                    next_status="queued_for_pickup",
+                    actor="system:command-dispatch",
+                    reason="websocket dispatch failed; queued for pickup",
+                    expected_state_version=post_approval_version,
+                    transition_metadata={"error": str(e)},
+                )
         else:
             # Update status to indicate command is queued for pickup
-            await db.agent_commands.update_one(
-                {"command_id": command_id},
-                {"$set": {"status": "queued_for_pickup"}}
+            await _guarded_command_transition(
+                db,
+                command_id=command_id,
+                expected_statuses=["approved"],
+                next_status="queued_for_pickup",
+                actor="system:command-dispatch",
+                reason="agent offline; queued for pickup",
+                expected_state_version=post_approval_version,
             )
     
     return {"command_id": command_id, "status": new_status, "message": "Command approved and queued for agent"}
@@ -334,15 +904,37 @@ async def report_command_result(
 ):
     """Agent reports command execution result"""
     db = get_db()
-    
-    await db.agent_commands.update_one(
-        {"command_id": command_id},
-        {"$set": {
-            "status": "completed" if result.get("success") else "failed",
-            "executed_at": datetime.now(timezone.utc).isoformat(),
-            "result": result
-        }}
+
+    command = await _ensure_command_state_fields(
+        db,
+        command_id=command_id,
+        actor=current_user.get("email", current_user.get("id")) or "unknown",
+        reason="bootstrap legacy command durability fields",
     )
+    if not command:
+        raise HTTPException(status_code=404, detail="Command not found")
+
+    status = str(command.get("status") or "").lower().strip()
+    if status in COMMAND_TERMINAL_STATUSES:
+        raise HTTPException(status_code=409, detail=f"Command already terminal (status={status})")
+
+    next_status = "completed" if result.get("success") else "failed"
+    current_version = int(command.get("state_version") or 0)
+    transitioned = await _guarded_command_transition(
+        db,
+        command_id=command_id,
+        expected_statuses=["approved", "queued_for_pickup", "sent_to_agent", "deploying", "running", "in_progress"],
+        next_status=next_status,
+        actor=current_user.get("email", current_user.get("id")) or "agent:reported-result",
+        reason="command result reported",
+        expected_state_version=current_version,
+        extra_updates={
+            "executed_at": _iso_now(),
+            "result": result,
+        },
+    )
+    if not transitioned:
+        raise HTTPException(status_code=409, detail="Command result conflict; state changed concurrently")
     
     command_results[command_id] = result
     
@@ -362,27 +954,24 @@ async def get_connected_agents(current_user: dict = Depends(get_current_user)):
 async def agent_websocket(websocket: WebSocket, agent_id: str):
     """WebSocket connection for agent bi-directional communication"""
     await websocket.accept()
+    connection_session_id = str(uuid.uuid4())[:12]
     connected_agents[agent_id] = websocket
     
     db = get_db()
-    
-    # Update agent status in database
-    await db.connected_agents.update_one(
-        {"agent_id": agent_id},
-        {"$set": {
-            "agent_id": agent_id,
-            "connected_at": datetime.now(timezone.utc).isoformat(),
-            "status": "connected",
-            "last_heartbeat": datetime.now(timezone.utc).isoformat()
-        }},
-        upsert=True
+
+    registered = await _register_connected_session(
+        db,
+        agent_id=agent_id,
+        session_id=connection_session_id,
     )
+    if not registered:
+        logger.warning("Connection registration conflict for agent %s; proceeding with in-memory session", agent_id)
     
     try:
         # Send any pending approved commands
         pending = await db.agent_commands.find({
             "agent_id": agent_id,
-            "status": "approved"
+            "status": {"$in": ["approved", "queued_for_pickup"]}
         }, {"_id": 0}).to_list(100)
         
         for cmd in pending:
@@ -392,9 +981,14 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
                 "command_type": cmd["command_type"],
                 "parameters": cmd["parameters"]
             })
-            await db.agent_commands.update_one(
-                {"command_id": cmd["command_id"]},
-                {"$set": {"status": "sent_to_agent"}}
+            await _guarded_command_transition(
+                db,
+                command_id=cmd["command_id"],
+                expected_statuses=["approved", "queued_for_pickup"],
+                next_status="sent_to_agent",
+                actor="system:websocket-delivery",
+                reason="command delivered on websocket connect",
+                expected_state_version=int(cmd.get("state_version") or 0),
             )
         
         # Listen for messages from agent
@@ -402,10 +996,17 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
             data = await websocket.receive_json()
             
             if data.get("type") == "heartbeat":
-                await db.connected_agents.update_one(
-                    {"agent_id": agent_id},
-                    {"$set": {"last_heartbeat": datetime.now(timezone.utc).isoformat()}}
+                updated = await _record_session_heartbeat(
+                    db,
+                    agent_id=agent_id,
+                    session_id=connection_session_id,
                 )
+                if not updated:
+                    logger.debug(
+                        "Skipped heartbeat transition for agent %s session %s (stale or already transitioned)",
+                        agent_id,
+                        connection_session_id,
+                    )
             
             elif data.get("type") == "scan_result":
                 # Agent sending scan results
@@ -430,43 +1031,66 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
             elif data.get("type") == "command_result":
                 # Agent reporting command execution result
                 command_id = data.get("command_id")
-                await db.agent_commands.update_one(
-                    {"command_id": command_id},
-                    {"$set": {
-                        "status": "completed" if data.get("success") else "failed",
-                        "executed_at": datetime.now(timezone.utc).isoformat(),
-                        "result": data.get("result", {})
-                    }}
+                command = await _ensure_command_state_fields(
+                    db,
+                    command_id=command_id,
+                    actor=f"agent:{agent_id}",
+                    reason="bootstrap legacy command durability fields",
                 )
+                if command:
+                    status = str(command.get("status") or "").lower().strip()
+                    if status not in COMMAND_TERMINAL_STATUSES:
+                        await _guarded_command_transition(
+                            db,
+                            command_id=command_id,
+                            expected_statuses=["approved", "queued_for_pickup", "sent_to_agent", "deploying", "running", "in_progress"],
+                            next_status="completed" if data.get("success") else "failed",
+                            actor=f"agent:{agent_id}",
+                            reason="command result received via websocket",
+                            expected_state_version=int(command.get("state_version") or 0),
+                            extra_updates={
+                                "executed_at": _iso_now(),
+                                "result": data.get("result", {}),
+                            },
+                        )
             
             elif data.get("type") == "status_update":
                 # Agent sending status update
-                await db.agent_status.update_one(
-                    {"agent_id": agent_id},
-                    {"$set": {
-                        "agent_id": agent_id,
+                updated = await _record_agent_status_snapshot(
+                    db,
+                    agent_id=agent_id,
+                    session_id=connection_session_id,
+                    snapshot={
                         "hostname": data.get("hostname"),
                         "os": data.get("os"),
                         "ip_address": data.get("ip_address"),
                         "security_status": data.get("security_status", {}),
                         "last_scan": data.get("last_scan"),
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }},
-                    upsert=True
+                    },
                 )
+                if not updated:
+                    logger.debug(
+                        "Skipped status snapshot for agent %s session %s (stale or conflict)",
+                        agent_id,
+                        connection_session_id,
+                    )
                 
     except WebSocketDisconnect:
         pass
     finally:
-        if agent_id in connected_agents:
+        if connected_agents.get(agent_id) is websocket:
             del connected_agents[agent_id]
-        await db.connected_agents.update_one(
-            {"agent_id": agent_id},
-            {"$set": {
-                "status": "disconnected",
-                "disconnected_at": datetime.now(timezone.utc).isoformat()
-            }}
+        disconnected = await _mark_session_disconnected(
+            db,
+            agent_id=agent_id,
+            session_id=connection_session_id,
         )
+        if not disconnected:
+            logger.debug(
+                "Skipped disconnect transition for agent %s session %s (stale or already transitioned)",
+                agent_id,
+                connection_session_id,
+            )
 
 
 @router.get("/agents/status")

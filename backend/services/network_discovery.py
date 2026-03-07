@@ -235,12 +235,22 @@ class NetworkDiscoveryService:
                         # Calculate network
                         try:
                             network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
-                            if network.num_addresses <= 1024:  # Only scan reasonable subnets
+                            if network.num_addresses <= 1024:  # Scan full subnet when reasonable
                                 interfaces.append({
                                     'name': iface_name,
                                     'ip': ip,
                                     'netmask': netmask,
                                     'network': str(network)
+                                })
+                            else:
+                                # In containerized environments this is often /16.
+                                # Scan only the local /24 slice so discovery still runs.
+                                local_24 = ipaddress.IPv4Network(f"{ip}/24", strict=False)
+                                interfaces.append({
+                                    'name': iface_name,
+                                    'ip': ip,
+                                    'netmask': netmask,
+                                    'network': str(local_24)
                                 })
                         except Exception:
                             pass

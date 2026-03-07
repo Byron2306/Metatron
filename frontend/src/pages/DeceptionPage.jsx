@@ -232,6 +232,31 @@ const DeceptionPage = () => {
     }
   };
 
+  const deployDecoy = async () => {
+    try {
+      const payload = {
+        host_id: 'deception-engine',
+        decoy_type: 'credentials',
+        decoys: [
+          `svc_trap_${Date.now()}`,
+          `api_key_honey_${Math.floor(Math.random() * 10000)}`
+        ],
+        placement: 'standard'
+      };
+
+      const res = await axios.post(`${API}/v1/deception/decoy/deploy`, payload, {
+        headers: getAuthHeaders()
+      });
+
+      const count = res.data?.details?.count ?? payload.decoys.length;
+      toast.success(`Decoy deployment queued (${count} decoys)`);
+      await fetchDeceptionData();
+    } catch (error) {
+      console.error('Decoy deployment failed:', error);
+      toast.error('Failed to deploy decoy');
+    }
+  };
+
   useEffect(() => {
     fetchDeceptionData();
   }, [fetchDeceptionData]);
@@ -259,7 +284,7 @@ const DeceptionPage = () => {
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button className="bg-purple-600 hover:bg-purple-700">
+          <Button className="bg-purple-600 hover:bg-purple-700" onClick={deployDecoy} disabled={loading}>
             <Siren className="h-4 w-4 mr-2" />
             Deploy Decoy
           </Button>

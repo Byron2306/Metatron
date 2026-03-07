@@ -104,14 +104,20 @@ async def get_network_topology(current_user: dict = Depends(get_current_user)):
 @router.get("/discovered-hosts")
 async def get_discovered_hosts(current_user: dict = Depends(get_current_user)):
     db = get_db()
-    hosts = await db.discovered_hosts.find({}, {"_id": 0}).sort("last_seen", -1).to_list(100)
+    # Primary source is discovered_devices from services.network_discovery.
+    hosts = await db.discovered_devices.find({}, {"_id": 0}).sort("last_seen", -1).to_list(100)
+    # Backward compatibility for older agent ingest paths.
+    if not hosts:
+        hosts = await db.discovered_hosts.find({}, {"_id": 0}).sort("last_seen", -1).to_list(100)
     return {"hosts": hosts, "count": len(hosts)}
 
 @router.get("/hosts")
 async def get_network_hosts(limit: int = 50, current_user: dict = Depends(get_current_user)):
     """Get network hosts - alias for discovered-hosts"""
     db = get_db()
-    hosts = await db.discovered_hosts.find({}, {"_id": 0}).sort("last_seen", -1).to_list(limit)
+    hosts = await db.discovered_devices.find({}, {"_id": 0}).sort("last_seen", -1).to_list(limit)
+    if not hosts:
+        hosts = await db.discovered_hosts.find({}, {"_id": 0}).sort("last_seen", -1).to_list(limit)
     return {"hosts": hosts, "count": len(hosts)}
 
 @router.get("/scans")

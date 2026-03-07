@@ -194,18 +194,32 @@ export default function UnifiedAgentPage() {
   const triggerScanAndDeploy = async () => {
     setScanning(true);
     try {
-      const response = await fetch(`${API_ROOT}/swarm/unified/scan-and-deploy`, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({})
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        toast.success(`Network scan initiated! ${data.devices_queued} devices queued for deployment`);
-        setTimeout(fetchData, 5000);
+      // Trigger direct discovery scan and unified auto-deploy queue in parallel.
+      const [scanRes, deployRes] = await Promise.all([
+        fetch(`${API_ROOT}/swarm/scan`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({})
+        }),
+        fetch(`${API_ROOT}/swarm/unified/scan-and-deploy`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({})
+        })
+      ]);
+
+      if (scanRes.ok && deployRes.ok) {
+        const data = await deployRes.json();
+        toast.success(`Network scan started. ${data.devices_queued} devices queued for deployment`);
+
+        // Discovery can take longer than a single refresh; poll for up to 60s.
+        for (let i = 0; i < 6; i++) {
+          setTimeout(fetchData, 10000 * (i + 1));
+        }
       } else {
-        toast.error("Failed to start scan");
+        const scanTxt = scanRes.ok ? '' : await scanRes.text();
+        const deployTxt = deployRes.ok ? '' : await deployRes.text();
+        toast.error(`Failed to start scan${scanTxt || deployTxt ? `: ${scanTxt || deployTxt}` : ''}`);
       }
     } catch (error) {
       toast.error("Network scan error");
@@ -289,7 +303,7 @@ export default function UnifiedAgentPage() {
   // Filter devices by search
   const filteredDevices = devices.filter(d => 
     !searchQuery || 
-    d.ip_address?.includes(searchQuery) || 
+    (d.ip_address || d.ip || '')?.includes(searchQuery) || 
     d.hostname?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -591,7 +605,7 @@ export default function UnifiedAgentPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {filteredDevices.map((device) => (
-                  <Card key={device.ip_address} className="bg-slate-900/50 border-slate-800 hover:border-blue-500/30 transition-colors">
+                  <Card key={device.ip_address || device.ip || device.hostname} className="bg-slate-900/50 border-slate-800 hover:border-blue-500/30 transition-colors">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex items-start gap-3">
@@ -600,12 +614,12 @@ export default function UnifiedAgentPage() {
                           </div>
                           <div>
                             <h3 className="text-white font-medium flex items-center gap-2">
-                              {device.hostname || device.ip_address}
+                              {device.hostname || device.ip_address || device.ip}
                               <Badge className={getStatusColor(device.deployment_status)}>
                                 {device.deployment_status || "discovered"}
                               </Badge>
                             </h3>
-                            <p className="text-slate-400 text-sm">{device.ip_address}</p>
+                            <p className="text-slate-400 text-sm">{device.ip_address || device.ip}</p>
                             <div className="flex items-center gap-2 mt-1">
                               <span className="text-xs text-slate-500">{device.os_type || "Unknown"}</span>
                               {device.mac_address && <span className="text-xs text-slate-600">{device.mac_address}</span>}
@@ -614,7 +628,7 @@ export default function UnifiedAgentPage() {
                         </div>
                         <div className="text-right">
                           {device.deployable && device.deployment_status !== 'deployed' && (
-                            <Button size="sm" onClick={() => deployToDevice(device.ip_address)} className="bg-green-600 hover:bg-green-500">
+                            <Button size="sm" onClick={() => deployToDevice(device.ip_address || device.ip)} className="bg-green-600 hover:bg-green-500">
                               <Download className="w-4 h-4 mr-1" /> Deploy
                             </Button>
                           )}
@@ -729,36 +743,36 @@ export default function UnifiedAgentPage() {
                   { 
                     name: "Linux", 
                     icon: "🐧", 
-                    command: `curl -sSL ${window.location.origin}/api/unified/agent/install-script | sudo bash`,
-                    endpoint: "/api/unified/agent/install-script",
+                    command: `curl -sSL ${API_ROOT}/unified/agent/install-script | sudo bash`,
+                    endpoint: `${API_ROOT}/unified/agent/install-script`,
                     color: "border-green-500 hover:bg-green-500/10"
                   },
                   { 
                     name: "Windows", 
                     icon: "🪟", 
-                    command: `powershell -Command "irm ${window.location.origin}/api/unified/agent/install-windows | iex"`,
-                    endpoint: "/api/unified/agent/install-windows",
+                    command: `powershell -Command "irm ${API_ROOT}/unified/agent/install-windows | iex"`,
+                    endpoint: `${API_ROOT}/unified/agent/install-windows`,
                     color: "border-blue-500 hover:bg-blue-500/10"
                   },
                   { 
                     name: "macOS", 
                     icon: "🍎", 
-                    command: `curl -sSL ${window.location.origin}/api/unified/agent/install-macos | bash`,
-                    endpoint: "/api/unified/agent/install-macos",
+                    command: `curl -sSL ${API_ROOT}/unified/agent/install-macos | bash`,
+                    endpoint: `${API_ROOT}/unified/agent/install-macos`,
                     color: "border-purple-500 hover:bg-purple-500/10"
                   },
                   { 
                     name: "Android", 
                     icon: "🤖", 
-                    command: `curl -sSL ${window.location.origin}/api/unified/agent/install-android | bash`,
-                    endpoint: "/api/unified/agent/install-android",
+                    command: `curl -sSL ${API_ROOT}/unified/agent/install-android | bash`,
+                    endpoint: `${API_ROOT}/unified/agent/install-android`,
                     color: "border-cyan-500 hover:bg-cyan-500/10",
                     note: "Run in Termux"
                   },
                   { 
                     name: "iOS", 
                     icon: "📱", 
-                    endpoint: "/api/unified/agent/install-ios",
+                    endpoint: `${API_ROOT}/unified/agent/install-ios`,
                     color: "border-pink-500 hover:bg-pink-500/10",
                     note: "Pythonista 3 or Native App"
                   }
@@ -844,10 +858,10 @@ export default function UnifiedAgentPage() {
                     <h4 className="text-purple-400 font-medium mb-2">Manual Download</h4>
                     <pre className="bg-slate-950/50 p-2 rounded text-xs text-slate-400 font-mono overflow-x-auto">
 {`# Download agent package
-curl -sSL ${window.location.origin}/api/unified/agent/download -o agent.tar.gz
+curl -sSL ${API_ROOT}/unified/agent/download -o agent.tar.gz
 tar -xzf agent.tar.gz && cd unified_agent
 pip install -r requirements.txt
-python core/agent.py --server ${window.location.origin}`}
+python core/agent.py --server ${API_URL || window.location.origin}`}
                     </pre>
                   </div>
                 </div>

@@ -230,7 +230,11 @@ async def receive_agent_event(event: AgentEvent):
 async def download_installer():
     """Download the defender installer script"""
     try:
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "defender_installer.py"
+        # Container runtime stores scripts under /app/scripts.
+        script_path = Path("/app/scripts/defender_installer.py")
+        if not script_path.exists():
+            # Fallback for local non-container execution.
+            script_path = Path(__file__).resolve().parent.parent / "scripts" / "defender_installer.py"
         with open(script_path, 'r') as f:
             content = f.read()
         
@@ -248,7 +252,9 @@ async def download_installer():
 async def download_advanced_agent():
     """Download the advanced security agent with enhanced monitoring"""
     try:
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "advanced_agent.py"
+        script_path = Path("/app/scripts/advanced_agent.py")
+        if not script_path.exists():
+            script_path = Path(__file__).resolve().parent.parent / "scripts" / "advanced_agent.py"
         with open(script_path, 'r') as f:
             content = f.read()
         

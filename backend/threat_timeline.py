@@ -454,6 +454,7 @@ class CausalAnalysisEngine:
     
     def __init__(self):
         self.relationships: List[CausalRelationship] = []
+        self._last_root_cause: Dict[str, Any] = {"found": False}
     
     def analyze(self, events: List[TimelineEvent]) -> Dict[str, Any]:
         """Analyze causal relationships in events"""
@@ -473,6 +474,7 @@ class CausalAnalysisEngine:
         
         # Find root cause
         root_cause = self._find_root_cause(sorted_events)
+        self._last_root_cause = root_cause
         
         # Build impact chain
         impact_chain = self._build_impact_chain(sorted_events)
@@ -483,6 +485,10 @@ class CausalAnalysisEngine:
             "impact_chain": impact_chain,
             "causal_graph": self._build_causal_graph()
         }
+
+    def get_root_cause(self) -> Dict[str, Any]:
+        """Compatibility accessor for callers expecting a cached root-cause result."""
+        return self._last_root_cause or {"found": False}
     
     def _check_causation(
         self,
@@ -1343,7 +1349,12 @@ class TimelineReportGenerator:
         
         report += "## Kill Chain Analysis\n\n"
         if timeline.kill_chain_mapping:
-            for phase, events in timeline.kill_chain_mapping.items():
+            # Support both legacy flat phase map and enriched mapper payload.
+            phase_map = timeline.kill_chain_mapping
+            if isinstance(phase_map, dict) and isinstance(phase_map.get("kill_chain_mapping"), dict):
+                phase_map = phase_map.get("kill_chain_mapping", {})
+
+            for phase, events in phase_map.items():
                 if events:
                     report += f"### {phase.replace('_', ' ').title()}\n"
                     for event_ref in events[:3]:
@@ -2085,6 +2096,23 @@ class TimelineBuilder:
         """Export chain of custody report"""
         cls.initialize_enterprise_components()
         return cls._artifact_tracker.export_custody_report(artifact_id)
+
+    @classmethod
+    def update_artifact_custody(
+        cls,
+        artifact_id: str,
+        action: str,
+        actor: str,
+        notes: str = "",
+    ) -> bool:
+        """Append a custody action entry for an artifact."""
+        cls.initialize_enterprise_components()
+        return cls._artifact_tracker.update_custody(
+            artifact_id=artifact_id,
+            action=action,
+            actor=actor,
+            notes=notes,
+        )
     
     @classmethod
     def add_playbook(cls, pb_id: str, playbook: PlaybookSuggestion):

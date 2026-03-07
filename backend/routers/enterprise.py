@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/enterprise", tags=["Enterprise Security"])
 
+ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
+
 
 # =============================================================================
 # MODELS
@@ -134,7 +136,8 @@ async def submit_attestation(request: AttestationRequest):
         "trust_state": identity.trust_state.value,
         "trust_score": identity.trust_score,
         "expires_at": identity.expires_at,
-        "message": "Attestation accepted"
+        "message": "Attestation accepted",
+        "contract_version": ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -222,7 +225,8 @@ async def evaluate_policy(request: PolicyEvaluationRequest):
         "rate_limit": decision.rate_limit,
         "blast_radius_cap": decision.blast_radius_cap,
         "ttl_seconds": decision.ttl_seconds,
-        "decision_hash": decision.decision_hash
+        "decision_hash": decision.decision_hash,
+        "contract_version": ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -298,7 +302,8 @@ async def issue_token(
         "token_id": token.token_id,
         "expires_at": token.expires_at,
         "max_uses": token.max_uses,
-        "message": "Token issued"
+        "message": "Token issued",
+        "contract_version": ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -445,7 +450,8 @@ async def execute_tool(
         "exit_code": execution.exit_code,
         "stdout": execution.stdout,
         "stderr": execution.stderr,
-        "duration_ms": execution.duration_ms
+        "duration_ms": execution.duration_ms,
+        "contract_version": ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -472,7 +478,8 @@ async def ingest_event(request: TelemetryEventRequest):
         "event_id": event.event_id,
         "event_hash": event.event_hash,
         "prev_hash": event.prev_hash,
-        "trace_id": event.trace_id
+        "trace_id": event.trace_id,
+        "contract_version": ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -499,7 +506,8 @@ async def record_audit_action(
     
     return {
         "record_id": record.record_id,
-        "record_hash": record.record_hash
+        "record_hash": record.record_hash,
+        "contract_version": ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
