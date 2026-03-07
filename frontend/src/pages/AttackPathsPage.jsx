@@ -24,7 +24,8 @@ import {
   TrendingUp,
   AlertOctagon,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Plus
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -229,6 +230,36 @@ const AttackPathsPage = () => {
     }
   };
 
+  const addCrownJewel = async () => {
+    const name = window.prompt('Crown jewel name (e.g., Domain Controller)');
+    if (!name) return;
+    const identifier = window.prompt('Identifier (IP, hostname, ARN, etc.)');
+    if (!identifier) return;
+    const assetType = window.prompt(
+      'Asset type (application_server/database_server/domain_controller/network_device/secret_vault/workstation)',
+      'application_server'
+    ) || 'application_server';
+
+    try {
+      await axios.post(`${API}/v1/attack-paths/crown-jewels`, {
+        name,
+        identifier,
+        asset_type: assetType,
+        criticality: 'critical'
+      }, { headers: getAuthHeaders() });
+
+      toast.success('Crown jewel added');
+      await fetchAttackPaths();
+    } catch (error) {
+      console.error('Failed to add crown jewel:', error);
+      if (error?.response?.status === 403) {
+        toast.error('Only admins can define crown jewels. Ask an admin to add this asset.');
+        return;
+      }
+      toast.error(error?.response?.data?.detail || 'Failed to add crown jewel');
+    }
+  };
+
   // Calculate blast radius for a node
   const calculateBlastRadius = async (nodeId) => {
     try {
@@ -371,6 +402,14 @@ const AttackPathsPage = () => {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={addCrownJewel}
+            className="border-gray-700"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Crown Jewel
+          </Button>
           <Button 
             variant="outline" 
             onClick={fetchAttackPaths}

@@ -25,6 +25,10 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+DEPLOYMENT_TASK_TERMINAL_STATUSES = {"deployed", "failed"}
+DEVICE_DEPLOYMENT_TERMINAL_STATUSES = {"deployed", "failed"}
+
+
 class DeploymentMethod(str, Enum):
     SSH = "ssh"
     WINRM = "winrm"
@@ -87,6 +91,187 @@ class AgentDeploymentService:
         }
         
         logger.info("Agent Deployment Service initialized")
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _build_transition_entry(
+        self,
+        *,
+        from_status: Optional[str],
+        to_status: str,
+        actor: str,
+        reason: str,
+        metadata: Optional[Dict] = None,
+    ) -> Dict:
+        entry = {
+            "timestamp": self._now_iso(),
+            "from_status": from_status,
+            "to_status": to_status,
+            "actor": actor,
+            "reason": reason,
+        }
+        if metadata:
+            entry["metadata"] = metadata
+        return entry
+
+    async def _ensure_task_state_fields(self, task_id: str, actor: str, reason: str):
+        doc = await self.db.deployment_tasks.find_one({"task_id": task_id}, {"_id": 0})
+        if not doc:
+            return None
+
+        if doc.get("state_version") is not None and doc.get("state_transition_log") is not None:
+            return doc
+
+        current_status = str(doc.get("status") or "pending").lower().strip()
+        bootstrap = {
+            "state_version": int(doc.get("state_version") or 1),
+            "state_transition_log": doc.get("state_transition_log")
+            or [
+                self._build_transition_entry(
+                    from_status=None,
+                    to_status=current_status,
+                    actor=actor,
+                    reason=reason,
+                )
+            ],
+            "updated_at": self._now_iso(),
+        }
+        await self.db.deployment_tasks.update_one({"task_id": task_id}, {"$set": bootstrap})
+        return await self.db.deployment_tasks.find_one({"task_id": task_id}, {"_id": 0})
+
+    async def _transition_task_status(
+        self,
+        *,
+        task_id: str,
+        expected_statuses: List[str],
+        next_status: str,
+        actor: str,
+        reason: str,
+        extra_updates: Optional[Dict] = None,
+        transition_metadata: Optional[Dict] = None,
+    ) -> bool:
+        doc = await self.db.deployment_tasks.find_one({"task_id": task_id}, {"_id": 0})
+        if not doc:
+            return False
+
+        current_status = str(doc.get("status") or "").lower().strip()
+        if current_status not in expected_statuses:
+            return False
+
+        version = int(doc.get("state_version") or 0)
+        query = {
+            "task_id": task_id,
+            "status": {"$in": expected_statuses},
+        }
+        if version <= 0:
+            query["$or"] = [{"state_version": {"$exists": False}}, {"state_version": 0}]
+        else:
+            query["state_version"] = version
+
+        set_doc = {
+            "status": next_status,
+            "updated_at": self._now_iso(),
+        }
+        if extra_updates:
+            set_doc.update(extra_updates)
+
+        transition = self._build_transition_entry(
+            from_status=current_status,
+            to_status=next_status,
+            actor=actor,
+            reason=reason,
+            metadata=transition_metadata,
+        )
+        result = await self.db.deployment_tasks.update_one(
+            query,
+            {
+                "$set": set_doc,
+                "$inc": {"state_version": 1},
+                "$push": {"state_transition_log": transition},
+            },
+        )
+        return bool(getattr(result, "modified_count", 0))
+
+    async def _transition_device_deployment_status(
+        self,
+        *,
+        device_ip: str,
+        expected_statuses: Optional[List[str]],
+        next_status: str,
+        actor: str,
+        reason: str,
+        extra_updates: Optional[Dict] = None,
+        transition_metadata: Optional[Dict] = None,
+    ) -> bool:
+        doc = await self.db.discovered_devices.find_one({"ip_address": device_ip}, {"_id": 0})
+
+        if not doc:
+            set_doc = {
+                "ip_address": device_ip,
+                "deployment_status": next_status,
+                "deployment_status_updated_at": self._now_iso(),
+                "deployment_state_version": 1,
+                "deployment_state_transition_log": [
+                    self._build_transition_entry(
+                        from_status=None,
+                        to_status=next_status,
+                        actor=actor,
+                        reason=reason,
+                        metadata=transition_metadata,
+                    )
+                ],
+            }
+            if extra_updates:
+                set_doc.update(extra_updates)
+            await self.db.discovered_devices.update_one(
+                {"ip_address": device_ip},
+                {"$set": set_doc},
+                upsert=True,
+            )
+            return True
+
+        current_status = str(doc.get("deployment_status") or "").lower().strip()
+        if expected_statuses and current_status not in expected_statuses:
+            return False
+
+        version = int(doc.get("deployment_state_version") or 0)
+        query = {"ip_address": device_ip}
+        if expected_statuses:
+            query["deployment_status"] = {"$in": expected_statuses}
+        if version <= 0:
+            query["$or"] = [
+                {"deployment_state_version": {"$exists": False}},
+                {"deployment_state_version": 0},
+            ]
+        else:
+            query["deployment_state_version"] = version
+
+        set_doc = {
+            "deployment_status": next_status,
+            "deployment_status_updated_at": self._now_iso(),
+        }
+        if extra_updates:
+            set_doc.update(extra_updates)
+
+        transition = self._build_transition_entry(
+            from_status=current_status,
+            to_status=next_status,
+            actor=actor,
+            reason=reason,
+            metadata=transition_metadata,
+        )
+        result = await self.db.discovered_devices.update_one(
+            query,
+            {
+                "$set": set_doc,
+                "$inc": {"deployment_state_version": 1},
+                "$push": {"deployment_state_transition_log": transition},
+            },
+            upsert=False,
+        )
+        return bool(getattr(result, "modified_count", 0))
     
     async def start(self):
         """Start the deployment service"""
@@ -175,13 +360,27 @@ class AgentDeploymentService:
             "method": task.method.value,
             "status": task.status,
             "attempts": task.attempts,
-            "created_at": task.created_at
+            "created_at": task.created_at,
+            "updated_at": task.created_at,
+            "state_version": 1,
+            "state_transition_log": [
+                self._build_transition_entry(
+                    from_status=None,
+                    to_status="pending",
+                    actor="system:deployment-queue",
+                    reason="deployment task created",
+                    metadata={"device_ip": task.device_ip, "method": task.method.value},
+                )
+            ],
         })
-        
-        # Update device status
-        await self.db.discovered_devices.update_one(
-            {"ip_address": device_ip},
-            {"$set": {"deployment_status": "queued"}}
+
+        # Update mirrored device deployment status with transition audit.
+        await self._transition_device_deployment_status(
+            device_ip=device_ip,
+            expected_statuses=None,
+            next_status="queued",
+            actor="system:deployment-queue",
+            reason="deployment queued",
         )
         
         # Add to queue
@@ -194,16 +393,35 @@ class AgentDeploymentService:
         """Deploy agent to a device"""
         task.attempts += 1
         task.status = "deploying"
-        
-        # Update database
-        await self.db.deployment_tasks.update_one(
-            {"device_ip": task.device_ip},
-            {"$set": {"status": "deploying", "attempts": task.attempts}},
-            upsert=True
+        await self._ensure_task_state_fields(
+            task.task_id,
+            actor="system:deployment-worker",
+            reason="bootstrap deployment task durability fields",
         )
-        await self.db.discovered_devices.update_one(
-            {"ip_address": task.device_ip},
-            {"$set": {"deployment_status": "deploying"}}
+
+        claimed = await self._transition_task_status(
+            task_id=task.task_id,
+            expected_statuses=["pending"],
+            next_status="deploying",
+            actor="system:deployment-worker",
+            reason="deployment worker claimed queued task",
+            extra_updates={"attempts": task.attempts},
+        )
+        if not claimed:
+            task_doc = await self.db.deployment_tasks.find_one({"task_id": task.task_id}, {"_id": 0})
+            existing = str((task_doc or {}).get("status") or "").lower().strip()
+            if existing in DEPLOYMENT_TASK_TERMINAL_STATUSES:
+                logger.info("Skipping deployment task %s; already terminal (%s)", task.task_id, existing)
+                return
+            logger.warning("Skipping deployment task %s due to state transition conflict", task.task_id)
+            return
+
+        await self._transition_device_deployment_status(
+            device_ip=task.device_ip,
+            expected_statuses=["queued", "failed", "pending"],
+            next_status="deploying",
+            actor="system:deployment-worker",
+            reason="deployment execution started",
         )
         
         try:
@@ -234,24 +452,34 @@ class AgentDeploymentService:
             
             if success:
                 task.status = "deployed"
-                task.completed_at = datetime.now(timezone.utc).isoformat()
-                
-                await self.db.deployment_tasks.update_one(
-                    {"device_ip": task.device_ip},
-                    {"$set": {
-                        "status": "deployed", 
+                task.completed_at = self._now_iso()
+
+                await self._transition_task_status(
+                    task_id=task.task_id,
+                    expected_statuses=["deploying"],
+                    next_status="deployed",
+                    actor="system:deployment-worker",
+                    reason="deployment completed successfully",
+                    extra_updates={
                         "completed_at": task.completed_at,
-                        "simulated": is_simulation
-                    }},
-                    upsert=True
+                        "simulated": is_simulation,
+                        "error_message": None,
+                    },
+                    transition_metadata={"simulated": is_simulation},
                 )
-                await self.db.discovered_devices.update_one(
-                    {"ip_address": task.device_ip},
-                    {"$set": {
-                        "deployment_status": "deployed", 
+
+                await self._transition_device_deployment_status(
+                    device_ip=task.device_ip,
+                    expected_statuses=["deploying", "queued"],
+                    next_status="deployed",
+                    actor="system:deployment-worker",
+                    reason="deployment completed",
+                    extra_updates={
                         "is_managed": True,
-                        "deployed_at": task.completed_at
-                    }}
+                        "deployed_at": task.completed_at,
+                        "error_message": None,
+                    },
+                    transition_metadata={"simulated": is_simulation},
                 )
                 
                 logger.info(f"Successfully {'simulated' if is_simulation else 'deployed'} agent to {task.device_ip}")
@@ -260,21 +488,44 @@ class AgentDeploymentService:
                 
         except Exception as e:
             task.error_message = str(e)
-            
+
             if task.attempts < task.max_attempts and not is_simulation:
                 task.status = "pending"
+                await self._transition_task_status(
+                    task_id=task.task_id,
+                    expected_statuses=["deploying"],
+                    next_status="pending",
+                    actor="system:deployment-worker",
+                    reason="deployment failed and queued for retry",
+                    extra_updates={"attempts": task.attempts, "error_message": task.error_message},
+                )
+                await self._transition_device_deployment_status(
+                    device_ip=task.device_ip,
+                    expected_statuses=["deploying", "failed", "queued"],
+                    next_status="queued",
+                    actor="system:deployment-worker",
+                    reason="retry queued after failed attempt",
+                    extra_updates={"error_message": task.error_message},
+                )
                 await self.deployment_queue.put(task)
                 logger.warning(f"Deployment to {task.device_ip} failed (attempt {task.attempts}), retrying...")
             else:
                 task.status = "failed"
-                await self.db.deployment_tasks.update_one(
-                    {"device_ip": task.device_ip},
-                    {"$set": {"status": "failed", "error_message": task.error_message}},
-                    upsert=True
+                await self._transition_task_status(
+                    task_id=task.task_id,
+                    expected_statuses=["deploying", "pending"],
+                    next_status="failed",
+                    actor="system:deployment-worker",
+                    reason="deployment terminal failure",
+                    extra_updates={"error_message": task.error_message, "completed_at": self._now_iso()},
                 )
-                await self.db.discovered_devices.update_one(
-                    {"ip_address": task.device_ip},
-                    {"$set": {"deployment_status": "failed", "error_message": task.error_message}}
+                await self._transition_device_deployment_status(
+                    device_ip=task.device_ip,
+                    expected_statuses=["deploying", "queued", "pending"],
+                    next_status="failed",
+                    actor="system:deployment-worker",
+                    reason="deployment terminal failure",
+                    extra_updates={"error_message": task.error_message},
                 )
                 logger.error(f"Deployment to {task.device_ip} failed: {e}")
     
@@ -449,6 +700,12 @@ echo "SERAPH_DEPLOY_SUCCESS"
         creds = task.credentials or self.default_credentials.get('winrm', {})
         username = creds.get('username', 'Administrator')
         password = creds.get('password')
+        use_ssl = bool(creds.get('use_ssl', False))
+        port = int(creds.get('port', 5986 if use_ssl else 5985))
+        transport = creds.get('transport', 'ntlm')
+        server_cert_validation = creds.get('server_cert_validation', 'ignore' if use_ssl else 'validate')
+        operation_timeout = int(creds.get('operation_timeout_sec', 60))
+        read_timeout = int(creds.get('read_timeout_sec', 90))
         
         if not password:
             task.error_message = "WinRM requires password authentication"
@@ -503,12 +760,27 @@ Write-Host "SERAPH_DEPLOY_SUCCESS"
             # Use pywinrm if available
             try:
                 import winrm
-                
+
+                scheme = 'https' if use_ssl else 'http'
+                endpoint = f'{scheme}://{task.device_ip}:{port}/wsman'
                 session = winrm.Session(
-                    f'http://{task.device_ip}:5985/wsman',
+                    endpoint,
                     auth=(username, password),
-                    transport='ntlm'
+                    transport=transport,
+                    server_cert_validation=server_cert_validation,
+                    operation_timeout_sec=operation_timeout,
+                    read_timeout_sec=read_timeout,
                 )
+
+                # Preflight command catches auth/transport/endpoint failures early with clearer message.
+                preflight = session.run_cmd('whoami')
+                preflight_out = preflight.std_out.decode(errors='ignore') + preflight.std_err.decode(errors='ignore')
+                if preflight.status_code != 0:
+                    task.error_message = (
+                        f"WinRM preflight failed (status={preflight.status_code}) endpoint={endpoint} "
+                        f"transport={transport}: {preflight_out[-500:]}"
+                    )
+                    return False
                 
                 result = session.run_ps(ps_script)
                 output = result.std_out.decode() + result.std_err.decode()
@@ -516,7 +788,10 @@ Write-Host "SERAPH_DEPLOY_SUCCESS"
                 if 'SERAPH_DEPLOY_SUCCESS' in output:
                     return True
                 else:
-                    task.error_message = f"WinRM deployment failed: {output[-500:]}"
+                    task.error_message = (
+                        f"WinRM deployment failed (status={result.status_code}) endpoint={endpoint} "
+                        f"transport={transport}: {output[-700:]}"
+                    )
                     return False
                     
             except ImportError:
@@ -525,7 +800,9 @@ Write-Host "SERAPH_DEPLOY_SUCCESS"
                 return False
                 
         except Exception as e:
-            task.error_message = f"WinRM error: {str(e)}"
+            task.error_message = (
+                f"WinRM error to {task.device_ip}:{port} ({'https' if use_ssl else 'http'}, {transport}): {str(e)}"
+            )
             return False
     
     async def get_deployment_status(self, device_ip: Optional[str] = None) -> List[Dict]:
@@ -548,12 +825,30 @@ Write-Host "SERAPH_DEPLOY_SUCCESS"
                 device_hostname=task_doc.get("device_hostname"),
                 os_type=task_doc["os_type"],
                 method=DeploymentMethod(task_doc["method"]),
+                task_id=task_doc.get("task_id"),
                 attempts=0  # Reset attempts
             )
-            
-            await self.db.deployment_tasks.update_one(
-                {"device_ip": task.device_ip},
-                {"$set": {"status": "pending", "attempts": 0}}
+
+            await self._ensure_task_state_fields(
+                task.task_id,
+                actor="system:deployment-retry",
+                reason="bootstrap deployment task durability fields",
+            )
+            await self._transition_task_status(
+                task_id=task.task_id,
+                expected_statuses=["failed"],
+                next_status="pending",
+                actor="system:deployment-retry",
+                reason="manual retry requested",
+                extra_updates={"attempts": 0, "error_message": None},
+            )
+            await self._transition_device_deployment_status(
+                device_ip=task.device_ip,
+                expected_statuses=["failed", "deploying", "queued", "pending"],
+                next_status="queued",
+                actor="system:deployment-retry",
+                reason="device deployment requeued",
+                extra_updates={"error_message": None},
             )
             
             await self.deployment_queue.put(task)

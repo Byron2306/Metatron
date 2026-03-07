@@ -1,4 +1,4 @@
-"""
+yes"""
 Metatron/Seraph Unified Security Agent - Core Module v2.0
 =========================================================
 Cross-platform security agent with advanced threat detection,
@@ -22,6 +22,7 @@ import uuid
 import time
 import socket
 import hashlib
+import hmac
 import logging
 import platform
 import threading
@@ -485,6 +486,22 @@ class AgentConfig:
     file_scanning: bool = True
     wireless_scanning: bool = True
     bluetooth_scanning: bool = True
+
+    # Data protection / EDM
+    dlp_edm_enabled: bool = True
+    dlp_edm_dataset_path: str = ""
+    dlp_edm_tenant_salt: str = ""
+    dlp_edm_max_records: int = 20000
+    dlp_edm_min_confidence: float = 0.90
+    dlp_edm_allowed_candidate_types: List[str] = field(default_factory=lambda: [
+        "line",
+        "delimited_bundle",
+        "delimited_window_4",
+        "delimited_window_3",
+        "delimited_window_2",
+    ])
+    dlp_edm_require_signed: bool = True
+    dlp_edm_signing_secret: str = ""
     usb_monitoring: bool = True
     
     # Advanced features
@@ -5051,13 +5068,363 @@ class ApplicationWhitelistMonitor(MonitorModule):
     def get_threats(self) -> List[Threat]:
         return self.threats
 
+class SimpleBloomFilter:
+    """Lightweight Bloom filter for quick EDM non-membership checks."""
+
+    def __init__(self, capacity: int, error_rate: float = 0.01):
+        self.capacity = max(1, int(capacity))
+        self.error_rate = min(max(float(error_rate), 0.0001), 0.25)
+        m = -self.capacity * math.log(self.error_rate) / (math.log(2) ** 2)
+        self.bit_size = max(1024, int(m))
+        k = (self.bit_size / self.capacity) * math.log(2)
+        self.hash_count = max(2, min(12, int(round(k))))
+        self.bits = bytearray((self.bit_size + 7) // 8)
+
+    def _indexes(self, value: str) -> List[int]:
+        value_b = value.encode("utf-8")
+        indexes = []
+        for i in range(self.hash_count):
+            digest = hashlib.sha256(value_b + f"#{i}".encode("utf-8")).digest()
+            indexes.append(int.from_bytes(digest[:8], "big") % self.bit_size)
+        return indexes
+
+    def add(self, value: str):
+        for idx in self._indexes(value):
+            self.bits[idx // 8] |= (1 << (idx % 8))
+
+    def __contains__(self, value: str) -> bool:
+        for idx in self._indexes(value):
+            if not (self.bits[idx // 8] & (1 << (idx % 8))):
+                return False
+        return True
+
+
+class EDMFingerprintEngine:
+    """Exact Data Match (EDM) fingerprint engine for deterministic record matching."""
+
+    def __init__(
+        self,
+        dataset_path: str,
+        tenant_salt: str = "",
+        max_records: int = 20000,
+        default_min_confidence: float = 0.90,
+        default_allowed_candidate_types: Optional[List[str]] = None,
+    ):
+        self.dataset_path = Path(dataset_path)
+        self.tenant_salt = tenant_salt or "metatron-default-edm-salt"
+        self.max_records = max(1000, int(max_records or 20000))
+        self.default_min_confidence = min(max(float(default_min_confidence), 0.0), 1.0)
+        self.default_allowed_candidate_types = set(default_allowed_candidate_types or [
+            "line", "delimited_bundle", "delimited_window_4", "delimited_window_3", "delimited_window_2"
+        ])
+        self.fingerprint_index: Dict[str, Dict[str, Any]] = {}
+        self.dataset_policies: Dict[str, Dict[str, Any]] = {}
+        # Fast precheck: avoids full fingerprint lookups when candidate cannot match.
+        self.prefix_index: Set[str] = set()
+        self.bloom_filter: Optional[SimpleBloomFilter] = None
+        self.dataset_count = 0
+        self.record_count = 0
+        self.fingerprint_count = 0
+        self.last_loaded_at = ""
+        self.load_datasets()
+
+    @staticmethod
+    def _normalize_text(value: Any) -> str:
+        text = str(value or "")
+        text = re.sub(r"\s+", " ", text.strip().lower())
+        return text
+
+    @classmethod
+    def canonicalize_record(cls, record: Any) -> str:
+        """Canonicalize record so identical data maps to identical fingerprint."""
+        if isinstance(record, dict):
+            parts = []
+            for key in sorted(record.keys()):
+                val = cls._normalize_text(record.get(key))
+                if val:
+                    parts.append(f"{cls._normalize_text(key)}={val}")
+            return "|".join(parts)
+
+        if isinstance(record, list):
+            vals = [cls._normalize_text(v) for v in record if cls._normalize_text(v)]
+            return "|".join(vals)
+
+        return cls._normalize_text(record)
+
+    def _fingerprint(self, canonical: str) -> str:
+        return hashlib.sha256(f"{self.tenant_salt}::{canonical}".encode("utf-8")).hexdigest()
+
+    def _record_variants(self, record: Any) -> List[Tuple[str, str]]:
+        """Generate canonical variants to improve EDM recall without fuzzy matching."""
+        variants: List[Tuple[str, str]] = []
+
+        primary = self.canonicalize_record(record)
+        if primary:
+            variants.append((primary, "canonical"))
+
+        if isinstance(record, dict):
+            values = [self._normalize_text(v) for v in record.values()]
+            values = [v for v in values if v]
+            if values:
+                value_bundle = "|".join(sorted(values))
+                if value_bundle and value_bundle != primary:
+                    variants.append((value_bundle, "values"))
+
+                # Add ordered value windows for common CSV-like records.
+                max_window = min(4, len(values))
+                for width in range(2, max_window + 1):
+                    for i in range(0, len(values) - width + 1):
+                        window = "|".join(values[i:i + width])
+                        if window and window != primary:
+                            variants.append((window, f"values_window_{width}"))
+
+        if isinstance(record, list):
+            vals = [self._normalize_text(v) for v in record if self._normalize_text(v)]
+            max_window = min(4, len(vals))
+            for width in range(2, max_window + 1):
+                for i in range(0, len(vals) - width + 1):
+                    window = "|".join(vals[i:i + width])
+                    if window and window != primary:
+                        variants.append((window, f"list_window_{width}"))
+
+        # Deduplicate while preserving insertion order.
+        seen = set()
+        deduped: List[Tuple[str, str]] = []
+        for variant_value, variant_type in variants:
+            key = (variant_value, variant_type)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append((variant_value, variant_type))
+        return deduped
+
+    def _parse_dataset_payload(self, payload: Any) -> List[Dict[str, Any]]:
+        if isinstance(payload, dict) and isinstance(payload.get("datasets"), list):
+            return payload["datasets"]
+        if isinstance(payload, list):
+            return payload
+        return []
+
+    def _parse_dataset_policy(self, dataset_obj: Dict[str, Any]) -> Dict[str, Any]:
+        precision = dataset_obj.get("precision", {}) if isinstance(dataset_obj, dict) else {}
+        if not isinstance(precision, dict):
+            precision = {}
+
+        min_conf = precision.get("min_confidence", self.default_min_confidence)
+        try:
+            min_conf = float(min_conf)
+        except Exception:
+            min_conf = self.default_min_confidence
+        min_conf = min(max(min_conf, 0.0), 1.0)
+
+        allowed = precision.get("allowed_candidate_types")
+        if isinstance(allowed, list) and allowed:
+            allowed_set = {str(a).strip() for a in allowed if str(a).strip()}
+        else:
+            allowed_set = set(self.default_allowed_candidate_types)
+
+        return {
+            "min_confidence": min_conf,
+            "allowed_candidate_types": allowed_set,
+        }
+
+    def load_datasets(self):
+        """Load EDM datasets from JSON and build in-memory fingerprint index."""
+        self.fingerprint_index = {}
+        self.dataset_policies = {}
+        self.prefix_index = set()
+        self.bloom_filter = None
+        self.dataset_count = 0
+        self.record_count = 0
+        self.fingerprint_count = 0
+
+        if not self.dataset_path.exists():
+            self.last_loaded_at = datetime.now(timezone.utc).isoformat()
+            return
+
+        try:
+            with open(self.dataset_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception as e:
+            logger.warning(f"EDM dataset load failed: {e}")
+            self.last_loaded_at = datetime.now(timezone.utc).isoformat()
+            return
+
+        datasets = self._parse_dataset_payload(payload)
+        for ds in datasets:
+            if self.record_count >= self.max_records:
+                break
+
+            dataset_id = str(ds.get("dataset_id") or ds.get("name") or f"dataset-{self.dataset_count + 1}")
+            self.dataset_policies[dataset_id] = self._parse_dataset_policy(ds)
+            records = ds.get("records", []) if isinstance(ds, dict) else []
+            if not isinstance(records, list):
+                continue
+
+            ingested = 0
+            for idx, record in enumerate(records):
+                if self.record_count >= self.max_records:
+                    break
+                variants = self._record_variants(record)
+                if not variants:
+                    continue
+
+                record_id = str(getattr(record, "get", lambda *_: None)("record_id") or f"{dataset_id}-{idx + 1}")
+                for canonical, variant_type in variants:
+                    fp = self._fingerprint(canonical)
+                    if fp in self.fingerprint_index:
+                        continue
+                    self.fingerprint_index[fp] = {
+                        "dataset_id": dataset_id,
+                        "record_id": record_id,
+                        "canonical_preview": canonical[:180],
+                        "variant_type": variant_type,
+                    }
+                    self.prefix_index.add(canonical[:16])
+
+                self.record_count += 1
+                ingested += 1
+
+            if ingested:
+                self.dataset_count += 1
+
+        self.last_loaded_at = datetime.now(timezone.utc).isoformat()
+        self.fingerprint_count = len(self.fingerprint_index)
+        if self.fingerprint_count > 0:
+            self.bloom_filter = SimpleBloomFilter(capacity=max(1000, self.fingerprint_count), error_rate=0.01)
+            for fp in self.fingerprint_index.keys():
+                self.bloom_filter.add(fp)
+        logger.info(
+            f"EDM loaded {self.record_count} records and {self.fingerprint_count} fingerprints across {self.dataset_count} dataset(s) from {self.dataset_path}"
+        )
+
+    def _extract_candidates(self, text: str, max_candidates: int = 2000) -> List[Tuple[str, str]]:
+        """Extract normalized candidates from free text and delimited content."""
+        candidates: List[Tuple[str, str]] = []
+
+        for raw in text.splitlines():
+            normalized = self._normalize_text(raw)
+            if len(normalized) < 8:
+                continue
+
+            candidates.append((normalized, "line"))
+            if len(candidates) >= max_candidates:
+                break
+
+            # Structured extraction for CSV/TSV/pipe-like text.
+            for delim in [",", "\t", "|", ";"]:
+                if delim not in raw:
+                    continue
+                parts = [self._normalize_text(p) for p in raw.split(delim)]
+                parts = [p for p in parts if len(p) >= 3]
+                if len(parts) < 2:
+                    continue
+
+                bundle = "|".join(parts)
+                if len(bundle) >= 8:
+                    candidates.append((bundle, "delimited_bundle"))
+                    if len(candidates) >= max_candidates:
+                        break
+
+                max_width = min(4, len(parts))
+                for width in range(2, max_width + 1):
+                    for i in range(0, len(parts) - width + 1):
+                        window = "|".join(parts[i:i + width])
+                        if len(window) < 8:
+                            continue
+                        candidates.append((window, f"delimited_window_{width}"))
+                        if len(candidates) >= max_candidates:
+                            break
+                    if len(candidates) >= max_candidates:
+                        break
+                if len(candidates) >= max_candidates:
+                    break
+
+            if len(candidates) >= max_candidates:
+                break
+
+        return candidates
+
+    def match_text(self, text: str, max_candidates: int = 2000) -> List[Dict[str, Any]]:
+        """Attempt exact record matches over line-oriented and structured candidates."""
+        if not text or not self.fingerprint_index:
+            return []
+
+        confidence_map = {
+            "line": 0.99,
+            "delimited_bundle": 0.96,
+            "delimited_window_4": 0.95,
+            "delimited_window_3": 0.94,
+            "delimited_window_2": 0.92,
+        }
+
+        candidates = self._extract_candidates(text, max_candidates=max_candidates)
+
+        matches = []
+        seen = set()
+        for candidate, candidate_type in candidates:
+            # Fast prefilter before full salted hash fingerprinting.
+            if self.prefix_index and candidate[:16] not in self.prefix_index:
+                continue
+            fp = self._fingerprint(candidate)
+            if self.bloom_filter is not None and fp not in self.bloom_filter:
+                continue
+            hit = self.fingerprint_index.get(fp)
+            if not hit:
+                continue
+
+            dataset_id = hit.get("dataset_id")
+            policy = self.dataset_policies.get(dataset_id, {})
+            confidence = confidence_map.get(candidate_type, 0.9)
+            allowed_types = policy.get("allowed_candidate_types", self.default_allowed_candidate_types)
+            min_conf = float(policy.get("min_confidence", self.default_min_confidence))
+            if candidate_type not in allowed_types:
+                continue
+            if confidence < min_conf:
+                continue
+
+            key = (hit.get("dataset_id"), hit.get("record_id"), fp, candidate_type)
+            if key in seen:
+                continue
+            seen.add(key)
+            matches.append(
+                {
+                    "dataset_id": hit.get("dataset_id"),
+                    "record_id": hit.get("record_id"),
+                    "fingerprint": fp,
+                    "matched_text": candidate[:180],
+                    "canonical_preview": hit.get("canonical_preview", ""),
+                    "variant_type": hit.get("variant_type", "canonical"),
+                    "candidate_type": candidate_type,
+                    "confidence": confidence,
+                }
+            )
+
+        return matches
+
+    def get_stats(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.record_count > 0,
+            "dataset_path": str(self.dataset_path),
+            "dataset_count": self.dataset_count,
+            "record_count": self.record_count,
+            "fingerprint_count": self.fingerprint_count,
+            "prefix_count": len(self.prefix_index),
+            "bloom_enabled": self.bloom_filter is not None,
+            "bloom_bits": int(self.bloom_filter.bit_size if self.bloom_filter else 0),
+            "bloom_hashes": int(self.bloom_filter.hash_count if self.bloom_filter else 0),
+            "dataset_policy_count": len(self.dataset_policies),
+            "default_min_confidence": self.default_min_confidence,
+            "last_loaded_at": self.last_loaded_at,
+        }
+
 
 class DLPMonitor(MonitorModule):
     """
     Data Loss Prevention (DLP) Monitor - Detect sensitive data exfiltration.
     Monitors for PII, credentials, and sensitive data leaving the system.
     """
-    
+
     # Sensitive data patterns
     SENSITIVE_PATTERNS = {
         'credit_card': r'\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b',
@@ -5069,24 +5436,28 @@ class DLPMonitor(MonitorModule):
         'password': r'(?:password|passwd|pwd|secret)["\s:=]+["\']?([^\s"\']{6,})',
         'jwt': r'\beyJ[A-Za-z0-9-_]*\.eyJ[A-Za-z0-9-_]*\.[A-Za-z0-9-_]*\b',
     }
-    
+
     # Suspicious destinations for data exfil
     EXFIL_DOMAINS = {
         'pastebin.com', 'paste.ee', 'hastebin.com', 'ghostbin.com',
         'file.io', 'transfer.sh', 'wetransfer.com', 'sendspace.com',
         'mega.nz', 'mediafire.com', 'zippyshare.com',
-        'discord.com', 'discordapp.com',  # Webhook exfil
+        'discord.com', 'discordapp.com',
         'telegram.org', 'api.telegram.org',
-        'ngrok.io', 'serveo.net', 'localhost.run',  # Tunneling
+        'ngrok.io', 'serveo.net', 'localhost.run',
     }
-    
+
     # File extensions with potential sensitive data
     SENSITIVE_EXTENSIONS = {
-        '.pem', '.key', '.crt', '.p12', '.pfx',  # Certificates
-        '.env', '.conf', '.config', '.ini',       # Config files
-        '.sql', '.bak', '.dump',                  # Database dumps
-        '.kdbx', '.kdb',                          # Password managers
-        '.gpg', '.pgp',                           # Encrypted files
+        '.pem', '.key', '.crt', '.p12', '.pfx',
+        '.env', '.conf', '.config', '.ini',
+        '.sql', '.bak', '.dump',
+        '.kdbx', '.kdb',
+        '.gpg', '.pgp',
+    }
+
+    EDM_TEXT_EXTENSIONS = {
+        '.txt', '.csv', '.tsv', '.json', '.md', '.log', '.sql', '.conf', '.ini', '.yaml', '.yml'
     }
     
     def __init__(self, config: AgentConfig):
@@ -5100,6 +5471,18 @@ class DLPMonitor(MonitorModule):
             Path.home() / ".aws",
             Path("/etc"),
         ]
+
+        # Exact Data Match (EDM) setup.
+        edm_dataset_path = config.dlp_edm_dataset_path or str(DATA_DIR / "edm_datasets.json")
+        self.edm_engine = EDMFingerprintEngine(
+            dataset_path=edm_dataset_path,
+            tenant_salt=config.dlp_edm_tenant_salt,
+            max_records=config.dlp_edm_max_records,
+            default_min_confidence=config.dlp_edm_min_confidence,
+            default_allowed_candidate_types=config.dlp_edm_allowed_candidate_types,
+        )
+        self._edm_versions_path = DATA_DIR / "edm_dataset_versions.json"
+        self._edm_versions = self._load_edm_versions()
     
     def scan(self) -> Dict[str, Any]:
         """Scan for DLP violations"""
@@ -5117,6 +5500,10 @@ class DLPMonitor(MonitorModule):
         # Scan 3: Check network connections to exfil domains
         network_alerts = self._scan_network_exfil()
         self.alerts.extend(network_alerts)
+
+        # Scan 4: Exact Data Match (EDM) over clipboard and recent text files
+        edm_alerts = self._scan_exact_data_matches()
+        self.alerts.extend(edm_alerts)
         
         # Create threats from alerts
         for alert in self.alerts:
@@ -5128,18 +5515,18 @@ class DLPMonitor(MonitorModule):
             "clipboard_alerts": len(clipboard_alerts),
             "file_alerts": len(file_alerts),
             "network_alerts": len(network_alerts),
+            "edm_alerts": len(edm_alerts),
             "total_alerts": len(self.alerts),
             "threats": len(self.threats),
-            "details": self.alerts[-20:]
+            "details": self.alerts[-20:],
+            "edm_stats": self.edm_engine.get_stats(),
         }
-    
-    def _scan_clipboard(self) -> List[Dict]:
-        """Scan clipboard for sensitive data"""
-        alerts = []
-        
+
+    def _get_clipboard_content(self) -> str:
+        """Best-effort clipboard extraction used by DLP regex and EDM checks."""
+        clipboard_content = ""
+
         try:
-            clipboard_content = ""
-            
             if PLATFORM == "windows":
                 try:
                     import ctypes
@@ -5154,17 +5541,26 @@ class DLPMonitor(MonitorModule):
                 except Exception:
                     pass
             else:
-                # Linux/macOS - try xclip or pbpaste
                 try:
                     if PLATFORM == "darwin":
                         result = subprocess.run(['pbpaste'], capture_output=True, text=True, timeout=2)
                     else:
-                        result = subprocess.run(['xclip', '-selection', 'clipboard', '-o'], 
-                                               capture_output=True, text=True, timeout=2)
+                        result = subprocess.run(['xclip', '-selection', 'clipboard', '-o'], capture_output=True, text=True, timeout=2)
                     if result.returncode == 0:
-                        clipboard_content = result.stdout[:10000]  # Limit size
+                        clipboard_content = result.stdout[:10000]
                 except Exception:
                     pass
+        except Exception as e:
+            logger.debug(f"Clipboard extraction error: {e}")
+
+        return clipboard_content
+    
+    def _scan_clipboard(self) -> List[Dict]:
+        """Scan clipboard for sensitive data"""
+        alerts = []
+        
+        try:
+            clipboard_content = self._get_clipboard_content()
             
             # Check clipboard for sensitive patterns
             if clipboard_content:
@@ -5183,6 +5579,136 @@ class DLPMonitor(MonitorModule):
             logger.debug(f"Clipboard scan error: {e}")
         
         return alerts
+
+    def reload_edm_dataset(self) -> Dict[str, Any]:
+        """Hot-reload EDM datasets from disk without agent restart."""
+        self.edm_engine.load_datasets()
+        return self.edm_engine.get_stats()
+
+    def _load_edm_versions(self) -> Dict[str, int]:
+        """Load persisted last-applied EDM version per dataset_id."""
+        try:
+            if self._edm_versions_path.exists():
+                with open(self._edm_versions_path, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                if isinstance(raw, dict):
+                    return {str(k): int(v) for k, v in raw.items()}
+        except Exception as e:
+            logger.debug(f"Failed to load EDM versions state: {e}")
+        return {}
+
+    def _save_edm_versions(self) -> None:
+        """Persist last-applied EDM version map for stale update rejection."""
+        try:
+            self._edm_versions_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self._edm_versions_path.with_suffix(self._edm_versions_path.suffix + ".tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(self._edm_versions, f, indent=2)
+            os.replace(tmp_path, self._edm_versions_path)
+        except Exception as e:
+            logger.debug(f"Failed to persist EDM versions state: {e}")
+
+    def _resolve_edm_signing_secret(self) -> str:
+        """Prefer explicit EDM signing secret, then enrollment key fallback."""
+        if getattr(self.config, "dlp_edm_signing_secret", ""):
+            return str(self.config.dlp_edm_signing_secret)
+        if getattr(self.config, "enrollment_key", ""):
+            return str(self.config.enrollment_key)
+        return ""
+
+    @staticmethod
+    def _compute_edm_checksum(payload: Dict[str, Any]) -> str:
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _verify_edm_signature(self, dataset_id: str, version: int, checksum: str, signature: str) -> bool:
+        secret = self._resolve_edm_signing_secret()
+        if not secret:
+            return False
+        message = f"{dataset_id}:{version}:{checksum}"
+        expected = hmac.new(secret.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, signature)
+
+    def update_edm_dataset(self, payload: Any, edm_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Replace EDM dataset file content and reload in-memory fingerprints."""
+        meta = edm_meta or {}
+        dataset_id = str(meta.get("dataset_id") or "")
+        version_raw = meta.get("version")
+        checksum = str(meta.get("checksum") or "")
+        signature = str(meta.get("signature") or "")
+
+        require_signed = bool(getattr(self.config, "dlp_edm_require_signed", True))
+        if require_signed and (not dataset_id or version_raw is None or not checksum or not signature):
+            return {
+                "updated": False,
+                "error": "Missing EDM metadata/signature",
+                "rejected": "unsigned",
+            }
+
+        try:
+            version = int(version_raw) if version_raw is not None else 0
+        except Exception:
+            return {
+                "updated": False,
+                "error": "Invalid EDM version metadata",
+                "rejected": "invalid_version",
+            }
+
+        computed_checksum = self._compute_edm_checksum(payload)
+        if checksum and computed_checksum != checksum:
+            return {
+                "updated": False,
+                "error": "Checksum mismatch for EDM payload",
+                "expected_checksum": checksum,
+                "computed_checksum": computed_checksum,
+                "rejected": "checksum_mismatch",
+            }
+
+        if require_signed and not self._verify_edm_signature(dataset_id, version, checksum, signature):
+            return {
+                "updated": False,
+                "error": "Invalid EDM signature",
+                "rejected": "bad_signature",
+            }
+
+        if dataset_id:
+            last_seen_version = int(self._edm_versions.get(dataset_id, 0))
+            if version <= last_seen_version:
+                return {
+                    "updated": False,
+                    "error": "Stale EDM version rejected",
+                    "dataset_id": dataset_id,
+                    "incoming_version": version,
+                    "current_version": last_seen_version,
+                    "rejected": "stale_version",
+                }
+
+        path = self.edm_engine.dataset_path
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = path.with_suffix(path.suffix + ".tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(tmp_path, path)
+        except Exception as e:
+            return {
+                "updated": False,
+                "error": str(e),
+                "dataset_path": str(path),
+            }
+
+        stats = self.reload_edm_dataset()
+        if dataset_id:
+            self._edm_versions[dataset_id] = version
+            self._save_edm_versions()
+        return {
+            "updated": True,
+            "dataset_path": str(path),
+            "dataset_id": dataset_id,
+            "version": version,
+            "checksum": computed_checksum,
+            "edm_stats": stats,
+        }
     
     def _scan_recent_files(self) -> List[Dict]:
         """Scan for recently accessed sensitive files"""
@@ -5260,6 +5786,87 @@ class DLPMonitor(MonitorModule):
             logger.debug(f"Network exfil scan error: {e}")
         
         return alerts[:20]
+
+    def _scan_exact_data_matches(self) -> List[Dict]:
+        """Exact Data Match scan against clipboard + recently accessed text files."""
+        alerts = []
+        if not getattr(self.config, "dlp_edm_enabled", True):
+            return alerts
+
+        # Clipboard EDM
+        clipboard = self._get_clipboard_content()
+        if clipboard:
+            for match in self.edm_engine.match_text(clipboard, max_candidates=2000):
+                alerts.append(
+                    {
+                        "type": "edm_match",
+                        "source": "clipboard",
+                        "dataset_id": match.get("dataset_id"),
+                        "record_id": match.get("record_id"),
+                        "fingerprint": match.get("fingerprint"),
+                        "preview": match.get("matched_text"),
+                        "match_confidence": match.get("confidence"),
+                        "match_candidate_type": match.get("candidate_type"),
+                        "match_variant_type": match.get("variant_type"),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+
+        # File EDM
+        scanned_files = 0
+        max_files = 40
+        for base_path in self.monitored_paths:
+            if scanned_files >= max_files:
+                break
+            try:
+                if not base_path.exists():
+                    continue
+
+                for filepath in base_path.rglob('*'):
+                    if scanned_files >= max_files:
+                        break
+                    try:
+                        if not filepath.is_file():
+                            continue
+                        if filepath.suffix.lower() not in self.EDM_TEXT_EXTENSIONS:
+                            continue
+
+                        stat = filepath.stat()
+                        # Focus on recently touched files only.
+                        if time.time() - stat.st_atime > 3600:
+                            continue
+
+                        scanned_files += 1
+                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                            sample = f.read(256 * 1024)
+
+                        if not sample:
+                            continue
+
+                        for match in self.edm_engine.match_text(sample, max_candidates=1500):
+                            alerts.append(
+                                {
+                                    "type": "edm_match",
+                                    "source": "file",
+                                    "path": str(filepath),
+                                    "dataset_id": match.get("dataset_id"),
+                                    "record_id": match.get("record_id"),
+                                    "fingerprint": match.get("fingerprint"),
+                                    "preview": match.get("matched_text"),
+                                    "match_confidence": match.get("confidence"),
+                                    "match_candidate_type": match.get("candidate_type"),
+                                    "match_variant_type": match.get("variant_type"),
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                }
+                            )
+                    except (PermissionError, OSError):
+                        continue
+                    except Exception as e:
+                        logger.debug(f"EDM file scan error for {filepath}: {e}")
+            except Exception as e:
+                logger.debug(f"EDM scan path error for {base_path}: {e}")
+
+        return alerts[:60]
     
     def _create_threat(self, alert: Dict):
         """Create threat from DLP alert"""
@@ -5268,6 +5875,12 @@ class DLPMonitor(MonitorModule):
         if alert_type == 'clipboard':
             severity = ThreatSeverity.HIGH
             title = f"Sensitive Data in Clipboard: {alert.get('pattern')}"
+        elif alert_type == 'edm_match':
+            severity = ThreatSeverity.HIGH
+            src = alert.get('source', 'unknown')
+            ds = alert.get('dataset_id', 'unknown-dataset')
+            rid = alert.get('record_id', 'unknown-record')
+            title = f"Exact Data Match ({src}): {ds}/{rid}"
         elif alert_type == 'sensitive_file_access':
             severity = ThreatSeverity.MEDIUM
             title = f"Sensitive File Accessed: {Path(alert.get('path', '')).name}"
@@ -12565,6 +13178,7 @@ class UnifiedAgent:
         self.event_log: deque = deque(maxlen=5000)
         self.auto_remediated: deque = deque(maxlen=100)
         self.alarms: deque = deque(maxlen=50)
+        self._pending_edm_hits: Dict[str, Dict[str, Any]] = {}
         
         # State
         self.running = False
@@ -12882,9 +13496,64 @@ class UnifiedAgent:
             self.telemetry.network_interfaces = scan_results['network'].get('interfaces', [])
         
         self.telemetry.threats = [t.to_dict() for t in list(self.threat_history)[-50:]]
+        self._collect_edm_hits(scan_results)
         
         if self.on_telemetry_update:
             self.on_telemetry_update(self.telemetry)
+
+    def _mask_file_path(self, path_value: Any) -> Optional[str]:
+        """Mask file path while preserving minimal triage value."""
+        path = str(path_value or "").strip()
+        if not path:
+            return None
+        basename = os.path.basename(path) or "unknown"
+        digest = hashlib.sha256(path.encode("utf-8")).hexdigest()[:12]
+        return f".../{basename}#{digest}"
+
+    def _collect_edm_hits(self, scan_results: Dict[str, Any]):
+        """Extract EDM hit alerts from DLP scan results for backend analytics loop-back."""
+        dlp_result = scan_results.get("dlp") or {}
+        if not isinstance(dlp_result, dict):
+            return
+
+        details = dlp_result.get("details") or []
+        if not isinstance(details, list):
+            return
+
+        for alert in details:
+            if not isinstance(alert, dict):
+                continue
+            if alert.get("type") != "edm_match":
+                continue
+
+            dataset_id = str(alert.get("dataset_id") or "").strip()
+            fingerprint = str(alert.get("fingerprint") or "").strip()
+            if not dataset_id or not fingerprint:
+                continue
+
+            hit = {
+                "dataset_id": dataset_id,
+                "record_id": alert.get("record_id"),
+                "fingerprint": fingerprint,
+                "host": HOSTNAME,
+                "process": alert.get("process") or "unknown",
+                "file_path_masked": self._mask_file_path(alert.get("path")),
+                "source": alert.get("source") or "unknown",
+                "match_confidence": alert.get("match_confidence"),
+                "match_candidate_type": alert.get("match_candidate_type"),
+                "match_variant_type": alert.get("match_variant_type"),
+                "timestamp": alert.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+            }
+
+            dedupe_key = hashlib.sha256(
+                f"{hit['dataset_id']}|{hit.get('record_id')}|{hit['fingerprint']}|{hit['source']}|{hit.get('file_path_masked')}".encode("utf-8")
+            ).hexdigest()
+            self._pending_edm_hits[dedupe_key] = hit
+
+            # Keep bounded memory footprint.
+            if len(self._pending_edm_hits) > 2000:
+                oldest_key = next(iter(self._pending_edm_hits.keys()))
+                self._pending_edm_hits.pop(oldest_key, None)
     
     def _log_event(self, event_type: str, data: Dict):
         """Log an event"""
@@ -12906,6 +13575,10 @@ class UnifiedAgent:
             return False
         
         try:
+            pending_hit_items = list(self._pending_edm_hits.items())
+            max_hits_per_heartbeat = 200
+            outbound_hits = [item[1] for item in pending_hit_items[:max_hits_per_heartbeat]]
+
             response = requests.post(
                 f"{self.config.server_url}/api/unified/agents/{self.config.agent_id}/heartbeat",
                 headers=self._get_auth_headers(),
@@ -12919,12 +13592,16 @@ class UnifiedAgent:
                     "network_connections": len(self.telemetry.connections),
                     "is_admin": self._is_admin,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "telemetry": asdict(self.telemetry)
+                    "telemetry": asdict(self.telemetry),
+                    "edm_hits": outbound_hits,
                 },
                 timeout=10
             )
             
             self.last_heartbeat = datetime.now(timezone.utc)
+            if response.status_code == 200 and outbound_hits:
+                for key, _ in pending_hit_items[:len(outbound_hits)]:
+                    self._pending_edm_hits.pop(key, None)
             return response.status_code == 200
             
         except Exception as e:
@@ -13097,7 +13774,77 @@ class UnifiedAgent:
                     self.config.auto_block_ips = params['auto_block_ips']
                 if 'update_interval' in params:
                     self.config.update_interval = params['update_interval']
+
+                # EDM runtime config updates
+                if 'dlp_edm_enabled' in params:
+                    self.config.dlp_edm_enabled = bool(params['dlp_edm_enabled'])
+                if 'dlp_edm_dataset_path' in params:
+                    self.config.dlp_edm_dataset_path = str(params['dlp_edm_dataset_path'])
+                if 'dlp_edm_tenant_salt' in params:
+                    self.config.dlp_edm_tenant_salt = str(params['dlp_edm_tenant_salt'])
+                if 'dlp_edm_max_records' in params:
+                    self.config.dlp_edm_max_records = int(params['dlp_edm_max_records'])
+                if 'dlp_edm_min_confidence' in params:
+                    self.config.dlp_edm_min_confidence = float(params['dlp_edm_min_confidence'])
+                if 'dlp_edm_allowed_candidate_types' in params and isinstance(params['dlp_edm_allowed_candidate_types'], list):
+                    self.config.dlp_edm_allowed_candidate_types = [str(v) for v in params['dlp_edm_allowed_candidate_types'] if str(v).strip()]
+                if 'dlp_edm_require_signed' in params:
+                    self.config.dlp_edm_require_signed = bool(params['dlp_edm_require_signed'])
+                if 'dlp_edm_signing_secret' in params:
+                    self.config.dlp_edm_signing_secret = str(params['dlp_edm_signing_secret'])
+
+                # Rebuild DLP monitor if EDM settings changed.
+                if 'dlp' in self.monitors and any(
+                    k in params for k in [
+                        'dlp_edm_enabled',
+                        'dlp_edm_dataset_path',
+                        'dlp_edm_tenant_salt',
+                        'dlp_edm_max_records',
+                        'dlp_edm_min_confidence',
+                        'dlp_edm_allowed_candidate_types',
+                        'dlp_edm_require_signed',
+                        'dlp_edm_signing_secret',
+                    ]
+                ):
+                    self.monitors['dlp'] = DLPMonitor(self.config)
                 result['result'] = {'config_updated': True, 'new_config': asdict(self.config)}
+
+            elif cmd_type == 'reload_edm_dataset':
+                dlp = self.monitors.get('dlp')
+                if isinstance(dlp, DLPMonitor):
+                    result['result'] = {
+                        'reloaded': True,
+                        'edm_stats': dlp.reload_edm_dataset(),
+                    }
+                else:
+                    result['status'] = 'failed'
+                    result['result'] = {'error': 'DLP monitor not initialized'}
+
+            elif cmd_type == 'update_edm_dataset':
+                dlp = self.monitors.get('dlp')
+                dataset_payload = params.get('dataset') or params.get('datasets')
+                edm_meta = params.get('edm_meta') or {}
+                if not isinstance(dlp, DLPMonitor):
+                    result['status'] = 'failed'
+                    result['result'] = {'error': 'DLP monitor not initialized'}
+                elif dataset_payload is None:
+                    result['status'] = 'failed'
+                    result['result'] = {'error': 'No dataset payload provided'}
+                else:
+                    # Accept either {datasets:[...]} or raw list; persist canonical wrapper.
+                    if isinstance(dataset_payload, list):
+                        normalized = {'datasets': dataset_payload}
+                    elif isinstance(dataset_payload, dict) and 'datasets' in dataset_payload:
+                        normalized = dataset_payload
+                    else:
+                        result['status'] = 'failed'
+                        result['result'] = {'error': 'Invalid dataset payload format'}
+                        self._report_command_result(result)
+                        return result
+
+                    result['result'] = dlp.update_edm_dataset(normalized, edm_meta=edm_meta)
+                    if not result['result'].get('updated'):
+                        result['status'] = 'failed'
                 
             elif cmd_type == 'quarantine_file':
                 filepath = params.get('filepath')
@@ -13304,6 +14051,98 @@ class UnifiedAgent:
             thread = threading.Thread(target=self._run_loop, daemon=True)
             thread.start()
             return thread
+    
+    def _run_loop(self):
+        """Main monitoring loop with MCP command polling"""
+        heartbeat_counter = 0
+        command_poll_counter = 0
+        command_poll_interval = 5  # Poll for commands every 5 seconds
+        
+        while self.running:
+            try:
+                self.scan_all()
+                
+                # Poll for server commands (MCP)
+                command_poll_counter += self.config.update_interval
+                if command_poll_counter >= command_poll_interval:
+                    commands = self.poll_commands()
+                    for cmd in commands:
+                        try:
+                            self.execute_command(cmd)
+                        except Exception as e:
+                            logger.error(f"Command execution failed: {e}")
+                    command_poll_counter = 0
+                
+                heartbeat_counter += self.config.update_interval
+                if heartbeat_counter >= self.config.heartbeat_interval:
+                    self.heartbeat()
+                    heartbeat_counter = 0
+                
+                time.sleep(self.config.update_interval)
+                
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                logger.error(f"Monitor loop error: {e}")
+                time.sleep(5)
+        
+        self.running = False
+        logger.info("Agent stopped")
+    
+    def stop(self):
+        """Stop the agent"""
+        self.running = False
+
+
+# Convenience function
+def create_agent(server_url: Optional[str] = None, **kwargs) -> UnifiedAgent:
+    """Create and configure a unified agent"""
+    config = AgentConfig(server_url=server_url or "", **kwargs)
+    return UnifiedAgent(config=config)
+
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Metatron/Seraph Unified Security Agent")
+    parser.add_argument("--server", "-s", help="Server URL", default="")
+    parser.add_argument("--config", "-c", help="Config file path")
+    parser.add_argument("--name", "-n", help="Agent name")
+    parser.add_argument("--interval", "-i", type=int, default=30, help="Update interval")
+    parser.add_argument("--no-auto-kill", action="store_true", help="Disable auto-kill")
+    
+    args = parser.parse_args()
+    
+    if args.config:
+        agent = UnifiedAgent(config_path=args.config)
+    else:
+        config = AgentConfig(
+            server_url=args.server,
+            agent_name=args.name or f"Metatron-{HOSTNAME}",
+            update_interval=args.interval,
+            auto_remediate=not args.no_auto_kill
+        )
+        agent = UnifiedAgent(config=config)
+    
+    print(f"""
+╔══════════════════════════════════════════════════════════════════╗
+║     ███╗   ███╗███████╗████████╗ █████╗ ████████╗██████╗  ██████╗ ███╗   ██╗
+║     ████╗ ████║██╔════╝╚══██╔══╝██╔══██╗╚══██╔══╝██╔══██╗██╔═══██╗████╗  ██║
+║     ██╔████╔██║█████╗     ██║   ███████║   ██║   ██████╔╝██║   ██║██╔██╗ ██║
+║     ██║╚██╔╝██║██╔══╝     ██║   ██╔══██║   ██║   ██╔══██╗██║   ██║██║╚██╗██║
+║     ██║ ╚═╝ ██║███████╗   ██║   ██║  ██║   ██║   ██║  ██║╚██████╔╝██║ ╚████║
+║     ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+║                    UNIFIED SECURITY AGENT v{AGENT_VERSION}
+╚══════════════════════════════════════════════════════════════════╝
+
+Agent ID: {agent.config.agent_id}
+Platform: {PLATFORM}
+Server: {agent.config.server_url or 'Not configured'}
+Auto-Kill: {'Enabled' if agent.config.auto_remediate else 'Disabled'}
+SIEM: {'Enabled' if agent.siem.enabled else 'Disabled'}
+""")
+    
+    agent.start()
     
     def _run_loop(self):
         """Main monitoring loop with MCP command polling"""

@@ -140,6 +140,10 @@ class QuarantineEntry:
     agent_name: Optional[str]
     quarantined_at: str
     status: str  # Maps to PipelineStage value
+
+    # Governance durability
+    state_version: int = 1
+    state_transition_log: List[Dict[str, Any]] = field(default_factory=list)
     
     # Pipeline tracking
     pipeline_stage: str = "quarantined"
@@ -190,6 +194,41 @@ def _save_index(index: Dict[str, QuarantineEntry]):
             json.dump({k: asdict(v) for k, v in index.items()}, f, indent=2)
     except Exception as e:
         logger.error(f"Failed to save quarantine index: {e}")
+
+
+def _append_state_transition(
+    entry: QuarantineEntry,
+    from_status: Optional[str],
+    to_status: str,
+    *,
+    actor: str = "system",
+    reason: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+    timestamp: Optional[str] = None,
+    increment_version: bool = True,
+) -> str:
+    """Append a state transition entry and optionally increment the state version."""
+    now = timestamp or datetime.now(timezone.utc).isoformat()
+
+    if entry.state_transition_log is None:
+        entry.state_transition_log = []
+
+    entry.state_transition_log.append(
+        {
+            "from_status": from_status,
+            "to_status": to_status,
+            "timestamp": now,
+            "actor": actor,
+            "reason": reason,
+            "metadata": metadata or {},
+        }
+    )
+
+    if increment_version:
+        current_version = int(getattr(entry, "state_version", 0) or 0)
+        entry.state_version = max(current_version + 1, 1)
+
+    return now
 
 def _get_quarantine_stats() -> Dict[str, Any]:
     """Get quarantine directory statistics"""
@@ -328,6 +367,18 @@ def quarantine_file(
             })
         
         # Create entry
+        transition_log = [{
+            "from_status": None,
+            "to_status": "quarantined",
+            "timestamp": now,
+            "actor": "system",
+            "reason": f"Detected by {detection_source}: {threat_name}",
+            "metadata": {
+                "detection_source": detection_source,
+                "threat_type": threat_type,
+            },
+        }]
+
         entry = QuarantineEntry(
             id=entry_id,
             original_path=filepath,
@@ -345,6 +396,8 @@ def quarantine_file(
             agent_name=agent_name,
             quarantined_at=now,
             status="quarantined",
+            state_version=1,
+            state_transition_log=transition_log,
             pipeline_stage="quarantined",
             stage_history=stage_history,
             scan_results=[],
@@ -420,9 +473,20 @@ def restore_file(entry_id: str, restore_path: Optional[str] = None) -> bool:
         shutil.move(entry.quarantine_path, target_path)
         
         # Update entry
+        previous_status = entry.status
         entry.status = "restored"
-        entry.metadata["restored_at"] = datetime.now(timezone.utc).isoformat()
+        restored_at = datetime.now(timezone.utc).isoformat()
+        entry.metadata["restored_at"] = restored_at
         entry.metadata["restored_to"] = target_path
+        _append_state_transition(
+            entry,
+            previous_status,
+            "restored",
+            actor="system",
+            reason="File restored from quarantine",
+            metadata={"target_path": target_path},
+            timestamp=restored_at,
+        )
         index[entry_id] = entry
         _save_index(index)
         
@@ -456,8 +520,19 @@ def delete_quarantined(entry_id: str) -> bool:
             os.remove(entry.quarantine_path)
         
         # Update entry
+        previous_status = entry.status
         entry.status = "deleted"
-        entry.metadata["deleted_at"] = datetime.now(timezone.utc).isoformat()
+        deleted_at = datetime.now(timezone.utc).isoformat()
+        entry.metadata["deleted_at"] = deleted_at
+        _append_state_transition(
+            entry,
+            previous_status,
+            "deleted",
+            actor="system",
+            reason="Quarantined file deleted",
+            metadata={"quarantine_path": entry.quarantine_path},
+            timestamp=deleted_at,
+        )
         index[entry_id] = entry
         _save_index(index)
         
@@ -740,6 +815,16 @@ def advance_pipeline_stage(
     # Update stage
     entry.pipeline_stage = new_stage
     entry.status = new_stage
+
+    _append_state_transition(
+        entry,
+        old_stage,
+        new_stage,
+        actor="system",
+        reason=reason or "Pipeline stage advanced",
+        metadata={"results_attached": bool(results)},
+        timestamp=now,
+    )
     
     # Add to history
     entry.stage_history.append({
@@ -857,13 +942,27 @@ def add_sandbox_result(
         entry.final_verdict = "suspicious"
     
     # Advance pipeline to analyzed if sandbox complete
+    old_stage = entry.pipeline_stage
     entry.pipeline_stage = "analyzed"
+    old_status = entry.status
     entry.status = "analyzed"
+    analyzed_at = datetime.now(timezone.utc).isoformat()
     entry.stage_history.append({
         "stage": "analyzed",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "from_stage": old_stage,
+        "timestamp": analyzed_at,
         "reason": f"Sandbox analysis complete: {verdict}"
     })
+
+    _append_state_transition(
+        entry,
+        old_status,
+        "analyzed",
+        actor="system",
+        reason=f"Sandbox analysis complete: {verdict}",
+        metadata={"sandbox_id": sandbox_id, "sandbox_type": sandbox_type},
+        timestamp=analyzed_at,
+    )
     
     index[entry_id] = entry
     _save_index(index)

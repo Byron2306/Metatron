@@ -276,11 +276,39 @@ async def generate_hunting_hypotheses(
                 for tactic, count in ordered[:5]
             ]
         else:
-            hypotheses = [
-                "Validate suspicious process chains against MITRE ATT&CK execution and persistence techniques.",
-                "Hunt for beaconing patterns and rare outbound connections from high-value hosts.",
-                "Check credential access signals tied to abnormal authentication timing and source diversity."
-            ]
+            enabled_rules = [r for r in threat_hunting_engine.rules.values() if r.enabled]
+            tactic_to_techs: Dict[str, set] = {}
+            for r in enabled_rules:
+                tactic_to_techs.setdefault(r.mitre_tactic, set()).add(r.mitre_technique)
+
+            ordered_tactics = sorted(
+                tactic_to_techs.items(),
+                key=lambda kv: len(kv[1]),
+                reverse=True,
+            )
+
+            focus_l = focus.lower()
+            focus_hints = []
+            if "credential" in focus_l or "identity" in focus_l:
+                focus_hints.append("Prioritize credential-access and authentication anomaly hunts across privileged accounts.")
+            if "lateral" in focus_l or "movement" in focus_l:
+                focus_hints.append("Pivot on lateral-movement indicators: remote service creation, SMB admin shares, and unusual east-west flows.")
+            if "exfil" in focus_l or "egress" in focus_l:
+                focus_hints.append("Validate exfiltration staging by correlating archive activity with outbound destination rarity.")
+
+            hypotheses = focus_hints[:]
+            for tactic, techniques in ordered_tactics[:5]:
+                sample_techs = ", ".join(sorted(list(techniques))[:3])
+                hypotheses.append(
+                    f"Hunt {tactic} activity by validating technique traces ({sample_techs}) against recent endpoint and network telemetry."
+                )
+
+            if not hypotheses:
+                hypotheses = [
+                    "Validate suspicious process chains against MITRE ATT&CK execution and persistence techniques.",
+                    "Hunt for beaconing patterns and rare outbound connections from high-value hosts.",
+                    "Check credential access signals tied to abnormal authentication timing and source diversity.",
+                ]
 
     return {
         "focus": focus,

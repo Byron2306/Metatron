@@ -1,9 +1,24 @@
+from __future__ import annotations
 """
 Unified Agent Router - Metatron Integration
 ============================================
 API endpoints for the Metatron/Seraph unified agent management system.
 Provides cross-platform agent registration, heartbeat, deployment, and monitoring.
 """
+
+
+class EDMHitTelemetryModel(BaseModel):
+    """EDM match telemetry emitted by endpoint agents."""
+    dataset_id: str
+    record_id: Optional[str] = None
+    fingerprint: str
+    host: Optional[str] = None
+    process: Optional[str] = None
+    file_path_masked: Optional[str] = None
+    source: Optional[str] = None
+    timestamp: Optional[str] = None
+        # Additional field for telemetry
+        additional_info: Optional[str] = None
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect, Request, Header
 from typing import Optional, List, Dict, Any
@@ -14,6 +29,7 @@ import logging
 import asyncio
 import hmac
 import hashlib
+import json
 import os
 import socket
 import ipaddress
@@ -23,6 +39,99 @@ from .dependencies import get_current_user, check_permission, db
 logger = logging.getLogger('seraph.unified_agent')
 
 router = APIRouter(prefix="/unified", tags=["Unified Agent"])
+ALERT_STATUSES = {"unacknowledged", "acknowledged"}
+
+
+def _alert_transition_entry(
+    from_status: Optional[str],
+    to_status: str,
+    actor: str,
+    reason: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    entry = {
+        "from_status": from_status,
+        "to_status": to_status,
+        "actor": actor,
+        "reason": reason,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if metadata:
+        entry["metadata"] = metadata
+    return entry
+
+
+def _build_unified_alert_doc(
+    *,
+    alert_id: str,
+    agent_id: str,
+    severity: str,
+    category: str,
+    message: str,
+    details: Optional[Dict[str, Any]],
+    mitre_technique: Optional[str],
+    actor: str,
+    reason: str,
+    timestamp: Optional[str] = None,
+) -> Dict[str, Any]:
+    ts = timestamp or datetime.now(timezone.utc).isoformat()
+    return {
+        "alert_id": alert_id,
+        "agent_id": agent_id,
+        "severity": severity,
+        "category": category,
+        "message": message,
+        "details": details or {},
+        "mitre_technique": mitre_technique,
+        "timestamp": ts,
+        "acknowledged": False,
+        "status": "unacknowledged",
+        "updated_at": ts,
+        "state_version": 1,
+        "state_transition_log": [
+            _alert_transition_entry(
+                from_status=None,
+                to_status="unacknowledged",
+                actor=actor,
+                reason=reason,
+            )
+        ],
+    }
+
+
+async def _ensure_unified_alert_state_fields(
+    alert_id: str,
+    *,
+    actor: str,
+    reason: str,
+) -> Dict[str, Any]:
+    alert = await db.unified_alerts.find_one({"alert_id": alert_id}, {"_id": 0})
+    if not alert:
+        return {}
+
+    if alert.get("state_version") is not None and alert.get("state_transition_log") is not None:
+        return alert
+
+    current_status = str(alert.get("status") or ("acknowledged" if alert.get("acknowledged") else "unacknowledged"))
+    if current_status not in ALERT_STATUSES:
+        current_status = "acknowledged" if alert.get("acknowledged") else "unacknowledged"
+
+    bootstrap = {
+        "status": current_status,
+        "state_version": int(alert.get("state_version") or 1),
+        "state_transition_log": alert.get("state_transition_log")
+        or [
+            _alert_transition_entry(
+                from_status=None,
+                to_status=current_status,
+                actor=actor,
+                reason=reason,
+            )
+        ],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.unified_alerts.update_one({"alert_id": alert_id}, {"$set": bootstrap})
+    return await db.unified_alerts.find_one({"alert_id": alert_id}, {"_id": 0}) or {}
 
 
 # ============================================================
@@ -39,6 +148,24 @@ def _get_agent_secret() -> str:
     return secret
 
 AGENT_SECRET = _get_agent_secret()
+EDM_DATASET_COLLECTION = "edm_dataset_versions"
+EDM_HITS_COLLECTION = "agent_edm_telemetry"
+EDM_ROLLOUT_COLLECTION = "edm_rollouts"
+_edm_indexes_ready = False
+EDM_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
+UNIFIED_DEPLOYMENT_TERMINAL_STATUSES = {"completed", "failed"}
+
+# EDM publish-time quality gates
+EDM_MAX_RECORDS_PER_PUBLISH = max(1000, int(os.environ.get("EDM_MAX_RECORDS_PER_PUBLISH", "20000")))
+EDM_MIN_CANONICAL_COVERAGE = min(max(float(os.environ.get("EDM_MIN_CANONICAL_COVERAGE", "0.95")), 0.0), 1.0)
+EDM_MIN_ALLOWED_MIN_CONFIDENCE = min(max(float(os.environ.get("EDM_MIN_ALLOWED_MIN_CONFIDENCE", "0.85")), 0.0), 1.0)
+EDM_ALLOWED_CANDIDATE_TYPES = {
+    "line",
+    "delimited_bundle",
+    "delimited_window_4",
+    "delimited_window_3",
+    "delimited_window_2",
+}
 
 # Trusted networks that agents can connect from (CIDR notation)
 TRUSTED_NETWORKS = [
@@ -286,6 +413,8 @@ class AgentHeartbeatModel(BaseModel):
     network_connections: Optional[int] = None
     alerts: List[Dict] = []
     telemetry: Optional[Dict] = None
+    edm_hits: List[EDMHitTelemetryModel] = []
+        edm_hits: List['EDMHitTelemetryModel'] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
 
@@ -306,6 +435,101 @@ class AgentCommandModel(BaseModel):
     priority: str = "normal"  # low, normal, high, critical
     command: Optional[str] = None
     params: Optional[Dict[str, Any]] = None
+
+
+class EDMDatasetCommandModel(BaseModel):
+    """Payload for updating EDM datasets on agent(s)."""
+    dataset: Dict[str, Any]
+    priority: str = "high"
+
+
+class EDMBulkTargetModel(BaseModel):
+    """Targeting options for fleet EDM fanout commands."""
+    online_only: bool = True
+    platforms: Optional[List[str]] = None
+    groups: Optional[List[str]] = None
+    agent_ids: Optional[List[str]] = None
+    limit: int = 500
+
+
+class EDMBulkDatasetCommandModel(BaseModel):
+    """Bulk dataset update payload for multi-agent EDM orchestration."""
+    dataset: Dict[str, Any]
+    priority: str = "high"
+    targets: EDMBulkTargetModel = EDMBulkTargetModel()
+
+
+class EDMDatasetVersionCreateModel(BaseModel):
+    """Create a new EDM dataset version in source-of-truth registry."""
+    dataset: Dict[str, Any]
+    note: Optional[str] = None
+
+
+class EDMDatasetPublishModel(BaseModel):
+    """Publish a stored EDM dataset version to matching agents."""
+    targets: EDMBulkTargetModel = EDMBulkTargetModel()
+    priority: str = "high"
+
+
+class EDMDatasetRollbackModel(BaseModel):
+    """Rollback dataset by cloning a previous version into new head."""
+    target_version: int
+    note: Optional[str] = None
+    publish: bool = True
+    targets: EDMBulkTargetModel = EDMBulkTargetModel()
+    priority: str = "high"
+
+
+class EDMHitTelemetryModel(BaseModel):
+    """EDM match telemetry emitted by endpoint agents."""
+    dataset_id: str
+    record_id: Optional[str] = None
+    fingerprint: str
+    host: Optional[str] = None
+    process: Optional[str] = None
+    file_path_masked: Optional[str] = None
+    source: Optional[str] = None
+    timestamp: Optional[str] = None
+class AgentHeartbeatModel(BaseModel):
+    agent_id: str
+    status: str  # online, offline, degraded
+    cpu_usage: Optional[float] = None
+    memory_usage: Optional[float] = None
+    disk_usage: Optional[float] = None
+    threat_count: Optional[int] = None
+    network_connections: Optional[int] = None
+    alerts: List[Dict] = []
+    telemetry: Optional[Dict] = None
+    edm_hits: List[EDMHitTelemetryModel] = []
+    # Structured monitor telemetry
+    monitors: Optional[MonitorsTelemetry] = None
+
+
+AgentHeartbeatModel.model_rebuild()
+
+
+class EDMRolloutPolicyModel(BaseModel):
+    """Progressive rollout controls and anomaly guardrails."""
+    stages: List[int] = [5, 25, 100]
+    anomaly_spike_multiplier: float = 3.0
+    anomaly_min_hits: int = 20
+    evaluation_window_minutes: int = 15
+    auto_rollback: bool = True
+
+
+class EDMRolloutStartModel(BaseModel):
+    """Start canary rollout for a specific EDM dataset version."""
+    dataset_id: str
+    target_version: int
+    targets: EDMBulkTargetModel = EDMBulkTargetModel()
+    priority: str = "high"
+    policy: EDMRolloutPolicyModel = EDMRolloutPolicyModel()
+
+
+class EDMRolloutRollbackModel(BaseModel):
+    """Manual rollback controls for an active rollout."""
+    rollback_version: Optional[int] = None
+    reason: Optional[str] = None
 
 
 class AlertModel(BaseModel):
@@ -497,6 +721,13 @@ async def agent_heartbeat(
     # Process any alerts
     for alert_data in heartbeat.alerts:
         await _process_agent_alert(agent_id, alert_data)
+
+    # Ingest EDM hit telemetry loop-back from endpoint.
+    if heartbeat.edm_hits:
+        await _ensure_edm_indexes()
+        for hit in heartbeat.edm_hits:
+            await _process_agent_edm_hit(agent_id, hit.model_dump(), agent)
+        await _evaluate_active_edm_rollouts(agent_id)
     
     # Store telemetry if provided
     if heartbeat.telemetry:
@@ -519,7 +750,7 @@ async def agent_heartbeat(
                             'dns', 'memory', 'whitelist', 'dlp', 'vulnerability', 'amsi']:
             monitor_data = getattr(heartbeat.monitors, monitor_name, None)
             if monitor_data:
-                monitor_doc[monitor_name] = monitor_data.dict()
+                monitor_doc[monitor_name] = monitor_data.model_dump()
         
         await db.agent_monitor_telemetry.insert_one(monitor_doc)
     
@@ -689,35 +920,1347 @@ async def send_agent_command(
         )
 
     resolved_parameters = command.parameters or command.params or {}
-    
+
+    return await _dispatch_agent_command(
+        agent_id=agent_id,
+        command_type=resolved_command_type,
+        parameters=resolved_parameters,
+        priority=command.priority,
+        issued_by=current_user.get("email", "system"),
+    )
+
+
+async def _dispatch_agent_command(
+    agent_id: str,
+    command_type: str,
+    parameters: Dict[str, Any],
+    priority: str,
+    issued_by: str,
+) -> Dict[str, Any]:
+    """Queue or immediately dispatch a command to a unified agent."""
     command_id = secrets.token_hex(8)
     command_data = {
         "command_id": command_id,
         "type": "command",
-        "command_type": resolved_command_type,
-        "parameters": resolved_parameters,
-        "priority": command.priority,
+        "command_type": command_type,
+        "parameters": parameters,
+        "priority": priority,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "issued_by": current_user.get("email", "system")
+        "issued_by": issued_by,
     }
-    
-    # Try to send immediately via WebSocket
+
     sent = await agent_ws_manager.send_command(agent_id, command_data)
-    
-    # Store command in database
     await db.agent_commands.insert_one({
         **command_data,
         "agent_id": agent_id,
-        "status": "sent" if sent else "queued"
+        "status": "sent" if sent else "queued",
+        "state_version": 1,
+        "state_transition_log": [
+            {
+                "from_status": None,
+                "to_status": "sent" if sent else "queued",
+                "actor": issued_by,
+                "reason": "command dispatched",
+                "timestamp": command_data["timestamp"],
+                "metadata": {"delivery_mode": "websocket" if sent else "queue"},
+            }
+        ],
     })
-    
-    logger.info(f"Command {resolved_command_type} sent to {agent_id}: {'immediate' if sent else 'queued'}")
-    
+
+    logger.info(f"Command {command_type} sent to {agent_id}: {'immediate' if sent else 'queued'}")
     return {
         "command_id": command_id,
         "status": "sent" if sent else "queued",
-        "message": f"Command {'sent immediately' if sent else 'queued for delivery'}"
+        "message": f"Command {'sent immediately' if sent else 'queued for delivery'}",
     }
+
+
+async def _resolve_edm_targets(targets: EDMBulkTargetModel) -> List[Dict[str, Any]]:
+    """Resolve target agents for bulk EDM operations."""
+    query: Dict[str, Any] = {}
+    limit = max(1, min(int(targets.limit or 500), 5000))
+
+    if targets.online_only:
+        query["status"] = "online"
+
+    if targets.platforms:
+        normalized = [p.lower().strip() for p in targets.platforms if p and p.strip()]
+        if normalized:
+            query["platform"] = {"$in": normalized}
+
+    if targets.groups:
+        normalized_groups = [g.strip() for g in targets.groups if g and g.strip()]
+        if normalized_groups:
+            query["$or"] = [
+                {"group": {"$in": normalized_groups}},
+                {"config.group": {"$in": normalized_groups}},
+                {"config.groups": {"$in": normalized_groups}},
+                {"tags": {"$in": normalized_groups}},
+                {"config.tags": {"$in": normalized_groups}},
+            ]
+
+    if targets.agent_ids:
+        ids = [a.strip() for a in targets.agent_ids if a and a.strip()]
+        if ids:
+            query["agent_id"] = {"$in": ids}
+
+    agents = await db.unified_agents.find(query, {"_id": 0, "agent_id": 1, "platform": 1, "status": 1}).limit(limit).to_list(length=limit)
+    return agents
+
+
+def _cohort_percent(rollout_id: str, agent_id: str) -> int:
+    """Deterministic 0-99 cohort placement per rollout and agent."""
+    digest = hashlib.sha256(f"{rollout_id}:{agent_id}".encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % 100
+
+
+def _select_rollout_agents(rollout_id: str, eligible_ids: List[str], cumulative_percent: int) -> List[str]:
+    pct = max(0, min(int(cumulative_percent), 100))
+    return [aid for aid in eligible_ids if _cohort_percent(rollout_id, aid) < pct]
+
+
+async def _count_edm_hits(dataset_id: str, agent_ids: List[str], since_iso: str) -> int:
+    if not agent_ids:
+        return 0
+    return await db[EDM_HITS_COLLECTION].count_documents({
+        "dataset_id": dataset_id,
+        "agent_id": {"$in": agent_ids},
+        "ingested_at": {"$gte": since_iso},
+    })
+
+
+async def _ensure_edm_indexes() -> None:
+    """Create EDM telemetry/rollout indexes lazily for production safety/perf."""
+    global _edm_indexes_ready
+    if _edm_indexes_ready:
+        return
+    try:
+        await db[EDM_HITS_COLLECTION].create_index([("dataset_id", 1), ("ingested_at", -1)])
+        await db[EDM_HITS_COLLECTION].create_index([("agent_id", 1), ("ingested_at", -1)])
+        await db[EDM_HITS_COLLECTION].create_index([("fingerprint", 1), ("ingested_at", -1)])
+        await db[EDM_HITS_COLLECTION].create_index([("ingested_at", -1)])
+
+        await db[EDM_ROLLOUT_COLLECTION].create_index([("rollout_id", 1)], unique=True)
+        await db[EDM_ROLLOUT_COLLECTION].create_index([("status", 1), ("updated_at", -1)])
+        await db[EDM_ROLLOUT_COLLECTION].create_index([("dataset_id", 1), ("status", 1)])
+        _edm_indexes_ready = True
+    except Exception as e:
+        logger.warning(f"Failed to initialize EDM indexes: {e}")
+
+
+async def _compute_rollout_readiness(rollout: Dict[str, Any]) -> Dict[str, Any]:
+    """Compute cohort/control anomaly metrics used for readiness/auto-rollback."""
+    now = datetime.now(timezone.utc)
+    dataset_id = rollout.get("dataset_id")
+    policy = rollout.get("policy", {})
+    eval_minutes = max(5, int(policy.get("evaluation_window_minutes", 15)))
+    min_hits = max(1, int(policy.get("anomaly_min_hits", 20)))
+    spike_multiplier = max(1.0, float(policy.get("anomaly_spike_multiplier", 3.0)))
+
+    since_iso = (now - timedelta(minutes=eval_minutes)).isoformat()
+    eligible_ids = rollout.get("eligible_agent_ids") or []
+    cohort_ids = rollout.get("applied_agent_ids") or []
+    cohort_set = set(cohort_ids)
+    control_ids = [aid for aid in eligible_ids if aid not in cohort_set]
+
+    cohort_hits = await _count_edm_hits(dataset_id, cohort_ids, since_iso)
+    control_hits = await _count_edm_hits(dataset_id, control_ids, since_iso) if control_ids else 0
+    cohort_rate = cohort_hits / max(len(cohort_ids), 1) / float(eval_minutes)
+    control_rate = control_hits / max(len(control_ids), 1) / float(eval_minutes) if control_ids else 0.0
+    threshold_rate = max(control_rate * spike_multiplier, 0.05)
+    has_spike = cohort_hits >= min_hits and cohort_rate > threshold_rate
+
+    return {
+        "dataset_id": dataset_id,
+        "window_minutes": eval_minutes,
+        "since": since_iso,
+        "cohort": {
+            "agents": len(cohort_ids),
+            "hits": cohort_hits,
+            "rate_per_agent_min": cohort_rate,
+        },
+        "control": {
+            "agents": len(control_ids),
+            "hits": control_hits,
+            "rate_per_agent_min": control_rate,
+        },
+        "threshold": {
+            "multiplier": spike_multiplier,
+            "min_hits": min_hits,
+            "rate_per_agent_min": threshold_rate,
+        },
+        "has_spike": has_spike,
+        "can_advance": not has_spike,
+    }
+
+
+def _rollout_conflict_error() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail="Rollout state changed concurrently; refresh rollout state and retry",
+    )
+
+
+def _deployment_conflict_error() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail="Deployment state changed concurrently; refresh deployment state and retry",
+    )
+
+
+async def _transition_unified_deployment_state(
+    deployment_id: str,
+    expected_statuses: List[str],
+    next_status: str,
+    extra_updates: Optional[Dict[str, Any]] = None,
+    deployment_task_id: Optional[str] = None,
+    transition_actor: str = "system",
+    transition_reason: Optional[str] = None,
+    transition_metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+    query: Dict[str, Any] = {
+        "deployment_id": deployment_id,
+        "status": {"$in": expected_statuses},
+    }
+    if deployment_task_id is not None:
+        query["deployment_task_id"] = deployment_task_id
+
+    update_doc = {
+        "status": next_status,
+        "updated_at": now,
+    }
+    if extra_updates:
+        update_doc.update(extra_updates)
+
+    result = await db.unified_deployments.update_one(
+        query,
+        {
+            "$set": update_doc,
+            "$inc": {"state_version": 1},
+            "$push": {
+                "state_transition_log": {
+                    "from_status": expected_statuses[0] if len(expected_statuses) == 1 else list(expected_statuses),
+                    "to_status": next_status,
+                    "actor": transition_actor,
+                    "reason": transition_reason,
+                    "metadata": transition_metadata or {},
+                    "timestamp": now,
+                }
+            },
+        },
+    )
+    return getattr(result, "matched_count", 0) > 0
+
+
+async def _finalize_agent_command_result(
+    command_id: str,
+    status: str,
+    result_payload: Dict[str, Any],
+    transition_actor: str = "agent",
+    transition_reason: str = "command result received",
+) -> Dict[str, Any]:
+    normalized_status = str(status or "completed").lower().strip()
+    if normalized_status not in {"completed", "failed"}:
+        normalized_status = "completed"
+
+    now = datetime.now(timezone.utc).isoformat()
+    update_result = await db.agent_commands.update_one(
+        {
+            "command_id": command_id,
+            "status": {"$in": ["queued", "sent", "delivered", "in_progress", "running"]},
+        },
+        {
+            "$set": {
+                "status": normalized_status,
+                "result": result_payload,
+                "completed_at": now,
+                "updated_at": now,
+            },
+            "$inc": {"state_version": 1},
+            "$push": {
+                "state_transition_log": {
+                    "from_status": ["queued", "sent", "delivered", "in_progress", "running"],
+                    "to_status": normalized_status,
+                    "actor": transition_actor,
+                    "reason": transition_reason,
+                    "timestamp": now,
+                }
+            },
+        },
+    )
+
+    if getattr(update_result, "matched_count", 0) > 0:
+        return {"updated": True, "status": normalized_status}
+
+    existing = await db.agent_commands.find_one(
+        {"command_id": command_id},
+        {"_id": 0, "status": 1},
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Command not found")
+
+    raise HTTPException(
+        status_code=409,
+        detail=f"Command is already terminal (status={existing.get('status')})",
+    )
+
+
+async def _claim_rollout_for_rollback(
+    rollout_id: str,
+    reason: str,
+    requested_by: str,
+    allowed_statuses: List[str],
+) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    claim = await db[EDM_ROLLOUT_COLLECTION].update_one(
+        {
+            "rollout_id": rollout_id,
+            "status": {"$in": allowed_statuses},
+        },
+        {
+            "$set": {
+                "status": "rolling_back",
+                "rollback_reason": reason,
+                "rollback_requested_by": requested_by,
+                "rollback_requested_at": now,
+                "updated_at": now,
+            },
+            "$inc": {"state_version": 1},
+            "$push": {
+                "state_transition_log": {
+                    "from_status": list(allowed_statuses),
+                    "to_status": "rolling_back",
+                    "actor": requested_by,
+                    "reason": reason,
+                    "timestamp": now,
+                }
+            },
+        },
+    )
+    if getattr(claim, "matched_count", 0) == 0:
+        raise _rollout_conflict_error()
+
+    refreshed = await db[EDM_ROLLOUT_COLLECTION].find_one({"rollout_id": rollout_id}, {"_id": 0})
+    if not refreshed:
+        raise HTTPException(status_code=404, detail="Rollout not found")
+    return refreshed
+
+
+def _canonical_json(value: Any) -> str:
+    """Stable canonical JSON serialization for checksums/signatures."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _compute_edm_checksum(dataset: Dict[str, Any]) -> str:
+    return hashlib.sha256(_canonical_json(dataset).encode("utf-8")).hexdigest()
+
+
+def _normalize_edm_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return " ".join(text.split())
+
+
+def _canonicalize_edm_record(record: Any) -> str:
+    """Canonicalization aligned with agent EDM behavior for quality estimation."""
+    if isinstance(record, dict):
+        parts: List[str] = []
+        for key in sorted(record.keys()):
+            val = _normalize_edm_text(record.get(key))
+            if val:
+                parts.append(f"{_normalize_edm_text(key)}={val}")
+        return "|".join(parts)
+
+    if isinstance(record, list):
+        vals = [_normalize_edm_text(v) for v in record]
+        vals = [v for v in vals if v]
+        return "|".join(vals)
+
+    return _normalize_edm_text(record)
+
+
+def _validate_and_score_edm_dataset(dataset_payload: Any) -> Dict[str, Any]:
+    """Validate EDM schema and score publish readiness quality gates."""
+    report: Dict[str, Any] = {
+        "valid": False,
+        "quality_gate_passed": False,
+        "schema_errors": [],
+        "quality_errors": [],
+        "quality_warnings": [],
+        "metrics": {
+            "datasets": 0,
+            "total_records": 0,
+            "canonicalizable_records": 0,
+            "canonical_coverage": 0.0,
+            "datasets_missing_id": 0,
+            "datasets_with_empty_records": 0,
+            "duplicate_dataset_ids": 0,
+            "duplicate_record_ids": 0,
+            "unknown_candidate_types": 0,
+        },
+    }
+
+    schema_errors: List[str] = report["schema_errors"]
+    quality_errors: List[str] = report["quality_errors"]
+    quality_warnings: List[str] = report["quality_warnings"]
+    metrics: Dict[str, Any] = report["metrics"]
+
+    if not isinstance(dataset_payload, dict):
+        schema_errors.append("dataset payload must be an object")
+        return report
+
+    datasets = dataset_payload.get("datasets")
+    if not isinstance(datasets, list):
+        schema_errors.append("dataset payload must contain 'datasets' as a list")
+        return report
+
+    metrics["datasets"] = len(datasets)
+    if len(datasets) == 0:
+        schema_errors.append("'datasets' must not be empty")
+        return report
+
+    seen_dataset_ids: set = set()
+    seen_record_ids: set = set()
+    unknown_candidate_types: set = set()
+
+    for ds_index, ds in enumerate(datasets):
+        if not isinstance(ds, dict):
+            schema_errors.append(f"datasets[{ds_index}] must be an object")
+            continue
+
+        ds_id = str(ds.get("dataset_id") or ds.get("name") or "").strip()
+        if not ds_id:
+            metrics["datasets_missing_id"] += 1
+            schema_errors.append(f"datasets[{ds_index}] missing dataset_id/name")
+        else:
+            if ds_id in seen_dataset_ids:
+                metrics["duplicate_dataset_ids"] += 1
+            seen_dataset_ids.add(ds_id)
+
+        records = ds.get("records")
+        if not isinstance(records, list):
+            schema_errors.append(f"datasets[{ds_index}].records must be a list")
+            continue
+        if len(records) == 0:
+            metrics["datasets_with_empty_records"] += 1
+            quality_warnings.append(f"datasets[{ds_index}] has no records")
+
+        precision = ds.get("precision")
+        if precision is not None and not isinstance(precision, dict):
+            schema_errors.append(f"datasets[{ds_index}].precision must be an object if provided")
+            precision = None
+
+        if isinstance(precision, dict):
+            if "min_confidence" in precision:
+                try:
+                    min_conf = float(precision.get("min_confidence"))
+                except Exception:
+                    schema_errors.append(f"datasets[{ds_index}].precision.min_confidence must be numeric")
+                    min_conf = None
+                if min_conf is not None:
+                    if min_conf < 0.0 or min_conf > 1.0:
+                        schema_errors.append(f"datasets[{ds_index}].precision.min_confidence must be between 0 and 1")
+                    elif min_conf < EDM_MIN_ALLOWED_MIN_CONFIDENCE:
+                        quality_errors.append(
+                            f"datasets[{ds_index}].precision.min_confidence ({min_conf}) below enforced floor ({EDM_MIN_ALLOWED_MIN_CONFIDENCE})"
+                        )
+
+            if "allowed_candidate_types" in precision:
+                allowed = precision.get("allowed_candidate_types")
+                if not isinstance(allowed, list):
+                    schema_errors.append(f"datasets[{ds_index}].precision.allowed_candidate_types must be a list")
+                else:
+                    unknown = {str(v).strip() for v in allowed if str(v).strip() and str(v).strip() not in EDM_ALLOWED_CANDIDATE_TYPES}
+                    if unknown:
+                        unknown_candidate_types.update(unknown)
+
+        for record_index, record in enumerate(records):
+            metrics["total_records"] += 1
+            canonical = _canonicalize_edm_record(record)
+            if canonical:
+                metrics["canonicalizable_records"] += 1
+
+            if isinstance(record, dict):
+                record_id = str(record.get("record_id") or "").strip()
+                if record_id and ds_id:
+                    key = f"{ds_id}:{record_id}"
+                    if key in seen_record_ids:
+                        metrics["duplicate_record_ids"] += 1
+                    seen_record_ids.add(key)
+            elif record is None:
+                quality_warnings.append(f"datasets[{ds_index}].records[{record_index}] is null and contributes no fingerprint")
+
+    total_records = int(metrics.get("total_records", 0))
+    canonicalizable = int(metrics.get("canonicalizable_records", 0))
+    coverage = (canonicalizable / total_records) if total_records else 0.0
+    metrics["canonical_coverage"] = round(coverage, 6)
+    metrics["unknown_candidate_types"] = len(unknown_candidate_types)
+
+    if total_records == 0:
+        quality_errors.append("dataset contains zero records")
+
+    if total_records > EDM_MAX_RECORDS_PER_PUBLISH:
+        quality_errors.append(
+            f"record count {total_records} exceeds publish gate limit {EDM_MAX_RECORDS_PER_PUBLISH}"
+        )
+
+    if coverage < EDM_MIN_CANONICAL_COVERAGE:
+        quality_errors.append(
+            f"canonical coverage {coverage:.3f} below threshold {EDM_MIN_CANONICAL_COVERAGE:.3f}"
+        )
+
+    if metrics["duplicate_dataset_ids"] > 0:
+        quality_errors.append("duplicate dataset_id values detected")
+
+    if metrics["duplicate_record_ids"] > 0:
+        quality_errors.append("duplicate record_id values detected within dataset scope")
+
+    if unknown_candidate_types:
+        quality_errors.append(
+            f"unknown precision.allowed_candidate_types: {sorted(unknown_candidate_types)}"
+        )
+
+    report["valid"] = len(schema_errors) == 0
+    report["quality_gate_passed"] = report["valid"] and len(quality_errors) == 0
+    return report
+
+
+def _enforce_edm_publish_gates(dataset_payload: Any, *, context: str) -> Dict[str, Any]:
+    """Enforce schema and quality gates prior to version promotion/distribution."""
+    report = _validate_and_score_edm_dataset(dataset_payload)
+    if not report.get("valid") or not report.get("quality_gate_passed"):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"EDM dataset failed {context} validation gates",
+                "context": context,
+                "validation": report,
+            },
+        )
+    return report
+
+
+def _sign_edm_metadata(dataset_id: str, version: int, checksum: str) -> str:
+    message = f"{dataset_id}:{version}:{checksum}"
+    return hmac.new(AGENT_SECRET.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _build_edm_meta(doc: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "dataset_id": doc.get("dataset_id"),
+        "version": int(doc.get("version", 0)),
+        "checksum": doc.get("checksum"),
+        "signature": doc.get("signature"),
+        "signed_at": doc.get("published_at"),
+    }
+
+
+async def _dispatch_edm_dataset_to_targets(
+    dataset: Dict[str, Any],
+    edm_meta: Dict[str, Any],
+    targets: EDMBulkTargetModel,
+    priority: str,
+    issued_by: str,
+) -> Dict[str, Any]:
+    agents = await _resolve_edm_targets(targets)
+    if not agents:
+        return {
+            "matched_agents": 0,
+            "dispatched": 0,
+            "sent": 0,
+            "queued": 0,
+            "results": [],
+        }
+
+    sent = 0
+    queued = 0
+    results: List[Dict[str, Any]] = []
+    for agent in agents:
+        dispatch = await _dispatch_agent_command(
+            agent_id=agent["agent_id"],
+            command_type="update_edm_dataset",
+            parameters={"dataset": dataset, "edm_meta": edm_meta},
+            priority=priority,
+            issued_by=issued_by,
+        )
+        if dispatch.get("status") == "sent":
+            sent += 1
+        else:
+            queued += 1
+        results.append({
+            "agent_id": agent["agent_id"],
+            "platform": agent.get("platform"),
+            "agent_status": agent.get("status"),
+            "command_id": dispatch.get("command_id"),
+            "delivery": dispatch.get("status"),
+        })
+
+    return {
+        "matched_agents": len(agents),
+        "dispatched": len(results),
+        "sent": sent,
+        "queued": queued,
+        "results": results,
+    }
+
+
+@router.post("/agents/{agent_id}/edm/reload")
+async def reload_agent_edm_dataset(
+    agent_id: str,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Trigger EDM dataset reload on an agent without restarting the process."""
+    agent = await db.unified_agents.find_one({"agent_id": agent_id})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    cmd = await _dispatch_agent_command(
+        agent_id=agent_id,
+        command_type="reload_edm_dataset",
+        parameters={},
+        priority="high",
+        issued_by=current_user.get("email", "system"),
+    )
+    return {
+        "agent_id": agent_id,
+        "action": "reload_edm_dataset",
+        **cmd,
+    }
+
+
+@router.post("/agents/{agent_id}/edm/dataset")
+async def update_agent_edm_dataset(
+    agent_id: str,
+    payload: EDMDatasetCommandModel,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Push a full EDM dataset payload to an agent and hot-reload it."""
+    agent = await db.unified_agents.find_one({"agent_id": agent_id})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    _enforce_edm_publish_gates(payload.dataset, context="single-agent edm update")
+
+    adhoc_dataset_id = f"adhoc-{agent_id}"
+    adhoc_version = int(datetime.now(timezone.utc).timestamp())
+    checksum = _compute_edm_checksum(payload.dataset)
+    signature = _sign_edm_metadata(adhoc_dataset_id, adhoc_version, checksum)
+    edm_meta = {
+        "dataset_id": adhoc_dataset_id,
+        "version": adhoc_version,
+        "checksum": checksum,
+        "signature": signature,
+        "signed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    cmd = await _dispatch_agent_command(
+        agent_id=agent_id,
+        command_type="update_edm_dataset",
+        parameters={"dataset": payload.dataset, "edm_meta": edm_meta},
+        priority=payload.priority,
+        issued_by=current_user.get("email", "system"),
+    )
+    return {
+        "agent_id": agent_id,
+        "action": "update_edm_dataset",
+        "datasets_count": len(payload.dataset.get("datasets", [])),
+        "edm_meta": edm_meta,
+        **cmd,
+    }
+
+
+@router.post("/agents/edm/reload-all")
+async def reload_edm_dataset_fleet(
+    targets: EDMBulkTargetModel,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Fanout EDM reload command to all matching agents."""
+    agents = await _resolve_edm_targets(targets)
+    if not agents:
+        return {
+            "action": "reload_edm_dataset",
+            "matched_agents": 0,
+            "dispatched": 0,
+            "sent": 0,
+            "queued": 0,
+            "results": [],
+        }
+
+    results: List[Dict[str, Any]] = []
+    sent = 0
+    queued = 0
+    for agent in agents:
+        dispatch = await _dispatch_agent_command(
+            agent_id=agent["agent_id"],
+            command_type="reload_edm_dataset",
+            parameters={},
+            priority="high",
+            issued_by=current_user.get("email", "system"),
+        )
+        if dispatch.get("status") == "sent":
+            sent += 1
+        else:
+            queued += 1
+        results.append({
+            "agent_id": agent["agent_id"],
+            "platform": agent.get("platform"),
+            "agent_status": agent.get("status"),
+            "command_id": dispatch.get("command_id"),
+            "delivery": dispatch.get("status"),
+        })
+
+    return {
+        "action": "reload_edm_dataset",
+        "matched_agents": len(agents),
+        "dispatched": len(results),
+        "sent": sent,
+        "queued": queued,
+        "results": results,
+    }
+
+
+@router.post("/agents/edm/dataset-all")
+async def update_edm_dataset_fleet(
+    payload: EDMBulkDatasetCommandModel,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Fanout EDM dataset update command to all matching agents."""
+    _enforce_edm_publish_gates(payload.dataset, context="fleet edm update")
+
+    agents = await _resolve_edm_targets(payload.targets)
+    if not agents:
+        return {
+            "action": "update_edm_dataset",
+            "matched_agents": 0,
+            "dispatched": 0,
+            "sent": 0,
+            "queued": 0,
+            "datasets_count": len(payload.dataset.get("datasets", [])),
+            "results": [],
+        }
+
+    # Ad hoc fanout still signs payloads so agents can verify trust/integrity.
+    adhoc_dataset_id = "adhoc-global"
+    adhoc_version = int(datetime.now(timezone.utc).timestamp())
+    checksum = _compute_edm_checksum(payload.dataset)
+    signature = _sign_edm_metadata(adhoc_dataset_id, adhoc_version, checksum)
+    edm_meta = {
+        "dataset_id": adhoc_dataset_id,
+        "version": adhoc_version,
+        "checksum": checksum,
+        "signature": signature,
+        "signed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    fanout = await _dispatch_edm_dataset_to_targets(
+        dataset=payload.dataset,
+        edm_meta=edm_meta,
+        targets=payload.targets,
+        priority=payload.priority,
+        issued_by=current_user.get("email", "system"),
+    )
+
+    return {
+        "action": "update_edm_dataset",
+        "matched_agents": fanout.get("matched_agents", 0),
+        "dispatched": fanout.get("dispatched", 0),
+        "sent": fanout.get("sent", 0),
+        "queued": fanout.get("queued", 0),
+        "datasets_count": len(payload.dataset.get("datasets", [])),
+        "edm_meta": edm_meta,
+        "results": fanout.get("results", []),
+    }
+
+
+# ============================================================
+# EDM SOURCE-OF-TRUTH DATASET REGISTRY
+# ============================================================
+
+@router.get("/edm/datasets")
+async def list_edm_datasets(current_user: dict = Depends(check_permission("read"))):
+    """List latest EDM dataset head per dataset_id."""
+    _ = current_user
+    docs = await db[EDM_DATASET_COLLECTION].find({}, {"_id": 0}).sort([("dataset_id", 1), ("version", -1)]).to_list(5000)
+    latest: Dict[str, Dict[str, Any]] = {}
+    for doc in docs:
+        dsid = doc.get("dataset_id")
+        if dsid and dsid not in latest:
+            latest[dsid] = doc
+
+    datasets = []
+    for dsid, doc in latest.items():
+        datasets.append({
+            "dataset_id": dsid,
+            "version": doc.get("version"),
+            "checksum": doc.get("checksum"),
+            "published_by": doc.get("published_by"),
+            "published_at": doc.get("published_at"),
+            "rollback_target": doc.get("rollback_target"),
+            "note": doc.get("note"),
+        })
+    return {"datasets": datasets, "count": len(datasets)}
+
+
+@router.get("/edm/datasets/{dataset_id}/versions")
+async def list_edm_dataset_versions(dataset_id: str, current_user: dict = Depends(check_permission("read"))):
+    """List all versions for a dataset_id."""
+    _ = current_user
+    versions = await db[EDM_DATASET_COLLECTION].find({"dataset_id": dataset_id}, {"_id": 0}).sort("version", -1).to_list(1000)
+    return {"dataset_id": dataset_id, "versions": versions, "count": len(versions)}
+
+
+@router.get("/edm/datasets/{dataset_id}/versions/{version}")
+async def get_edm_dataset_version(dataset_id: str, version: int, current_user: dict = Depends(check_permission("read"))):
+    """Get a specific dataset version payload + metadata."""
+    _ = current_user
+    doc = await db[EDM_DATASET_COLLECTION].find_one({"dataset_id": dataset_id, "version": version}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Dataset version not found")
+    return doc
+
+
+@router.post("/edm/datasets/{dataset_id}/versions")
+async def create_edm_dataset_version(
+    dataset_id: str,
+    payload: EDMDatasetVersionCreateModel,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Create a new version in EDM source-of-truth registry."""
+    quality_report = _enforce_edm_publish_gates(payload.dataset, context="dataset version creation")
+
+    latest = await db[EDM_DATASET_COLLECTION].find_one({"dataset_id": dataset_id}, {"_id": 0, "version": 1}, sort=[("version", -1)])
+    next_version
+    checksum = _compute_edm_checksum(payload.dataset)
+    signature = _sign_edm_metadata(dataset_id, next_version, checksum)
+    now = datetime.now(timezone.utc).isoformat()
+
+    doc = {
+        "dataset_id": dataset_id,
+        "version": next_version,
+        "dataset": payload.dataset,
+        "quality_report": quality_report,
+        "checksum": checksum,
+        "signature": signature,
+        "published_by": current_user.get("email", "system"),
+        "published_at": now,
+        "rollback_target": None,
+        "note": payload.note,
+        "created_at": now,
+    }
+    await db[EDM_DATASET_COLLECTION].insert_one(doc)
+    return {"status": "created", "contract_version": EDM_CONTROL_PLANE_CONTRACT_VERSION, **doc}
+
+
+@router.post("/edm/datasets/{dataset_id}/versions/{version}/publish")
+async def publish_edm_dataset_version(
+    dataset_id: str,
+    version: int,
+    payload: EDMDatasetPublishModel,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Publish a stored dataset version to matching agents."""
+    doc = await db[EDM_DATASET_COLLECTION].find_one({"dataset_id": dataset_id, "version": version}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Dataset version not found")
+
+    quality_report = _enforce_edm_publish_gates(doc.get("dataset", {}), context="dataset publish")
+
+    fanout = await _dispatch_edm_dataset_to_targets(
+        dataset=doc.get("dataset", {}),
+        edm_meta=_build_edm_meta(doc),
+        targets=payload.targets,
+        priority=payload.priority,
+        issued_by=current_user.get("email", "system"),
+    )
+
+    await db[EDM_DATASET_COLLECTION].update_one(
+        {"dataset_id": dataset_id, "version": version},
+        {"$set": {"last_published_at": datetime.now(timezone.utc).isoformat(), "last_published_by": current_user.get("email", "system")}},
+    )
+
+    return {
+        "action": "publish_edm_dataset_version",
+        "contract_version": EDM_CONTROL_PLANE_CONTRACT_VERSION,
+        "dataset_id": dataset_id,
+        "version": version,
+        "quality_report": quality_report,
+        "edm_meta": _build_edm_meta(doc),
+        **fanout,
+    }
+
+
+@router.post("/edm/datasets/{dataset_id}/rollback")
+async def rollback_edm_dataset(
+    dataset_id: str,
+    payload: EDMDatasetRollbackModel,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Rollback by cloning target version into new latest version, optionally publish immediately."""
+    target = await db[EDM_DATASET_COLLECTION].find_one({"dataset_id": dataset_id, "version": payload.target_version}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Rollback target version not found")
+
+    latest = await db[EDM_DATASET_COLLECTION].find_one({"dataset_id": dataset_id}, {"_id": 0, "version": 1}, sort=[("version", -1)])
+    new_version = int((latest or {}).get("version", 0)) + 1
+    dataset = target.get("dataset", {})
+    checksum = _compute_edm_checksum(dataset)
+    signature = _sign_edm_metadata(dataset_id, new_version, checksum)
+    now = datetime.now(timezone.utc).isoformat()
+
+    rollback_doc = {
+        "dataset_id": dataset_id,
+        "version": new_version,
+        "dataset": dataset,
+        "checksum": checksum,
+        "signature": signature,
+        "published_by": current_user.get("email", "system"),
+        "published_at": now,
+        "rollback_target": payload.target_version,
+        "note": payload.note or f"Rollback to version {payload.target_version}",
+        "created_at": now,
+    }
+    await db[EDM_DATASET_COLLECTION].insert_one(rollback_doc)
+
+    response: Dict[str, Any] = {
+        "status": "rolled_back",
+        "contract_version": EDM_CONTROL_PLANE_CONTRACT_VERSION,
+        "dataset_id": dataset_id,
+        "new_version": new_version,
+        "rollback_target": payload.target_version,
+        "edm_meta": _build_edm_meta(rollback_doc),
+    }
+
+    if payload.publish:
+        quality_report = _enforce_edm_publish_gates(dataset, context="rollback publish")
+        fanout = await _dispatch_edm_dataset_to_targets(
+            dataset=dataset,
+            edm_meta=_build_edm_meta(rollback_doc),
+            targets=payload.targets,
+            priority=payload.priority,
+            issued_by=current_user.get("email", "system"),
+        )
+        response["publish"] = {**fanout, "quality_report": quality_report}
+
+    return response
+
+
+@router.get("/edm/telemetry/summary")
+async def get_edm_telemetry_summary(
+    dataset_id: Optional[str] = None,
+    since_minutes: int = 60,
+    current_user: dict = Depends(check_permission("read")),
+):
+    """Centralized EDM hit analytics across agents."""
+    _ = current_user
+    await _ensure_edm_indexes()
+    since_minutes = max(1, min(int(since_minutes), 24 * 60))
+    since_iso = (datetime.now(timezone.utc) - timedelta(minutes=since_minutes)).isoformat()
+
+    match: Dict[str, Any] = {"ingested_at": {"$gte": since_iso}}
+    if dataset_id:
+        match["dataset_id"] = dataset_id
+
+    by_dataset = await db[EDM_HITS_COLLECTION].aggregate([
+        {"$match": match},
+        {"$group": {"_id": "$dataset_id", "hits": {"$sum": 1}, "agents": {"$addToSet": "$agent_id"}}},
+        {"$project": {"_id": 0, "dataset_id": "$_id", "hits": 1, "agents": {"$size": "$agents"}}},
+        {"$sort": {"hits": -1}},
+    ]).to_list(200)
+
+    by_platform = await db[EDM_HITS_COLLECTION].aggregate([
+        {"$match": match},
+        {"$group": {"_id": "$agent_platform", "hits": {"$sum": 1}}},
+        {"$project": {"_id": 0, "platform": {"$ifNull": ["$_id", "unknown"]}, "hits": 1}},
+        {"$sort": {"hits": -1}},
+    ]).to_list(20)
+
+    top_agents = await db[EDM_HITS_COLLECTION].aggregate([
+        {"$match": match},
+        {"$group": {"_id": "$agent_id", "hits": {"$sum": 1}, "host": {"$first": "$host"}}},
+        {"$project": {"_id": 0, "agent_id": "$_id", "host": 1, "hits": 1}},
+        {"$sort": {"hits": -1}},
+        {"$limit": 20},
+    ]).to_list(20)
+
+    by_candidate_type = await db[EDM_HITS_COLLECTION].aggregate([
+        {"$match": match},
+        {"$group": {"_id": "$match_candidate_type", "hits": {"$sum": 1}}},
+        {"$project": {"_id": 0, "candidate_type": {"$ifNull": ["$_id", "unknown"]}, "hits": 1}},
+        {"$sort": {"hits": -1}},
+    ]).to_list(20)
+
+    confidence_bands = await db[EDM_HITS_COLLECTION].aggregate([
+        {"$match": match},
+        {"$project": {
+            "band": {
+                "$switch": {
+                    "branches": [
+                        {"case": {"$gte": ["$match_confidence", 0.98]}, "then": "0.98-1.00"},
+                        {"case": {"$gte": ["$match_confidence", 0.95]}, "then": "0.95-0.97"},
+                        {"case": {"$gte": ["$match_confidence", 0.90]}, "then": "0.90-0.94"},
+                    ],
+                    "default": "<0.90/unknown",
+                }
+            }
+        }},
+        {"$group": {"_id": "$band", "hits": {"$sum": 1}}},
+        {"$project": {"_id": 0, "band": "$_id", "hits": 1}},
+        {"$sort": {"hits": -1}},
+    ]).to_list(10)
+
+    total_hits = int(sum(int(i.get("hits", 0)) for i in by_dataset))
+    return {
+        "since_minutes": since_minutes,
+        "dataset_filter": dataset_id,
+        "total_hits": total_hits,
+        "by_dataset": by_dataset,
+        "by_platform": by_platform,
+        "top_agents": top_agents,
+        "by_candidate_type": by_candidate_type,
+        "confidence_bands": confidence_bands,
+    }
+
+
+@router.get("/edm/rollouts")
+async def list_edm_rollouts(
+    status: Optional[str] = None,
+    current_user: dict = Depends(check_permission("read")),
+):
+    """List EDM rollout runs with high-level state."""
+    _ = current_user
+    await _ensure_edm_indexes()
+    query: Dict[str, Any] = {}
+    if status:
+        query["status"] = status
+    docs = await db[EDM_ROLLOUT_COLLECTION].find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return {"rollouts": docs, "count": len(docs)}
+
+
+@router.get("/edm/rollouts/{rollout_id}")
+async def get_edm_rollout(
+    rollout_id: str,
+    current_user: dict = Depends(check_permission("read")),
+):
+    """Get full rollout state and progress telemetry."""
+    _ = current_user
+    await _ensure_edm_indexes()
+    doc = await db[EDM_ROLLOUT_COLLECTION].find_one({"rollout_id": rollout_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Rollout not found")
+    return doc
+
+
+@router.get("/edm/rollouts/{rollout_id}/readiness")
+async def get_edm_rollout_readiness(
+    rollout_id: str,
+    current_user: dict = Depends(check_permission("read")),
+):
+    """Pre-advance readiness check using cohort/control anomaly rates."""
+    _ = current_user
+    await _ensure_edm_indexes()
+    rollout = await db[EDM_ROLLOUT_COLLECTION].find_one({"rollout_id": rollout_id}, {"_id": 0})
+    if not rollout:
+        raise HTTPException(status_code=404, detail="Rollout not found")
+
+    readiness = await _compute_rollout_readiness(rollout)
+    stages = rollout.get("stages") or [5, 25, 100]
+    stage_index = int(rollout.get("stage_index", 0))
+    next_stage_index = stage_index + 1
+    next_stage_percent = stages[next_stage_index] if next_stage_index < len(stages) else None
+    readiness["rollout_id"] = rollout_id
+    readiness["status"] = rollout.get("status")
+    readiness["current_stage"] = {
+        "index": stage_index,
+        "percent": stages[stage_index] if stage_index < len(stages) else None,
+    }
+    readiness["next_stage"] = {
+        "index": next_stage_index if next_stage_percent is not None else None,
+        "percent": next_stage_percent,
+    }
+    readiness["can_advance"] = bool(
+        rollout.get("status") == "active"
+        and next_stage_percent is not None
+        and not readiness.get("has_spike")
+    )
+    return readiness
+
+
+@router.post("/edm/rollouts/start")
+async def start_edm_rollout(
+    payload: EDMRolloutStartModel,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Start progressive canary rollout for an EDM dataset version."""
+    await _ensure_edm_indexes()
+    version_doc = await db[EDM_DATASET_COLLECTION].find_one(
+        {"dataset_id": payload.dataset_id, "version": int(payload.target_version)},
+        {"_id": 0},
+    )
+    if not version_doc:
+        raise HTTPException(status_code=404, detail="Target dataset version not found")
+
+    quality_report = _enforce_edm_publish_gates(version_doc.get("dataset", {}), context="rollout start")
+
+    previous_doc = await db[EDM_DATASET_COLLECTION].find_one(
+        {"dataset_id": payload.dataset_id, "version": {"$lt": int(payload.target_version)}},
+        {"_id": 0, "version": 1},
+        sort=[("version", -1)],
+    )
+
+    agents = await _resolve_edm_targets(payload.targets)
+    if not agents:
+        raise HTTPException(status_code=422, detail="No target agents matched rollout filters")
+
+    rollout_id = f"edm-rollout-{secrets.token_hex(6)}"
+    stages = [max(1, min(int(s), 100)) for s in (payload.policy.stages or [5, 25, 100])]
+    stages = sorted(set(stages))
+    if stages[-1] != 100:
+        stages.append(100)
+
+    eligible_ids = [a["agent_id"] for a in agents]
+    stage_index = 0
+    stage_pct = stages[stage_index]
+    selected_ids = _select_rollout_agents(rollout_id, eligible_ids, stage_pct)
+    if not selected_ids:
+        selected_ids = eligible_ids[:1]
+
+    fanout = await _dispatch_edm_dataset_to_targets(
+        dataset=version_doc.get("dataset", {}),
+        edm_meta=_build_edm_meta(version_doc),
+        targets=EDMBulkTargetModel(agent_ids=selected_ids, online_only=False),
+        priority=payload.priority,
+        issued_by=current_user.get("email", "system"),
+    )
+
+    now = datetime.now(timezone.utc).isoformat()
+    rollout_doc = {
+        "contract_version": EDM_CONTROL_PLANE_CONTRACT_VERSION,
+        "rollout_id": rollout_id,
+        "dataset_id": payload.dataset_id,
+        "target_version": int(payload.target_version),
+        "previous_version": (previous_doc or {}).get("version"),
+        "quality_report": quality_report,
+        "status": "active",
+        "targets": payload.targets.model_dump(),
+        "policy": payload.policy.model_dump(),
+        "stages": stages,
+        "stage_index": stage_index,
+        "eligible_agent_ids": eligible_ids,
+        "applied_agent_ids": selected_ids,
+        "created_at": now,
+        "updated_at": now,
+        "state_version": 1,
+        "state_transition_log": [
+            {
+                "from_status": None,
+                "to_status": "active",
+                "actor": current_user.get("email", "system"),
+                "reason": "rollout created",
+                "timestamp": now,
+                "metadata": {
+                    "target_version": int(payload.target_version),
+                    "initial_stage_index": stage_index,
+                    "initial_stage_percent": stage_pct,
+                },
+            }
+        ],
+        "created_by": current_user.get("email", "system"),
+        "stage_history": [{
+            "stage_index": stage_index,
+            "stage_percent": stage_pct,
+            "applied_now": len(selected_ids),
+            "applied_total": len(selected_ids),
+            "fanout": fanout,
+            "timestamp": now,
+        }],
+    }
+    await db[EDM_ROLLOUT_COLLECTION].insert_one(rollout_doc)
+    return rollout_doc
+
+
+@router.post("/edm/rollouts/{rollout_id}/advance")
+async def advance_edm_rollout(
+    rollout_id: str,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Advance rollout to next stage (5% -> 25% -> 100%)."""
+    await _ensure_edm_indexes()
+    rollout = await db[EDM_ROLLOUT_COLLECTION].find_one({"rollout_id": rollout_id}, {"_id": 0})
+    if not rollout:
+        raise HTTPException(status_code=404, detail="Rollout not found")
+    if rollout.get("status") != "active":
+        raise HTTPException(status_code=409, detail=f"Rollout is not active (status={rollout.get('status')})")
+
+    readiness = await _compute_rollout_readiness(rollout)
+    if readiness.get("has_spike"):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Rollout advance blocked due to anomaly spike",
+                "readiness": readiness,
+            },
+        )
+
+    stages = rollout.get("stages") or [5, 25, 100]
+    current_stage_index = int(rollout.get("stage_index", 0))
+    stage_index = current_stage_index + 1
+    if stage_index >= len(stages):
+        close_result = await db[EDM_ROLLOUT_COLLECTION].update_one(
+            {
+                "rollout_id": rollout_id,
+                "status": "active",
+                "stage_index": current_stage_index,
+            },
+            {
+                "$set": {"status": "completed", "updated_at": datetime.now(timezone.utc).isoformat()},
+                "$inc": {"state_version": 1},
+                "$push": {
+                    "state_transition_log": {
+                        "from_status": "active",
+                        "to_status": "completed",
+                        "actor": current_user.get("email", "system"),
+                        "reason": "rollout completed all stages",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "metadata": {"stage_index": current_stage_index},
+                    }
+                },
+            },
+        )
+        if getattr(close_result, "matched_count", 0) == 0:
+            raise _rollout_conflict_error()
+        return {"rollout_id": rollout_id, "status": "completed", "message": "All rollout stages already applied"}
+
+    version_doc = await db[EDM_DATASET_COLLECTION].find_one(
+        {"dataset_id": rollout.get("dataset_id"), "version": int(rollout.get("target_version"))},
+        {"_id": 0},
+    )
+    if not version_doc:
+        raise HTTPException(status_code=404, detail="Rollout target dataset version missing")
+
+    eligible_ids = rollout.get("eligible_agent_ids") or []
+    already_applied = set(rollout.get("applied_agent_ids") or [])
+    stage_pct = int(stages[stage_index])
+    target_set = set(_select_rollout_agents(rollout_id, eligible_ids, stage_pct))
+    delta_ids = [aid for aid in target_set if aid not in already_applied]
+
+    fanout = {"matched_agents": 0, "dispatched": 0, "sent": 0, "queued": 0, "results": []}
+    if delta_ids:
+        fanout = await _dispatch_edm_dataset_to_targets(
+            dataset=version_doc.get("dataset", {}),
+            edm_meta=_build_edm_meta(version_doc),
+            targets=EDMBulkTargetModel(agent_ids=delta_ids, online_only=False),
+            priority="high",
+            issued_by=current_user.get("email", "system"),
+        )
+
+    updated_applied = list(already_applied.union(set(delta_ids)))
+    now = datetime.now(timezone.utc).isoformat()
+    done = stage_index >= len(stages) - 1
+    update_result = await db[EDM_ROLLOUT_COLLECTION].update_one(
+        {
+            "rollout_id": rollout_id,
+            "status": "active",
+            "stage_index": current_stage_index,
+        },
+        {
+            "$set": {
+                "stage_index": stage_index,
+                "applied_agent_ids": updated_applied,
+                "updated_at": now,
+                "status": "completed" if done else "active",
+            },
+            "$inc": {"state_version": 1},
+            "$push": {
+                "state_transition_log": {
+                    "from_status": "active",
+                    "to_status": "completed" if done else "active",
+                    "actor": current_user.get("email", "system"),
+                    "reason": "rollout stage advanced",
+                    "timestamp": now,
+                    "metadata": {
+                        "from_stage_index": current_stage_index,
+                        "to_stage_index": stage_index,
+                        "stage_percent": stage_pct,
+                        "applied_now": len(delta_ids),
+                    },
+                },
+                "stage_history": {
+                    "stage_index": stage_index,
+                    "stage_percent": stage_pct,
+                    "applied_now": len(delta_ids),
+                    "applied_total": len(updated_applied),
+                    "fanout": fanout,
+                    "timestamp": now,
+                }
+            },
+        },
+    )
+    if getattr(update_result, "matched_count", 0) == 0:
+        raise _rollout_conflict_error()
+
+    return {
+        "rollout_id": rollout_id,
+        "status": "completed" if done else "active",
+        "stage_index": stage_index,
+        "stage_percent": stage_pct,
+        "applied_now": len(delta_ids),
+        "applied_total": len(updated_applied),
+        "fanout": fanout,
+    }
+
+
+@router.post("/edm/rollouts/{rollout_id}/rollback")
+async def rollback_edm_rollout(
+    rollout_id: str,
+    payload: EDMRolloutRollbackModel,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Manually rollback a rollout to previous or explicit dataset version."""
+    await _ensure_edm_indexes()
+    rollout = await db[EDM_ROLLOUT_COLLECTION].find_one({"rollout_id": rollout_id}, {"_id": 0})
+    if not rollout:
+        raise HTTPException(status_code=404, detail="Rollout not found")
+
+    rollback_version = payload.rollback_version
+    if rollback_version is None:
+        rollback_version = rollout.get("previous_version")
+    if rollback_version is None:
+        raise HTTPException(status_code=422, detail="No rollback version available")
+
+    refreshed = await _claim_rollout_for_rollback(
+        rollout_id=rollout_id,
+        reason=payload.reason or "Manual rollback requested",
+        requested_by=current_user.get("email", "system"),
+        allowed_statuses=["active", "completed"],
+    )
+    update_previous = await db[EDM_ROLLOUT_COLLECTION].update_one(
+        {"rollout_id": rollout_id, "status": "rolling_back"},
+        {
+            "$set": {"previous_version": int(rollback_version), "updated_at": datetime.now(timezone.utc).isoformat()},
+            "$inc": {"state_version": 1},
+            "$push": {
+                "state_transition_log": {
+                    "from_status": "rolling_back",
+                    "to_status": "rolling_back",
+                    "actor": current_user.get("email", "system"),
+                    "reason": "rollback version selected",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {"rollback_version": int(rollback_version)},
+                }
+            },
+        },
+    )
+    if getattr(update_previous, "matched_count", 0) == 0:
+        raise _rollout_conflict_error()
+    refreshed = await db[EDM_ROLLOUT_COLLECTION].find_one({"rollout_id": rollout_id}, {"_id": 0})
+    rollback = await _execute_rollout_rollback(
+        refreshed,
+        payload.reason or "Manual rollback requested",
+        current_user.get("email", "system"),
+    )
+    if not rollback.get("rolled_back"):
+        raise HTTPException(status_code=422, detail=rollback.get("reason", "Rollback failed"))
+    return {"rollout_id": rollout_id, **rollback}
 
 
 @router.get("/agents/{agent_id}/commands")
@@ -745,8 +2288,27 @@ async def get_agent_commands(
     if db_commands:
         command_ids = [cmd["command_id"] for cmd in db_commands]
         await db.agent_commands.update_many(
-            {"command_id": {"$in": command_ids}},
-            {"$set": {"status": "delivered", "delivered_at": datetime.now(timezone.utc).isoformat()}}
+            {
+                "command_id": {"$in": command_ids},
+                "status": "queued",
+            },
+            {
+                "$set": {
+                    "status": "delivered",
+                    "delivered_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                "$inc": {"state_version": 1},
+                "$push": {
+                    "state_transition_log": {
+                        "from_status": "queued",
+                        "to_status": "delivered",
+                        "actor": f"agent:{agent_id}",
+                        "reason": "agent polled commands",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                },
+            }
         )
     
     # Combine and return
@@ -778,14 +2340,12 @@ async def report_command_result(
     if not command_id:
         raise HTTPException(status_code=400, detail="Missing command_id")
     
-    # Update command status
-    await db.agent_commands.update_one(
-        {"command_id": command_id},
-        {"$set": {
-            "status": result.get("status", "completed"),
-            "result": result.get("result", {}),
-            "completed_at": datetime.now(timezone.utc).isoformat()
-        }}
+    finalize = await _finalize_agent_command_result(
+        command_id=command_id,
+        status=result.get("status", "completed"),
+        result_payload=result.get("result", {}),
+        transition_actor=f"agent:{agent_id}",
+        transition_reason="agent reported command result",
     )
     
     # Store full result in command_results collection
@@ -798,7 +2358,7 @@ async def report_command_result(
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
     
-    logger.info(f"Command result received: {command_id} from {agent_id} - {result.get('status')}")
+    logger.info(f"Command result received: {command_id} from {agent_id} - {finalize.get('status')}")
     
     return {"status": "received", "command_id": command_id}
 
@@ -843,6 +2403,21 @@ async def create_deployment(
         "agent_config": deployment.agent_config or {},
         "status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "state_version": 1,
+        "state_transition_log": [
+            {
+                "from_status": None,
+                "to_status": "pending",
+                "actor": current_user.get("email", "system"),
+                "reason": "deployment created",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "metadata": {
+                    "target_platform": deployment.target_platform,
+                    "target_ip": deployment.target_ip,
+                },
+            }
+        ],
         "created_by": current_user.get("email", "system")
     }
     
@@ -915,17 +2490,17 @@ async def create_alert(alert: AlertModel):
     
     alert_id = secrets.token_hex(8)
     
-    alert_doc = {
-        "alert_id": alert_id,
-        "agent_id": alert.agent_id,
-        "severity": alert.severity,
-        "category": alert.category,
-        "message": alert.message,
-        "details": alert.details or {},
-        "mitre_technique": alert.mitre_technique,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "acknowledged": False
-    }
+    alert_doc = _build_unified_alert_doc(
+        alert_id=alert_id,
+        agent_id=alert.agent_id,
+        severity=alert.severity,
+        category=alert.category,
+        message=alert.message,
+        details=alert.details,
+        mitre_technique=alert.mitre_technique,
+        actor="system:api",
+        reason="alert created via API",
+    )
     
     await db.unified_alerts.insert_one(alert_doc)
     
@@ -966,17 +2541,58 @@ async def acknowledge_alert(
 ):
     """Acknowledge an alert"""
     
-    result = await db.unified_alerts.update_one(
-        {"alert_id": alert_id},
-        {"$set": {
-            "acknowledged": True,
-            "acknowledged_at": datetime.now(timezone.utc).isoformat(),
-            "acknowledged_by": current_user.get("email", "system")
-        }}
+    actor = current_user.get("email", "system")
+    alert = await _ensure_unified_alert_state_fields(
+        alert_id,
+        actor=actor,
+        reason="bootstrap unified alert durability fields",
     )
-    
-    if result.modified_count == 0:
+    if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
+
+    if bool(alert.get("acknowledged")):
+        raise HTTPException(status_code=409, detail="Alert already acknowledged")
+
+    current_version = int(alert.get("state_version") or 0)
+    query: Dict[str, Any] = {
+        "alert_id": alert_id,
+        "acknowledged": False,
+    }
+    if current_version <= 0:
+        query["$or"] = [{"state_version": {"$exists": False}}, {"state_version": 0}]
+    else:
+        query["state_version"] = current_version
+
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.unified_alerts.update_one(
+        query,
+        {
+            "$set": {
+                "acknowledged": True,
+                "status": "acknowledged",
+                "acknowledged_at": now,
+                "acknowledged_by": actor,
+                "updated_at": now,
+            },
+            "$inc": {"state_version": 1},
+            "$push": {
+                "state_transition_log": _alert_transition_entry(
+                    from_status="unacknowledged",
+                    to_status="acknowledged",
+                    actor=actor,
+                    reason="alert acknowledged",
+                )
+            },
+        },
+    )
+
+    if getattr(result, "modified_count", 0) == 0:
+        refreshed = await db.unified_alerts.find_one({"alert_id": alert_id}, {"_id": 0, "acknowledged": 1})
+        if not refreshed:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        if bool(refreshed.get("acknowledged")):
+            raise HTTPException(status_code=409, detail="Alert already acknowledged")
+        raise HTTPException(status_code=409, detail="Alert acknowledgment conflict; state changed concurrently")
     
     return {"status": "acknowledged"}
 
@@ -1096,12 +2712,19 @@ async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
             elif msg_type == "alert":
                 # Store alert
                 alert_data = data.get("data", {})
-                await db.unified_alerts.insert_one({
-                    "alert_id": secrets.token_hex(8),
-                    "agent_id": agent_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    **alert_data
-                })
+                alert_doc = _build_unified_alert_doc(
+                    alert_id=secrets.token_hex(8),
+                    agent_id=agent_id,
+                    severity=alert_data.get("severity", "medium"),
+                    category=alert_data.get("category", "unknown"),
+                    message=alert_data.get("message", "Unknown alert"),
+                    details=alert_data.get("details", {}),
+                    mitre_technique=alert_data.get("mitre_technique"),
+                    actor=f"agent:{agent_id}",
+                    reason="alert received via websocket",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+                await db.unified_alerts.insert_one(alert_doc)
                 logger.warning(f"Alert from {agent_id}: {alert_data.get('message', 'Unknown')}")
             
             elif msg_type == "telemetry":
@@ -1118,14 +2741,17 @@ async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
             elif msg_type == "command_result":
                 # Store command result
                 result = data.get("data", {})
-                await db.agent_commands.update_one(
-                    {"command_id": result.get("command_id")},
-                    {"$set": {
-                        "status": result.get("status", "completed"),
-                        "result": result,
-                        "completed_at": datetime.now(timezone.utc).isoformat()
-                    }}
-                )
+                try:
+                    await _finalize_agent_command_result(
+                        command_id=result.get("command_id"),
+                        status=result.get("status", "completed"),
+                        result_payload=result,
+                        transition_actor=f"agent:{agent_id}",
+                        transition_reason="websocket command_result",
+                    )
+                except HTTPException:
+                    # Commands can race with API completion; keep WS loop resilient.
+                    pass
     
     except WebSocketDisconnect:
         agent_ws_manager.disconnect(agent_id)
@@ -1167,8 +2793,42 @@ async def download_agent_package():
     )
 
 
+@router.get("/agent/download/windows")
+async def download_agent_package_windows():
+    """Download the unified agent package as a ZIP archive for Windows installers."""
+    import io
+    import os
+    import zipfile
+    from fastapi.responses import StreamingResponse
+
+    agent_dir = "/app/unified_agent"
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for item in ['core', 'requirements.txt']:
+            item_path = os.path.join(agent_dir, item)
+            if not os.path.exists(item_path):
+                continue
+
+            if os.path.isdir(item_path):
+                for root, _, files in os.walk(item_path):
+                    for file_name in files:
+                        full_path = os.path.join(root, file_name)
+                        arcname = os.path.relpath(full_path, agent_dir)
+                        zf.write(full_path, arcname=arcname)
+            else:
+                zf.write(item_path, arcname=item)
+
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=seraph-agent-windows.zip"}
+    )
+
+
 @router.get("/agent/install-script")
-async def get_install_script(request: Request, server_url: Optional[str] = None):
+async def get_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
     """Get the agent installation script"""
     
     # Use explicit query param first; otherwise infer from request/proxy headers
@@ -1253,11 +2913,20 @@ echo "Service logs: journalctl -u seraph-agent -f"
 echo ""
 '''
     
-    return {"script": script, "usage": f"curl -sSL {base_url}/api/unified/agent/install-script | sudo bash"}
+    usage = f"curl -sSL {base_url}/api/unified/agent/install-script | sudo bash"
+    if (format or "").lower() == "json":
+        return {"script": script, "usage": usage}
+
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        content=script,
+        media_type="text/x-shellscript",
+        headers={"Content-Disposition": "attachment; filename=seraph-agent-install.sh", "X-Install-Usage": usage},
+    )
 
 
 @router.get("/agent/install-windows")
-async def get_windows_install_script(request: Request, server_url: Optional[str] = None):
+async def get_windows_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
     """Get the Windows agent installation script (PowerShell)"""
     
     forwarded_proto = request.headers.get("x-forwarded-proto")
@@ -1267,39 +2936,90 @@ async def get_windows_install_script(request: Request, server_url: Optional[str]
     script = f'''# Seraph AI Unified Agent - Windows Installer
 # Run as Administrator
 
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
 $SERAPH_SERVER = "{base_url}"
 $INSTALL_DIR = "C:\\ProgramData\\SeraphAgent"
+$ZIP_PATH = "$INSTALL_DIR\\agent.zip"
+$LOG_PATH = "$INSTALL_DIR\\install.log"
 
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host "  SERAPH AI UNIFIED AGENT INSTALLER (Windows)" -ForegroundColor Cyan
 Write-Host "  Target Server: $SERAPH_SERVER" -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
 
-# Create installation directory
-New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
-Set-Location $INSTALL_DIR
+function Assert-Admin {{
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {{
+        if ($PSCommandPath) {{
+            Write-Host "Re-launching installer with Administrator privileges..." -ForegroundColor Yellow
+            $argList = @(
+                "-ExecutionPolicy", "Bypass",
+                "-NoExit",
+                "-File", "`"$PSCommandPath`""
+            )
+            Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $argList
+            exit 0
+        }}
+        throw "This installer must be run as Administrator."
+    }}
+}}
 
-# Download agent
-Write-Host "Downloading agent..."
-Invoke-WebRequest -Uri "$SERAPH_SERVER/api/unified/agent/download" -OutFile "agent.tar.gz"
+function Get-PythonExecutable {{
+    if (Get-Command py -ErrorAction SilentlyContinue) {{ return "py -3" }}
+    if (Get-Command python -ErrorAction SilentlyContinue) {{ return "python" }}
+    return $null
+}}
 
-# Extract (requires 7-zip or tar on Windows 10+)
-tar -xzf agent.tar.gz
-Remove-Item agent.tar.gz
+try {{
+    Assert-Admin
 
-# Install Python dependencies
-Write-Host "Installing dependencies..."
-python -m pip install psutil requests netifaces watchdog pyyaml
+    New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+    Start-Transcript -Path $LOG_PATH -Append | Out-Null
 
-# Create scheduled task to run at startup
-$action = New-ScheduledTaskAction -Execute "python" -Argument "core\\agent.py --server $SERAPH_SERVER" -WorkingDirectory $INSTALL_DIR
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
-Register-ScheduledTask -TaskName "SeraphAgent" -Action $action -Trigger $trigger -Principal $principal -Force
+    # Create installation directory
+    New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+    Set-Location $INSTALL_DIR
 
-# Start agent
-Write-Host "Starting agent..."
-Start-ScheduledTask -TaskName "SeraphAgent"
+    # Download agent (Windows ZIP variant)
+    Write-Host "Downloading agent package..."
+    Invoke-WebRequest -UseBasicParsing -Uri "$SERAPH_SERVER/api/unified/agent/download/windows" -OutFile $ZIP_PATH
+
+    # Extract
+    Write-Host "Extracting package..."
+    Expand-Archive -Path $ZIP_PATH -DestinationPath $INSTALL_DIR -Force
+    Remove-Item $ZIP_PATH -Force
+
+    # Resolve Python executable
+    $pythonCmd = Get-PythonExecutable
+    if (-not $pythonCmd) {{
+        throw "Python 3 not found. Install Python 3 (with PATH enabled) and re-run installer."
+    }}
+
+    Write-Host "Installing Python dependencies..."
+    cmd /c "$pythonCmd -m pip install --upgrade pip"
+    cmd /c "$pythonCmd -m pip install psutil requests netifaces watchdog pyyaml"
+
+    # Create scheduled task to run at startup
+    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c $pythonCmd core\\agent.py --server $SERAPH_SERVER" -WorkingDirectory $INSTALL_DIR
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
+    Register-ScheduledTask -TaskName "SeraphAgent" -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+
+    # Start agent
+    Write-Host "Starting agent..."
+    Start-ScheduledTask -TaskName "SeraphAgent"
+
+    try {{ Stop-Transcript | Out-Null }} catch {{ }}
+}} catch {{
+    try {{ Stop-Transcript | Out-Null }} catch {{ }}
+    Write-Host "INSTALL FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "See log: $LOG_PATH" -ForegroundColor Yellow
+    Read-Host "Press Enter to close"
+    exit 1
+}}
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green
@@ -1307,13 +3027,24 @@ Write-Host "  INSTALLATION COMPLETE" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host "Agent installed to: $INSTALL_DIR"
 Write-Host "Check status: Get-ScheduledTask -TaskName SeraphAgent"
+Write-Host "Install log: $LOG_PATH"
+Read-Host "Press Enter to close"
 '''
     
-    return {"script": script, "usage": f"Invoke-WebRequest -Uri {base_url}/api/unified/agent/install-windows | Invoke-Expression"}
+    usage = f"irm {base_url}/api/unified/agent/install-windows | iex"
+    if (format or "").lower() == "json":
+        return {"script": script, "usage": usage}
+
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        content=script,
+        media_type="text/plain",
+        headers={"Content-Disposition": "attachment; filename=seraph-agent-install.ps1", "X-Install-Usage": usage},
+    )
 
 
 @router.get("/agent/install-macos")
-async def get_macos_install_script(request: Request, server_url: Optional[str] = None):
+async def get_macos_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
     """Get the macOS agent installation script"""
     
     forwarded_proto = request.headers.get("x-forwarded-proto")
@@ -1404,11 +3135,20 @@ echo "Stop: launchctl unload $LAUNCH_AGENT_PATH"
 echo "Start: launchctl load $LAUNCH_AGENT_PATH"
 '''
     
-    return {"script": script, "usage": f"curl -sSL {base_url}/api/unified/agent/install-macos | bash"}
+    usage = f"curl -sSL {base_url}/api/unified/agent/install-macos | bash"
+    if (format or "").lower() == "json":
+        return {"script": script, "usage": usage}
+
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        content=script,
+        media_type="text/x-shellscript",
+        headers={"Content-Disposition": "attachment; filename=seraph-agent-install-macos.sh", "X-Install-Usage": usage},
+    )
 
 
 @router.get("/agent/install-android")
-async def get_android_install_script(request: Request, server_url: Optional[str] = None):
+async def get_android_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
     """Get the Android agent installation script (Termux)"""
     
     forwarded_proto = request.headers.get("x-forwarded-proto")
@@ -1504,7 +3244,16 @@ echo ""
 echo "NOTE: Enable Termux:Boot app for auto-start on device boot"
 '''
     
-    return {"script": script, "usage": f"curl -sSL {base_url}/api/unified/agent/install-android | bash"}
+    usage = f"curl -sSL {base_url}/api/unified/agent/install-android | bash"
+    if (format or "").lower() == "json":
+        return {"script": script, "usage": usage}
+
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        content=script,
+        media_type="text/x-shellscript",
+        headers={"Content-Disposition": "attachment; filename=seraph-agent-install-android.sh", "X-Install-Usage": usage},
+    )
 
 
 @router.get("/agent/install-ios")
@@ -1730,24 +3479,174 @@ async def get_all_installers(request: Request, server_url: Optional[str] = None)
 
 async def _process_agent_alert(agent_id: str, alert_data: Dict):
     """Process an alert from an agent"""
-    
-    await db.unified_alerts.insert_one({
-        "alert_id": secrets.token_hex(8),
-        "agent_id": agent_id,
-        "severity": alert_data.get("severity", "medium"),
-        "category": alert_data.get("category", "unknown"),
-        "message": alert_data.get("message", "Unknown alert"),
-        "details": alert_data.get("details", {}),
-        "mitre_technique": alert_data.get("mitre_technique"),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "acknowledged": False
-    })
+
+    await db.unified_alerts.insert_one(
+        _build_unified_alert_doc(
+            alert_id=secrets.token_hex(8),
+            agent_id=agent_id,
+            severity=alert_data.get("severity", "medium"),
+            category=alert_data.get("category", "unknown"),
+            message=alert_data.get("message", "Unknown alert"),
+            details=alert_data.get("details", {}),
+            mitre_technique=alert_data.get("mitre_technique"),
+            actor=f"agent:{agent_id}",
+            reason="alert processed from heartbeat",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+    )
     
     # Update agent alert count
     await db.unified_agents.update_one(
         {"agent_id": agent_id},
         {"$inc": {"alerts_count": 1}}
     )
+
+
+async def _process_agent_edm_hit(agent_id: str, hit_data: Dict[str, Any], agent_doc: Optional[Dict[str, Any]] = None):
+    """Persist EDM hit telemetry for centralized analytics."""
+    if not hit_data.get("dataset_id") or not hit_data.get("fingerprint"):
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    path_masked = hit_data.get("file_path_masked")
+    if not path_masked and hit_data.get("file_path"):
+        raw_path = str(hit_data.get("file_path"))
+        path_masked = f".../{os.path.basename(raw_path)}#{hashlib.sha256(raw_path.encode('utf-8')).hexdigest()[:12]}"
+
+    await db[EDM_HITS_COLLECTION].insert_one({
+        "agent_id": agent_id,
+        "dataset_id": str(hit_data.get("dataset_id")),
+        "record_id": hit_data.get("record_id"),
+        "fingerprint": str(hit_data.get("fingerprint")),
+        "host": hit_data.get("host") or (agent_doc or {}).get("hostname"),
+        "process": hit_data.get("process") or "unknown",
+        "file_path_masked": path_masked,
+        "source": hit_data.get("source") or "unknown",
+        "match_confidence": hit_data.get("match_confidence"),
+        "match_candidate_type": hit_data.get("match_candidate_type"),
+        "match_variant_type": hit_data.get("match_variant_type"),
+        "agent_platform": (agent_doc or {}).get("platform"),
+        "timestamp": hit_data.get("timestamp") or now,
+        "ingested_at": now,
+    })
+
+    await db.unified_agents.update_one(
+        {"agent_id": agent_id},
+        {
+            "$inc": {"edm_hits_count": 1},
+            "$set": {"edm_last_hit_at": now},
+        },
+    )
+
+
+async def _execute_rollout_rollback(rollout: Dict[str, Any], reason: str, triggered_by: str) -> Dict[str, Any]:
+    dataset_id = rollout.get("dataset_id")
+    rollback_version = rollout.get("previous_version")
+    applied_ids = rollout.get("applied_agent_ids") or []
+
+    if rollback_version is None:
+        return {"rolled_back": False, "reason": "No previous_version available"}
+
+    doc = await db[EDM_DATASET_COLLECTION].find_one(
+        {"dataset_id": dataset_id, "version": int(rollback_version)},
+        {"_id": 0},
+    )
+    if not doc:
+        return {"rolled_back": False, "reason": "Rollback dataset version not found"}
+
+    targets = EDMBulkTargetModel(agent_ids=applied_ids, online_only=False)
+    fanout = await _dispatch_edm_dataset_to_targets(
+        dataset=doc.get("dataset", {}),
+        edm_meta=_build_edm_meta(doc),
+        targets=targets,
+        priority="critical",
+        issued_by=triggered_by,
+    )
+
+    finalize = await db[EDM_ROLLOUT_COLLECTION].update_one(
+        {
+            "rollout_id": rollout.get("rollout_id"),
+            "status": {"$in": ["active", "completed", "rolling_back"]},
+        },
+        {
+            "$set": {
+                "status": "rolled_back",
+                "rolled_back_at": datetime.now(timezone.utc).isoformat(),
+                "rollback_reason": reason,
+                "rollback_triggered_by": triggered_by,
+                "rollback_version": rollback_version,
+                "rollback_fanout": fanout,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            "$inc": {"state_version": 1},
+            "$push": {
+                "state_transition_log": {
+                    "from_status": ["active", "completed", "rolling_back"],
+                    "to_status": "rolled_back",
+                    "actor": triggered_by,
+                    "reason": reason,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {"rollback_version": rollback_version},
+                }
+            },
+        },
+    )
+    if getattr(finalize, "matched_count", 0) == 0:
+        existing = await db[EDM_ROLLOUT_COLLECTION].find_one(
+            {"rollout_id": rollout.get("rollout_id")},
+            {"_id": 0, "status": 1, "rollback_version": 1, "rollback_fanout": 1},
+        )
+        if existing and existing.get("status") == "rolled_back":
+            return {
+                "rolled_back": True,
+                "rollback_version": existing.get("rollback_version", rollback_version),
+                "fanout": existing.get("rollback_fanout", fanout),
+            }
+        return {"rolled_back": False, "reason": "Rollout state changed during rollback finalize"}
+    return {"rolled_back": True, "rollback_version": rollback_version, "fanout": fanout}
+
+
+async def _evaluate_active_edm_rollouts(agent_id: str):
+    """Evaluate anomaly rate spikes for active EDM rollouts and auto-rollback when needed."""
+    await _ensure_edm_indexes()
+    active_rollouts = await db[EDM_ROLLOUT_COLLECTION].find(
+        {
+            "status": "active",
+            "applied_agent_ids": {"$in": [agent_id]},
+            "policy.auto_rollback": True,
+        },
+        {"_id": 0},
+    ).to_list(100)
+
+    for rollout in active_rollouts:
+        readiness = await _compute_rollout_readiness(rollout)
+        if not readiness.get("has_spike"):
+            continue
+
+        reason = (
+            "Anomaly spike detected: "
+            f"cohort_rate={readiness['cohort']['rate_per_agent_min']:.4f}/agent/min "
+            f"control_rate={readiness['control']['rate_per_agent_min']:.4f}/agent/min "
+            f"threshold={readiness['threshold']['rate_per_agent_min']:.4f}"
+        )
+        try:
+            claimed = await _claim_rollout_for_rollback(
+                rollout_id=rollout.get("rollout_id"),
+                reason=reason,
+                requested_by="system:auto-rollback",
+                allowed_statuses=["active"],
+            )
+        except HTTPException:
+            # Another worker likely claimed or transitioned this rollout.
+            continue
+
+        rollback = await _execute_rollout_rollback(claimed, reason, "system:auto-rollback")
+        logger.warning(
+            "EDM rollout auto-rollback executed for %s: %s (result=%s)",
+            rollout.get("rollout_id"),
+            reason,
+            rollback,
+        )
 
 
 async def _hunt_telemetry(telemetry: Dict):
@@ -1784,30 +3683,37 @@ async def _sync_unified_deployment_status(deployment: Dict[str, Any]):
     current_status = deployment.get("status")
 
     if task_status == "deployed" and current_status != "completed":
-        await db.unified_deployments.update_one(
-            {"deployment_id": deployment["deployment_id"]},
-            {"$set": {
-                "status": "completed",
+        await _transition_unified_deployment_state(
+            deployment_id=deployment["deployment_id"],
+            expected_statuses=["pending", "processing", "queued", "running"],
+            next_status="completed",
+            extra_updates={
                 "simulated": simulated,
-                "completed_at": datetime.now(timezone.utc).isoformat()
-            }}
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            },
+            deployment_task_id=task_id,
+            transition_reason="task reached deployed",
         )
     elif task_status == "failed" and current_status != "failed":
-        await db.unified_deployments.update_one(
-            {"deployment_id": deployment["deployment_id"]},
-            {"$set": {
-                "status": "failed",
+        await _transition_unified_deployment_state(
+            deployment_id=deployment["deployment_id"],
+            expected_statuses=["pending", "processing", "queued", "running"],
+            next_status="failed",
+            extra_updates={
                 "error": error_message or "Deployment failed",
-                "failed_at": datetime.now(timezone.utc).isoformat()
-            }}
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+            },
+            deployment_task_id=task_id,
+            transition_reason="task reached failed",
         )
     elif task_status in {"pending", "deploying"} and current_status not in {"running", "queued"}:
-        await db.unified_deployments.update_one(
-            {"deployment_id": deployment["deployment_id"]},
-            {"$set": {
-                "status": "running",
-                "last_checked_at": datetime.now(timezone.utc).isoformat()
-            }}
+        await _transition_unified_deployment_state(
+            deployment_id=deployment["deployment_id"],
+            expected_statuses=["pending", "processing", "queued"],
+            next_status="running",
+            extra_updates={"last_checked_at": datetime.now(timezone.utc).isoformat()},
+            deployment_task_id=task_id,
+            transition_reason="task in progress",
         )
 
 
@@ -1815,10 +3721,17 @@ async def _process_deployment(deployment_id: str, deployment: DeploymentRequestM
     """Process a deployment in the background"""
     
     try:
-        await db.unified_deployments.update_one(
-            {"deployment_id": deployment_id},
-            {"$set": {"status": "processing", "started_at": datetime.now(timezone.utc).isoformat()}}
+        claimed = await _transition_unified_deployment_state(
+            deployment_id=deployment_id,
+            expected_statuses=["pending"],
+            next_status="processing",
+            extra_updates={"started_at": datetime.now(timezone.utc).isoformat()},
+            transition_actor="system:deployment-worker",
+            transition_reason="deployment worker claimed job",
         )
+        if not claimed:
+            logger.warning("Deployment %s was already claimed or transitioned by another worker", deployment_id)
+            return
 
         from services.agent_deployment import get_deployment_service, start_deployment_service
 
@@ -1835,14 +3748,21 @@ async def _process_deployment(deployment_id: str, deployment: DeploymentRequestM
             credentials=deployment.credentials
         )
 
-        await db.unified_deployments.update_one(
-            {"deployment_id": deployment_id},
-            {"$set": {
-                "status": "queued",
+        claimed_queue = await _transition_unified_deployment_state(
+            deployment_id=deployment_id,
+            expected_statuses=["processing"],
+            next_status="queued",
+            extra_updates={
                 "deployment_task_id": task_id,
-                "queued_at": datetime.now(timezone.utc).isoformat()
-            }}
+                "queued_at": datetime.now(timezone.utc).isoformat(),
+            },
+            transition_actor="system:deployment-worker",
+            transition_reason="deployment task queued",
+            transition_metadata={"deployment_task_id": task_id},
         )
+        if not claimed_queue:
+            logger.warning("Deployment %s queue transition lost due to concurrent update", deployment_id)
+            return
 
         final_status = None
         simulated = False
@@ -1860,44 +3780,63 @@ async def _process_deployment(deployment_id: str, deployment: DeploymentRequestM
             await asyncio.sleep(2)
 
         if final_status == "deployed":
-            await db.unified_deployments.update_one(
-                {"deployment_id": deployment_id},
-                {"$set": {
-                    "status": "completed",
+            await _transition_unified_deployment_state(
+                deployment_id=deployment_id,
+                expected_statuses=["queued", "running", "processing"],
+                next_status="completed",
+                extra_updates={
                     "simulated": simulated,
-                    "completed_at": datetime.now(timezone.utc).isoformat()
-                }}
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                },
+                deployment_task_id=task_id,
+                transition_actor="system:deployment-worker",
+                transition_reason="deployment task completed",
+                transition_metadata={"deployment_task_id": task_id, "simulated": simulated},
             )
             logger.info(f"Deployment {deployment_id} completed (task={task_id}, simulated={simulated})")
         elif final_status == "failed":
-            await db.unified_deployments.update_one(
-                {"deployment_id": deployment_id},
-                {"$set": {
-                    "status": "failed",
+            await _transition_unified_deployment_state(
+                deployment_id=deployment_id,
+                expected_statuses=["queued", "running", "processing"],
+                next_status="failed",
+                extra_updates={
                     "error": error_message or "Deployment failed",
-                    "failed_at": datetime.now(timezone.utc).isoformat()
-                }}
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                },
+                deployment_task_id=task_id,
+                transition_actor="system:deployment-worker",
+                transition_reason="deployment task failed",
+                transition_metadata={"deployment_task_id": task_id},
             )
             logger.error(f"Deployment {deployment_id} failed (task={task_id}): {error_message}")
         else:
-            await db.unified_deployments.update_one(
-                {"deployment_id": deployment_id},
-                {"$set": {
-                    "status": "running",
+            await _transition_unified_deployment_state(
+                deployment_id=deployment_id,
+                expected_statuses=["queued", "processing"],
+                next_status="running",
+                extra_updates={
                     "deployment_task_id": task_id,
-                    "last_checked_at": datetime.now(timezone.utc).isoformat()
-                }}
+                    "last_checked_at": datetime.now(timezone.utc).isoformat(),
+                },
+                deployment_task_id=task_id,
+                transition_actor="system:deployment-worker",
+                transition_reason="deployment task still running",
+                transition_metadata={"deployment_task_id": task_id},
             )
             logger.info(f"Deployment {deployment_id} still running (task={task_id})")
         
     except Exception as e:
-        await db.unified_deployments.update_one(
-            {"deployment_id": deployment_id},
-            {"$set": {
-                "status": "failed",
+        await _transition_unified_deployment_state(
+            deployment_id=deployment_id,
+            expected_statuses=["pending", "processing", "queued", "running"],
+            next_status="failed",
+            extra_updates={
                 "error": str(e),
-                "failed_at": datetime.now(timezone.utc).isoformat()
-            }}
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+            },
+            transition_actor="system:deployment-worker",
+            transition_reason="deployment worker exception",
+            transition_metadata={"exception": str(e)},
         )
         logger.error(f"Deployment {deployment_id} failed: {e}")
 

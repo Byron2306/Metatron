@@ -107,7 +107,11 @@ const CSPMPage = () => {
       
       if (response.ok) {
         const data = await response.json();
-        toast.success(`Scan started: ${data.scan_id}`);
+        if (data?.status === 'not_configured') {
+          toast.error(data?.message || 'No cloud providers configured');
+        } else {
+          toast.success(`Scan started: ${data.scan_id}`);
+        }
         setTimeout(fetchDashboardData, 5000);
       } else {
         toast.error('Failed to start scan');
@@ -116,6 +120,79 @@ const CSPMPage = () => {
       toast.error('Error starting scan');
     } finally {
       setScanning(false);
+    }
+  };
+
+  const configureProvider = async () => {
+    const provider = window.prompt('Provider (aws | azure | gcp)', selectedProvider === 'all' ? 'aws' : selectedProvider);
+    if (!provider) return;
+
+    const p = provider.trim().toLowerCase();
+    const accountId = window.prompt('Account/Subscription/Project ID');
+    if (!accountId) return;
+
+    let payload = { provider: p, account_id: accountId };
+
+    if (p === 'aws') {
+      const awsAccessKey = window.prompt('AWS Access Key ID');
+      const awsSecretKey = window.prompt('AWS Secret Access Key');
+      if (!awsAccessKey || !awsSecretKey) {
+        toast.error('AWS access key and secret key are required');
+        return;
+      }
+      payload = { ...payload, aws_access_key: awsAccessKey, aws_secret_key: awsSecretKey };
+    } else if (p === 'azure') {
+      const tenantId = window.prompt('Azure Tenant ID');
+      const clientId = window.prompt('Azure Client ID');
+      const clientSecret = window.prompt('Azure Client Secret');
+      const subscriptionId = window.prompt('Azure Subscription ID', accountId);
+      if (!tenantId || !clientId || !clientSecret || !subscriptionId) {
+        toast.error('Azure tenant/client/subscription credentials are required');
+        return;
+      }
+      payload = {
+        ...payload,
+        azure_tenant_id: tenantId,
+        azure_client_id: clientId,
+        azure_client_secret: clientSecret,
+        azure_subscription_id: subscriptionId
+      };
+    } else if (p === 'gcp') {
+      const projectId = window.prompt('GCP Project ID', accountId);
+      const keyPath = window.prompt('GCP service account key path (on backend host)');
+      if (!projectId || !keyPath) {
+        toast.error('GCP project ID and key path are required');
+        return;
+      }
+      payload = {
+        ...payload,
+        gcp_project_id: projectId,
+        gcp_service_account_key_path: keyPath
+      };
+    } else {
+      toast.error('Unsupported provider. Use aws, azure, or gcp.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/v1/cspm/providers`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        toast.success(`${p.toUpperCase()} provider configured`);
+        await fetchDashboardData();
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err?.detail || 'Failed to configure provider');
+      }
+    } catch (error) {
+      toast.error('Provider configuration failed');
     }
   };
 
@@ -202,6 +279,8 @@ const CSPMPage = () => {
     return true;
   });
 
+  const latestFailedScan = scans.find(s => s.status === 'failed');
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
@@ -227,6 +306,14 @@ const CSPMPage = () => {
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
+            onClick={configureProvider}
+            className="border-gray-600 text-gray-300 hover:bg-gray-800"
+          >
+            <Settings className="w-4 h-4 mr-2" />
+            Configure Provider
+          </Button>
+          <Button
+            variant="outline"
             onClick={exportFindings}
             className="border-gray-600 text-gray-300 hover:bg-gray-800"
           >
@@ -247,6 +334,22 @@ const CSPMPage = () => {
           </Button>
         </div>
       </div>
+
+      {latestFailedScan && (
+        <Card className="bg-red-950/20 border-red-900/40 mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5" />
+              <div>
+                <p className="text-red-300 font-medium">Latest cloud scan failed ({latestFailedScan.provider?.toUpperCase()})</p>
+                <p className="text-red-200/80 text-sm">
+                  {latestFailedScan.error_message || 'Authentication or API access failed. Verify provider credentials and cloud read permissions.'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6 border-b border-gray-800 pb-2">
@@ -738,6 +841,9 @@ const CSPMPage = () => {
                       <div className="text-right">
                         <p className="text-sm text-gray-400">{scan.findings_count || 0} findings</p>
                         <p className="text-xs text-gray-500">{scan.resources_scanned || 0} resources</p>
+                        {scan.status === 'failed' && scan.error_message && (
+                          <p className="text-xs text-red-400 max-w-xs truncate">{scan.error_message}</p>
+                        )}
                       </div>
                       <Badge variant="outline" className={
                         scan.status === 'completed' ? 'border-green-500 text-green-400' :

@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/swarm", tags=["Swarm Management"])
 
+SWARM_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
+
 
 # =============================================================================
 # MODELS
@@ -108,7 +110,8 @@ async def register_agent(request: AgentRegistrationRequest):
     return {
         "status": "ok",
         "message": "Agent registered successfully",
-        "agent_id": request.agent_id
+        "agent_id": request.agent_id,
+        "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -166,6 +169,16 @@ async def send_command_to_agent(
         "params": request.params,
         "priority": request.priority,
         "status": "pending",
+        "state_version": 1,
+        "state_transition_log": [
+            {
+                "from_status": None,
+                "to_status": "pending",
+                "actor": current_user.get("email", "system"),
+                "reason": "command queued",
+                "timestamp": now,
+            }
+        ],
         "created_at": now,
         "created_by": current_user.get("email", "system")
     }
@@ -177,7 +190,8 @@ async def send_command_to_agent(
     return {
         "status": "ok",
         "command_id": command_doc["command_id"],
-        "message": f"Command {request.type} queued for agent {agent_id}"
+        "message": f"Command {request.type} queued for agent {agent_id}",
+        "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -193,9 +207,30 @@ async def get_pending_commands(agent_id: str):
     
     # Mark as delivered
     for cmd in commands:
+        delivery_now = datetime.now(timezone.utc).isoformat()
         await db.agent_commands.update_one(
-            {"command_id": cmd["command_id"]},
-            {"$set": {"status": "delivered", "delivered_at": datetime.now(timezone.utc).isoformat()}}
+            {
+                "command_id": cmd["command_id"],
+                "agent_id": agent_id,
+                "status": "pending",
+            },
+            {
+                "$set": {
+                    "status": "delivered",
+                    "delivered_at": delivery_now,
+                    "updated_at": delivery_now,
+                },
+                "$inc": {"state_version": 1},
+                "$push": {
+                    "state_transition_log": {
+                        "from_status": "pending",
+                        "to_status": "delivered",
+                        "actor": f"agent:{agent_id}",
+                        "reason": "agent polled commands",
+                        "timestamp": delivery_now,
+                    }
+                },
+            }
         )
     
     return {"commands": commands}
@@ -206,14 +241,44 @@ async def acknowledge_command(agent_id: str, command_id: str, result: dict = Non
     """Agent acknowledges command execution"""
     now = datetime.now(timezone.utc).isoformat()
     
-    await db.agent_commands.update_one(
-        {"command_id": command_id, "agent_id": agent_id},
-        {"$set": {
-            "status": "completed" if result and result.get("success") else "failed",
-            "completed_at": now,
-            "result": result
-        }}
+    ack_status = "completed" if result and result.get("success") else "failed"
+    update_result = await db.agent_commands.update_one(
+        {
+            "command_id": command_id,
+            "agent_id": agent_id,
+            "status": {"$in": ["pending", "delivered"]},
+        },
+        {
+            "$set": {
+                "status": ack_status,
+                "completed_at": now,
+                "result": result,
+                "updated_at": now,
+            },
+            "$inc": {"state_version": 1},
+            "$push": {
+                "state_transition_log": {
+                    "from_status": ["pending", "delivered"],
+                    "to_status": ack_status,
+                    "actor": f"agent:{agent_id}",
+                    "reason": "agent acknowledged command",
+                    "timestamp": now,
+                }
+            },
+        }
     )
+
+    if getattr(update_result, "matched_count", 0) == 0:
+        existing = await db.agent_commands.find_one(
+            {"command_id": command_id, "agent_id": agent_id},
+            {"_id": 0, "status": 1},
+        )
+        if not existing:
+            raise HTTPException(status_code=404, detail="Command not found")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Command is already terminal (status={existing.get('status')})",
+        )
     
     return {"status": "ok"}
 
@@ -256,6 +321,16 @@ async def respond_to_threat(
         "params": params or {},
         "priority": "critical",
         "status": "pending",
+        "state_version": 1,
+        "state_transition_log": [
+            {
+                "from_status": None,
+                "to_status": "pending",
+                "actor": current_user.get("email", "system"),
+                "reason": "threat response command queued",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": current_user.get("email", "system"),
         "threat_id": threat_id
@@ -411,7 +486,8 @@ async def receive_scanner_report(request: ScannerReportRequest):
         "message": f"Received {len(request.devices)} devices",
         "new_devices": new_devices,
         "updated_devices": updated_devices,
-        "auto_deploy_queued": auto_deploy_queued
+        "auto_deploy_queued": auto_deploy_queued,
+        "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -466,7 +542,7 @@ async def trigger_network_scan(
     current_user: dict = Depends(check_permission("write"))
 ):
     """Trigger a network scan"""
-    from services.network_discovery import get_network_discovery
+    from services.network_discovery import get_network_discovery, start_network_discovery
     
     discovery = get_network_discovery()
     if discovery is None:
@@ -484,7 +560,7 @@ async def trigger_network_scan(
 @router.get("/scan/status")
 async def get_scan_status(current_user: dict = Depends(get_current_user)):
     """Get current scan status"""
-    from services.network_discovery import get_network_discovery
+    from services.network_discovery import get_network_discovery, start_network_discovery
     
     discovery = get_network_discovery()
     if discovery is None:
@@ -782,7 +858,8 @@ async def deploy_agent_to_device(
     return {
         "message": "Deployment queued",
         "device_ip": request.device_ip,
-        "status": task.status
+        "status": task.status,
+        "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -823,7 +900,8 @@ async def deploy_agents_batch(
         return {
             "message": f"No deployable devices found (total devices: {total_devices}). Devices need OS type (Windows/Linux/macOS) or deployable=True flag.",
             "devices": [],
-            "total_devices_in_db": total_devices
+            "total_devices_in_db": total_devices,
+            "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
         }
     
     queued = []
@@ -857,7 +935,8 @@ async def deploy_agents_batch(
     return {
         "message": f"Batch deployment initiated for {len(queued)} devices",
         "devices": queued,
-        "errors": errors if errors else None
+        "errors": errors if errors else None,
+        "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -975,6 +1054,10 @@ async def deploy_via_winrm(
     device_ip: str,
     username: str,
     password: str,
+    use_ssl: bool = False,
+    port: Optional[int] = None,
+    transport: str = "ntlm",
+    server_cert_validation: str = "ignore",
     current_user: dict = Depends(check_permission("write"))
 ):
     """Deploy agent to Windows device via WinRM"""
@@ -993,7 +1076,11 @@ async def deploy_via_winrm(
     # Set WinRM credentials for this deployment
     credentials = {
         "username": username,
-        "password": password
+        "password": password,
+        "use_ssl": use_ssl,
+        "port": port or (5986 if use_ssl else 5985),
+        "transport": transport,
+        "server_cert_validation": server_cert_validation,
     }
     
     try:
@@ -1008,6 +1095,8 @@ async def deploy_via_winrm(
             "message": f"WinRM deployment queued for {device_ip}",
             "task_id": task_id,
             "method": "winrm",
+            "endpoint": f"{'https' if use_ssl else 'http'}://{device_ip}:{credentials['port']}/wsman",
+            "transport": transport,
             "note": "Agent will be deployed via WinRM using provided credentials"
         }
     except Exception as e:
@@ -1025,7 +1114,11 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
     
     events = request.events
     if not events:
-        return {"status": "ok", "ingested": 0}
+        return {
+            "status": "ok",
+            "ingested": 0,
+            "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
+        }
     
     # Process and store events
     now = datetime.now(timezone.utc).isoformat()
@@ -1107,7 +1200,8 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
     return {
         "status": "ok", 
         "ingested": len(events),
-        "aatl_assessments": len(aatl_assessments)
+        "aatl_assessments": len(aatl_assessments),
+        "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
 
@@ -1186,6 +1280,14 @@ async def auto_kill_process(
         "command_name": "Server Auto-Kill Process",
         "parameters": {"pid": pid, "reason": reason},
         "status": "approved",  # Auto-approved for kill commands
+        "state_version": 1,
+        "state_transition_log": [{
+            "from_status": None,
+            "to_status": "approved",
+            "actor": current_user.get("email", "system"),
+            "reason": "auto-kill command approved",
+            "timestamp": now,
+        }],
         "priority": "critical",
         "risk_level": "high",
         "created_by": current_user.get("email", "system"),
@@ -1240,6 +1342,14 @@ async def auto_kill_ip(
             "duration_hours": duration_hours
         },
         "status": "approved",
+        "state_version": 1,
+        "state_transition_log": [{
+            "from_status": None,
+            "to_status": "approved",
+            "actor": current_user.get("email", "system"),
+            "reason": "auto-kill command approved",
+            "timestamp": now,
+        }],
         "priority": "critical",
         "risk_level": "medium",
         "created_by": current_user.get("email", "system"),
@@ -1287,6 +1397,14 @@ async def auto_kill_file(
         "command_name": "Server Auto-Quarantine File",
         "parameters": {"file_path": file_path, "reason": reason},
         "status": "approved",
+        "state_version": 1,
+        "state_transition_log": [{
+            "from_status": None,
+            "to_status": "approved",
+            "actor": current_user.get("email", "system"),
+            "reason": "auto-kill command approved",
+            "timestamp": now,
+        }],
         "priority": "critical",
         "risk_level": "high",
         "created_by": current_user.get("email", "system"),
@@ -1334,6 +1452,14 @@ async def auto_kill_isolate_host(
         "command_name": "Server Auto-Isolate Host",
         "parameters": {"reason": reason, "duration_hours": duration_hours},
         "status": "approved",
+        "state_version": 1,
+        "state_transition_log": [{
+            "from_status": None,
+            "to_status": "approved",
+            "actor": current_user.get("email", "system"),
+            "reason": "auto-kill command approved",
+            "timestamp": now,
+        }],
         "priority": "critical",
         "risk_level": "critical",
         "created_by": current_user.get("email", "system"),
@@ -1384,6 +1510,14 @@ async def auto_kill_batch(
             "command_name": f"Batch Auto-Kill: {command_type}",
             "parameters": params,
             "status": "approved",
+            "state_version": 1,
+            "state_transition_log": [{
+                "from_status": None,
+                "to_status": "approved",
+                "actor": current_user.get("email", "system"),
+                "reason": "batch auto-kill command approved",
+                "timestamp": now,
+            }],
             "priority": "critical",
             "risk_level": "high",
             "created_by": current_user.get("email", "system"),
@@ -2336,7 +2470,7 @@ async def scan_and_auto_deploy(
     3. Unified agents are deployed via SSH/WinRM
     4. Agents auto-configure VPN and start monitoring
     """
-    from services.network_discovery import get_network_discovery
+    from services.network_discovery import get_network_discovery, start_network_discovery
     from services.agent_deployment import get_deployment_service, start_deployment_service
     import os
     
@@ -2344,6 +2478,12 @@ async def scan_and_auto_deploy(
     
     # Step 1: Get or start network discovery
     discovery = get_network_discovery()
+    if discovery is None:
+        try:
+            discovery = await start_network_discovery(db, scan_interval_s=300)
+            logger.info("Started network discovery service for unified auto-deploy")
+        except Exception as e:
+            logger.warning(f"Could not start network discovery service: {e}")
     
     # Step 2: Get or start deployment service
     service = get_deployment_service()

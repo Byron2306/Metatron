@@ -20,6 +20,7 @@ import os
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import List
 
 # Load environment variables
 ROOT_DIR = Path(__file__).parent
@@ -65,14 +66,30 @@ app = FastAPI(
     version="3.0.0"
 )
 
+def _resolve_cors_origins() -> List[str]:
+    raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
+    strict = os.environ.get("SERAPH_STRICT_SECURITY", "false").strip().lower() in {"1", "true", "yes", "on"}
+    prod_like = environment in {"prod", "production"} or strict
+
+    if prod_like and (not origins or "*" in origins):
+        raise RuntimeError("CORS_ORIGINS must be explicit in production/strict mode; wildcard is not allowed.")
+
+    return origins or ["http://localhost:3000"]
+
+
 # Configure CORS
+cors_origins = _resolve_cors_origins()
+allow_credentials = "*" not in cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+logger.info(f"CORS configured with {len(cors_origins)} origin(s); credentials={'enabled' if allow_credentials else 'disabled'}")
 
 # Import all routers
 from routers.auth import router as auth_router, users_router
@@ -105,6 +122,7 @@ from routers.ml_prediction import router as ml_router
 from routers.sandbox import router as sandbox_router
 from routers.browser_isolation import router as browser_isolation_router
 from routers.kibana import router as kibana_router
+from routers.identity import router as identity_router
 
 # Import Browser Extension router
 from routers.extension import router as extension_router
@@ -112,10 +130,25 @@ from routers.extension import router as extension_router
 # Import Multi-Tenant router
 from routers.multi_tenant import router as multi_tenant_router
 
-# Import Tier 1 Enterprise Security routers
-from routers.attack_paths import router as attack_paths_router
-from routers.secure_boot import router as secure_boot_router
-from routers.kernel_sensors import router as kernel_sensors_router
+# Import Tier 1 Enterprise Security routers (fail-open if optional modules are incompatible)
+attack_paths_router = None
+secure_boot_router = None
+kernel_sensors_router = None
+
+try:
+    from routers.attack_paths import router as attack_paths_router
+except Exception as e:
+    logger.warning(f"Attack paths router disabled due to import error: {e}")
+
+try:
+    from routers.secure_boot import router as secure_boot_router
+except Exception as e:
+    logger.warning(f"Secure boot router disabled due to import error: {e}")
+
+try:
+    from routers.kernel_sensors import router as kernel_sensors_router
+except Exception as e:
+    logger.warning(f"Kernel sensors router disabled due to import error: {e}")
 
 # Initialize ML service with database
 from ml_threat_prediction import ml_predictor
@@ -163,9 +196,12 @@ app.include_router(extension_router, prefix="/api")
 app.include_router(multi_tenant_router, prefix="/api")
 
 # Register Tier 1 Enterprise Security routers
-app.include_router(attack_paths_router)  # Already has /api/v1 prefix
-app.include_router(secure_boot_router)   # Already has /api/v1 prefix
-app.include_router(kernel_sensors_router)  # Already has /api/v1 prefix
+if attack_paths_router is not None:
+    app.include_router(attack_paths_router)  # Already has /api/v1 prefix
+if secure_boot_router is not None:
+    app.include_router(secure_boot_router)   # Already has /api/v1 prefix
+if kernel_sensors_router is not None:
+    app.include_router(kernel_sensors_router)  # Already has /api/v1 prefix
 
 # Import agent commands router
 from routers.agent_commands import router as agent_commands_router
@@ -204,6 +240,8 @@ app.include_router(unified_agent_router, prefix="/api")
 # Import advanced deception system with Pebbles, Mystique, and Stonewall
 from routers.deception import router as deception_engine_router
 app.include_router(deception_engine_router, prefix="/api")  # Now /api/deception
+app.include_router(deception_engine_router, prefix="/api/v1")  # Frontend compatibility: /api/v1/deception
+app.include_router(identity_router)  # Already has /api/v1/identity prefix
 
 # Initialize deception engine and integrate with existing systems
 from deception_engine import deception_engine, integrate_with_honey_tokens, integrate_with_ransomware_protection

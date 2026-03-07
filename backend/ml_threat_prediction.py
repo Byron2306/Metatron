@@ -1704,7 +1704,9 @@ class EnhancedMLThreatPredictor(MLThreatPredictor):
     """Enhanced ML Threat Predictor with advanced features"""
     
     def __init__(self, db=None):
-        super().__init__(db)
+        super().__init__()
+        if db is not None:
+            self.set_database(db)
         
         # Advanced components
         self.time_series_detector = TimeSeriesAnomalyDetector(input_size=12, hidden_size=32)

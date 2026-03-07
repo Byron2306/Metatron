@@ -1,7 +1,5 @@
-"""
-Shared dependencies for all routers
-"""
-from fastapi import HTTPException, Depends
+"""Shared dependencies for all routers"""
+from fastapi import HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict
@@ -12,6 +10,7 @@ import bcrypt
 import uuid
 import os
 import logging
+import ipaddress
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +29,20 @@ def _resolve_jwt_secret() -> str:
         "changeme",
         "password",
         "default",
+        "your-super-secret-jwt-key-change-in-production",
     }
 
     if not configured_secret:
+        if _is_production_security_mode():
+            raise RuntimeError(
+                "JWT_SECRET is required in production/strict mode. "
+                "Refusing to start without a strong secret."
+            )
         generated_secret = f"ephemeral-{uuid.uuid4().hex}{uuid.uuid4().hex}"
         logger.warning(
             "JWT_SECRET is not set. Using an ephemeral in-memory secret for this process. "
-            "Set a strong JWT_SECRET (>=32 chars) for persistent authentication.")
+            "Set a strong JWT_SECRET (>=32 chars) for persistent authentication."
+        )
         return generated_secret
 
     if configured_secret in weak_defaults or len(configured_secret) < 32:
@@ -61,52 +67,97 @@ security = HTTPBearer()
 # MongoDB connection - will be set by main app
 db = None
 
+
 def set_database(database):
     """Set the database instance for all routers"""
     global db
     db = database
+
 
 def get_db():
     """Get the database instance"""
     global db
     return db
 
+
 # ============ AUTH HELPERS ============
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
 
 def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+
 
 def create_token(user_id: str, email: str) -> str:
     payload = {
         "user_id": user_id,
         "email": email,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
+        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+
+def _is_local_request(request: Request) -> bool:
+    # Prefer X-Forwarded-For when behind reverse proxy.
+    xff = request.headers.get("x-forwarded-for", "")
+    client_ip = (xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")).lower()
+    trusted = {
+        "127.0.0.1",
+        "::1",
+        "localhost",
+        "172.17.0.1",  # common Docker host bridge address
+        "host.docker.internal",
+    }
+    if client_ip in trusted:
+        return True
+
+    try:
+        ip_obj = ipaddress.ip_address(client_ip)
+        return ip_obj.is_loopback or ip_obj.is_private
+    except Exception:
+        return False
+
+
+async def get_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
     try:
         payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+
+        # Remote admin-only gate (for server-exposed ports): remote clients must be admin.
+        remote_admin_only = os.environ.get("REMOTE_ADMIN_ONLY", "true").strip().lower() in {"1", "true", "yes", "on"}
+        if remote_admin_only and not _is_local_request(request):
+            allowed_admin_emails = {
+                e.strip().lower()
+                for e in os.environ.get("REMOTE_ADMIN_EMAILS", "").split(",")
+                if e.strip()
+            }
+            if allowed_admin_emails:
+                if user.get("email", "").lower() not in allowed_admin_emails:
+                    raise HTTPException(status_code=403, detail="Remote access denied for this account")
+            elif user.get("role", "viewer") != "admin":
+                raise HTTPException(status_code=403, detail="Remote access requires admin role")
+
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+
 # ============ ROLE-BASED ACCESS CONTROL ============
 
 ROLES = {
     "admin": ["read", "write", "delete", "manage_users", "manage_honeypots", "export_reports"],
     "analyst": ["read", "write", "export_reports"],
-    "viewer": ["read"]
+    "viewer": ["read"],
 }
-
 def check_permission(required_permission: str):
     async def permission_checker(current_user: dict = Depends(get_current_user)):
         user_role = current_user.get("role", "viewer")

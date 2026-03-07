@@ -738,6 +738,7 @@ class AgenticResponseEngine:
     
     # Response history for audit
     response_history: List[Dict[str, Any]] = []
+    _db = None
     
     @classmethod
     async def process_threat(
@@ -756,6 +757,24 @@ class AgenticResponseEngine:
         5. Whether to escalate to humans
         """
         results = []
+        response_id = hashlib.md5(
+            f"{context.threat_id}{datetime.now(timezone.utc).isoformat()}".encode()
+        ).hexdigest()[:16]
+
+        await cls._create_response_record(
+            response_id=response_id,
+            context=context,
+            auto_respond=auto_respond,
+            actor="engine",
+        )
+        await cls._transition_response_record(
+            response_id=response_id,
+            expected_status=ResponseStatus.PENDING.value,
+            to_status=ResponseStatus.EXECUTING.value,
+            actor="engine",
+            reason="Threat response execution started",
+            metadata={"threat_type": context.threat_type},
+        )
         
         logger.info(f"Processing threat: {context.threat_type} (severity: {context.severity})")
         
@@ -812,20 +831,37 @@ class AgenticResponseEngine:
                 # Log the AI analysis
                 logger.info(f"OpenClaw analysis: {analysis['analysis'][:200]}...")
         
+        final_status = cls._derive_final_status(results)
+
         # Store response history
-        cls.response_history.append({
+        history_entry = {
+            "response_id": response_id,
             "threat_id": context.threat_id,
             "threat_type": context.threat_type,
             "severity": context.severity,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "results": [asdict(r) for r in results],
             "auto_responded": auto_respond
-        })
+        }
+        cls.response_history.append(history_entry)
         
         # Trim history
         if len(cls.response_history) > 1000:
             cls.response_history = cls.response_history[-500:]
         
+        await cls._transition_response_record(
+            response_id=response_id,
+            expected_status=ResponseStatus.EXECUTING.value,
+            to_status=final_status,
+            actor="engine",
+            reason="Threat response execution completed",
+            metadata={
+                "result_count": len(results),
+                "failed_count": sum(1 for r in results if r.status == ResponseStatus.FAILED),
+            },
+            results=[asdict(r) for r in results],
+        )
+
         return results
     
     @classmethod
@@ -850,6 +886,197 @@ class AgenticResponseEngine:
             "by_action": by_action,
             "attack_sources": len(cls.attack_counter)
         }
+
+    @classmethod
+    def configure_db(cls, db):
+        """Configure an optional persistence backend for durable response records."""
+        cls._db = db
+
+    @classmethod
+    def _derive_final_status(cls, results: List[ResponseResult]) -> str:
+        failed = sum(1 for r in results if r.status == ResponseStatus.FAILED)
+        succeeded = sum(1 for r in results if r.status == ResponseStatus.SUCCESS)
+
+        if failed > 0 and succeeded > 0:
+            return ResponseStatus.DEGRADED.value
+        if failed > 0 and succeeded == 0:
+            return ResponseStatus.FAILED.value
+        return ResponseStatus.SUCCESS.value
+
+    @classmethod
+    def _transition_entry(
+        cls,
+        from_status: Optional[str],
+        to_status: str,
+        actor: str,
+        reason: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        timestamp: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "from_status": from_status,
+            "to_status": to_status,
+            "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+            "actor": actor,
+            "reason": reason,
+            "metadata": metadata or {},
+        }
+
+    @classmethod
+    async def _create_response_record(
+        cls,
+        response_id: str,
+        context: ThreatContext,
+        auto_respond: bool,
+        actor: str,
+    ):
+        timestamp = datetime.now(timezone.utc).isoformat()
+        doc = {
+            "response_id": response_id,
+            "threat_id": context.threat_id,
+            "threat_type": context.threat_type,
+            "severity": context.severity,
+            "status": ResponseStatus.PENDING.value,
+            "state_version": 1,
+            "state_transition_log": [
+                cls._transition_entry(
+                    from_status=None,
+                    to_status=ResponseStatus.PENDING.value,
+                    actor=actor,
+                    reason="Threat response record created",
+                    metadata={
+                        "auto_responded": auto_respond,
+                        "source_ip": context.source_ip,
+                    },
+                    timestamp=timestamp,
+                )
+            ],
+            "results": [],
+            "auto_responded": auto_respond,
+            "source_ip": context.source_ip,
+            "agent_id": context.agent_id,
+            "agent_name": context.agent_name,
+            "timestamp": timestamp,
+            "updated_at": timestamp,
+        }
+
+        if cls._db is not None and hasattr(cls._db, "response_history"):
+            await cls._db.response_history.insert_one(doc)
+
+    @classmethod
+    async def _transition_response_record(
+        cls,
+        response_id: str,
+        expected_status: str,
+        to_status: str,
+        actor: str,
+        reason: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        results: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
+        if cls._db is None or not hasattr(cls._db, "response_history"):
+            return False
+
+        current = await cls._db.response_history.find_one(
+            {"response_id": response_id},
+            {"status": 1, "state_version": 1},
+        )
+        if not current:
+            return False
+
+        current_status = current.get("status")
+        current_version = int(current.get("state_version", 0) or 0)
+        if current_status != expected_status:
+            return False
+
+        transition = cls._transition_entry(
+            from_status=expected_status,
+            to_status=to_status,
+            actor=actor,
+            reason=reason,
+            metadata=metadata,
+        )
+
+        update_doc = {
+            "$set": {
+                "status": to_status,
+                "updated_at": transition["timestamp"],
+            },
+            "$inc": {"state_version": 1},
+            "$push": {"state_transition_log": transition},
+        }
+        if results is not None:
+            update_doc["$set"]["results"] = results
+
+        update_result = await cls._db.response_history.update_one(
+            {
+                "response_id": response_id,
+                "status": expected_status,
+                "state_version": current_version,
+            },
+            update_doc,
+        )
+        return bool(getattr(update_result, "modified_count", 0))
+
+    @classmethod
+    async def record_manual_action(
+        cls,
+        action: ResponseAction,
+        result: ResponseResult,
+        threat_id: str,
+        threat_type: str,
+        severity: str,
+        source_ip: Optional[str] = None,
+        actor: str = "manual",
+    ):
+        context = ThreatContext(
+            threat_id=threat_id,
+            threat_type=threat_type,
+            severity=severity,
+            source_ip=source_ip,
+        )
+        response_id = hashlib.md5(
+            f"{threat_id}{action.value}{datetime.now(timezone.utc).isoformat()}".encode()
+        ).hexdigest()[:16]
+
+        await cls._create_response_record(
+            response_id=response_id,
+            context=context,
+            auto_respond=False,
+            actor=actor,
+        )
+        await cls._transition_response_record(
+            response_id=response_id,
+            expected_status=ResponseStatus.PENDING.value,
+            to_status=ResponseStatus.EXECUTING.value,
+            actor=actor,
+            reason="Manual response action started",
+            metadata={"action": action.value},
+        )
+
+        terminal = result.status.value if isinstance(result.status, ResponseStatus) else str(result.status)
+        await cls._transition_response_record(
+            response_id=response_id,
+            expected_status=ResponseStatus.EXECUTING.value,
+            to_status=terminal,
+            actor=actor,
+            reason="Manual response action completed",
+            metadata={"action": action.value},
+            results=[asdict(result)],
+        )
+
+        cls.response_history.append(
+            {
+                "response_id": response_id,
+                "threat_id": threat_id,
+                "threat_type": threat_type,
+                "severity": severity,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "results": [asdict(result)],
+                "auto_responded": False,
+                "manual": True,
+            }
+        )
     
     @classmethod
     def get_blocked_ips(cls) -> List[Dict[str, Any]]:
@@ -919,13 +1146,38 @@ async def respond_to_port_scan(
     )
     return await response_engine.process_threat(context)
 
-async def manual_block_ip(ip: str, reason: str, duration_hours: int = 24) -> ResponseResult:
+async def manual_block_ip(
+    ip: str,
+    reason: str,
+    duration_hours: int = 24,
+    actor: str = "manual",
+) -> ResponseResult:
     """Manually block an IP address"""
-    return await firewall.block_ip(ip, reason, duration_hours)
+    result = await firewall.block_ip(ip, reason, duration_hours)
+    await response_engine.record_manual_action(
+        action=ResponseAction.BLOCK_IP,
+        result=result,
+        threat_id=f"manual-block-{hashlib.md5(ip.encode()).hexdigest()[:8]}",
+        threat_type="manual_block",
+        severity="high",
+        source_ip=ip,
+        actor=actor,
+    )
+    return result
 
-async def manual_unblock_ip(ip: str) -> ResponseResult:
+async def manual_unblock_ip(ip: str, actor: str = "manual") -> ResponseResult:
     """Manually unblock an IP address"""
-    return await firewall.unblock_ip(ip)
+    result = await firewall.unblock_ip(ip)
+    await response_engine.record_manual_action(
+        action=ResponseAction.UNBLOCK_IP,
+        result=result,
+        threat_id=f"manual-unblock-{hashlib.md5(ip.encode()).hexdigest()[:8]}",
+        threat_type="manual_unblock",
+        severity="low",
+        source_ip=ip,
+        actor=actor,
+    )
+    return result
 
 
 # =============================================================================
@@ -1394,16 +1646,51 @@ class AIDefenseEngine:
             )
             results.extend(response_results)
         
-        # Store in response history
-        response_engine.response_history.append({
-            "threat_id": context.threat_id,
-            "threat_type": "ai_autonomous",
-            "severity": context.severity,
-            "ai_assessment": asdict(assessment),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "results": [asdict(r) for r in results],
-            "escalation_level": assessment.recommended_escalation.value
-        })
+        response_id = hashlib.md5(
+            f"{context.threat_id}ai{datetime.now(timezone.utc).isoformat()}".encode()
+        ).hexdigest()[:16]
+
+        await response_engine._create_response_record(
+            response_id=response_id,
+            context=context,
+            auto_respond=True,
+            actor="ai_defense",
+        )
+        await response_engine._transition_response_record(
+            response_id=response_id,
+            expected_status=ResponseStatus.PENDING.value,
+            to_status=ResponseStatus.EXECUTING.value,
+            actor="ai_defense",
+            reason="AI threat response execution started",
+            metadata={"escalation_level": assessment.recommended_escalation.value},
+        )
+
+        final_status = response_engine._derive_final_status(results)
+        await response_engine._transition_response_record(
+            response_id=response_id,
+            expected_status=ResponseStatus.EXECUTING.value,
+            to_status=final_status,
+            actor="ai_defense",
+            reason="AI threat response execution completed",
+            metadata={
+                "escalation_level": assessment.recommended_escalation.value,
+                "machine_likelihood": assessment.machine_likelihood,
+            },
+            results=[asdict(r) for r in results],
+        )
+
+        response_engine.response_history.append(
+            {
+                "response_id": response_id,
+                "threat_id": context.threat_id,
+                "threat_type": "ai_autonomous",
+                "severity": context.severity,
+                "ai_assessment": asdict(assessment),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "results": [asdict(r) for r in results],
+                "escalation_level": assessment.recommended_escalation.value,
+            }
+        )
         
         return results
     

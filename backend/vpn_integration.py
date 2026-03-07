@@ -609,11 +609,13 @@ class VPNManager:
     async def start(self) -> Dict:
         """Start VPN server"""
         result = await self.server.start_server()
-        
-        # Enable kill switch if configured
-        if config.kill_switch_enabled and result.get("status") == "started":
-            await self.kill_switch.enable()
-        
+
+        # Do not auto-enable kill switch on server start.
+        # In containerized backend environments this can block egress to Mongo/Elasticsearch
+        # and make the API appear hung. Operators can still toggle it explicitly from the UI.
+        if result.get("status") == "started":
+            result["kill_switch_auto_enabled"] = False
+
         return result
     
     async def stop(self) -> Dict:

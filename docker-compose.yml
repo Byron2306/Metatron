@@ -30,7 +30,7 @@ services:
     container_name: seraph-mongodb
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "${BIND_MONGODB_HOST:-127.0.0.1}:27017:27017"
     volumes:
       - mongodb_data:/data/db
       - mongodb_config:/data/configdb
@@ -55,11 +55,14 @@ services:
     container_name: seraph-backend
     restart: unless-stopped
     ports:
-      - "8001:8001"
+      - "${BIND_BACKEND_HOST:-127.0.0.1}:8001:8001"
     environment:
       - MONGO_URL=mongodb://mongodb:27017
       - DB_NAME=seraph_ai_defense
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      - REMOTE_ADMIN_ONLY=${REMOTE_ADMIN_ONLY:-true}
+      - REMOTE_ADMIN_EMAILS=${REMOTE_ADMIN_EMAILS:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       - VPN_SERVER_ENDPOINT=${VPN_SERVER_ENDPOINT:-vpn.yourdomain.com}
       - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
       - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME:-}
@@ -90,6 +93,11 @@ services:
       - ./scripts:/app/scripts:ro
       - ./backend/playbooks:/app/playbooks:ro
       - ./unified_agent:/app/unified_agent:ro
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    devices:
+      - /dev/net/tun:/dev/net/tun
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -162,7 +170,7 @@ services:
     networks:
       - seraph-network
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 8
@@ -288,14 +296,14 @@ services:
     container_name: seraph-frontend
     restart: unless-stopped
     ports:
-      - "3000:80"
+      - "${BIND_FRONTEND_HOST:-127.0.0.1}:3000:80"
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - seraph-network
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -325,7 +333,7 @@ services:
       - wireguard_config:/config
       - /lib/modules:/lib/modules:ro
     ports:
-      - "51820:51820/udp"
+      - "${BIND_WIREGUARD_HOST:-127.0.0.1}:51820:51820/udp"
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
       - net.ipv4.ip_forward=1
