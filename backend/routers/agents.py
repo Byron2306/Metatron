@@ -249,24 +249,15 @@ async def download_installer():
         raise HTTPException(status_code=404, detail="Installer not found")
 
 @router.get("/download/advanced-agent")
-async def download_advanced_agent():
-    """Download the advanced security agent with enhanced monitoring"""
-    try:
-        script_path = Path("/app/scripts/advanced_agent.py")
-        if not script_path.exists():
-            script_path = Path(__file__).resolve().parent.parent / "scripts" / "advanced_agent.py"
-        with open(script_path, 'r') as f:
-            content = f.read()
-        
-        return StreamingResponse(
-            io.StringIO(content),
-            media_type="text/x-python",
-            headers={
-                "Content-Disposition": "attachment; filename=advanced_agent.py"
-            }
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Advanced agent not found")
+async def download_advanced_agent(request: Request):
+    """
+    Legacy endpoint: the standalone advanced_agent.py has been superseded by the
+    Unified Agent (unified_agent/core/agent.py).  Redirect to the canonical
+    unified download so existing links and scripts keep working.
+    """
+    replacement = "/api/unified/agent/download"
+    await _track_deprecated_alias_hit(request, "/api/agent/download/advanced-agent", replacement)
+    return _deprecated_redirect(replacement)
 
 
 @router.get("/download")
