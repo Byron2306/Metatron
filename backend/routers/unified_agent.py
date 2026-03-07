@@ -6,20 +6,6 @@ API endpoints for the Metatron/Seraph unified agent management system.
 Provides cross-platform agent registration, heartbeat, deployment, and monitoring.
 """
 
-
-class EDMHitTelemetryModel(BaseModel):
-    """EDM match telemetry emitted by endpoint agents."""
-    dataset_id: str
-    record_id: Optional[str] = None
-    fingerprint: str
-    host: Optional[str] = None
-    process: Optional[str] = None
-    file_path_masked: Optional[str] = None
-    source: Optional[str] = None
-    timestamp: Optional[str] = None
-        # Additional field for telemetry
-        additional_info: Optional[str] = None
-
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect, Request, Header
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
@@ -33,6 +19,20 @@ import json
 import os
 import socket
 import ipaddress
+
+
+class EDMHitTelemetryModel(BaseModel):
+    """EDM match telemetry emitted by endpoint agents."""
+    dataset_id: str
+    record_id: Optional[str] = None
+    fingerprint: str
+    host: Optional[str] = None
+    process: Optional[str] = None
+    file_path_masked: Optional[str] = None
+    source: Optional[str] = None
+    timestamp: Optional[str] = None
+    # Additional field for telemetry
+    additional_info: Optional[str] = None
 
 from .dependencies import get_current_user, check_permission, db
 
@@ -414,7 +414,6 @@ class AgentHeartbeatModel(BaseModel):
     alerts: List[Dict] = []
     telemetry: Optional[Dict] = None
     edm_hits: List[EDMHitTelemetryModel] = []
-        edm_hits: List['EDMHitTelemetryModel'] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
 
@@ -1729,7 +1728,7 @@ async def create_edm_dataset_version(
     quality_report = _enforce_edm_publish_gates(payload.dataset, context="dataset version creation")
 
     latest = await db[EDM_DATASET_COLLECTION].find_one({"dataset_id": dataset_id}, {"_id": 0, "version": 1}, sort=[("version", -1)])
-    next_version
+    next_version = int(latest.get("version", 0)) + 1 if latest else 1
     checksum = _compute_edm_checksum(payload.dataset)
     signature = _sign_edm_metadata(dataset_id, next_version, checksum)
     now = datetime.now(timezone.utc).isoformat()
