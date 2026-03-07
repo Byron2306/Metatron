@@ -515,6 +515,7 @@ setup_seraph_app() {
     fi
     
     # Create environment files
+    SERAPH_HOST="${SERAPH_HOST:-165.22.41.184}"
     cat > "$SERAPH_HOME/backend/.env" << EOF
 # Seraph AI Backend Configuration
 MONGO_URL=mongodb://localhost:27017
@@ -527,10 +528,16 @@ ACCESS_TOKEN_EXPIRE_MINUTES=480
 CUCKOO_API_URL=http://localhost:8090
 WIREGUARD_CONFIG_PATH=/etc/wireguard
 OLLAMA_URL=http://localhost:11434
+CORS_ORIGINS=http://${SERAPH_HOST},http://${SERAPH_HOST}:3000,http://localhost:3000
+API_URL=http://${SERAPH_HOST}:8001
+VPN_SERVER_ENDPOINT=${SERAPH_HOST}
+ADMIN_EMAIL=${ADMIN_EMAIL:-admin@yourdomain.com}
+ADMIN_PASSWORD=${ADMIN_PASSWORD:-CHANGE_ME}
+ADMIN_NAME=${ADMIN_NAME:-Seraph Admin}
 EOF
     
     cat > "$SERAPH_HOME/frontend/.env" << EOF
-REACT_APP_BACKEND_URL=http://localhost:8001
+REACT_APP_BACKEND_URL=http://${SERAPH_HOST}:8001
 EOF
     
     # Install frontend dependencies
@@ -593,7 +600,7 @@ User=root
 WorkingDirectory=$SERAPH_HOME/agents
 Environment="PATH=$SERAPH_HOME/venv/bin"
 Environment="PYTHONPATH=$SERAPH_HOME/agents"
-ExecStart=$SERAPH_HOME/venv/bin/python -m core.agent --server http://localhost:8001
+ExecStart=$SERAPH_HOME/venv/bin/python -m core.agent --server http://${SERAPH_HOST:-165.22.41.184}:8001
 Restart=always
 RestartSec=10
 
@@ -607,7 +614,7 @@ EOF
 # Seraph AI Unified Agent Installer
 # Usage: curl -sSL http://YOUR_SERVER:8001/api/unified/agent/install-script | sudo bash
 
-SERAPH_SERVER="${1:-http://localhost:8001}"
+SERAPH_SERVER="${1:-http://165.22.41.184:8001}"
 INSTALL_DIR="/opt/seraph-agent"
 
 echo "Installing Seraph AI Unified Agent..."
@@ -911,8 +918,8 @@ print_summary() {
     echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "${CYAN}Services:${NC}"
-    echo "  - Backend API:     http://localhost:8001"
-    echo "  - Frontend:        http://localhost:3000"
+    echo "  - Backend API:     http://${SERAPH_HOST:-165.22.41.184}:8001"
+    echo "  - Frontend:        http://${SERAPH_HOST:-165.22.41.184}:3000"
     echo "  - Elasticsearch:   http://localhost:9200"
     echo "  - Kibana:          http://localhost:5601"
     echo "  - Cuckoo Sandbox:  http://localhost:8080"
