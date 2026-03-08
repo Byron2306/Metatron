@@ -18,6 +18,13 @@
 # - Internet connection
 #
 # Usage: sudo ./seraph_builder.sh [--full|--minimal|--dev|--reinstall]
+#
+#   --full       Full installation of all components (default)
+#   --minimal    Install core services only (no SIEM, no sandbox)
+#   --dev        Install core + Redis for local development
+#   --reinstall  Wipe existing Seraph installation and reinstall from scratch.
+#                Full one-liner for a droplet:
+#                  curl -fsSL https://raw.githubusercontent.com/Byron2306/Metatron/main/scripts/seraph_builder.sh | sudo bash -s -- --reinstall
 #===============================================================================
 
 set -e
@@ -937,6 +944,11 @@ print_summary() {
     echo "  1. Configure Cuckoo VM images for malware analysis"
     echo "  2. Add WireGuard clients via the dashboard"
     echo "  3. Configure SIEM integrations in the UI"
+    echo ""
+    echo -e "${CYAN}Reinstall Command (wipe and rebuild this droplet):${NC}"
+    echo "  curl -fsSL https://raw.githubusercontent.com/Byron2306/Metatron/main/scripts/seraph_builder.sh | sudo bash -s -- --reinstall"
+    echo "  # or, if the repo is already cloned on this machine:"
+    echo "  sudo bash $0 --reinstall"
     echo ""
 }
 
