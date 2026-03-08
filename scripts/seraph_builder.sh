@@ -17,7 +17,7 @@
 # - Root access
 # - Internet connection
 #
-# Usage: sudo ./seraph_builder.sh [--full|--minimal|--dev]
+# Usage: sudo ./seraph_builder.sh [--full|--minimal|--dev|--reinstall]
 #===============================================================================
 
 set -e
@@ -941,6 +941,55 @@ print_summary() {
 }
 
 #===============================================================================
+# REINSTALL (DROPLET)
+#===============================================================================
+
+reinstall_droplet() {
+    log "Preparing droplet for reinstall..."
+
+    # Stop and disable Seraph systemd services if present
+    for svc in seraph-backend seraph-frontend seraph-agent; do
+        if systemctl is-active --quiet "$svc" 2>/dev/null; then
+            log "Stopping $svc..."
+            systemctl stop "$svc" || true
+        fi
+        if systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+            systemctl disable "$svc" || true
+        fi
+    done
+
+    # Remove Seraph Docker containers and volumes
+    for container in seraph-mongodb seraph-redis seraph-elasticsearch seraph-kibana seraph-cuckoo; do
+        if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${container}$"; then
+            log "Removing container: $container"
+            docker rm -f "$container" || true
+        fi
+    done
+
+    # Remove named Docker volumes used by Seraph
+    for volume in seraph-mongodb-data seraph-elasticsearch-data; do
+        if docker volume ls -q 2>/dev/null | grep -q "^${volume}$"; then
+            log "Removing volume: $volume"
+            docker volume rm "$volume" || true
+        fi
+    done
+
+    # Remove Docker network
+    if docker network ls --format '{{.Name}}' 2>/dev/null | grep -q "^${DOCKER_NETWORK}$"; then
+        log "Removing Docker network: $DOCKER_NETWORK"
+        docker network rm "$DOCKER_NETWORK" || true
+    fi
+
+    # Remove application directory
+    if [[ -d "$SERAPH_HOME" ]]; then
+        log "Removing $SERAPH_HOME..."
+        rm -rf "$SERAPH_HOME"
+    fi
+
+    log "Droplet cleanup complete. Starting fresh full installation..."
+}
+
+#===============================================================================
 # MAIN EXECUTION
 #===============================================================================
 
@@ -968,6 +1017,29 @@ main() {
             install_redis
             install_python_deps
             setup_seraph_app
+            ;;
+        --reinstall)
+            log "Starting REINSTALL on existing droplet..."
+            reinstall_droplet
+            install_base_packages
+            install_docker
+            install_nodejs
+            install_mongodb
+            install_redis
+            install_elasticsearch
+            install_wireguard
+            install_cuckoo
+            install_liboqs
+            install_kali_tools
+            install_ollama
+            install_python_deps
+            setup_seraph_app
+            create_user
+            create_systemd_services
+            setup_slack_notifications
+            setup_email_notifications
+            setup_firewall
+            verify_installation
             ;;
         --full|*)
             log "Starting FULL installation..."
