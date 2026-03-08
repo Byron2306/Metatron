@@ -8,7 +8,8 @@
 5. [VPN Setup](#vpn-setup)
 6. [Agent Deployment](#agent-deployment)
 7. [Monitoring & Maintenance](#monitoring--maintenance)
-8. [Troubleshooting](#troubleshooting)
+8. [Droplet Reinstall](#droplet-reinstall)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -381,6 +382,48 @@ docker-compose up -d
 
 # Clean up old images
 docker image prune -f
+```
+
+---
+
+## Droplet Reinstall
+
+Use this when you need to wipe and rebuild Seraph on an existing droplet (DigitalOcean, Linode, Vultr, etc.) from a clean state without reprovisioning the VM itself.
+
+### Full Reinstall Command
+
+Run the following as root on the droplet:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Byron2306/Metatron/main/scripts/seraph_builder.sh | sudo bash -s -- --reinstall
+```
+
+Or, if you have already cloned the repository on the droplet:
+
+```bash
+sudo bash scripts/seraph_builder.sh --reinstall
+```
+
+### What `--reinstall` Does
+
+1. Stops and disables the `seraph-backend`, `seraph-frontend`, and `seraph-agent` systemd services
+2. Removes all Seraph Docker containers (`seraph-mongodb`, `seraph-redis`, `seraph-elasticsearch`, `seraph-kibana`, `seraph-cuckoo`)
+3. Deletes named Docker volumes (`seraph-mongodb-data`, `seraph-elasticsearch-data`)
+4. Removes the `seraph-network` Docker network
+5. Wipes the application directory (`/opt/seraph-ai` by default)
+6. Runs a complete fresh full installation identical to `--full`
+
+> **Warning:** All existing data (database records, VPN configs, logs) will be permanently deleted. Take a backup before running this command if you need to preserve data.
+
+### Backup Before Reinstall (Recommended)
+
+```bash
+# Backup MongoDB data
+docker exec seraph-mongodb mongodump --out /backup
+docker cp seraph-mongodb:/backup ./mongodb-backup-$(date +%Y%m%d)
+
+# Backup WireGuard VPN configs
+docker cp seraph-wireguard:/config ./wireguard-backup-$(date +%Y%m%d)
 ```
 
 ---
