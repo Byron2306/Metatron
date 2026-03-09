@@ -50,6 +50,8 @@ import SecureBootPage from "./pages/SecureBootPage";
 import IdentityProtectionPage from "./pages/IdentityProtectionPage";
 import EmailProtectionPage from "./pages/EmailProtectionPage";
 import MobileSecurityPage from "./pages/MobileSecurityPage";
+import EmailGatewayPage from "./pages/EmailGatewayPage";
+import MDMConnectorsPage from "./pages/MDMConnectorsPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -137,6 +139,8 @@ function App() {
               <Route path="identity" element={<IdentityProtectionPage />} />
               <Route path="email-protection" element={<EmailProtectionPage />} />
               <Route path="mobile-security" element={<MobileSecurityPage />} />
+              <Route path="email-gateway" element={<EmailGatewayPage />} />
+              <Route path="mdm" element={<MDMConnectorsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

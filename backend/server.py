@@ -244,6 +244,14 @@ app.include_router(email_protection_router, prefix="/api")
 from routers.mobile_security import router as mobile_security_router
 app.include_router(mobile_security_router, prefix="/api")
 
+# ============ EMAIL GATEWAY ============
+from routers.email_gateway import router as email_gateway_router
+app.include_router(email_gateway_router, prefix="/api")
+
+# ============ MDM CONNECTORS ============
+from routers.mdm_connectors import router as mdm_connectors_router
+app.include_router(mdm_connectors_router, prefix="/api")
+
 # ============ DECEPTION ENGINE ============
 # Import advanced deception system with Pebbles, Mystique, and Stonewall
 from routers.deception import router as deception_engine_router

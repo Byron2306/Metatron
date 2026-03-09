@@ -81,7 +81,7 @@ def normalize_server_url(url: str) -> str:
 
 
 # Cloud API endpoint - UPDATE THIS TO YOUR DEPLOYMENT
-CLOUD_API_URL = normalize_server_url(os.getenv("METATRON_API_URL", "https://security-hardening-15.preview.emergentagent.com"))
+CLOUD_API_URL = normalize_server_url(os.getenv("METATRON_API_URL", "https://seraph-security.preview.emergentagent.com"))
 
 # Python packages required
 PYTHON_PACKAGES = [

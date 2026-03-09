@@ -15,7 +15,7 @@ import time
 from typing import Dict, Any
 
 # Backend URL from frontend/.env
-BACKEND_URL = "https://security-hardening-15.preview.emergentagent.com/api"
+BACKEND_URL = "https://seraph-security.preview.emergentagent.com/api"
 
 # Global auth token
 auth_token = None

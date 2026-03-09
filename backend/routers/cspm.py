@@ -29,7 +29,7 @@ import hashlib
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
 from enum import Enum
 from cryptography.fernet import Fernet
@@ -42,7 +42,7 @@ from cspm_engine import (
 from cspm_aws_scanner import AWSScanner
 from cspm_azure_scanner import AzureScanner
 from cspm_gcp_scanner import GCPScanner
-from .dependencies import get_db
+from .dependencies import get_db, get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -716,7 +716,8 @@ async def remove_provider(provider: CloudProvider) -> Dict[str, str]:
 @router.post("/scan", summary="Start a CSPM scan")
 async def start_scan(
     request: ScanRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
     Start a new cloud security posture scan.
