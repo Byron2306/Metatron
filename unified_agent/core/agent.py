@@ -27,6 +27,7 @@ import logging
 import platform
 import threading
 import subprocess
+import shutil
 import re
 import math
 from pathlib import Path
@@ -520,7 +521,10 @@ class AgentConfig:
 
     # Local web UI
     local_ui_enabled: bool = True
-    local_ui_port: int = 5000
+    # Reserve port 5000 for the substantive Flask dashboard (ui/web/app.py).
+    # Keep the built-in lightweight LocalWebUIServer on a separate default port.
+    local_ui_port: int = 5050
+    data_dir: str = field(default_factory=lambda: str(Path.home() / ".metatron_agent"))
     
     @classmethod
     def from_file(cls, path: str) -> 'AgentConfig':
@@ -733,6 +737,16 @@ class ProcessMonitor(MonitorModule):
         self.intel = ThreatIntelligence()
         self.processes = []
         self.threats = []
+
+    ATTACK_BEHAVIOR_PATTERNS = {
+        # Priority ATT&CK gaps tracked in local coverage report.
+        "T1113": [r"screenshot", r"snippingtool", r"xwd\b", r"x11grab", r"screencapture\b"],
+        "T1123": [r"arecord\b", r"soundrecorder", r"audio\s+capture", r"ffmpeg.*(alsa|avfoundation|dshow).*(audio|mic)"],
+        "T1125": [r"webcam", r"camera\b", r"v4l2", r"obs(64)?\.exe", r"ffmpeg.*(video|x11grab|avfoundation|dshow)"],
+        "T1530": [r"aws\s+s3\s+(cp|sync|ls)", r"gsutil\s+(cp|rsync)", r"az\s+storage\s+blob", r"rclone\s+(copy|sync|move)"],
+        "T1528": [r"169\.254\.169\.254", r"metadata\.google\.internal", r"security-credentials", r"oauth.*token", r"sts\s+assume-role"],
+        "T1567.002": [r"aws\s+s3\s+cp.*s3://", r"gsutil\s+cp.*gs://", r"azcopy\s+copy.*blob", r"rclone\s+copy.*(s3|gcs|azure)"],
+    }
     
     def scan(self) -> Dict[str, Any]:
         """Scan running processes"""
@@ -807,6 +821,12 @@ class ProcessMonitor(MonitorModule):
                         if pattern in cmdline_lower:
                             process_data['risk_score'] += 40
                             process_data['threat_indicators'].append(f'critical_pattern:{pattern}')
+
+                    # Check prioritized ATT&CK behavior patterns.
+                    for technique, patterns in self.ATTACK_BEHAVIOR_PATTERNS.items():
+                        if any(re.search(pat, cmdline_lower, re.IGNORECASE) for pat in patterns):
+                            process_data['risk_score'] += 35
+                            process_data['threat_indicators'].append(f'mitre:{technique}')
                     
                     # Cap risk score
                     process_data['risk_score'] = min(100, process_data['risk_score'])
@@ -843,6 +863,18 @@ class ProcessMonitor(MonitorModule):
             mitre.extend(['T1570', 'T1021.002'])
         if 'schtasks' in cmdline:
             mitre.append('T1053.005')
+
+        # Promote explicit ATT&CK indicators discovered during scan.
+        for indicator in process_data.get('threat_indicators', []):
+            if isinstance(indicator, str) and indicator.startswith('mitre:'):
+                parts = indicator.split(':', 1)
+                if len(parts) == 2 and parts[1]:
+                    mitre.append(parts[1])
+
+        if not mitre:
+            mitre = ['T1059']
+
+        mitre = sorted(set(mitre))
         
         threat = Threat(
             threat_id=f"proc-{uuid.uuid4().hex[:8]}",
@@ -8006,6 +8038,7 @@ class RansomwareProtectionMonitor(MonitorModule):
     
     def __init__(self, callback: Callable[[Threat], None] = None):
         super().__init__(callback)
+        self.threats: List[Threat] = []
         self.canaries: Dict[str, Dict] = {}  # path -> {hash, deployed_at}
         self.protected_folders: Set[str] = set()
         self.file_events: Dict[str, List[float]] = defaultdict(list)  # process -> timestamps
@@ -8013,6 +8046,26 @@ class RansomwareProtectionMonitor(MonitorModule):
         self.shadow_copy_baseline: Optional[int] = None
         self.violations: List[Dict] = []
         self._setup_protection()
+
+    def scan(self) -> Dict[str, Any]:
+        """Run ransomware checks and return a monitor summary."""
+        try:
+            self.threats = self.check()
+        except Exception as e:
+            logger.error(f"Ransomware monitor scan error: {e}")
+            self.threats = []
+            return {"error": str(e), "threats_detected": 0}
+
+        return {
+            "threats_detected": len(self.threats),
+            "canary_alerts": len([t for t in self.threats if 'canary' in (getattr(t, 'title', '') or '').lower()]),
+            "shadow_copy_threats": len([t for t in self.threats if 'shadow' in (getattr(t, 'title', '') or '').lower()]),
+            "protected_folders": len(self.protected_folders),
+        }
+
+    def get_threats(self) -> List[Threat]:
+        """Return latest ransomware threats."""
+        return self.threats
     
     def _setup_protection(self):
         """Initialize protection features"""
@@ -11777,6 +11830,22 @@ class CLITelemetryMonitor(MonitorModule):
         r'mshta.*javascript:', # MSHTA script
         r'mshta.*vbscript:',  # MSHTA VBS
     ]
+
+    # Priority ATT&CK technique patterns for local endpoint command telemetry.
+    PRIORITY_MITRE_PATTERNS = {
+        "T1113": [r"screenshot", r"snippingtool", r"xwd\b", r"x11grab", r"screencapture\b"],
+        "T1123": [r"arecord\b", r"audio\s+capture", r"ffmpeg.*(audio|mic)", r"soundrecorder"],
+        "T1125": [r"webcam", r"camera\b", r"v4l2", r"ffmpeg.*(video|x11grab)", r"obs(64)?\.exe"],
+        "T1530": [r"aws\s+s3\s+(cp|sync|ls)", r"gsutil\s+(cp|rsync)", r"az\s+storage\s+blob", r"rclone\s+(copy|sync|move)"],
+        "T1528": [r"169\.254\.169\.254", r"metadata\.google\.internal", r"security-credentials", r"oauth.*token", r"sts\s+assume-role"],
+        "T1552.001": [
+            r"\.aws/credentials", r"aws_access_key_id", r"aws_secret_access_key",
+            r"application_default_credentials\.json", r"azure(profile|credentials)",
+            r"kubectl\s+config\s+view\s+--raw", r"id_rsa", r"creds?\.json"
+        ],
+        "T1552.005": [r"169\.254\.169\.254", r"metadata\.google\.internal", r"metadata/instance"],
+        "T1567.002": [r"aws\s+s3\s+cp.*s3://", r"gsutil\s+cp.*gs://", r"azcopy\s+copy.*blob", r"rclone\s+copy.*(s3|gcs|azure)"],
+    }
     
     def __init__(self, config: AgentConfig):
         super().__init__(config)
@@ -11787,6 +11856,7 @@ class CLITelemetryMonitor(MonitorModule):
         self.lolbin_count = 0
         self.total_commands = 0
         self.backend_url = getattr(config, 'server_url', 'http://localhost:5000')
+        self.identity_event_hashes: Set[str] = set()
         
         # Compile suspicious patterns
         self._suspicious_re = re.compile(
@@ -11798,7 +11868,7 @@ class CLITelemetryMonitor(MonitorModule):
     
     def scan(self) -> List[Threat]:
         """Scan for shell/CLI processes and detect suspicious commands"""
-        if not self.enabled or not HAS_PSUTIL:
+        if not self.enabled or not PSUTIL_AVAILABLE:
             return []
         
         self.threats.clear()
@@ -11851,22 +11921,43 @@ class CLITelemetryMonitor(MonitorModule):
                     if pname in self.LOLBIN_ALERT:
                         self.lolbin_count += 1
                         cmd_event['is_suspicious'] = True
+                        extra_techniques = self._extract_priority_mitre_techniques(cmdline)
                         self._create_threat(
                             cmd_event,
                             findings=[f"LOLBin detected: {pname}"],
-                            severity=ThreatSeverity.HIGH
+                            severity=ThreatSeverity.HIGH,
+                            extra_techniques=extra_techniques
                         )
+                        self._send_identity_signal_if_relevant(cmd_event, extra_techniques)
                     
                     # Check for suspicious command patterns
                     elif self._suspicious_re.search(cmdline):
                         self.suspicious_count += 1
                         cmd_event['is_suspicious'] = True
                         patterns_matched = self._get_matched_patterns(cmdline)
+                        extra_techniques = self._extract_priority_mitre_techniques(cmdline)
                         self._create_threat(
                             cmd_event,
                             findings=patterns_matched,
-                            severity=ThreatSeverity.HIGH
+                            severity=ThreatSeverity.HIGH,
+                            extra_techniques=extra_techniques
                         )
+                        self._send_identity_signal_if_relevant(cmd_event, extra_techniques)
+
+                    else:
+                        # Even without legacy suspicious patterns, capture priority ATT&CK signals.
+                        extra_techniques = self._extract_priority_mitre_techniques(cmdline)
+                        if extra_techniques:
+                            self.suspicious_count += 1
+                            cmd_event['is_suspicious'] = True
+                            findings = [f"MITRE pattern matched: {t}" for t in extra_techniques]
+                            self._create_threat(
+                                cmd_event,
+                                findings=findings,
+                                severity=ThreatSeverity.MEDIUM,
+                                extra_techniques=extra_techniques
+                            )
+                            self._send_identity_signal_if_relevant(cmd_event, extra_techniques)
                     
                     new_commands.append(cmd_event)
                     
@@ -11900,6 +11991,92 @@ class CLITelemetryMonitor(MonitorModule):
             if re.search(pattern, cmdline_lower):
                 matched.append(f"Pattern: {pattern}")
         return matched if matched else ["Suspicious command pattern"]
+
+    def _extract_priority_mitre_techniques(self, cmdline: str) -> List[str]:
+        """Extract priority ATT&CK techniques from commandline content."""
+        matched: List[str] = []
+        text = (cmdline or '').lower()
+        for technique, patterns in self.PRIORITY_MITRE_PATTERNS.items():
+            if any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns):
+                matched.append(technique)
+        return sorted(set(matched))
+
+    def _send_identity_signal_if_relevant(self, cmd_event: Dict[str, Any], techniques: List[str]):
+        """Ship high-value identity abuse command telemetry to backend identity ingestion APIs."""
+        if not techniques:
+            return
+        identity_techniques = {"T1528", "T1552.001", "T1552.005", "T1078.004"}
+        relevant = sorted(set(t for t in techniques if t in identity_techniques))
+        if not relevant:
+            return
+
+        payload = self._build_identity_event_payload(cmd_event, relevant)
+        dedup_key = f"{payload.get('event_type')}|{payload.get('user')}|{payload.get('command')}|{payload.get('timestamp')}"
+        dedup_hash = hashlib.sha256(dedup_key.encode('utf-8', errors='ignore')).hexdigest()
+        if dedup_hash in self.identity_event_hashes:
+            return
+        self.identity_event_hashes.add(dedup_hash)
+        if len(self.identity_event_hashes) > 8000:
+            self.identity_event_hashes.clear()
+
+        provider = self._infer_identity_provider_from_command(str(cmd_event.get('command') or ''))
+        self._send_identity_provider_event(provider, payload)
+
+    def _infer_identity_provider_from_command(self, command: str) -> str:
+        text = (command or '').lower()
+        if any(token in text for token in ('okta', 'oktapreview', 'okta.com')):
+            return 'okta'
+        if any(token in text for token in ('office365', 'm365', 'graph.microsoft.com', 'az ', 'entra')):
+            return 'm365'
+        return 'entra'
+
+    def _build_identity_event_payload(self, cmd_event: Dict[str, Any], techniques: List[str]) -> Dict[str, Any]:
+        command = str(cmd_event.get('command') or '')
+        event_type = 'cloud_credential_scrape'
+        if any(t in techniques for t in ('T1528', 'T1552.005')):
+            event_type = 'metadata_token_harvest'
+
+        risk_score = 75
+        if 'T1528' in techniques:
+            risk_score = max(risk_score, 90)
+        if 'T1552.001' in techniques:
+            risk_score = max(risk_score, 80)
+
+        return {
+            'id': f"cli-identity-{uuid.uuid4().hex[:12]}",
+            'event_type': event_type,
+            'timestamp': cmd_event.get('timestamp') or datetime.now(timezone.utc).isoformat(),
+            'user': cmd_event.get('username') or 'unknown',
+            'ipAddress': '127.0.0.1',
+            'status': 'suspicious',
+            'riskScore': risk_score,
+            'tokenId': '',
+            'sessionId': f"agent-{self.config.agent_id}",
+            'source': 'cli_telemetry_monitor',
+            'hostId': self.config.agent_id,
+            'mitre_techniques': techniques,
+            'command': command[:500],
+        }
+
+    def _send_identity_provider_event(self, provider: str, event_payload: Dict[str, Any]):
+        if not REQUESTS_AVAILABLE:
+            return
+        provider = (provider or 'entra').strip().lower()
+        if provider == 'okta':
+            endpoint = '/api/v1/identity/events/okta'
+        elif provider == 'm365':
+            endpoint = '/api/v1/identity/events/m365-oauth-consents'
+        else:
+            endpoint = '/api/v1/identity/events/entra'
+
+        try:
+            requests.post(
+                f"{self.backend_url}{endpoint}",
+                json={'events': [event_payload]},
+                timeout=5,
+            )
+        except Exception as e:
+            logger.debug(f"Identity signal export failed: {e}")
     
     def _infer_shell_type(self, process_name: str) -> str:
         """Infer shell type from process name"""
@@ -11949,7 +12126,13 @@ class CLITelemetryMonitor(MonitorModule):
         except Exception as e:
             logger.debug(f"CLI event error: {e}")
     
-    def _create_threat(self, cmd_event: Dict[str, Any], findings: List[str], severity: ThreatSeverity):
+    def _create_threat(
+        self,
+        cmd_event: Dict[str, Any],
+        findings: List[str],
+        severity: ThreatSeverity,
+        extra_techniques: Optional[List[str]] = None,
+    ):
         """Create a threat entry for suspicious CLI activity"""
         # Determine MITRE technique based on process
         pname = cmd_event.get('process_name', '').lower()
@@ -11966,6 +12149,11 @@ class CLITelemetryMonitor(MonitorModule):
         
         if pname in self.LOLBIN_ALERT:
             techniques.append("T1218")  # System Binary Proxy Execution
+
+        if extra_techniques:
+            techniques.extend(extra_techniques)
+
+        techniques = sorted(set(techniques))
         
         threat = Threat(
             id=str(uuid.uuid4()),
@@ -12908,7 +13096,7 @@ class PrivilegeEscalationMonitor(MonitorModule):
     
     def _check_suspicious_system_processes(self):
         """Check for suspicious processes running as SYSTEM"""
-        if not HAS_PSUTIL:
+        if not PSUTIL_AVAILABLE:
             return
         
         try:
@@ -13315,6 +13503,10 @@ class EmailProtectionMonitor(MonitorModule):
             auto_kill_eligible=False
         )
         self.threats.append(threat)
+
+    def get_threats(self) -> List[Threat]:
+        """Return latest email protection threats."""
+        return self.threats
     
     def get_status(self) -> Dict[str, Any]:
         """Get email protection status"""
@@ -13646,6 +13838,10 @@ class MobileSecurityMonitor(MonitorModule):
         )
         self.threats.append(threat)
         self.threats_detected += 1
+
+    def get_threats(self) -> List[Threat]:
+        """Return latest mobile security threats."""
+        return self.threats
     
     def get_status(self) -> Dict[str, Any]:
         """Get mobile security status"""
@@ -13660,6 +13856,424 @@ class MobileSecurityMonitor(MonitorModule):
             "compliance_checks": self.compliance_checks,
             "threats": len(self.threats),
             "last_scan": self.last_run.isoformat() if self.last_run else None
+        }
+
+
+# =============================================================================
+# YARA MALWARE SCANNER
+# =============================================================================
+
+# Try to import yara-python
+try:
+    import yara
+    YARA_AVAILABLE = True
+except ImportError:
+    YARA_AVAILABLE = False
+    yara = None
+
+
+class YARAMonitor(MonitorModule):
+    """
+    YARA-based malware and pattern scanning monitor.
+    Scans files and memory for malware signatures using YARA rules.
+    """
+    
+    # Default scan directories by platform
+    DEFAULT_SCAN_PATHS = {
+        'windows': [
+            'C:\\Users\\*\\Downloads',
+            'C:\\Users\\*\\Desktop',
+            'C:\\Users\\*\\Documents',
+            'C:\\Windows\\Temp',
+            'C:\\ProgramData',
+        ],
+        'linux': [
+            '/tmp',
+            '/var/tmp',
+            '/home/*/Downloads',
+            '/home/*/Desktop',
+            '/opt',
+        ],
+        'darwin': [
+            '/tmp',
+            '/var/tmp',
+            '/Users/*/Downloads',
+            '/Users/*/Desktop',
+            '/Applications',
+        ]
+    }
+    
+    # File extensions to scan
+    SCAN_EXTENSIONS = {
+        '.exe', '.dll', '.sys', '.scr', '.bat', '.cmd', '.ps1', '.vbs', '.js',
+        '.jar', '.py', '.sh', '.bin', '.elf', '.so', '.dylib', '.msi', '.hta',
+        '.wsf', '.lnk', '.doc', '.docx', '.docm', '.xls', '.xlsx', '.xlsm',
+        '.ppt', '.pptx', '.pptm', '.pdf', '.zip', '.rar', '.7z', '.iso'
+    }
+    
+    def __init__(self, config: AgentConfig):
+        super().__init__(config)
+        self.threats: List[Threat] = []
+        self.rules_compiled = None
+        self.rules_path = Path(config.data_dir) / 'yara_rules'
+        self.scan_count = 0
+        self.match_count = 0
+        self.files_scanned = 0
+        self.last_scan_duration = 0
+        self._load_rules()
+    
+    def _load_rules(self):
+        """Load and compile YARA rules"""
+        if not YARA_AVAILABLE:
+            logger.warning("YARA not available - install yara-python")
+            return
+        
+        # Ensure rules directory exists
+        self.rules_path.mkdir(parents=True, exist_ok=True)
+        
+        # Create default rules if none exist
+        default_rules = self.rules_path / 'default.yar'
+        if not default_rules.exists():
+            self._create_default_rules(default_rules)
+        
+        # Compile all .yar files in rules directory
+        rule_files = {}
+        for rule_file in self.rules_path.glob('*.yar'):
+            rule_files[rule_file.stem] = str(rule_file)
+        
+        if rule_files:
+            try:
+                self.rules_compiled = yara.compile(filepaths=rule_files)
+                logger.info(f"Loaded {len(rule_files)} YARA rule files")
+            except yara.Error as e:
+                logger.error(f"YARA compilation error: {e}")
+                self.rules_compiled = None
+                # Recover from stale/bad default rule files created by older builds.
+                if default_rules.exists():
+                    try:
+                        self._create_default_rules(default_rules)
+                        self.rules_compiled = yara.compile(filepaths=rule_files)
+                        logger.info("Recovered YARA default rules after compile failure")
+                    except yara.Error as retry_error:
+                        logger.error(f"YARA compilation retry failed: {retry_error}")
+                        self.rules_compiled = None
+    
+    def _create_default_rules(self, path: Path):
+        """Create default malware detection rules"""
+        default_rules = '''
+// Seraph Agent Default YARA Rules
+// High-confidence malware indicators
+
+rule Suspicious_PowerShell_Download {
+    meta:
+        description = "Detects PowerShell download cradles"
+        severity = "high"
+        mitre = "T1059.001"
+    strings:
+        $ps1 = "DownloadString" ascii nocase
+        $ps2 = "DownloadFile" ascii nocase
+        $ps3 = "Invoke-WebRequest" ascii nocase
+        $ps4 = "IEX" ascii nocase
+        $ps5 = "Invoke-Expression" ascii nocase
+        $ps6 = "Net.WebClient" ascii nocase
+        $ps7 = "-enc " ascii nocase
+        $ps8 = "-encodedcommand" ascii nocase
+    condition:
+        2 of them
+}
+
+rule Suspicious_Script_Obfuscation {
+    meta:
+        description = "Detects obfuscated scripts"
+        severity = "medium"
+        mitre = "T1027"
+    strings:
+        $b64 = /[A-Za-z0-9+\\/]{50,}={0,2}/ ascii
+        $chr = /chr\\s*\\(\\s*\\d+\\s*\\)/ ascii nocase
+        $concat = "String.fromCharCode" ascii nocase
+        $escape = "%u00" ascii nocase
+    condition:
+        $b64 and ($chr or $concat or $escape)
+}
+
+rule Ransomware_Indicators {
+    meta:
+        description = "Detects ransomware artifacts"
+        severity = "critical"
+        mitre = "T1486"
+    strings:
+        $ransom1 = "Your files have been encrypted" ascii nocase
+        $ransom2 = "pay ransom" ascii nocase
+        $ransom3 = "bitcoin" ascii nocase
+        $ransom4 = ".encrypted" ascii
+        $ransom5 = "README_DECRYPT" ascii nocase
+        $ransom6 = "HOW_TO_RECOVER" ascii nocase
+        $ext1 = ".locked" ascii
+        $ext2 = ".crypted" ascii
+    condition:
+        2 of them
+}
+
+rule Suspicious_PE_Characteristics {
+    meta:
+        description = "PE with suspicious characteristics"
+        severity = "medium"
+        mitre = "T1055"
+    strings:
+        $mz = "MZ"
+        $inject1 = "VirtualAllocEx" ascii
+        $inject2 = "WriteProcessMemory" ascii
+        $inject3 = "CreateRemoteThread" ascii
+        $inject4 = "NtUnmapViewOfSection" ascii
+    condition:
+        $mz at 0 and 3 of ($inject*)
+}
+
+rule Keylogger_Indicators {
+    meta:
+        description = "Keylogger behavior indicators"
+        severity = "high"
+        mitre = "T1056.001"
+    strings:
+        $key1 = "GetAsyncKeyState" ascii
+        $key2 = "SetWindowsHookEx" ascii
+        $key3 = "GetKeyboardState" ascii
+        $key4 = "keylogger" ascii nocase
+        $key5 = "keystroke" ascii nocase
+    condition:
+        2 of them
+}
+
+rule Credential_Theft_Indicators {
+    meta:
+        description = "Credential theft indicators"
+        severity = "critical"
+        mitre = "T1003"
+    strings:
+        $cred1 = "mimikatz" ascii nocase
+        $cred2 = "sekurlsa" ascii nocase
+        $cred3 = "lsass.exe" ascii nocase
+        $cred4 = "SAM database" ascii nocase
+        $cred5 = "credential dump" ascii nocase
+        $cred6 = "password hash" ascii nocase
+    condition:
+        any of them
+}
+
+rule Reverse_Shell_Patterns {
+    meta:
+        description = "Reverse shell indicators"
+        severity = "critical"
+        mitre = "T1059"
+    strings:
+        $shell1 = "/bin/bash -i" ascii
+        $shell2 = "nc -e /bin" ascii
+        $shell3 = "bash -c 'exec" ascii
+        $shell4 = "python -c 'import socket" ascii
+        $shell5 = "Invoke-PowerShellTcp" ascii nocase
+        $shell6 = "meterpreter" ascii nocase
+    condition:
+        any of them
+}
+
+rule WebShell_Indicators {
+    meta:
+        description = "Web shell patterns"
+        severity = "critical"
+        mitre = "T1505.003"
+    strings:
+        $ws1 = "eval($_" ascii
+        $ws2 = "base64_decode($_" ascii
+        $ws3 = "shell_exec(" ascii
+        $ws4 = "passthru(" ascii
+        $ws5 = "system($_" ascii
+        $ws6 = "<?php @eval" ascii
+        $ws7 = "c99shell" ascii nocase
+        $ws8 = "r57shell" ascii nocase
+    condition:
+        any of them
+}
+'''
+        path.write_text(default_rules)
+        logger.info(f"Created default YARA rules at {path}")
+    
+    def scan_file(self, filepath: Path) -> List[Dict]:
+        """Scan a single file with YARA rules"""
+        matches = []
+        
+        if not YARA_AVAILABLE or not self.rules_compiled:
+            return matches
+        
+        try:
+            # Skip very large files (>50MB)
+            if filepath.stat().st_size > 50 * 1024 * 1024:
+                return matches
+            
+            yara_matches = self.rules_compiled.match(str(filepath), timeout=30)
+            
+            for match in yara_matches:
+                severity = match.meta.get('severity', 'medium')
+                mitre = match.meta.get('mitre', 'T1204')
+                
+                match_info = {
+                    'rule': match.rule,
+                    'filepath': str(filepath),
+                    'file_size': filepath.stat().st_size,
+                    'meta': match.meta,
+                    'severity': severity,
+                    'mitre': mitre,
+                    'strings': [
+                        {'offset': s[0], 'identifier': s[1], 'data': s[2][:100].hex() if isinstance(s[2], bytes) else str(s[2])[:100]}
+                        for s in match.strings[:10]  # Limit to 10 strings
+                    ],
+                    'tags': list(match.tags) if match.tags else [],
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+                matches.append(match_info)
+                
+        except yara.Error as e:
+            logger.debug(f"YARA scan error on {filepath}: {e}")
+        except Exception as e:
+            logger.debug(f"Error scanning {filepath}: {e}")
+        
+        return matches
+    
+    def scan_directory(self, path: Path, recursive: bool = True) -> List[Dict]:
+        """Scan a directory for malware"""
+        all_matches = []
+        
+        try:
+            pattern = '**/*' if recursive else '*'
+            for filepath in path.glob(pattern):
+                if filepath.is_file() and filepath.suffix.lower() in self.SCAN_EXTENSIONS:
+                    matches = self.scan_file(filepath)
+                    all_matches.extend(matches)
+                    self.files_scanned += 1
+        except Exception as e:
+            logger.error(f"Error scanning directory {path}: {e}")
+        
+        return all_matches
+    
+    def scan(self) -> Dict[str, Any]:
+        """Perform YARA scan on configured directories"""
+        start_time = time.time()
+        self.threats = []
+        self.files_scanned = 0
+        all_matches = []
+        
+        if not YARA_AVAILABLE:
+            return {
+                'error': 'YARA not available',
+                'files_scanned': 0,
+                'matches': 0,
+                'threats': []
+            }
+        
+        if not self.rules_compiled:
+            self._load_rules()
+            if not self.rules_compiled:
+                return {
+                    'error': 'No YARA rules loaded',
+                    'files_scanned': 0,
+                    'matches': 0,
+                    'threats': []
+                }
+        
+        # Determine platform
+        platform = 'linux'
+        if sys.platform == 'win32':
+            platform = 'windows'
+        elif sys.platform == 'darwin':
+            platform = 'darwin'
+        
+        # Scan configured paths
+        scan_paths = self.DEFAULT_SCAN_PATHS.get(platform, [])
+        
+        for path_pattern in scan_paths:
+            # Expand wildcards
+            if '*' in path_pattern:
+                import glob as glob_module
+                expanded = glob_module.glob(path_pattern)
+                for expanded_path in expanded[:5]:  # Limit expansion
+                    path = Path(expanded_path)
+                    if path.exists() and path.is_dir():
+                        matches = self.scan_directory(path, recursive=False)
+                        all_matches.extend(matches)
+            else:
+                path = Path(path_pattern)
+                if path.exists() and path.is_dir():
+                    matches = self.scan_directory(path, recursive=False)
+                    all_matches.extend(matches)
+        
+        # Create threats from matches
+        for match in all_matches:
+            severity_map = {
+                'critical': ThreatSeverity.CRITICAL,
+                'high': ThreatSeverity.HIGH,
+                'medium': ThreatSeverity.MEDIUM,
+                'low': ThreatSeverity.LOW,
+            }
+            severity = severity_map.get(match.get('severity', 'medium'), ThreatSeverity.MEDIUM)
+            
+            threat = Threat(
+                name=f"YARA Match: {match['rule']}",
+                severity=severity,
+                description=f"YARA rule '{match['rule']}' matched on file: {match['filepath']}",
+                threat_type='malware',
+                source='yara_monitor',
+                mitre_techniques=[match.get('mitre', 'T1204')],
+                evidence={
+                    'filepath': match['filepath'],
+                    'file_size': match['file_size'],
+                    'rule': match['rule'],
+                    'meta': match.get('meta', {}),
+                    'matched_strings': match.get('strings', [])[:5]
+                },
+                auto_kill_eligible=True
+            )
+            self.threats.append(threat)
+        
+        self.scan_count += 1
+        self.match_count += len(all_matches)
+        self.last_run = datetime.utcnow()
+        self.last_scan_duration = time.time() - start_time
+        
+        return {
+            'files_scanned': self.files_scanned,
+            'matches': len(all_matches),
+            'threats': len(self.threats),
+            'scan_duration_seconds': round(self.last_scan_duration, 2),
+            'rules_loaded': True,
+            'details': all_matches[:20]  # Limit output
+        }
+    
+    def get_threats(self) -> List[Threat]:
+        """Get detected threats from last scan"""
+        return self.threats
+    
+    def add_rule_file(self, name: str, content: str) -> bool:
+        """Add a custom YARA rule file"""
+        try:
+            rule_file = self.rules_path / f"{name}.yar"
+            rule_file.write_text(content)
+            self._load_rules()  # Recompile
+            return True
+        except Exception as e:
+            logger.error(f"Error adding rule file: {e}")
+            return False
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get YARA monitor status"""
+        return {
+            'enabled': self.enabled,
+            'yara_available': YARA_AVAILABLE,
+            'rules_compiled': self.rules_compiled is not None,
+            'rules_path': str(self.rules_path),
+            'scan_count': self.scan_count,
+            'match_count': self.match_count,
+            'files_scanned': self.files_scanned,
+            'last_scan_duration': round(self.last_scan_duration, 2),
+            'last_run': self.last_run.isoformat() if self.last_run else None
         }
 
 
@@ -13766,6 +14380,36 @@ class LocalWebUIServer:
     </div>
   </div>
 
+  <!-- YARA Scanner -->
+  <div class="card">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold text-slate-300">🔍 YARA Scanner</h2>
+      <span class="badge" id="yara-status">–</span>
+    </div>
+    <div class="grid grid-cols-4 gap-3 text-center mb-3">
+      <div>
+        <p class="text-slate-500 text-xs">Files Scanned</p>
+        <p class="text-lg font-bold text-cyan-400" id="yara-files">0</p>
+      </div>
+      <div>
+        <p class="text-slate-500 text-xs">Matches</p>
+        <p class="text-lg font-bold text-red-400" id="yara-matches">0</p>
+      </div>
+      <div>
+        <p class="text-slate-500 text-xs">Scans</p>
+        <p class="text-lg font-bold text-purple-400" id="yara-scans">0</p>
+      </div>
+      <div>
+        <p class="text-slate-500 text-xs">Last Duration</p>
+        <p class="text-lg font-bold text-green-400" id="yara-duration">–</p>
+      </div>
+    </div>
+    <div class="text-xs text-slate-500">
+      <span>Rules: <span id="yara-rules" class="text-slate-300">–</span></span>
+      <span class="ml-4">Last Scan: <span id="yara-lastrun" class="text-slate-300">–</span></span>
+    </div>
+  </div>
+
   <!-- Recent threats -->
   <div class="card">
     <h2 class="font-semibold text-slate-300 mb-2">Recent Threats</h2>
@@ -13832,6 +14476,28 @@ async function refresh() {
         tl.appendChild(row);
       });
     }
+
+    // Update YARA scanner stats
+    const y = d.yara || {};
+    const yaraAvailable = y.yara_available;
+    const yaraStatusEl = document.getElementById('yara-status');
+    if (yaraAvailable === false) {
+      yaraStatusEl.textContent = 'NOT INSTALLED';
+      yaraStatusEl.className = 'badge offline';
+    } else if (y.rules_compiled) {
+      yaraStatusEl.textContent = 'ACTIVE';
+      yaraStatusEl.className = 'badge online';
+    } else {
+      yaraStatusEl.textContent = 'NO RULES';
+      yaraStatusEl.className = 'badge offline';
+    }
+    document.getElementById('yara-files').textContent = y.files_scanned || 0;
+    document.getElementById('yara-matches').textContent = y.match_count || 0;
+    document.getElementById('yara-scans').textContent = y.scan_count || 0;
+    document.getElementById('yara-duration').textContent = y.last_scan_duration ? y.last_scan_duration + 's' : '–';
+    document.getElementById('yara-rules').textContent = y.rules_compiled ? 'Loaded' : 'None';
+    document.getElementById('yara-lastrun').textContent = y.last_run ? new Date(y.last_run).toLocaleTimeString() : 'Never';
+
   } catch(e) {
     document.getElementById('status-badge').textContent = 'ERROR';
   }
@@ -13871,6 +14537,19 @@ setInterval(refresh, 5000);
                     self._json(agent_ref.get_status())
                 elif self.path in ('/api/data', '/api/dashboard'):
                     self._json(agent_ref.get_dashboard_data())
+                elif self.path == '/api/yara':
+                    # YARA scanner status
+                    if 'yara' in agent_ref.monitors:
+                        self._json(agent_ref.monitors['yara'].get_status())
+                    else:
+                        self._json({'error': 'YARA monitor not available', 'yara_available': False})
+                elif self.path == '/api/yara/scan':
+                    # Trigger YARA scan
+                    if 'yara' in agent_ref.monitors:
+                        result = agent_ref.monitors['yara'].scan()
+                        self._json(result)
+                    else:
+                        self._json({'error': 'YARA monitor not available', 'yara_available': False})
                 else:
                     self.send_error(404, 'Not found')
 
@@ -13965,6 +14644,7 @@ class UnifiedAgent:
         self.monitors['whitelist'] = ApplicationWhitelistMonitor(self.config)
         self.monitors['dlp'] = DLPMonitor(self.config)
         self.monitors['vulnerability'] = VulnerabilityScanner(self.config)
+        self.monitors['yara'] = YARAMonitor(self.config)  # YARA malware scanning
         if PLATFORM == "windows":
             self.monitors['amsi'] = AMSIMonitor(self.config)
         
@@ -14500,6 +15180,11 @@ class UnifiedAgent:
     
     def get_dashboard_data(self) -> Dict:
         """Get all data for dashboard"""
+        # Get YARA status if available
+        yara_status = {}
+        if 'yara' in self.monitors:
+            yara_status = self.monitors['yara'].get_status()
+        
         return {
             "agent": self.get_status(),
             "stats": self.stats,
@@ -14507,7 +15192,8 @@ class UnifiedAgent:
             "threats": [t.to_dict() for t in list(self.threat_history)[-50:]],
             "auto_remediated": [t.to_dict() for t in list(self.auto_remediated)[-20:]],
             "alarms": list(self.alarms)[-20:],
-            "telemetry": asdict(self.telemetry)
+            "telemetry": asdict(self.telemetry),
+            "yara": yara_status
         }
     
     # Advanced scanning methods
@@ -14589,7 +15275,7 @@ class UnifiedAgent:
         }
         
         try:
-            if cmd_type == 'scan':
+            if cmd_type in ('scan', 'full_scan'):
                 self.scan_all()
                 result['result'] = {'threats': len(self.threat_history), 'stats': self.stats}
                 
@@ -14707,7 +15393,7 @@ class UnifiedAgent:
                     if not result['result'].get('updated'):
                         result['status'] = 'failed'
                 
-            elif cmd_type == 'quarantine_file':
+            elif cmd_type in ('quarantine_file', 'quarantine'):
                 filepath = params.get('filepath')
                 if filepath:
                     if not self._is_admin:
@@ -14716,7 +15402,7 @@ class UnifiedAgent:
                     result['result'] = {'quarantined': success, 'filepath': filepath, 'is_admin': self._is_admin}
                 else:
                     result['status'] = 'failed'
-                    result['result'] = {'error': 'No filepath provided'}
+                    result['result'] = {'error': "No filepath provided (expected 'filepath' parameter)"}
                     
             elif cmd_type == 'block_ip':
                 ip = params.get('ip')
@@ -14767,6 +15453,26 @@ class UnifiedAgent:
                 result['result'] = {'restarting': True}
                 # Schedule restart
                 threading.Thread(target=self._delayed_restart, daemon=True).start()
+
+            elif cmd_type in ('trivy_scan', 'container_scan'):
+                result['result'] = self._execute_trivy_scan(params)
+                if not result['result'].get('success', False):
+                    result['status'] = 'failed'
+
+            elif cmd_type in ('falco_status', 'falco_health'):
+                result['result'] = self._execute_falco_status(params)
+                if not result['result'].get('success', False):
+                    result['status'] = 'failed'
+
+            elif cmd_type in ('suricata_status', 'suricata_health'):
+                result['result'] = self._execute_suricata_status(params)
+                if not result['result'].get('success', False):
+                    result['status'] = 'failed'
+
+            elif cmd_type in ('volatility_scan', 'volatility_status'):
+                result['result'] = self._execute_volatility_command(params)
+                if not result['result'].get('success', False):
+                    result['status'] = 'failed'
                 
             else:
                 result['status'] = 'unknown_command'
@@ -14803,6 +15509,142 @@ class UnifiedAgent:
         self.stop()
         time.sleep(1)
         self.start(blocking=False)
+
+    def _run_external_tool(self, cmd: List[str], timeout: int = 120) -> Dict[str, Any]:
+        """Run an external tool command and normalize response payload."""
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            stdout = (proc.stdout or "").strip()
+            stderr = (proc.stderr or "").strip()
+            return {
+                'success': proc.returncode == 0,
+                'return_code': proc.returncode,
+                'stdout': stdout[:6000],
+                'stderr': stderr[:4000],
+                'command': cmd,
+            }
+        except FileNotFoundError:
+            return {
+                'success': False,
+                'error': 'Tool executable not found',
+                'command': cmd,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                'success': False,
+                'error': f'Command timed out after {timeout}s',
+                'command': cmd,
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'command': cmd,
+            }
+
+    def _resolve_tool_binary(self, candidates: List[str]) -> Optional[str]:
+        for candidate in candidates:
+            path = shutil.which(candidate)
+            if path:
+                return path
+        return None
+
+    def _execute_trivy_scan(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run Trivy scan on filesystem/image/repository targets."""
+        trivy_bin = self._resolve_tool_binary(['trivy'])
+        if not trivy_bin:
+            return {'success': False, 'error': 'trivy not installed on endpoint'}
+
+        scan_mode = str(params.get('mode', 'fs')).lower()
+        if scan_mode not in ('fs', 'image', 'repo', 'config'):
+            scan_mode = 'fs'
+
+        target = str(params.get('target') or ('.' if scan_mode == 'fs' else ''))
+        if not target:
+            return {'success': False, 'error': f"Missing target for trivy mode '{scan_mode}'"}
+
+        timeout = int(params.get('timeout', 300) or 300)
+        cmd = [trivy_bin, scan_mode, '--severity', 'HIGH,CRITICAL', '--no-progress', target]
+        res = self._run_external_tool(cmd, timeout=timeout)
+
+        # Trivy uses return code 1 when vulnerabilities are found.
+        if res.get('return_code') in (0, 1):
+            vulnerabilities_found = res.get('return_code') == 1
+            res['success'] = True
+            res['vulnerabilities_found'] = vulnerabilities_found
+
+        return res
+
+    def _execute_falco_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Collect Falco readiness/status using local binary and process check."""
+        falco_bin = self._resolve_tool_binary(['falco'])
+        if not falco_bin:
+            return {'success': False, 'error': 'falco not installed on endpoint'}
+
+        timeout = int(params.get('timeout', 30) or 30)
+        version = self._run_external_tool([falco_bin, '--version'], timeout=timeout)
+        running = False
+        if PSUTIL_AVAILABLE:
+            try:
+                for proc in psutil.process_iter(['name']):
+                    name = (proc.info.get('name') or '').lower()
+                    if 'falco' in name:
+                        running = True
+                        break
+            except Exception:
+                pass
+
+        return {
+            'success': bool(version.get('success')),
+            'running': running,
+            'version': version,
+        }
+
+    def _execute_suricata_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Collect Suricata readiness/status using local binary and process check."""
+        suricata_bin = self._resolve_tool_binary(['suricata'])
+        if not suricata_bin:
+            return {'success': False, 'error': 'suricata not installed on endpoint'}
+
+        timeout = int(params.get('timeout', 30) or 30)
+        version = self._run_external_tool([suricata_bin, '-V'], timeout=timeout)
+        running = False
+        if PSUTIL_AVAILABLE:
+            try:
+                for proc in psutil.process_iter(['name']):
+                    name = (proc.info.get('name') or '').lower()
+                    if 'suricata' in name:
+                        running = True
+                        break
+            except Exception:
+                pass
+
+        return {
+            'success': bool(version.get('success')),
+            'running': running,
+            'version': version,
+        }
+
+    def _execute_volatility_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run volatility status or lightweight plugin command when an image is provided."""
+        vol_bin = self._resolve_tool_binary(['vol', 'volatility3', 'volatility'])
+        if not vol_bin:
+            return {'success': False, 'error': 'volatility not installed on endpoint'}
+
+        timeout = int(params.get('timeout', 120) or 120)
+        image_path = params.get('image_path')
+        plugin = str(params.get('plugin') or 'windows.info.Info')
+
+        if image_path:
+            cmd = [vol_bin, '-f', str(image_path), plugin]
+            result = self._run_external_tool(cmd, timeout=timeout)
+            result['mode'] = 'scan'
+            return result
+
+        # Status-only fallback when no memory image is provided.
+        status = self._run_external_tool([vol_bin, '-h'], timeout=timeout)
+        status['mode'] = 'status'
+        return status
     
     def _get_process_list(self) -> List[Dict]:
         """Get list of running processes"""
@@ -14985,8 +15827,8 @@ if __name__ == "__main__":
     parser.add_argument("--name", "-n", help="Agent name")
     parser.add_argument("--interval", "-i", type=int, default=30, help="Update interval")
     parser.add_argument("--no-auto-kill", action="store_true", help="Disable auto-kill")
-    parser.add_argument("--ui-port", type=int, default=5000,
-                        help="Port for the built-in local web UI (default: 5000)")
+    parser.add_argument("--ui-port", type=int, default=5050,
+                        help="Port for the built-in local web UI (default: 5050; localhost:5000 is reserved for ui/web/app.py)")
     parser.add_argument("--no-ui", action="store_true",
                         help="Disable the built-in local web UI")
 
@@ -14994,7 +15836,7 @@ if __name__ == "__main__":
 
     if args.config:
         agent = UnifiedAgent(config_path=args.config)
-        if args.ui_port != 5000:
+        if args.ui_port != 5050:
             agent.config.local_ui_port = args.ui_port
         if args.no_ui:
             agent.config.local_ui_enabled = False

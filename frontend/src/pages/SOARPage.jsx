@@ -33,75 +33,36 @@ const SOARPage = () => {
 
   const headers = { Authorization: `Bearer ${token}` };
 
-  // AI-Agentic Defense Playbooks (loaded from YAML config)
-  const AI_PLAYBOOK_DEFINITIONS = [
-    {
-      id: 'AI-RECON-DEGRADE-01',
-      name: 'Machine-Paced Recon Loop — Degrade + Observe',
-      trigger: 'cli.session_summary',
-      description: 'Detect and slow down machine-paced reconnaissance. Applies soft throttle and latency injection.',
-      category: 'ai_defense',
-      conditions: { machine_likelihood: '≥ 0.80', dominant_intents: ['recon'], burstiness: '≥ 0.75' },
-      actions: ['tag_session', 'throttle_cli', 'inject_latency', 'capture_triage_bundle', 'notify'],
-      severity: 'medium',
-      status: 'active'
-    },
-    {
-      id: 'AI-DECOY-HIT-CONTAIN-01',
-      name: 'Decoy/Honey Token Hit — Immediate Containment',
-      trigger: 'deception.hit',
-      description: 'Immediately isolate host when a honey token is accessed. High confidence intrusion indicator.',
-      category: 'ai_defense',
-      conditions: { severity: ['high', 'critical'], token_accessed: true },
-      actions: ['isolate_host', 'capture_triage_bundle', 'kill_process_tree', 'notify', 'create_ticket'],
-      severity: 'critical',
-      status: 'active'
-    },
-    {
-      id: 'AI-CRED-ACCESS-RESP-01',
-      name: 'Credential Access Pattern — Decoy + Credential Controls',
-      trigger: 'cli.session_summary',
-      description: 'AI-style credential access detected. Triggers credential rotation and hard throttling.',
-      category: 'ai_defense',
-      conditions: { machine_likelihood: '≥ 0.80', dominant_intents: ['credential_access'] },
-      actions: ['rotate_credentials', 'throttle_cli', 'inject_latency', 'capture_triage_bundle', 'notify'],
-      severity: 'high',
-      status: 'active'
-    },
-    {
-      id: 'AI-PIVOT-CONTAIN-01',
-      name: 'Autonomous Pivot / Toolchain Switching — Contain Fast',
-      trigger: 'cli.session_summary',
-      description: 'Fast tool switching with lateral movement intent. Immediate host isolation.',
-      category: 'ai_defense',
-      conditions: { machine_likelihood: '≥ 0.80', tool_switch_latency: '≤ 300ms', dominant_intents: ['lateral_movement', 'privilege_escalation'] },
-      actions: ['isolate_host', 'capture_triage_bundle', 'notify', 'create_ticket'],
-      severity: 'critical',
-      status: 'active'
-    },
-    {
-      id: 'AI-EXFIL-PREP-CUT-01',
-      name: 'Exfil Prep — Cut Egress + Snapshot',
-      trigger: 'cli.session_summary',
-      description: 'Detect data staging and exfiltration preparation. Cut network egress immediately.',
-      category: 'ai_defense',
-      conditions: { machine_likelihood: '≥ 0.80', dominant_intents: ['exfil_prep', 'data_staging'] },
-      actions: ['isolate_host', 'capture_triage_bundle', 'notify', 'create_ticket'],
-      severity: 'critical',
-      status: 'active'
-    },
-    {
-      id: 'AI-HIGHCONF-ERADICATE-01',
-      name: 'High Confidence Agentic Intrusion — Full Containment',
-      trigger: 'cli.session_summary',
-      description: 'Machine likelihood ≥ 0.92 with decoy touched. Full containment and eradication.',
-      category: 'ai_defense',
-      conditions: { machine_likelihood: '≥ 0.92', decoy_touched: true },
-      actions: ['isolate_host', 'kill_process_tree', 'capture_memory_snapshot', 'capture_triage_bundle', 'notify', 'create_ticket'],
-      severity: 'critical',
-      status: 'active'
-    }
-  ];
+  const AI_TRIGGER_SET = new Set([
+    'ai_behavior_detected',
+    'machine_paced_activity',
+    'autonomous_recon',
+    'rapid_credential_access',
+    'automated_lateral_movement',
+    'ai_exfiltration_pattern',
+    'deception_token_access',
+    'goal_persistent_loop',
+    'tool_chain_switching',
+    'adaptive_attack_detected',
+  ]);
+
+  const normalizeAiPlaybook = (pb) => {
+    const severityFromConditions = pb?.trigger_conditions?.severity;
+    const severity = Array.isArray(severityFromConditions) && severityFromConditions.length > 0
+      ? severityFromConditions[0]
+      : 'high';
+
+    return {
+      id: pb.id,
+      name: pb.name,
+      trigger: pb.trigger,
+      description: pb.description,
+      conditions: pb.trigger_conditions || {},
+      actions: (pb.steps || []).map((s) => s.action),
+      severity,
+      status: pb.status || 'active',
+    };
+  };
 
   useEffect(() => {
     fetchData();
@@ -117,9 +78,17 @@ const SOARPage = () => {
         axios.get(`${API}/soar/executions?limit=20`, { headers })
       ]);
       setStats(statsRes.data);
-      setPlaybooks(playbooksRes.data.playbooks || []);
+      const allPlaybooks = playbooksRes.data.playbooks || [];
+      setPlaybooks(allPlaybooks);
       setTemplates(templatesRes.data.templates || []);
-      setAiPlaybooks(AI_PLAYBOOK_DEFINITIONS);
+      setAiPlaybooks(
+        allPlaybooks
+          .filter((pb) => {
+            const tags = pb.tags || [];
+            return tags.includes('ai_defense') || AI_TRIGGER_SET.has(pb.trigger);
+          })
+          .map(normalizeAiPlaybook)
+      );
       setExecutions(executionsRes.data.executions || []);
     } catch (err) {
       toast.error('Failed to load SOAR data');
@@ -168,8 +137,17 @@ const SOARPage = () => {
       case 'ioc_match': return <Zap className="w-4 h-4 text-amber-400" />;
       case 'suspicious_process': return <Activity className="w-4 h-4 text-purple-400" />;
       case 'honeypot_triggered': return <Eye className="w-4 h-4 text-cyan-400" />;
-      case 'cli.session_summary': return <Brain className="w-4 h-4 text-purple-400" />;
-      case 'deception.hit': return <Target className="w-4 h-4 text-red-400" />;
+      case 'autonomous_recon':
+      case 'rapid_credential_access':
+      case 'automated_lateral_movement':
+      case 'ai_exfiltration_pattern':
+      case 'deception_token_access':
+      case 'goal_persistent_loop':
+      case 'tool_chain_switching':
+      case 'adaptive_attack_detected':
+      case 'ai_behavior_detected':
+      case 'machine_paced_activity':
+        return <Brain className="w-4 h-4 text-purple-400" />;
       default: return <Workflow className="w-4 h-4 text-slate-400" />;
     }
   };

@@ -438,6 +438,12 @@ class AgentCommandModel(BaseModel):
     params: Optional[Dict[str, Any]] = None
 
 
+class ToolingCommandModel(BaseModel):
+    """Payload for explicit endpoint tooling commands (Trivy/Falco/Suricata/Volatility)."""
+    parameters: Dict[str, Any] = {}
+    priority: str = "normal"
+
+
 class EDMDatasetCommandModel(BaseModel):
     """Payload for updating EDM datasets on agent(s)."""
     dataset: Dict[str, Any]
@@ -479,35 +485,6 @@ class EDMDatasetRollbackModel(BaseModel):
     publish: bool = True
     targets: EDMBulkTargetModel = EDMBulkTargetModel()
     priority: str = "high"
-
-
-class EDMHitTelemetryModel(BaseModel):
-    """EDM match telemetry emitted by endpoint agents."""
-    dataset_id: str
-    record_id: Optional[str] = None
-    fingerprint: str
-    host: Optional[str] = None
-    process: Optional[str] = None
-    file_path_masked: Optional[str] = None
-    source: Optional[str] = None
-    timestamp: Optional[str] = None
-class AgentHeartbeatModel(BaseModel):
-    agent_id: str
-    status: str  # online, offline, degraded
-    cpu_usage: Optional[float] = None
-    memory_usage: Optional[float] = None
-    disk_usage: Optional[float] = None
-    threat_count: Optional[int] = None
-    network_connections: Optional[int] = None
-    alerts: List[Dict] = []
-    telemetry: Optional[Dict] = None
-    edm_hits: List[EDMHitTelemetryModel] = []
-    # Structured monitor telemetry
-    monitors: Optional[MonitorsTelemetry] = None
-    local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
-
-
-AgentHeartbeatModel.model_rebuild()
 
 
 class EDMRolloutPolicyModel(BaseModel):
@@ -933,6 +910,44 @@ async def send_agent_command(
         agent_id=agent_id,
         command_type=resolved_command_type,
         parameters=resolved_parameters,
+        priority=command.priority,
+        issued_by=current_user.get("email", "system"),
+    )
+
+
+_TOOLING_COMMAND_MAP: Dict[str, str] = {
+    "trivy": "trivy_scan",
+    "falco": "falco_status",
+    "suricata": "suricata_status",
+    "volatility": "volatility_status",
+}
+
+
+@router.post("/agents/{agent_id}/commands/tooling/{tool_name}")
+async def send_agent_tooling_command(
+    agent_id: str,
+    tool_name: str,
+    command: ToolingCommandModel,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Send a first-class tooling command to an agent (Trivy/Falco/Suricata/Volatility)."""
+
+    agent = await db.unified_agents.find_one({"agent_id": agent_id})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    key = (tool_name or "").strip().lower()
+    command_type = _TOOLING_COMMAND_MAP.get(key)
+    if not command_type:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported tooling command '{tool_name}'. Supported: {sorted(_TOOLING_COMMAND_MAP.keys())}",
+        )
+
+    return await _dispatch_agent_command(
+        agent_id=agent_id,
+        command_type=command_type,
+        parameters=command.parameters or {},
         priority=command.priority,
         issued_by=current_user.get("email", "system"),
     )
@@ -2879,7 +2894,12 @@ source venv/bin/activate
 
 # Install required packages
 pip install --upgrade pip
-pip install psutil requests netifaces scapy watchdog python-nmap aiohttp pyyaml
+pip install psutil requests netifaces scapy watchdog python-nmap aiohttp pyyaml cryptography
+
+# Install YARA (optional, for malware scanning)
+echo "Installing YARA..."
+apt-get install -y yara libyara-dev 2>/dev/null || true
+pip install yara-python 2>/dev/null || echo "YARA installation skipped (optional)"
 
 # Download agent package
 echo "Downloading agent from server..."
@@ -3008,7 +3028,15 @@ try {{
 
     Write-Host "Installing Python dependencies..."
     cmd /c "$pythonCmd -m pip install --upgrade pip"
-    cmd /c "$pythonCmd -m pip install psutil requests netifaces watchdog pyyaml"
+    cmd /c "$pythonCmd -m pip install psutil requests netifaces watchdog pyyaml cryptography"
+    
+    # Install YARA (optional, for malware scanning)
+    Write-Host "Installing YARA (optional)..."
+    try {{
+        cmd /c "$pythonCmd -m pip install yara-python"
+    }} catch {{
+        Write-Host "YARA installation skipped (optional)" -ForegroundColor Yellow
+    }}
 
     # Create scheduled task to run at startup
     $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c $pythonCmd core\\agent.py --server $SERAPH_SERVER" -WorkingDirectory $INSTALL_DIR
@@ -3094,7 +3122,12 @@ source venv/bin/activate
 
 # Install dependencies
 pip install --upgrade pip
-pip install psutil requests netifaces watchdog pyyaml scapy
+pip install psutil requests netifaces watchdog pyyaml scapy cryptography
+
+# Install YARA (optional, for malware scanning)
+echo "Installing YARA..."
+brew install yara 2>/dev/null || true
+pip install yara-python 2>/dev/null || echo "YARA installation skipped (optional)"
 
 # Download agent
 echo "Downloading agent from server..."
@@ -3194,7 +3227,10 @@ source venv/bin/activate
 
 # Install Python packages
 pip install --upgrade pip
-pip install psutil requests watchdog aiohttp pyyaml
+pip install psutil requests watchdog aiohttp pyyaml cryptography
+
+# Note: YARA is not available on Termux/Android
+# Malware scanning will use alternative methods
 
 # Download agent
 echo "Downloading agent from server..."
@@ -3889,7 +3925,7 @@ async def get_agent_monitor_history(
     """Get historical telemetry for a specific monitor."""
     valid_monitors = [
         "registry", "process_tree", "lolbin", "code_signing", "dns",
-        "memory", "app_whitelist", "dlp", "vulnerability", "amsi"
+        "memory", "app_whitelist", "dlp", "vulnerability", "yara", "amsi"
     ]
     
     if monitor_name not in valid_monitors:
@@ -3944,6 +3980,9 @@ async def get_monitors_aggregate_stats(
             "dlp_alerts": {"$sum": {"$ifNull": ["$monitors_summary.dlp.total_alerts", 0]}},
             "vulnerabilities_critical": {"$sum": {"$ifNull": ["$monitors_summary.vulnerability.critical", 0]}},
             "vulnerabilities_high": {"$sum": {"$ifNull": ["$monitors_summary.vulnerability.high", 0]}},
+            "yara_matches": {"$sum": {"$ifNull": ["$monitors_summary.yara.match_count", 0]}},
+            "yara_files_scanned": {"$sum": {"$ifNull": ["$monitors_summary.yara.files_scanned", 0]}},
+            "yara_scans": {"$sum": {"$ifNull": ["$monitors_summary.yara.scan_count", 0]}},
             "amsi_threats": {"$sum": {"$ifNull": ["$monitors_summary.amsi.threats_detected", 0]}},
             # New monitors - Ransomware
             "canary_alerts": {"$sum": {"$ifNull": ["$monitors_summary.ransomware.canary_alerts", 0]}},
@@ -4041,6 +4080,9 @@ async def get_monitors_aggregate_stats(
             "process_anomalies": stats.get("process_tree_anomalies", 0),
             "lolbin_abuse": stats.get("lolbin_detections", 0),
             "memory_injections": stats.get("memory_injections", 0),
+            "yara_matches": stats.get("yara_matches", 0),
+            "yara_files_scanned": stats.get("yara_files_scanned", 0),
+            "yara_scans": stats.get("yara_scans", 0),
             "dga_domains": stats.get("dga_detections", 0),
             "amsi_threats": stats.get("amsi_threats", 0),
             # Ransomware
@@ -4143,7 +4185,7 @@ async def get_recent_monitor_alerts(
     if monitor_type:
         valid_monitors = [
             "registry", "process_tree", "lolbin", "code_signing", "dns",
-            "memory", "app_whitelist", "dlp", "vulnerability", "amsi",
+            "memory", "app_whitelist", "dlp", "vulnerability", "yara", "amsi",
             "ransomware", "rootkit", "kernel_security", "self_protection", "identity"
         ]
         if monitor_type not in valid_monitors:

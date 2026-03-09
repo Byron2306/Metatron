@@ -293,13 +293,22 @@ pip install -r requirements.txt
 
 # Run the agent
 python core/agent.py --server https://your-server.com
+
+# Run the canonical local dashboard (recommended)
+python ui/web/app.py --host 0.0.0.0 --port 5000
 ```
+
+### Local Dashboard Port Contract
+
+- localhost:5000 is the canonical, feature-rich local dashboard served by ui/web/app.py.
+- localhost:5050 is the built-in lightweight LocalWebUIServer inside core/agent.py.
+- To avoid split behavior, use port 5000 for operator workflows and keep 5050 for fallback/diagnostics.
 
 ### Command-Line Options
 
 ```
 usage: agent.py [-h] [--server SERVER] [--config CONFIG] [--name NAME]
-                [--interval INTERVAL] [--no-auto-kill]
+                [--interval INTERVAL] [--no-auto-kill] [--ui-port UI_PORT] [--no-ui]
 
 Metatron/Seraph Unified Security Agent
 
@@ -310,6 +319,8 @@ optional arguments:
   --name, -n NAME       Agent display name
   --interval, -i INT    Scan interval in seconds (default: 30)
   --no-auto-kill        Disable automatic threat remediation
+    --ui-port UI_PORT     Built-in lightweight UI port (default: 5050)
+    --no-ui               Disable built-in lightweight UI server
 ```
 
 ---

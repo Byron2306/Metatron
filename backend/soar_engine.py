@@ -1071,7 +1071,10 @@ class SOAREngine:
             event_value = event.get(key)
             if event_value and allowed_values:
                 if isinstance(allowed_values, list):
-                    if event_value not in allowed_values:
+                    if isinstance(event_value, list):
+                        if not any(v in allowed_values for v in event_value):
+                            return False
+                    elif event_value not in allowed_values:
                         return False
                 elif event_value != allowed_values:
                     return False
@@ -1811,6 +1814,26 @@ class SOAREngine:
                 ],
                 "tags": ["identity", "credentials", "authentication"],
                 "is_official": True
+            },
+            {
+                "id": "tpl_identity_impossible_travel",
+                "name": "Identity Impossible Travel Response",
+                "description": "Contain high-confidence impossible travel and token abuse signals",
+                "category": "identity",
+                "trigger": PlaybookTrigger.RAPID_CREDENTIAL_ACCESS,
+                "trigger_conditions": {
+                    "machine_likelihood": ["high", "critical"],
+                    "intents": ["credential_access"],
+                },
+                "steps": [
+                    PlaybookStep(PlaybookAction.DISABLE_USER, {"force_logout": True, "reason": "impossible_travel"}, 10),
+                    PlaybookStep(PlaybookAction.ROTATE_CREDENTIALS, {"provider": "identity"}, 60),
+                    PlaybookStep(PlaybookAction.COLLECT_FORENSICS, {"auth_logs": True, "session_metadata": True}, 120, continue_on_failure=True),
+                    PlaybookStep(PlaybookAction.SEND_ALERT, {"channels": ["slack", "email"], "priority": "high"}, 30),
+                    PlaybookStep(PlaybookAction.CREATE_TICKET, {"category": "identity", "subcategory": "impossible_travel"}, 30),
+                ],
+                "tags": ["identity", "impossible_travel", "token_abuse", "authentication"],
+                "is_official": True,
             },
             {
                 "id": "tpl_ddos_mitigation",

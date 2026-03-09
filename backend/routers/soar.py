@@ -237,6 +237,16 @@ def _get_trigger_description(trigger: str) -> str:
         "anomaly_detected": "Behavioral anomaly detected",
         "manual": "Manual playbook execution",
         # AI Agent Threat Triggers
+        "ai_behavior_detected": "Autonomous AI behavior detected on session",
+        "autonomous_recon": "Machine-paced reconnaissance behavior detected",
+        "rapid_credential_access": "Rapid credential access pattern detected",
+        "automated_lateral_movement": "Automated lateral movement detected",
+        "ai_exfiltration_pattern": "AI-driven data exfiltration behavior detected",
+        "deception_token_access": "Deception token or canary credential accessed",
+        "goal_persistent_loop": "High persistence iterative attack loop detected",
+        "tool_chain_switching": "Fast tool-chain switching detected",
+        "adaptive_attack_detected": "Adaptive/learning attacker behavior detected",
+        # Legacy aliases retained for compatibility with historical clients
         "ai_agent_detected": "Autonomous AI agent detected on session",
         "rapid_tool_switching": "Fast tool/command switching (AI pattern)",
         "decoy_touched": "Deployed decoy accessed by potential AI",

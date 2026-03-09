@@ -13,6 +13,7 @@ import sys
 import json
 import time
 import socket
+import shutil
 import platform
 import threading
 import subprocess
@@ -141,6 +142,33 @@ AgentConfig = _main_module.AgentConfig
 SUSPICIOUS_PORTS = _main_module.SUSPICIOUS_PORTS
 SUSPICIOUS_PROCESS_NAMES = _main_module.SUSPICIOUS_PROCESS_NAMES
 
+
+def _load_monolithic_core():
+    """Import monolithic UnifiedAgent from core/agent.py for canonical API integration."""
+    monolithic_py = _agent_root / "core" / "agent.py"
+    if not monolithic_py.exists():
+        raise FileNotFoundError(f"Cannot find {monolithic_py}")
+
+    mod_name = "monolithic_agent_core"
+    if mod_name in sys.modules:
+        return sys.modules[mod_name]
+
+    spec = importlib.util.spec_from_file_location(mod_name, monolithic_py)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+try:
+    _mono_module = _load_monolithic_core()
+    MonolithicUnifiedAgent = _mono_module.UnifiedAgent
+    MonolithicAgentConfig = _mono_module.AgentConfig
+except Exception as _mono_err:
+    MonolithicUnifiedAgent = None
+    MonolithicAgentConfig = None
+    logger.warning(f"Monolithic agent core unavailable in web UI: {_mono_err}")
+
 # ============================================================================
 # Web-specific wrapper around the agent core
 # ============================================================================
@@ -148,8 +176,23 @@ SUSPICIOUS_PROCESS_NAMES = _main_module.SUSPICIOUS_PROCESS_NAMES
 class WebAgentBridge:
     """Wraps UnifiedAgentCore and adds state tracking for the web UI."""
 
+    # Keep interface naming consistent with monolithic core while preserving legacy compatibility.
+    VPN_INTERFACES = ("metatron-vpn", "wg0")
+    MONITOR_NAME_ALIASES = {
+        "code-signing": "code_signing",
+        "self-protection": "self_protection",
+        "process-tree": "process_tree",
+        "cli-telemetry": "cli_telemetry",
+        "autothrottle": "auto_throttle",
+        "webview": "webview2",
+    }
+
     def __init__(self):
         self.agent = UnifiedAgentCore()
+        self.monolithic_agent = None
+        self.monolithic_init_error = None
+        self.monolithic_monitoring_active = False
+        self._monolithic_thread = None
         self.monitoring_active = False
         self.events: deque = deque(maxlen=500)
         self.logs: deque = deque(maxlen=1000)
@@ -191,6 +234,27 @@ class WebAgentBridge:
 
         # Set up web UI adapter so agent's command poll routes commands here
         self._setup_command_bridge()
+
+        # Initialize monolithic core in-process so localhost:5000 is the canonical surface.
+        self._setup_monolithic_bridge()
+
+    def _setup_monolithic_bridge(self):
+        """Initialize monolithic UnifiedAgent instance for API unification on port 5000."""
+        if not MonolithicUnifiedAgent or not MonolithicAgentConfig:
+            self.monolithic_init_error = "Monolithic core import failed"
+            return
+        try:
+            mono_cfg = MonolithicAgentConfig(
+                server_url=getattr(self.agent.config, "server_url", "") or "",
+                agent_name=getattr(self.agent.config, "agent_name", socket.gethostname()),
+                local_ui_enabled=False,
+                local_ui_port=5050,
+            )
+            self.monolithic_agent = MonolithicUnifiedAgent(config=mono_cfg)
+            self.log("Monolithic core bridge initialized for canonical UI")
+        except Exception as e:
+            self.monolithic_init_error = str(e)
+            self.log(f"Monolithic core bridge failed: {e}", "WARN")
 
     def _cpu_monitor_loop(self):
         """Background thread: continuously measure CPU so values stay fresh."""
@@ -283,6 +347,22 @@ class WebAgentBridge:
             else:
                 self.log("Monitoring started - Server offline (local mode)", "WARN")
         threading.Thread(target=_bg, daemon=True).start()
+
+        # Keep monolithic core monitor loop active so canonical port 5000 has full parity.
+        if self.monolithic_agent is not None and not self.monolithic_monitoring_active:
+            def _mono_bg():
+                try:
+                    self.monolithic_monitoring_active = True
+                    self.monolithic_agent.start()
+                except Exception as e:
+                    self.monolithic_init_error = str(e)
+                    self.log(f"Monolithic monitoring start error: {e}", "WARN")
+                finally:
+                    self.monolithic_monitoring_active = False
+
+            self._monolithic_thread = threading.Thread(target=_mono_bg, daemon=True)
+            self._monolithic_thread.start()
+
         return {"status": "starting"}
 
     def stop_monitoring(self):
@@ -291,6 +371,11 @@ class WebAgentBridge:
         try:
             self.agent.stop()
             self.monitoring_active = False
+            if self.monolithic_agent is not None and self.monolithic_monitoring_active:
+                try:
+                    self.monolithic_agent.stop()
+                except Exception:
+                    pass
             self.log("Monitoring stopped")
             return {"status": "stopped"}
         except Exception as e:
@@ -327,7 +412,7 @@ class WebAgentBridge:
             except Exception:
                 pass
 
-        return {
+        status = {
             "monitoring_active": self.monitoring_active,
             "registered": self.agent.registered,
             "agent_id": self.agent.config.agent_id,
@@ -352,6 +437,411 @@ class WebAgentBridge:
             "wireless_scanning": self.agent.config.wireless_scanning,
             "bluetooth_scanning": self.agent.config.bluetooth_scanning,
         }
+
+        # Expose monolithic-core integration state in canonical status payload.
+        status["monolithic_bridge"] = {
+            "available": self.monolithic_agent is not None,
+            "error": self.monolithic_init_error,
+            "monitoring_active": self.monolithic_monitoring_active,
+        }
+        if self.monolithic_agent is not None:
+            try:
+                status["monolithic_agent_id"] = self.monolithic_agent.config.agent_id
+                status["monolithic_monitor_count"] = len(self.monolithic_agent.monitors)
+            except Exception:
+                pass
+
+        return status
+
+    def get_monolithic_status(self) -> dict:
+        """Get status directly from monolithic UnifiedAgent core."""
+        if not self.monolithic_agent:
+            return {"available": False, "error": self.monolithic_init_error or "Not initialized"}
+        try:
+            data = self.monolithic_agent.get_status()
+            data["available"] = True
+            return data
+        except Exception as e:
+            return {"available": False, "error": str(e)}
+
+    def get_monolithic_dashboard(self) -> dict:
+        """Get full dashboard payload from monolithic UnifiedAgent core."""
+        if not self.monolithic_agent:
+            return {"available": False, "error": self.monolithic_init_error or "Not initialized"}
+        try:
+            data = self.monolithic_agent.get_dashboard_data()
+            data["available"] = True
+            return data
+        except Exception as e:
+            return {"available": False, "error": str(e)}
+
+    def get_yara_status(self) -> dict:
+        """Expose YARA monitor status from monolithic core."""
+        if not self.monolithic_agent:
+            return {"available": False, "error": self.monolithic_init_error or "Not initialized"}
+        monitor = self.monolithic_agent.monitors.get("yara")
+        if not monitor:
+            return {"available": False, "error": "YARA monitor not available"}
+        try:
+            status = monitor.get_status()
+            status["available"] = True
+            return status
+        except Exception as e:
+            return {"available": False, "error": str(e)}
+
+    def run_yara_scan(self) -> dict:
+        """Trigger one on-demand YARA scan from monolithic core."""
+        if not self.monolithic_agent:
+            return {"available": False, "error": self.monolithic_init_error or "Not initialized"}
+        monitor = self.monolithic_agent.monitors.get("yara")
+        if not monitor:
+            return {"available": False, "error": "YARA monitor not available"}
+        try:
+            result = monitor.scan()
+            result["available"] = True
+            return result
+        except Exception as e:
+            return {"available": False, "error": str(e)}
+
+    def _docker_container_state(self, names: List[str]) -> dict:
+        """Best-effort check for a tool's dockerized service container."""
+        if not shutil.which("docker"):
+            return {"docker_available": False, "container_running": False, "container": None}
+        try:
+            output = subprocess.run(
+                ["docker", "ps", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            running = output.stdout.splitlines() if output.returncode == 0 else []
+            for c in running:
+                for n in names:
+                    if n in c:
+                        return {"docker_available": True, "container_running": True, "container": c}
+            return {"docker_available": True, "container_running": False, "container": None}
+        except Exception:
+            return {"docker_available": True, "container_running": False, "container": None}
+
+    def get_security_tooling_status(self) -> dict:
+        """Return local capability/status for WireGuard, Trivy, Falco, Suricata, and Volatility."""
+        def _bin_status(candidates: List[str]) -> dict:
+            for cmd in candidates:
+                path = shutil.which(cmd)
+                if path:
+                    return {"installed": True, "command": cmd, "path": path}
+            return {"installed": False, "command": None, "path": None}
+
+        tools = {
+            "wireguard": {
+                **_bin_status(["wg", "wg-quick", "wireguard"]),
+                **self._docker_container_state(["wireguard"]),
+            },
+            "trivy": {
+                **_bin_status(["trivy"]),
+                **self._docker_container_state(["trivy"]),
+            },
+            "falco": {
+                **_bin_status(["falco"]),
+                **self._docker_container_state(["falco"]),
+            },
+            "suricata": {
+                **_bin_status(["suricata"]),
+                **self._docker_container_state(["suricata"]),
+            },
+            "volatility": {
+                **_bin_status(["vol", "volatility", "volatility3"]),
+                **self._docker_container_state(["volatility"]),
+            },
+        }
+
+        # Add wireguard runtime detail from monolithic core where available.
+        if self.monolithic_agent is not None:
+            try:
+                tools["wireguard"]["agent_vpn"] = self.monolithic_agent.get_vpn_status()
+            except Exception as e:
+                tools["wireguard"]["agent_vpn_error"] = str(e)
+
+        issues = []
+        for tool_name in ("trivy", "falco", "suricata", "volatility"):
+            t = tools[tool_name]
+            if not t.get("installed") and not t.get("container_running"):
+                issues.append(f"{tool_name} is not installed and no running container was detected")
+
+        wireguard_tool = tools["wireguard"]
+        agent_vpn_status = wireguard_tool.get("agent_vpn", {}) if isinstance(wireguard_tool.get("agent_vpn"), dict) else {}
+        if not wireguard_tool.get("installed") and not wireguard_tool.get("container_running") and not agent_vpn_status.get("configured"):
+            issues.append("wireguard is unavailable locally and monolithic VPN is not configured")
+
+        return {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "tools": tools,
+            "issues": issues,
+            "ready": len(issues) == 0,
+        }
+
+    def get_external_access_status(self, request_host_url: Optional[str] = None) -> dict:
+        """Best-effort check for local and externally forwarded dashboard reachability."""
+        port = 5000
+        host_url = (request_host_url or "").rstrip("/")
+        local_status_url = f"http://127.0.0.1:{port}/api/status"
+
+        codespace_name = os.environ.get("CODESPACE_NAME", "")
+        forward_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "")
+        forwarded_base_url = None
+        if codespace_name and forward_domain:
+            forwarded_base_url = f"https://{codespace_name}-{port}.{forward_domain}"
+
+        checks = {
+            "local_listener": {
+                "ok": False,
+                "error": None,
+            },
+            "local_status_http": {
+                "ok": False,
+                "status_code": None,
+                "error": None,
+                "url": local_status_url,
+            },
+            "host_status_http": {
+                "ok": False,
+                "status_code": None,
+                "error": None,
+                "url": f"{host_url}/api/status" if host_url else None,
+            },
+            "forwarded_status_http": {
+                "ok": False,
+                "status_code": None,
+                "error": None,
+                "url": f"{forwarded_base_url}/api/status" if forwarded_base_url else None,
+            },
+        }
+
+        # Raw TCP listener check on localhost:5000.
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1.5):
+                checks["local_listener"]["ok"] = True
+        except Exception as e:
+            checks["local_listener"]["error"] = str(e)
+
+        # HTTP checks using requests if available.
+        def _probe(name: str, url: Optional[str]):
+            if not url:
+                return
+            if _requests is None:
+                checks[name]["error"] = "requests dependency not available"
+                return
+            try:
+                resp = _requests.get(url, timeout=3, allow_redirects=False)
+                checks[name]["status_code"] = resp.status_code
+                checks[name]["ok"] = 200 <= resp.status_code < 400
+            except Exception as ex:
+                checks[name]["error"] = str(ex)
+
+        _probe("local_status_http", checks["local_status_http"]["url"])
+        _probe("host_status_http", checks["host_status_http"]["url"])
+        _probe("forwarded_status_http", checks["forwarded_status_http"]["url"])
+
+        issues = []
+        if not checks["local_listener"]["ok"]:
+            issues.append("Dashboard process is not listening on localhost:5000")
+        if not checks["local_status_http"]["ok"]:
+            issues.append("Local status endpoint probe failed on localhost:5000")
+        if forwarded_base_url and not checks["forwarded_status_http"]["ok"]:
+            issues.append("Codespaces forwarded URL probe failed; verify port 5000 forwarding visibility")
+
+        recommendations = []
+        if forwarded_base_url:
+            recommendations.append("In Codespaces, ensure port 5000 is forwarded and visibility permits browser access")
+            recommendations.append("Open the forwarded URL shown in forwarded_base_url")
+        else:
+            recommendations.append("If running remote dev environments, verify port forwarding for 5000")
+        recommendations.append("Confirm canonical launcher is used: bash unified_agent/run_local_dashboard.sh")
+
+        return {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "port": port,
+            "host_url": host_url or None,
+            "is_codespaces": bool(codespace_name and forward_domain),
+            "forwarded_base_url": forwarded_base_url,
+            "checks": checks,
+            "issues": issues,
+            "reachable": len(issues) == 0,
+            "recommendations": recommendations,
+        }
+
+    def get_attack_coverage(self) -> dict:
+        """Return ATT&CK technique references discovered in the monolithic core plus prioritized gaps."""
+        core_file = _agent_root / "core" / "agent.py"
+        techniques: List[str] = []
+        if core_file.exists():
+            try:
+                source = core_file.read_text(encoding="utf-8", errors="ignore")
+                techniques = sorted(set(_re.findall(r"T\d{4}(?:\.\d{3})?", source)))
+            except Exception:
+                techniques = []
+
+        priority_gaps = [
+            {"technique": "T1195", "name": "Supply Chain Compromise", "status": "missing"},
+            {"technique": "T1199", "name": "Trusted Relationship", "status": "missing"},
+            {"technique": "T1113", "name": "Screen Capture", "status": "missing"},
+            {"technique": "T1123", "name": "Audio Capture", "status": "missing"},
+            {"technique": "T1125", "name": "Video Capture", "status": "missing"},
+            {"technique": "T1530", "name": "Data from Cloud Storage", "status": "missing"},
+            {"technique": "T1078.004", "name": "Valid Accounts: Cloud Accounts", "status": "missing"},
+            {"technique": "T1528", "name": "Steal Application Access Token", "status": "missing"},
+            {"technique": "T1552.001", "name": "Credentials in Files", "status": "missing"},
+            {"technique": "T1567.002", "name": "Exfiltration to Cloud Storage", "status": "missing"},
+        ]
+
+        present_set = set(techniques)
+        for gap in priority_gaps:
+            if gap["technique"] in present_set:
+                gap["status"] = "covered"
+
+        tactic_checks = {
+            "initial_access": ["T1190", "T1566", "T1189"],
+            "execution": ["T1059", "T1106"],
+            "persistence": ["T1547", "T1053", "T1543"],
+            "privilege_escalation": ["T1068", "T1548"],
+            "defense_evasion": ["T1027", "T1562", "T1036"],
+            "credential_access": ["T1003", "T1555", "T1558"],
+            "discovery": ["T1046", "T1083", "T1012"],
+            "lateral_movement": ["T1021.002", "T1021.006"],
+            "collection": ["T1005", "T1056.001"],
+            "command_and_control": ["T1071", "T1095"],
+            "exfiltration": ["T1041", "T1048"],
+            "impact": ["T1486", "T1490", "T1489"],
+        }
+        tactics = {}
+        for tactic, refs in tactic_checks.items():
+            matched = []
+            for ref in refs:
+                if any(t == ref or t.startswith(ref + ".") for t in techniques):
+                    matched.append(ref)
+            tactics[tactic] = {
+                "covered": len(matched) > 0,
+                "matched_references": matched,
+                "reference_count": len(refs),
+            }
+
+        return {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "technique_count": len(techniques),
+            "techniques": techniques,
+            "tactics": tactics,
+            "priority_gaps": priority_gaps,
+        }
+
+    def get_backend_integration_gap_report(self) -> dict:
+        """Report backend (8001) feature families that are remote-only vs tied to monolithic agent flows."""
+        supported_command_types = {
+            "scan",
+            "full_scan",
+            "network_scan",
+            "wifi_scan",
+            "bluetooth_scan",
+            "port_scan",
+            "threat_hunt",
+            "collect_forensics",
+            "update_config",
+            "reload_edm_dataset",
+            "update_edm_dataset",
+            "quarantine_file",
+            "quarantine",
+            "block_ip",
+            "kill_process",
+            "vpn_connect",
+            "vpn_disconnect",
+            "get_status",
+            "restart",
+            "trivy_scan",
+            "container_scan",
+            "falco_status",
+            "falco_health",
+            "suricata_status",
+            "suricata_health",
+            "volatility_scan",
+            "volatility_status",
+        }
+
+        backend_feature_families = [
+            {
+                "feature": "Container security scanners (Trivy/Falco/Suricata)",
+                "backend_routes": ["/api/containers", "/api/containers/scan", "/api/containers/runtime-events"],
+                "agent_command_type": ["trivy_scan", "falco_status", "suricata_status"],
+                "integration_status": "partial",
+                "notes": "Endpoint now supports local tool command execution; backend container analytics pipeline remains server-side.",
+            },
+            {
+                "feature": "Volatility memory forensics service",
+                "backend_routes": ["/api/edr/* memory forensics flows"],
+                "agent_command_type": ["collect_forensics", "volatility_scan", "volatility_status"],
+                "integration_status": "partial",
+                "notes": "Endpoint can execute local volatility command flows; backend advanced memory pipeline remains server-side.",
+            },
+            {
+                "feature": "CSPM cloud posture scans",
+                "backend_routes": ["/api/cspm/*"],
+                "agent_command_type": None,
+                "integration_status": "remote_only",
+                "notes": "Server-side cloud posture engine; endpoint role is currently telemetry-only.",
+            },
+            {
+                "feature": "Advanced MCP tools execution",
+                "backend_routes": ["/api/advanced/mcp/*"],
+                "agent_command_type": "generic backend dispatch",
+                "integration_status": "partial",
+                "notes": "Backend command queue exists; endpoint command handlers are explicit and limited to supported command_type set.",
+            },
+            {
+                "feature": "Unified command dispatch baseline",
+                "backend_routes": ["/api/unified/agents/{agent_id}/command"],
+                "agent_command_type": "multiple",
+                "integration_status": "wired",
+                "notes": "Added alias parity for backend literals full_scan and quarantine.",
+            },
+        ]
+
+        return {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "supported_agent_command_types": sorted(supported_command_types),
+            "backend_feature_families": backend_feature_families,
+        }
+
+    def _vpn_interface_order(self) -> List[str]:
+        """Return interface candidates in preferred order, honoring monolithic config when available."""
+        ordered = []
+        if self.monolithic_agent is not None:
+            try:
+                cfg_name = self.monolithic_agent.vpn.config_file.stem
+                if cfg_name and cfg_name not in ordered:
+                    ordered.append(cfg_name)
+            except Exception:
+                pass
+        for iface in self.VPN_INTERFACES:
+            if iface not in ordered:
+                ordered.append(iface)
+        return ordered
+
+    def _monitors(self) -> Dict[str, Any]:
+        """Return active monitor map, preferring monolithic UnifiedAgent when available."""
+        if self.monolithic_agent is not None:
+            try:
+                return getattr(self.monolithic_agent, "monitors", {}) or {}
+            except Exception:
+                return {}
+        return getattr(self.agent, "monitors", {}) or {}
+
+    def _resolve_monitor_name(self, monitor_name: str) -> str:
+        """Normalize incoming API monitor names to runtime monitor keys."""
+        normalized = (monitor_name or "").strip().lower().replace("-", "_")
+        if normalized in self._monitors():
+            return normalized
+        alias = self.MONITOR_NAME_ALIASES.get((monitor_name or "").strip().lower())
+        if alias:
+            return alias
+        return normalized
 
     # --- Process management ---
     def get_processes(self, filter_text: str = "", sort_col: str = "cpu",
@@ -1552,13 +2042,26 @@ class WebAgentBridge:
     # --- VPN control (proxies to unified server & local WireGuard) ---
     def get_vpn_status(self) -> dict:
         """Get VPN / WireGuard status."""
-        status = {"running": False, "interface": "wg0", "config": {}, "error": None}
+        preferred_interface = self._vpn_interface_order()[0]
+        status = {
+            "running": False,
+            "interface": preferred_interface,
+            "interfaces_checked": self._vpn_interface_order(),
+            "config": {},
+            "error": None,
+        }
         # Check local WireGuard
         try:
-            result = subprocess.run(['wg', 'show'], capture_output=True, text=True, timeout=5)
+            result = subprocess.run(['wg', 'show', 'interfaces'], capture_output=True, text=True, timeout=5)
             status["running"] = result.returncode == 0
             if result.returncode == 0:
-                status["wg_output"] = result.stdout[:500]
+                interfaces = [i.strip() for i in result.stdout.split() if i.strip()]
+                status["active_interfaces"] = interfaces
+                if interfaces:
+                    status["interface"] = interfaces[0]
+                show_detail = subprocess.run(['wg', 'show'], capture_output=True, text=True, timeout=5)
+                if show_detail.returncode == 0:
+                    status["wg_output"] = show_detail.stdout[:500]
         except FileNotFoundError:
             status["error"] = "WireGuard not installed"
         except Exception as e:
@@ -1576,6 +2079,13 @@ class WebAgentBridge:
                     status["port"] = server_status.get("port", 51820)
         except Exception:
             pass
+
+        # Include monolithic agent VPN status for canonical parity.
+        if self.monolithic_agent is not None:
+            try:
+                status["agent_vpn"] = self.monolithic_agent.get_vpn_status()
+            except Exception as e:
+                status["agent_vpn_error"] = str(e)
         return status
 
     def get_vpn_clients(self) -> list:
@@ -1596,15 +2106,21 @@ class WebAgentBridge:
         try:
             if platform.system() == "Windows":
                 # Try Windows WireGuard service
-                result = subprocess.run(
-                    ['sc', 'start', 'WireGuardTunnel$wg0'],
-                    capture_output=True, text=True, timeout=15
-                )
+                result = None
+                for iface in self._vpn_interface_order():
+                    result = subprocess.run(
+                        ['sc', 'start', f'WireGuardTunnel${iface}'],
+                        capture_output=True, text=True, timeout=15
+                    )
+                    if result.returncode == 0:
+                        break
                 if result.returncode != 0:
                     # Try wireguard.exe /installtunnelservice
                     wg_exe = r"C:\Program Files\WireGuard\wireguard.exe"
                     conf_candidates = [
+                        r"C:\Program Files\WireGuard\Data\Configurations\metatron-vpn.conf",
                         r"C:\Program Files\WireGuard\Data\Configurations\wg0.conf",
+                        os.path.expanduser(r"~\metatron-vpn.conf"),
                         os.path.expanduser(r"~\wg0.conf"),
                     ]
                     for conf in conf_candidates:
@@ -1615,12 +2131,21 @@ class WebAgentBridge:
                             )
                             break
                     else:
-                        return {"success": False, "error": "No WireGuard config found. Place wg0.conf in WireGuard Data folder."}
+                        return {"success": False, "error": "No WireGuard config found. Place metatron-vpn.conf or wg0.conf in WireGuard Data folder."}
             else:
-                result = subprocess.run(
-                    ['wg-quick', 'up', 'wg0'],
-                    capture_output=True, text=True, timeout=15
-                )
+                # Try interface candidates in stable preferred order.
+                result = None
+                for iface in self._vpn_interface_order():
+                    result = subprocess.run(['wg-quick', 'up', iface], capture_output=True, text=True, timeout=15)
+                    if result.returncode == 0:
+                        break
+
+            # If shell path fails but monolithic core is available, use its VPN setup/start path.
+            if result.returncode != 0 and self.monolithic_agent is not None:
+                configured = self.monolithic_agent.vpn.auto_configure()
+                if configured and self.monolithic_agent.vpn.get_status().get("configured"):
+                    return {"success": True, "message": "VPN configured via monolithic core"}
+
             msg = (result.stdout + result.stderr).strip()[:200]
             if result.returncode == 0 or 'already exists' in msg.lower():
                 self.add_event("INFO", "VPN tunnel started")
@@ -1636,21 +2161,35 @@ class WebAgentBridge:
         """Stop WireGuard VPN tunnel."""
         try:
             if platform.system() == "Windows":
-                result = subprocess.run(
-                    ['sc', 'stop', 'WireGuardTunnel$wg0'],
-                    capture_output=True, text=True, timeout=15
-                )
-                if result.returncode != 0:
-                    wg_exe = r"C:\Program Files\WireGuard\wireguard.exe"
+                result = None
+                for iface in self._vpn_interface_order():
                     result = subprocess.run(
-                        [wg_exe, '/uninstalltunnelservice', 'wg0'],
+                        ['sc', 'stop', f'WireGuardTunnel${iface}'],
                         capture_output=True, text=True, timeout=15
                     )
+                    if result.returncode == 0:
+                        break
+                if result.returncode != 0:
+                    wg_exe = r"C:\Program Files\WireGuard\wireguard.exe"
+                    for iface in self._vpn_interface_order():
+                        result = subprocess.run(
+                            [wg_exe, '/uninstalltunnelservice', iface],
+                            capture_output=True, text=True, timeout=15
+                        )
+                        if result.returncode == 0:
+                            break
             else:
-                result = subprocess.run(
-                    ['wg-quick', 'down', 'wg0'],
-                    capture_output=True, text=True, timeout=15
-                )
+                # Try all interface candidates for compatibility with existing deployments.
+                result = None
+                for iface in self._vpn_interface_order():
+                    result = subprocess.run(['wg-quick', 'down', iface], capture_output=True, text=True, timeout=15)
+                    if result.returncode == 0:
+                        break
+
+            if result.returncode != 0 and self.monolithic_agent is not None:
+                self.monolithic_agent.vpn.stop_vpn()
+                return {"success": True, "message": "VPN stop requested via monolithic core"}
+
             msg = (result.stdout + result.stderr).strip()[:200]
             if result.returncode == 0 or 'not found' in msg.lower():
                 self.add_event("INFO", "VPN tunnel stopped")
@@ -1724,16 +2263,20 @@ class WebAgentBridge:
 
     def get_all_monitor_stats(self) -> dict:
         """Get aggregated stats from all monitors."""
+        source_agent = self.monolithic_agent if self.monolithic_agent is not None else self.agent
+        threat_history = getattr(source_agent, 'threat_history', [])
+        event_log = getattr(source_agent, 'event_log', [])
+
         stats = {
             "monitors": {},
             "summary": {
-                "total_monitors": len(self.agent.monitors),
-                "active_monitors": sum(1 for m in self.agent.monitors.values() if m.enabled),
-                "total_threats": len(self.agent.threat_history),
-                "total_events": len(self.agent.event_log),
+                "total_monitors": len(self._monitors()),
+                "active_monitors": sum(1 for m in self._monitors().values() if m.enabled),
+                "total_threats": len(threat_history),
+                "total_events": len(event_log),
             }
         }
-        for name, monitor in self.agent.monitors.items():
+        for name, monitor in self._monitors().items():
             stats["monitors"][name] = {
                 "enabled": monitor.enabled,
                 "stats": getattr(monitor, 'stats', {}),
@@ -1743,22 +2286,125 @@ class WebAgentBridge:
 
     def get_monitor_stats(self, monitor_name: str) -> dict:
         """Get stats for a specific monitor."""
-        if monitor_name not in self.agent.monitors:
-            return {"error": f"Monitor '{monitor_name}' not found", "available": list(self.agent.monitors.keys())}
-        monitor = self.agent.monitors[monitor_name]
+        if monitor_name == "trusted-ai":
+            return self.get_trusted_ai_stats()
+        if monitor_name == "power":
+            return self.get_power_stats()
+
+        resolved_name = self._resolve_monitor_name(monitor_name)
+        if resolved_name not in self._monitors():
+            return {"error": f"Monitor '{monitor_name}' not found", "available": list(self._monitors().keys())}
+        monitor = self._monitors()[resolved_name]
         return {
-            "name": monitor_name,
+            "name": resolved_name,
             "enabled": monitor.enabled,
             "stats": getattr(monitor, 'stats', {}),
             "last_scan": getattr(monitor, 'last_scan', None),
             "alerts": getattr(monitor, 'alerts', [])[-50:] if hasattr(monitor, 'alerts') else [],
         }
 
+    def get_amsi_stats(self) -> dict:
+        """Get AMSI monitor stats when available (Windows)."""
+        if 'amsi' not in self._monitors():
+            return {"enabled": False, "unsupported": True, "reason": "AMSI monitor not available on this platform"}
+        mon = self._monitors()['amsi']
+        return {
+            "enabled": mon.enabled,
+            "bypass_attempts": getattr(mon, 'bypass_attempts', []),
+            "obfuscation_detected": getattr(mon, 'obfuscation_detected', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_webview_stats(self) -> dict:
+        """Get WebView2 monitor stats when available (Windows)."""
+        if 'webview2' not in self._monitors():
+            return {"enabled": False, "unsupported": True, "reason": "WebView2 monitor not available on this platform"}
+        mon = self._monitors()['webview2']
+        return {
+            "enabled": mon.enabled,
+            "embedded_browsers": getattr(mon, 'embedded_browsers', []),
+            "script_blocks": getattr(mon, 'script_blocks', []),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def get_trusted_ai_stats(self) -> dict:
+        """Expose trusted-AI visibility using process monitor data as the source of truth."""
+        proc_mon = self._monitors().get('process')
+        if proc_mon is None:
+            return {"enabled": False, "allowed_count": 0, "blocked_ai": [], "reason": "Process monitor not initialized"}
+
+        process_rows = getattr(proc_mon, 'processes', []) or []
+        allowed = [p for p in process_rows if p.get('trusted_ai')]
+        blocked = []
+        for p in process_rows:
+            indicators = p.get('threat_indicators') or []
+            if any('ai' in str(i).lower() for i in indicators):
+                blocked.append({
+                    "pid": p.get("pid"),
+                    "name": p.get("name"),
+                    "risk_score": p.get("risk_score", 0),
+                })
+
+        return {
+            "enabled": bool(getattr(proc_mon, 'enabled', True)),
+            "allowed_count": len(allowed),
+            "blocked_ai": blocked,
+        }
+
+    def get_power_stats(self) -> dict:
+        """Expose power-management telemetry derived from host battery state."""
+        wake_events: List[Dict[str, Any]] = []
+        sleep_blocked: List[Dict[str, Any]] = []
+
+        if psutil and hasattr(psutil, 'sensors_battery'):
+            try:
+                battery = psutil.sensors_battery()
+                if battery is not None and bool(getattr(battery, 'power_plugged', False)):
+                    wake_events.append({"source": "ac_power", "at": datetime.now(timezone.utc).isoformat()})
+            except Exception:
+                pass
+
+        return {
+            "enabled": True,
+            "sleep_blocked": sleep_blocked,
+            "wake_events": wake_events,
+        }
+
+    def _get_tool_monitor_stats(self, tool_name: str) -> dict:
+        """Build monitor-style status payload for tooling cards."""
+        tooling = self.get_security_tooling_status()
+        tool = (tooling.get("tools") or {}).get(tool_name, {})
+        installed = bool(tool.get("installed"))
+        container_running = bool(tool.get("container_running"))
+        return {
+            "enabled": True,
+            "tool": tool_name,
+            "installed": installed,
+            "container_running": container_running,
+            "ready": installed or container_running,
+            "command": tool.get("command"),
+            "path": tool.get("path"),
+            "container": tool.get("container"),
+            "checked_at": tooling.get("checked_at"),
+        }
+
+    def get_trivy_monitor_stats(self) -> dict:
+        return self._get_tool_monitor_stats("trivy")
+
+    def get_falco_monitor_stats(self) -> dict:
+        return self._get_tool_monitor_stats("falco")
+
+    def get_suricata_monitor_stats(self) -> dict:
+        return self._get_tool_monitor_stats("suricata")
+
+    def get_volatility_monitor_stats(self) -> dict:
+        return self._get_tool_monitor_stats("volatility")
+
     def get_ransomware_stats(self) -> dict:
         """Get ransomware protection monitor stats."""
-        if 'ransomware' not in self.agent.monitors:
+        if 'ransomware' not in self._monitors():
             return {"enabled": False, "error": "Ransomware monitor not initialized"}
-        mon = self.agent.monitors['ransomware']
+        mon = self._monitors()['ransomware']
         return {
             "enabled": mon.enabled,
             "canary_files": getattr(mon, 'canary_files', []),
@@ -1771,9 +2417,9 @@ class WebAgentBridge:
 
     def get_rootkit_stats(self) -> dict:
         """Get rootkit detector stats."""
-        if 'rootkit' not in self.agent.monitors:
+        if 'rootkit' not in self._monitors():
             return {"enabled": False, "error": "Rootkit detector not initialized"}
-        mon = self.agent.monitors['rootkit']
+        mon = self._monitors()['rootkit']
         return {
             "enabled": mon.enabled,
             "hidden_processes": getattr(mon, 'hidden_processes', []),
@@ -1786,9 +2432,9 @@ class WebAgentBridge:
 
     def get_kernel_stats(self) -> dict:
         """Get kernel security monitor stats."""
-        if 'kernel_security' not in self.agent.monitors:
+        if 'kernel_security' not in self._monitors():
             return {"enabled": False, "error": "Kernel security monitor not initialized"}
-        mon = self.agent.monitors['kernel_security']
+        mon = self._monitors()['kernel_security']
         return {
             "enabled": mon.enabled,
             "syscall_anomalies": getattr(mon, 'syscall_anomalies', []),
@@ -1800,9 +2446,9 @@ class WebAgentBridge:
 
     def get_self_protection_stats(self) -> dict:
         """Get agent self-protection stats."""
-        if 'self_protection' not in self.agent.monitors:
+        if 'self_protection' not in self._monitors():
             return {"enabled": False, "error": "Self-protection monitor not initialized"}
-        mon = self.agent.monitors['self_protection']
+        mon = self._monitors()['self_protection']
         return {
             "enabled": mon.enabled,
             "anti_debug_active": getattr(mon, 'anti_debug_active', False),
@@ -1815,9 +2461,9 @@ class WebAgentBridge:
 
     def get_identity_stats(self) -> dict:
         """Get identity protection stats."""
-        if 'identity' not in self.agent.monitors:
+        if 'identity' not in self._monitors():
             return {"enabled": False, "error": "Identity protection monitor not initialized"}
-        mon = self.agent.monitors['identity']
+        mon = self._monitors()['identity']
         return {
             "enabled": mon.enabled,
             "credential_tools_detected": getattr(mon, 'credential_tools_detected', []),
@@ -1830,9 +2476,9 @@ class WebAgentBridge:
 
     def get_process_tree_stats(self) -> dict:
         """Get process tree monitor stats."""
-        if 'process_tree' not in self.agent.monitors:
+        if 'process_tree' not in self._monitors():
             return {"enabled": False, "error": "Process tree monitor not initialized"}
-        mon = self.agent.monitors['process_tree']
+        mon = self._monitors()['process_tree']
         return {
             "enabled": mon.enabled,
             "suspicious_chains": getattr(mon, 'suspicious_chains', []),
@@ -1842,9 +2488,9 @@ class WebAgentBridge:
 
     def get_lolbin_stats(self) -> dict:
         """Get LOLBin monitor stats."""
-        if 'lolbin' not in self.agent.monitors:
+        if 'lolbin' not in self._monitors():
             return {"enabled": False, "error": "LOLBin monitor not initialized"}
-        mon = self.agent.monitors['lolbin']
+        mon = self._monitors()['lolbin']
         return {
             "enabled": mon.enabled,
             "lolbin_executions": getattr(mon, 'lolbin_executions', []),
@@ -1853,9 +2499,9 @@ class WebAgentBridge:
 
     def get_dns_stats(self) -> dict:
         """Get DNS monitor stats."""
-        if 'dns' not in self.agent.monitors:
+        if 'dns' not in self._monitors():
             return {"enabled": False, "error": "DNS monitor not initialized"}
-        mon = self.agent.monitors['dns']
+        mon = self._monitors()['dns']
         return {
             "enabled": mon.enabled,
             "dns_anomalies": getattr(mon, 'dns_anomalies', []),
@@ -1866,9 +2512,9 @@ class WebAgentBridge:
 
     def get_memory_stats(self) -> dict:
         """Get memory scanner stats."""
-        if 'memory' not in self.agent.monitors:
+        if 'memory' not in self._monitors():
             return {"enabled": False, "error": "Memory scanner not initialized"}
-        mon = self.agent.monitors['memory']
+        mon = self._monitors()['memory']
         return {
             "enabled": mon.enabled,
             "injections_detected": getattr(mon, 'injections_detected', []),
@@ -1878,9 +2524,9 @@ class WebAgentBridge:
 
     def get_dlp_stats(self) -> dict:
         """Get DLP monitor stats."""
-        if 'dlp' not in self.agent.monitors:
+        if 'dlp' not in self._monitors():
             return {"enabled": False, "error": "DLP monitor not initialized"}
-        mon = self.agent.monitors['dlp']
+        mon = self._monitors()['dlp']
         return {
             "enabled": mon.enabled,
             "sensitive_data_alerts": getattr(mon, 'sensitive_data_alerts', []),
@@ -1890,9 +2536,9 @@ class WebAgentBridge:
 
     def get_vulnerability_stats(self) -> dict:
         """Get vulnerability scanner stats."""
-        if 'vulnerability' not in self.agent.monitors:
+        if 'vulnerability' not in self._monitors():
             return {"enabled": False, "error": "Vulnerability scanner not initialized"}
-        mon = self.agent.monitors['vulnerability']
+        mon = self._monitors()['vulnerability']
         return {
             "enabled": mon.enabled,
             "vulnerabilities": getattr(mon, 'vulnerabilities', []),
@@ -1902,9 +2548,9 @@ class WebAgentBridge:
 
     def get_whitelist_stats(self) -> dict:
         """Get application whitelist stats."""
-        if 'whitelist' not in self.agent.monitors:
+        if 'whitelist' not in self._monitors():
             return {"enabled": False, "error": "Whitelist monitor not initialized"}
-        mon = self.agent.monitors['whitelist']
+        mon = self._monitors()['whitelist']
         return {
             "enabled": mon.enabled,
             "blocked_applications": getattr(mon, 'blocked_applications', []),
@@ -1914,9 +2560,9 @@ class WebAgentBridge:
 
     def get_code_signing_stats(self) -> dict:
         """Get code signing monitor stats."""
-        if 'code_signing' not in self.agent.monitors:
+        if 'code_signing' not in self._monitors():
             return {"enabled": False, "error": "Code signing monitor not initialized"}
-        mon = self.agent.monitors['code_signing']
+        mon = self._monitors()['code_signing']
         return {
             "enabled": mon.enabled,
             "unsigned_executions": getattr(mon, 'unsigned_executions', []),
@@ -1926,9 +2572,9 @@ class WebAgentBridge:
 
     def get_email_protection_stats(self) -> dict:
         """Get email protection monitor stats."""
-        if 'email_protection' not in self.agent.monitors:
+        if 'email_protection' not in self._monitors():
             return {"enabled": False, "error": "Email protection monitor not initialized"}
-        mon = self.agent.monitors['email_protection']
+        mon = self._monitors()['email_protection']
         return mon.get_status() if hasattr(mon, 'get_status') else {
             "enabled": mon.enabled,
             "emails_scanned": getattr(mon, 'emails_scanned', 0),
@@ -1940,27 +2586,27 @@ class WebAgentBridge:
 
     def analyze_url(self, url: str) -> dict:
         """Analyze a URL for phishing indicators."""
-        if 'email_protection' not in self.agent.monitors:
+        if 'email_protection' not in self._monitors():
             return {"error": "Email protection monitor not available"}
-        mon = self.agent.monitors['email_protection']
+        mon = self._monitors()['email_protection']
         if hasattr(mon, 'analyze_url'):
             return mon.analyze_url(url)
         return {"error": "URL analysis not available"}
 
     def analyze_email_content(self, content: str) -> dict:
         """Analyze email content for phishing indicators."""
-        if 'email_protection' not in self.agent.monitors:
+        if 'email_protection' not in self._monitors():
             return {"error": "Email protection monitor not available"}
-        mon = self.agent.monitors['email_protection']
+        mon = self._monitors()['email_protection']
         if hasattr(mon, 'analyze_content'):
             return mon.analyze_content(content)
         return {"error": "Content analysis not available"}
 
     def get_mobile_security_stats(self) -> dict:
         """Get mobile security monitor stats."""
-        if 'mobile_security' not in self.agent.monitors:
+        if 'mobile_security' not in self._monitors():
             return {"enabled": False, "error": "Mobile security monitor not initialized"}
-        mon = self.agent.monitors['mobile_security']
+        mon = self._monitors()['mobile_security']
         return mon.get_status() if hasattr(mon, 'get_status') else {
             "enabled": mon.enabled,
             "device_info": getattr(mon, 'device_info', {}),
@@ -1971,20 +2617,21 @@ class WebAgentBridge:
 
     def analyze_app(self, app_name: str, package_name: str = '', permissions: list = None) -> dict:
         """Analyze an app for security issues."""
-        if 'mobile_security' not in self.agent.monitors:
+        if 'mobile_security' not in self._monitors():
             return {"error": "Mobile security monitor not available"}
-        mon = self.agent.monitors['mobile_security']
+        mon = self._monitors()['mobile_security']
         if hasattr(mon, 'analyze_app'):
             return mon.analyze_app(app_name, package_name, permissions or [])
         return {"error": "App analysis not available"}
 
     def toggle_monitor(self, monitor_name: str, enabled: bool) -> dict:
         """Enable or disable a specific monitor."""
-        if monitor_name not in self.agent.monitors:
+        resolved_name = self._resolve_monitor_name(monitor_name)
+        if resolved_name not in self._monitors():
             return {"success": False, "error": f"Monitor '{monitor_name}' not found"}
-        self.agent.monitors[monitor_name].enabled = enabled
-        self.log(f"Monitor '{monitor_name}' {'enabled' if enabled else 'disabled'}")
-        return {"success": True, "monitor": monitor_name, "enabled": enabled}
+        self._monitors()[resolved_name].enabled = enabled
+        self.log(f"Monitor '{resolved_name}' {'enabled' if enabled else 'disabled'}")
+        return {"success": True, "monitor": resolved_name, "enabled": enabled}
 
 
 # ============================================================================
@@ -2013,6 +2660,48 @@ def create_app() -> Flask:
     @app.route("/api/status")
     def api_status():
         return jsonify(bridge.get_system_status())
+
+    @app.route("/api/monolithic/status")
+    def api_monolithic_status():
+        return jsonify(bridge.get_monolithic_status())
+
+    @app.route("/api/dashboard")
+    def api_monolithic_dashboard():
+        return jsonify(bridge.get_monolithic_dashboard())
+
+    @app.route("/api/data")
+    def api_monolithic_data_alias():
+        # Alias retained for parity with previous LocalWebUIServer routes on 5050.
+        return jsonify(bridge.get_monolithic_dashboard())
+
+    @app.route("/api/yara")
+    def api_yara_status():
+        return jsonify(bridge.get_yara_status())
+
+    @app.route("/api/yara/scan", methods=["POST", "GET"])
+    def api_yara_scan():
+        return jsonify(bridge.run_yara_scan())
+
+    @app.route("/api/security/tooling")
+    def api_security_tooling_status():
+        return jsonify(bridge.get_security_tooling_status())
+
+    @app.route("/api/tooling/health")
+    def api_tooling_health_alias():
+        # Alias kept for local-machine validation scripts and legacy tooling checks.
+        return jsonify(bridge.get_security_tooling_status())
+
+    @app.route("/api/external-access/status")
+    def api_external_access_status():
+        return jsonify(bridge.get_external_access_status(request.host_url))
+
+    @app.route("/api/attack-coverage")
+    def api_attack_coverage():
+        return jsonify(bridge.get_attack_coverage())
+
+    @app.route("/api/integration/backend-gap-report")
+    def api_backend_gap_report():
+        return jsonify(bridge.get_backend_integration_gap_report())
 
     @app.route("/api/events")
     def api_events():
@@ -2340,6 +3029,38 @@ def create_app() -> Flask:
     @app.route("/api/monitors/code-signing")
     def api_code_signing_stats():
         return jsonify(bridge.get_code_signing_stats())
+
+    @app.route("/api/monitors/amsi")
+    def api_amsi_stats():
+        return jsonify(bridge.get_amsi_stats())
+
+    @app.route("/api/monitors/webview")
+    def api_webview_stats():
+        return jsonify(bridge.get_webview_stats())
+
+    @app.route("/api/monitors/trusted-ai")
+    def api_trusted_ai_stats():
+        return jsonify(bridge.get_trusted_ai_stats())
+
+    @app.route("/api/monitors/power")
+    def api_power_stats():
+        return jsonify(bridge.get_power_stats())
+
+    @app.route("/api/monitors/trivy")
+    def api_trivy_monitor_stats():
+        return jsonify(bridge.get_trivy_monitor_stats())
+
+    @app.route("/api/monitors/falco")
+    def api_falco_monitor_stats():
+        return jsonify(bridge.get_falco_monitor_stats())
+
+    @app.route("/api/monitors/suricata")
+    def api_suricata_monitor_stats():
+        return jsonify(bridge.get_suricata_monitor_stats())
+
+    @app.route("/api/monitors/volatility")
+    def api_volatility_monitor_stats():
+        return jsonify(bridge.get_volatility_monitor_stats())
 
     # ------------------------------------------------------------------
     # Email Protection

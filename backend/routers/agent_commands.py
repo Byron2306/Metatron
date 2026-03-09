@@ -629,6 +629,36 @@ COMMAND_TYPES = {
         "description": "Fix security compliance violations",
         "parameters": ["issue_type", "remediation_action"],
         "risk_level": "medium"
+    },
+    "trivy_scan": {
+        "name": "Trivy Scan",
+        "description": "Run Trivy vulnerability scan on filesystem/image/repository target",
+        "parameters": ["mode", "target", "timeout"],
+        "risk_level": "low"
+    },
+    "falco_status": {
+        "name": "Falco Status",
+        "description": "Collect Falco runtime status and version",
+        "parameters": ["timeout"],
+        "risk_level": "low"
+    },
+    "suricata_status": {
+        "name": "Suricata Status",
+        "description": "Collect Suricata IDS status and version",
+        "parameters": ["timeout"],
+        "risk_level": "low"
+    },
+    "volatility_status": {
+        "name": "Volatility Status",
+        "description": "Check Volatility availability and command health",
+        "parameters": ["timeout"],
+        "risk_level": "low"
+    },
+    "volatility_scan": {
+        "name": "Volatility Memory Scan",
+        "description": "Run Volatility plugin against a supplied memory image",
+        "parameters": ["image_path", "plugin", "timeout"],
+        "risk_level": "medium"
     }
 }
 

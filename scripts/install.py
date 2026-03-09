@@ -16,6 +16,7 @@ Author: Anti-AI Defense System
 
 import os
 import sys
+import argparse
 import platform
 import subprocess
 import shutil
@@ -37,7 +38,7 @@ RULES_DIR = INSTALL_DIR / "yara_rules"
 LOGS_DIR = INSTALL_DIR / "logs"
 CONFIG_FILE = INSTALL_DIR / "config.json"
 
-PYTHON_PACKAGES = [
+CORE_PYTHON_PACKAGES = [
     "requests",
     "psutil", 
     "flask",
@@ -50,6 +51,14 @@ PYTHON_PACKAGES = [
     "netifaces",
     "colorama",
     "rich",
+]
+
+SECURITY_STACK_PYTHON_PACKAGES = [
+    # Keep OS-level tool installs (trivy/falco/suricata) separate from core Python deps.
+]
+
+FORENSICS_PYTHON_PACKAGES = [
+    "volatility3",
 ]
 
 # Package manager commands for different systems
@@ -266,6 +275,52 @@ def install_suricata(os_type, auto=False):
     print_success("Suricata installed")
     return True
 
+
+def install_optional_security_tools(os_type, auto=False):
+    """Best-effort install for security stack tools."""
+    if os_type == "windows":
+        print_warning("Security stack auto-install is limited on Windows.")
+        print("  - Trivy: https://github.com/aquasecurity/trivy")
+        print("  - Falco: https://falco.org/docs/getting-started/installation/")
+        return
+
+    commands = []
+    if os_type == "linux_apt":
+        commands = [
+            ("Trivy", "sudo apt-get install -y trivy"),
+            ("Falco", "sudo apt-get install -y falco"),
+        ]
+    elif os_type == "linux_dnf":
+        commands = [
+            ("Trivy", "sudo dnf install -y trivy"),
+            ("Falco", "sudo dnf install -y falco"),
+        ]
+    elif os_type == "linux_pacman":
+        commands = [
+            ("Trivy", "sudo pacman -S --noconfirm trivy"),
+            ("Falco", "sudo pacman -S --noconfirm falco"),
+        ]
+    elif os_type == "darwin":
+        commands = [
+            ("Trivy", "brew install trivy"),
+            ("Falco", "brew install falco"),
+        ]
+
+    for tool_name, cmd in commands:
+        if shutil.which(tool_name.lower()):
+            print_success(f"{tool_name} already installed")
+            continue
+        if not auto:
+            response = input(f"Install {tool_name}? [Y/n]: ").strip().lower()
+            if response == 'n':
+                continue
+        print_step(f"Installing {tool_name} (best effort)...")
+        ok = run_command(cmd, check=False)
+        if ok:
+            print_success(f"{tool_name} installation command completed")
+        else:
+            print_warning(f"Could not install {tool_name} automatically")
+
 def create_virtual_environment():
     """Create Python virtual environment"""
     print_step("Creating Python virtual environment...")
@@ -291,7 +346,7 @@ def get_python_path():
     else:
         return VENV_DIR / "bin" / "python"
 
-def install_python_packages():
+def install_python_packages(packages):
     """Install Python packages in virtual environment"""
     print_step("Installing Python packages...")
     
@@ -301,7 +356,7 @@ def install_python_packages():
     run_command(f"{pip_path} install --upgrade pip", check=False)
     
     # Install packages
-    for package in PYTHON_PACKAGES:
+    for package in packages:
         print_step(f"  Installing {package}...")
         result = run_command(f"{pip_path} install {package}", check=False)
         if result:
@@ -470,28 +525,31 @@ rule SuspiciousExecutable {
 
 def main():
     print_banner()
-    
-    # Parse arguments
-    auto = "--auto" in sys.argv
-    
-    if "--help" in sys.argv:
-        print("""
-Usage: python install.py [OPTIONS]
 
-Options:
-    --auto      Automatic installation with defaults (no prompts)
-    --help      Show this help message
+    parser = argparse.ArgumentParser(description="Anti-AI Defense System local installer")
+    parser.add_argument("--auto", action="store_true", help="Automatic installation with defaults")
+    parser.add_argument(
+        "--profile",
+        default="core",
+        choices=["core", "security-stack", "forensics", "full"],
+        help="Installation profile: core, security-stack, forensics, full",
+    )
+    args = parser.parse_args()
+    auto = args.auto
 
-The installer will:
-1. Detect your operating system
-2. Install required system packages (nmap, libpcap, etc.)
-3. Optionally install Suricata IDS
-4. Create a Python virtual environment
-5. Install Python dependencies
-6. Create default YARA malware rules
-7. Set up the local security agent and dashboard
-        """)
-        return
+    selected_profiles = ["core"]
+    if args.profile == "security-stack":
+        selected_profiles.append("security-stack")
+    elif args.profile == "forensics":
+        selected_profiles.append("forensics")
+    elif args.profile == "full":
+        selected_profiles.extend(["security-stack", "forensics"])
+
+    python_packages = list(CORE_PYTHON_PACKAGES)
+    if "security-stack" in selected_profiles:
+        python_packages.extend(SECURITY_STACK_PYTHON_PACKAGES)
+    if "forensics" in selected_profiles:
+        python_packages.extend(FORENSICS_PYTHON_PACKAGES)
     
     # Check permissions
     if not check_admin() and platform.system() != "Windows":
@@ -510,6 +568,7 @@ The installer will:
     
     print_success(f"Detected OS: {os_type}")
     print(f"Installation directory: {INSTALL_DIR}")
+    print(f"Selected profiles: {', '.join(selected_profiles)}")
     print()
     
     if not auto:
@@ -531,15 +590,16 @@ The installer will:
     if os_type != "windows" or auto:
         install_system_packages(os_type, auto)
     
-    # Install Suricata (optional)
-    if os_type != "windows":
+    # Install security-stack tools (optional profile)
+    if "security-stack" in selected_profiles and os_type != "windows":
+        install_optional_security_tools(os_type, auto)
         install_suricata(os_type, auto)
     
     # Create virtual environment
     create_virtual_environment()
     
     # Install Python packages
-    install_python_packages()
+    install_python_packages(python_packages)
     
     # Create YARA rules
     create_default_yara_rules()
@@ -560,6 +620,10 @@ The installer will:
             "yara_scan": True,
             "process_monitor": True,
             "suricata_monitor": shutil.which("suricata") is not None,
+            "profiles": selected_profiles,
+            "trivy_enabled": "security-stack" in selected_profiles,
+            "falco_enabled": "security-stack" in selected_profiles,
+            "forensics_enabled": "forensics" in selected_profiles,
         }
     }
     

@@ -31,6 +31,23 @@ def _load_identity_module():
     dependencies_stub.get_db = lambda: dependencies_stub._db
     sys.modules.setdefault("backend.routers.dependencies", dependencies_stub)
 
+    identity_protection_stub = types.ModuleType("identity_protection")
+
+    class _StubEngine:
+        threat_history = []
+
+        def get_threat_summary(self):
+            return {"active_threats": 0, "metrics": {}, "attack_type_distribution": {}}
+
+        def get_detector_health(self):
+            return {"detectors": {}}
+
+        def get_active_threats(self):
+            return []
+
+    identity_protection_stub.get_identity_protection_engine = lambda: _StubEngine()
+    sys.modules.setdefault("identity_protection", identity_protection_stub)
+
     module_path = ROUTERS_DIR / "identity.py"
     spec = importlib.util.spec_from_file_location("backend.routers.identity", module_path)
     if spec is None or spec.loader is None:

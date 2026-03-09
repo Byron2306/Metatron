@@ -1109,6 +1109,32 @@ python core/agent.py --server ${API_URL || window.location.origin}`}
                 </CardContent>
               </Card>
 
+              {/* YARA Scanner */}
+              <Card className="bg-slate-900/50 border-slate-800 hover:border-cyan-500/50 transition-colors">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm text-cyan-400 flex items-center gap-2">
+                    <Search className="w-4 h-4" /> YARA Scanner
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Matches</span>
+                      <span className="text-white">{monitorStats?.threat_summary?.yara_matches || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Files Scanned</span>
+                      <span className="text-white">{monitorStats?.threat_summary?.yara_files_scanned || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Scan Runs</span>
+                      <span className="text-white">{monitorStats?.threat_summary?.yara_scans || 0}</span>
+                    </div>
+                    <p className="text-slate-500">Signature-based malware matching using YARA rules</p>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* AMSI Monitor */}
               <Card className="bg-slate-900/50 border-slate-800 hover:border-indigo-500/50 transition-colors">
                 <CardHeader className="pb-2">

@@ -434,7 +434,7 @@
         <!-- Security Monitors Sub-tab -->
         <div id="subtab-mon-security" class="subtab-content hidden">
             <div class="mb-4 flex items-center justify-between">
-                <h3 class="font-mono font-semibold text-sm">&#x1F6E1; Security Monitors (29 Active)</h3>
+                <h3 id="security-monitors-title" class="font-mono font-semibold text-sm">&#x1F6E1; Security Monitors</h3>
                 <button onclick="refreshAllMonitors()" class="action-btn bg-blue-600 hover:bg-blue-500 text-white text-sm">Refresh All</button>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -740,6 +740,55 @@
                         <div class="flex justify-between"><span>Wake Events</span><span id="mon-power-wake" class="font-mono text-slate-300">0</span></div>
                     </div>
                 </div>
+                <!-- Trivy Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-trivy">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-cyan-200">Trivy</h4>
+                        <span id="mon-trivy-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Installed</span><span id="mon-trivy-installed" class="font-mono text-slate-300">No</span></div>
+                        <div class="flex justify-between"><span>Container</span><span id="mon-trivy-container" class="font-mono text-slate-300">No</span></div>
+                    </div>
+                </div>
+                <!-- Falco Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-falco">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-amber-200">Falco</h4>
+                        <span id="mon-falco-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Installed</span><span id="mon-falco-installed" class="font-mono text-slate-300">No</span></div>
+                        <div class="flex justify-between"><span>Container</span><span id="mon-falco-container" class="font-mono text-slate-300">No</span></div>
+                    </div>
+                </div>
+                <!-- Suricata Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-suricata">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-red-200">Suricata</h4>
+                        <span id="mon-suricata-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Installed</span><span id="mon-suricata-installed" class="font-mono text-slate-300">No</span></div>
+                        <div class="flex justify-between"><span>Container</span><span id="mon-suricata-container" class="font-mono text-slate-300">No</span></div>
+                    </div>
+                </div>
+                <!-- Volatility Monitor -->
+                <div class="card rounded-lg p-4" id="mon-card-volatility">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-mono text-sm text-purple-200">Volatility</h4>
+                        <span id="mon-volatility-status" class="status-dot green"></span>
+                    </div>
+                    <div class="space-y-1 text-xs text-slate-400">
+                        <div class="flex justify-between"><span>Installed</span><span id="mon-volatility-installed" class="font-mono text-slate-300">No</span></div>
+                        <div class="flex justify-between"><span>Container</span><span id="mon-volatility-container" class="font-mono text-slate-300">No</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="mon-auto-section" class="mt-4 hidden">
+                <h4 class="font-mono text-xs text-slate-400 mb-2">Additional Runtime Monitors</h4>
+                <div id="mon-auto-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"></div>
             </div>
         </div>
     </div>
@@ -2034,6 +2083,118 @@ async function triggerAutoReduce() {
 async function refreshAllMonitors() {
     const data = await api('/api/monitors');
     if (!data || !data.monitors) return;
+
+    const monitors = data.monitors || {};
+    const monitorKeys = new Set(Object.keys(monitors));
+    const cardMonitorMap = {
+        'mon-card-ransomware': 'ransomware',
+        'mon-card-rootkit': 'rootkit',
+        'mon-card-kernel': 'kernel_security',
+        'mon-card-antitamper': 'self_protection',
+        'mon-card-identity': 'identity',
+        'mon-card-proctree': 'process_tree',
+        'mon-card-lolbin': 'lolbin',
+        'mon-card-dns': 'dns',
+        'mon-card-memory': 'memory',
+        'mon-card-dlp': 'dlp',
+        'mon-card-vuln': 'vulnerability',
+        'mon-card-whitelist': 'whitelist',
+        'mon-card-codesign': 'code_signing',
+        'mon-card-amsi': 'amsi',
+        'mon-card-webview': 'webview2',
+        'mon-card-firewall': 'firewall',
+        'mon-card-cli': 'cli_telemetry',
+        'mon-card-autothrottle': 'auto_throttle'
+    };
+    const derivedCardAvailability = {
+        'mon-card-trustedai': monitorKeys.has('process') || monitorKeys.has('network'),
+        'mon-card-power': monitorKeys.has('auto_throttle'),
+        'mon-card-trivy': true,
+        'mon-card-falco': true,
+        'mon-card-suricata': true,
+        'mon-card-volatility': true
+    };
+
+    const prettyMonitorName = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+
+    // Hide cards that are not backed by the current active monitor map.
+    // This keeps the UI aligned with source-of-truth runtime monitors.
+    let shownCards = 0;
+    Object.entries(cardMonitorMap).forEach(([cardId, monKey]) => {
+        const el = document.getElementById(cardId);
+        if (!el) return;
+        const available = monitorKeys.has(monKey);
+        el.classList.toggle('hidden', !available);
+        if (available) shownCards++;
+    });
+
+    Object.entries(derivedCardAvailability).forEach(([cardId, available]) => {
+        const el = document.getElementById(cardId);
+        if (!el) return;
+        el.classList.toggle('hidden', !available);
+        if (available) shownCards++;
+    });
+
+    // Legacy/non-monolithic cards are hidden until corresponding monolithic monitors exist.
+    [
+        'mon-card-bootkit',
+        'mon-card-ca',
+        'mon-card-bios',
+        'mon-card-schtask',
+        'mon-card-service',
+        'mon-card-wmi',
+        'mon-card-usb'
+    ].forEach((cardId) => {
+        const el = document.getElementById(cardId);
+        if (el) el.classList.add('hidden');
+    });
+
+    // Auto-render monitors without handcrafted cards so the section remains source-of-truth.
+    const mappedMonitorKeys = new Set(Object.values(cardMonitorMap));
+    const extraMonitors = Object.keys(monitors).filter((k) => !mappedMonitorKeys.has(k));
+    const autoSection = document.getElementById('mon-auto-section');
+    const autoGrid = document.getElementById('mon-auto-grid');
+    if (autoSection && autoGrid) {
+        if (extraMonitors.length === 0) {
+            autoSection.classList.add('hidden');
+            autoGrid.innerHTML = '';
+        } else {
+            autoSection.classList.remove('hidden');
+            autoGrid.innerHTML = extraMonitors.map((k) => {
+                const mon = monitors[k] || {};
+                const enabled = mon.enabled !== false;
+                const statsObj = mon.stats || {};
+                const statCount = Object.keys(statsObj).length;
+                const lastScan = mon.last_scan || 'n/a';
+                return `
+                    <div class="card rounded-lg p-4" id="mon-auto-${k}">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="font-mono text-sm text-slate-300">${prettyMonitorName(k)}</h4>
+                            <span class="status-dot ${enabled ? 'green' : 'red'}"></span>
+                        </div>
+                        <div class="space-y-1 text-xs text-slate-400">
+                            <div class="flex justify-between"><span>Enabled</span><span class="font-mono text-slate-300">${enabled ? 'Yes' : 'No'}</span></div>
+                            <div class="flex justify-between"><span>Stat Fields</span><span class="font-mono text-slate-300">${statCount}</span></div>
+                            <div class="flex justify-between"><span>Last Scan</span><span class="font-mono text-slate-300">${String(lastScan).slice(0, 19)}</span></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    const titleEl = document.getElementById('security-monitors-title');
+    if (titleEl) {
+        const summary = data.summary || {};
+        const active = Number(summary.active_monitors || 0);
+        const total = Number(summary.total_monitors || 0);
+        if (total > 0) {
+            const renderedCards = shownCards + extraMonitors.length;
+            titleEl.innerHTML = '&#x1F6E1; Security Monitors (' + active + '/' + total + ' Active, ' + renderedCards + ' cards shown)';
+        } else {
+            titleEl.innerHTML = '&#x1F6E1; Security Monitors';
+        }
+    }
     
     // Update individual monitor cards
     await refreshRansomwareMonitor();
@@ -2064,6 +2225,10 @@ async function refreshAllMonitors() {
     await refreshCliMonitor();
     await refreshAutothrottleMonitor();
     await refreshPowerMonitor();
+    await refreshTrivyMonitor();
+    await refreshFalcoMonitor();
+    await refreshSuricataMonitor();
+    await refreshVolatilityMonitor();
 }
 
 async function refreshRansomwareMonitor() {
@@ -2288,6 +2453,38 @@ async function refreshPowerMonitor() {
     document.getElementById('mon-power-status').className = 'status-dot ' + (data.enabled !== false ? 'green' : 'red');
     document.getElementById('mon-power-sleep').textContent = (data.sleep_blocked || []).length;
     document.getElementById('mon-power-wake').textContent = (data.wake_events || []).length;
+}
+
+async function refreshTrivyMonitor() {
+    const data = await api('/api/monitors/trivy');
+    if (!data) return;
+    document.getElementById('mon-trivy-status').className = 'status-dot ' + (data.ready ? 'green' : 'red');
+    document.getElementById('mon-trivy-installed').textContent = data.installed ? 'Yes' : 'No';
+    document.getElementById('mon-trivy-container').textContent = data.container_running ? 'Yes' : 'No';
+}
+
+async function refreshFalcoMonitor() {
+    const data = await api('/api/monitors/falco');
+    if (!data) return;
+    document.getElementById('mon-falco-status').className = 'status-dot ' + (data.ready ? 'green' : 'red');
+    document.getElementById('mon-falco-installed').textContent = data.installed ? 'Yes' : 'No';
+    document.getElementById('mon-falco-container').textContent = data.container_running ? 'Yes' : 'No';
+}
+
+async function refreshSuricataMonitor() {
+    const data = await api('/api/monitors/suricata');
+    if (!data) return;
+    document.getElementById('mon-suricata-status').className = 'status-dot ' + (data.ready ? 'green' : 'red');
+    document.getElementById('mon-suricata-installed').textContent = data.installed ? 'Yes' : 'No';
+    document.getElementById('mon-suricata-container').textContent = data.container_running ? 'Yes' : 'No';
+}
+
+async function refreshVolatilityMonitor() {
+    const data = await api('/api/monitors/volatility');
+    if (!data) return;
+    document.getElementById('mon-volatility-status').className = 'status-dot ' + (data.ready ? 'green' : 'red');
+    document.getElementById('mon-volatility-installed').textContent = data.installed ? 'Yes' : 'No';
+    document.getElementById('mon-volatility-container').textContent = data.container_running ? 'Yes' : 'No';
 }
 
 // ============================================================================
