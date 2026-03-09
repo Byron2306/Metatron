@@ -36,9 +36,58 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v6.3.0**: P1/P2 Feature Completion - VNS Alerts, Browser Extension, Setup Guide, SOAR Templates, Multi-Tenant (Mar 2026)
 - **v6.4.0**: Infrastructure Builder, Extension Download, PDF Stress Testing, Multi-Tenant API (Mar 2026)
 - **v6.5.0**: System-Wide Hardening - All UI Features, SOAR Templates Visibility, Complete Builder (Mar 2026)
-- **v6.6.0**: Full System Audit & Agent Installer Endpoints (Mar 2026) - CURRENT
+- **v6.6.0**: Full System Audit & Agent Installer Endpoints (Mar 2026)
+- **v6.7.0**: Email Gateway + MDM Connectors + Security Hardening (Mar 2026) - CURRENT
 
-## v6.6.0 Full System Audit & Agent Installer Endpoints (Mar 2026) - CURRENT
+## v6.7.0 Email Gateway + MDM Connectors + Security Hardening (Mar 2026) - CURRENT
+
+### Major Additions
+
+#### 1. Email Gateway (SMTP Relay Mode)
+- **Full SMTP Gateway** for real-time email interception and threat analysis
+- **Endpoints**:
+  - `GET /api/email-gateway/stats` - Gateway statistics
+  - `GET /api/email-gateway/quarantine` - Quarantined messages
+  - `POST /api/email-gateway/process` - Process/analyze email
+  - `POST/DELETE /api/email-gateway/blocklist` - Manage sender/domain/IP blocklists
+  - `POST/DELETE /api/email-gateway/allowlist` - Manage allowlists
+  - `GET /api/email-gateway/policies` - View gateway policies
+- **Frontend Page**: `/email-gateway` with Overview, Quarantine, Blocklist, Allowlist, Policies, Test Email tabs
+- **Features**: Threat detection, spam filtering, phishing analysis, attachment scanning
+
+#### 2. MDM Connectors (Enterprise Mobile Device Management)
+- **Multi-Platform MDM Integration** for enterprise device management
+- **Supported Platforms**:
+  - Microsoft Intune (Azure AD)
+  - JAMF Pro (Apple devices)
+  - VMware Workspace ONE
+  - Google Workspace (Android Enterprise)
+- **Endpoints**:
+  - `GET /api/mdm/status` - Connector status
+  - `GET /api/mdm/devices` - Managed devices
+  - `GET /api/mdm/policies` - Compliance policies
+  - `GET /api/mdm/platforms` - Available platforms
+  - `POST /api/mdm/connectors` - Add connector (admin)
+  - `POST /api/mdm/sync/now` - Force sync
+  - `POST /api/mdm/devices/{id}/lock|wipe` - Device actions
+- **Frontend Page**: `/mdm` with Overview, Connectors, Devices, Policies, Platforms tabs
+- **Features**: Device compliance monitoring, remote lock/wipe, policy enforcement
+
+#### 3. Security Hardening
+- **CSPM Authentication Fix**: `/api/v1/cspm/scan` now requires authentication
+- **Enhanced CORS**: Strict origin validation for production environments
+- **Role-Based Access**: Admin endpoints properly protected
+
+### Files Changed/Created
+- `backend/routers/email_gateway.py` - Email Gateway API
+- `backend/routers/mdm_connectors.py` - MDM Connectors API
+- `backend/routers/cspm.py` - Added authentication to scan endpoint
+- `frontend/src/pages/EmailGatewayPage.jsx` - New frontend page
+- `frontend/src/pages/MDMConnectorsPage.jsx` - New frontend page
+- `frontend/src/App.js` - Added routes
+- `frontend/src/components/Layout.jsx` - Added navigation links
+
+## v6.6.0 Full System Audit & Agent Installer Endpoints (Mar 2026)
 
 ### Major Fixes & Additions
 
@@ -1798,8 +1847,9 @@ python advanced_agent.py --json               # JSON output
 | **Twilio SMS** | ⚠️ Pending | Needs Twilio-purchased FROM number |
 
 ## Test Credentials
-- **Email**: mltest@test.com / test@defender.io
-- **Password**: test123
+- **Email**: test@seraph.ai (admin role)
+- **Password**: test123456
+- **Legacy**: mltest@test.com / test@defender.io / test123
 
 ## Backlog / Future Features
 
@@ -1814,6 +1864,10 @@ python advanced_agent.py --json               # JSON output
 - [ ] Real VM sandbox execution (Cuckoo integration)
 - [ ] Memory forensics with Volatility 3
 - [ ] OpenClaw agentic framework integration
+- [x] Email Gateway mode ✅ (v6.7.0)
+- [x] MDM Platform connectors ✅ (v6.7.0)
+- [x] Enhanced Kernel Security ✅ (existing)
+- [x] Enhanced DLP ✅ (existing)
 
 ### P3 - Future
 - [ ] Quantum-enhanced security

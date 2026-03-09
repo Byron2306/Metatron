@@ -547,7 +547,7 @@ The installer will:
     # Create configuration
     print_step("Creating configuration...")
     config = {
-        "api_url": normalize_server_url(os.getenv("METATRON_API_URL", "https://agentic-armor.preview.emergentagent.com")),
+        "api_url": normalize_server_url(os.getenv("METATRON_API_URL", "https://seraph-security.preview.emergentagent.com")),
         "agent_name": platform.node(),
         "install_dir": str(INSTALL_DIR),
         "venv_dir": str(VENV_DIR),

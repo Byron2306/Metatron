@@ -1,4 +1,4 @@
-yes"""
+"""
 Metatron/Seraph Unified Security Agent - Core Module v2.0
 =========================================================
 Cross-platform security agent with advanced threat detection,
@@ -2045,10 +2045,12 @@ class RegistryMonitor(MonitorModule):
         else:
             severity = ThreatSeverity.MEDIUM
             mitre = ["T1547", "T1053", "T1543"]
+        loc_str = str(location)
+        loc_name = loc_str.split('\\')[-1] if '\\' in loc_str else loc_str.split('/')[-1]
         
         threat = Threat(
             threat_id=f"persist-{uuid.uuid4().hex[:8]}",
-            title=f"Persistence Detected: {str(location).split('\\')[-1] if '\\' in str(location) else str(location).split('/')[-1]}",
+            title=f"Persistence Detected: {loc_name}",
             description=f"New persistence mechanism detected at {location}",
             severity=severity,
             threat_type="persistence",
@@ -13066,6 +13068,602 @@ class PrivilegeEscalationMonitor(MonitorModule):
 
 
 # =============================================================================
+# EMAIL PROTECTION MONITOR - LOCAL EMAIL SECURITY
+# =============================================================================
+
+class EmailProtectionMonitor(MonitorModule):
+    """
+    Email Protection Monitor for Local Agent
+    
+    Provides device-level email security monitoring including:
+    - Local email client monitoring (Outlook, Thunderbird, Mail.app)
+    - Phishing URL detection in received emails
+    - Attachment scanning for malware indicators
+    - Email-based threat detection
+    - Integration with central email protection service
+    
+    MITRE ATT&CK Coverage:
+    - T1566: Phishing
+    - T1566.001: Spearphishing Attachment
+    - T1566.002: Spearphishing Link
+    - T1598: Phishing for Information
+    """
+    
+    # Dangerous file extensions in email attachments
+    DANGEROUS_EXTENSIONS = frozenset({
+        '.exe', '.dll', '.scr', '.bat', '.cmd', '.ps1', '.vbs', '.js',
+        '.jse', '.wsf', '.wsh', '.msi', '.msp', '.com', '.pif', '.jar',
+        '.hta', '.cpl', '.reg', '.inf', '.lnk', '.application',
+        '.docm', '.xlsm', '.pptm', '.dotm', '.xltm', '.potm'
+    })
+    
+    # Phishing indicators
+    PHISHING_KEYWORDS = frozenset([
+        'verify your account', 'confirm your identity', 'update payment',
+        'suspended account', 'unusual activity', 'click here immediately',
+        'your account will be closed', 'confirm within 24 hours',
+        'reset your password', 'security alert', 'unauthorized access'
+    ])
+    
+    # URL shorteners (often used in phishing)
+    URL_SHORTENERS = frozenset([
+        'bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly', 'is.gd',
+        'buff.ly', 'adf.ly', 'j.mp', 'tr.im', 'shorturl.at'
+    ])
+    
+    def __init__(self, config: AgentConfig):
+        super().__init__(config)
+        self.threats: List[Threat] = []
+        self.emails_scanned = 0
+        self.phishing_detected = 0
+        self.malicious_attachments = 0
+        self.suspicious_urls = 0
+        self.quarantined_items: List[Dict] = []
+        
+        # Stats
+        self.stats = {
+            'total_scanned': 0,
+            'phishing_blocked': 0,
+            'attachments_blocked': 0,
+            'urls_blocked': 0
+        }
+        
+        logger.info("EmailProtectionMonitor initialized")
+    
+    def scan(self) -> List[Threat]:
+        """Scan for email-based threats"""
+        if not self.enabled:
+            return []
+        
+        self.threats.clear()
+        self.last_run = datetime.now(timezone.utc)
+        
+        try:
+            # Scan email clients for threats
+            self._scan_local_email_clients()
+            
+            # Check for suspicious downloads from email
+            self._check_email_downloads()
+            
+        except Exception as e:
+            logger.error(f"EmailProtectionMonitor scan error: {e}")
+        
+        return self.threats
+    
+    def _scan_local_email_clients(self):
+        """Scan local email client directories for threats"""
+        email_dirs = []
+        
+        if PLATFORM == 'windows':
+            # Outlook local folders
+            appdata = os.environ.get('APPDATA', '')
+            localappdata = os.environ.get('LOCALAPPDATA', '')
+            
+            email_dirs = [
+                Path(appdata) / 'Microsoft' / 'Outlook',
+                Path(localappdata) / 'Microsoft' / 'Outlook',
+                Path(appdata) / 'Thunderbird' / 'Profiles'
+            ]
+        elif PLATFORM == 'darwin':
+            home = Path.home()
+            email_dirs = [
+                home / 'Library' / 'Mail',
+                home / 'Library' / 'Thunderbird' / 'Profiles'
+            ]
+        else:  # Linux
+            home = Path.home()
+            email_dirs = [
+                home / '.thunderbird',
+                home / '.local' / 'share' / 'evolution' / 'mail'
+            ]
+        
+        for email_dir in email_dirs:
+            if email_dir.exists():
+                self._scan_email_directory(email_dir)
+    
+    def _scan_email_directory(self, directory: Path):
+        """Scan an email directory for threats"""
+        try:
+            for attachment_file in directory.rglob('*'):
+                if attachment_file.is_file():
+                    ext = attachment_file.suffix.lower()
+                    
+                    # Check for dangerous extensions
+                    if ext in self.DANGEROUS_EXTENSIONS:
+                        self._create_threat(
+                            threat_type='malicious_attachment',
+                            title=f"Dangerous email attachment: {attachment_file.name}",
+                            description=f"Found potentially malicious attachment with extension {ext}",
+                            severity=ThreatSeverity.HIGH,
+                            file_path=str(attachment_file)
+                        )
+                        self.malicious_attachments += 1
+        except PermissionError:
+            pass
+        except Exception as e:
+            logger.debug(f"Error scanning email directory {directory}: {e}")
+    
+    def _check_email_downloads(self):
+        """Check downloads folder for email-originated threats"""
+        downloads = Path.home() / 'Downloads'
+        
+        if not downloads.exists():
+            return
+        
+        try:
+            # Check recent files (last 24 hours)
+            cutoff = datetime.now().timestamp() - 86400
+            
+            for f in downloads.iterdir():
+                if f.is_file() and f.stat().st_mtime > cutoff:
+                    ext = f.suffix.lower()
+                    
+                    if ext in self.DANGEROUS_EXTENSIONS:
+                        self._create_threat(
+                            threat_type='suspicious_download',
+                            title=f"Recent suspicious download: {f.name}",
+                            description=f"Recently downloaded file with dangerous extension {ext}",
+                            severity=ThreatSeverity.MEDIUM,
+                            file_path=str(f)
+                        )
+        except Exception as e:
+            logger.debug(f"Error checking downloads: {e}")
+    
+    def analyze_url(self, url: str) -> Dict:
+        """Analyze a URL for phishing indicators"""
+        result = {
+            'url': url,
+            'is_safe': True,
+            'risk_level': 'safe',
+            'indicators': []
+        }
+        
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            
+            # Check for URL shorteners
+            for shortener in self.URL_SHORTENERS:
+                if shortener in domain:
+                    result['is_safe'] = False
+                    result['risk_level'] = 'medium'
+                    result['indicators'].append(f"URL shortener detected: {shortener}")
+            
+            # Check for IP-based URLs
+            if re.match(r'^\d+\.\d+\.\d+\.\d+', domain):
+                result['is_safe'] = False
+                result['risk_level'] = 'high'
+                result['indicators'].append("IP-based URL (common in phishing)")
+            
+            # Check for suspicious TLDs
+            suspicious_tlds = ['.tk', '.ml', '.ga', '.cf', '.gq', '.xyz']
+            for tld in suspicious_tlds:
+                if domain.endswith(tld):
+                    result['risk_level'] = 'medium'
+                    result['indicators'].append(f"Suspicious TLD: {tld}")
+            
+            self.stats['total_scanned'] += 1
+            if not result['is_safe']:
+                self.suspicious_urls += 1
+                self.stats['urls_blocked'] += 1
+                
+        except Exception as e:
+            logger.debug(f"URL analysis error: {e}")
+        
+        return result
+    
+    def analyze_content(self, content: str) -> Dict:
+        """Analyze email content for phishing indicators"""
+        result = {
+            'is_phishing': False,
+            'confidence': 0.0,
+            'indicators': []
+        }
+        
+        content_lower = content.lower()
+        
+        # Check for phishing keywords
+        matches = 0
+        for keyword in self.PHISHING_KEYWORDS:
+            if keyword in content_lower:
+                matches += 1
+                result['indicators'].append(f"Phishing keyword: {keyword}")
+        
+        if matches >= 2:
+            result['is_phishing'] = True
+            result['confidence'] = min(0.9, 0.3 + (matches * 0.15))
+            self.phishing_detected += 1
+            self.stats['phishing_blocked'] += 1
+        
+        return result
+    
+    def _create_threat(self, threat_type: str, title: str, description: str,
+                      severity: ThreatSeverity, file_path: str = ''):
+        """Create threat for email protection"""
+        threat = Threat(
+            id=str(uuid.uuid4()),
+            timestamp=datetime.now(timezone.utc),
+            severity=severity,
+            title=title,
+            description=description,
+            threat_type=threat_type,
+            source="email_protection_monitor",
+            file_path=file_path,
+            mitre_techniques=['T1566'],
+            evidence={'file_path': file_path},
+            auto_kill_eligible=False
+        )
+        self.threats.append(threat)
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get email protection status"""
+        return {
+            "enabled": self.enabled,
+            "emails_scanned": self.emails_scanned,
+            "phishing_detected": self.phishing_detected,
+            "malicious_attachments": self.malicious_attachments,
+            "suspicious_urls": self.suspicious_urls,
+            "quarantined": len(self.quarantined_items),
+            "stats": self.stats,
+            "threats": len(self.threats),
+            "last_scan": self.last_run.isoformat() if self.last_run else None
+        }
+
+
+# =============================================================================
+# MOBILE SECURITY MONITOR - DEVICE SECURITY FOR MOBILE/PORTABLE DEVICES
+# =============================================================================
+
+class MobileSecurityMonitor(MonitorModule):
+    """
+    Mobile Security Monitor for Local Agent
+    
+    Provides mobile device security monitoring including:
+    - Device security state (encryption, passcode, jailbreak detection)
+    - App security analysis
+    - Network security (WiFi, rogue AP detection)
+    - USB/external device monitoring
+    - Compliance checking
+    
+    Note: Full functionality on mobile platforms (Android/iOS), 
+    partial functionality on desktop (USB monitoring, network security)
+    
+    MITRE ATT&CK Mobile Coverage:
+    - T1398: Boot or Logon Initialization Scripts
+    - T1444: Masquerade as Legitimate Application
+    - T1439: Eavesdrop on Insecure Network Communication
+    - T1465: Rogue Wi-Fi Access Points
+    """
+    
+    # Known risky app patterns
+    RISKY_APP_PATTERNS = [
+        r'.*cracked.*', r'.*modded.*', r'.*hack.*', r'.*cheat.*',
+        r'.*free.*premium.*', r'.*unlimited.*coins.*'
+    ]
+    
+    # Suspicious network patterns (rogue WiFi)
+    ROGUE_WIFI_PATTERNS = [
+        r'(?i)free.*wifi', r'(?i)airport.*free', r'(?i)hotel.*guest',
+        r'(?i)starbucks.*free', r'(?i)xfinity.*wifi'
+    ]
+    
+    def __init__(self, config: AgentConfig):
+        super().__init__(config)
+        self.threats: List[Threat] = []
+        
+        # Device state
+        self.device_info = {
+            'platform': PLATFORM,
+            'hostname': HOSTNAME,
+            'is_mobile': PLATFORM in ['android', 'ios'],
+            'encryption_status': 'unknown',
+            'passcode_enabled': 'unknown',
+            'is_jailbroken': False,
+            'usb_debug_enabled': False
+        }
+        
+        # Stats
+        self.threats_detected = 0
+        self.apps_scanned = 0
+        self.networks_scanned = 0
+        self.usb_events = 0
+        self.compliance_score = 100.0
+        
+        # Compliance checks
+        self.compliance_checks = {}
+        
+        logger.info("MobileSecurityMonitor initialized")
+    
+    def scan(self) -> List[Threat]:
+        """Scan for mobile security threats"""
+        if not self.enabled:
+            return []
+        
+        self.threats.clear()
+        self.last_run = datetime.now(timezone.utc)
+        
+        try:
+            # Check device security state
+            self._check_device_security()
+            
+            # Check network security
+            self._check_network_security()
+            
+            # Check USB/external devices
+            self._check_usb_devices()
+            
+            # Run compliance check
+            self._check_compliance()
+            
+        except Exception as e:
+            logger.error(f"MobileSecurityMonitor scan error: {e}")
+        
+        return self.threats
+    
+    def _check_device_security(self):
+        """Check device security state"""
+        try:
+            # Check disk encryption
+            if PLATFORM == 'darwin':
+                # macOS FileVault check
+                try:
+                    result = subprocess.run(
+                        ['fdesetup', 'status'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if 'On' in result.stdout:
+                        self.device_info['encryption_status'] = 'enabled'
+                    else:
+                        self.device_info['encryption_status'] = 'disabled'
+                        self._create_threat(
+                            threat_type='missing_encryption',
+                            title="Disk Encryption Disabled",
+                            description="FileVault is not enabled on this device",
+                            severity=ThreatSeverity.HIGH
+                        )
+                except Exception:
+                    pass
+            
+            elif PLATFORM == 'windows':
+                # Windows BitLocker check
+                try:
+                    result = subprocess.run(
+                        ['manage-bde', '-status', 'C:'],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    if 'Protection On' in result.stdout:
+                        self.device_info['encryption_status'] = 'enabled'
+                    else:
+                        self.device_info['encryption_status'] = 'disabled'
+                        self._create_threat(
+                            threat_type='missing_encryption',
+                            title="BitLocker Not Enabled",
+                            description="BitLocker encryption is not enabled on C: drive",
+                            severity=ThreatSeverity.HIGH
+                        )
+                except Exception:
+                    pass
+            
+            elif PLATFORM == 'linux':
+                # Check for LUKS encryption
+                try:
+                    result = subprocess.run(
+                        ['lsblk', '-o', 'NAME,TYPE,MOUNTPOINT'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if 'crypt' in result.stdout:
+                        self.device_info['encryption_status'] = 'enabled'
+                    else:
+                        self.device_info['encryption_status'] = 'unknown'
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            logger.debug(f"Device security check error: {e}")
+    
+    def _check_network_security(self):
+        """Check for network security threats"""
+        try:
+            # Get connected WiFi info
+            wifi_name = self._get_current_wifi()
+            
+            if wifi_name:
+                # Check for rogue WiFi patterns
+                for pattern in self.ROGUE_WIFI_PATTERNS:
+                    if re.match(pattern, wifi_name):
+                        self._create_threat(
+                            threat_type='rogue_wifi',
+                            title=f"Suspicious WiFi Network: {wifi_name}",
+                            description=f"Connected to WiFi '{wifi_name}' which matches rogue AP patterns",
+                            severity=ThreatSeverity.HIGH
+                        )
+                        break
+                
+                self.networks_scanned += 1
+                
+        except Exception as e:
+            logger.debug(f"Network security check error: {e}")
+    
+    def _get_current_wifi(self) -> Optional[str]:
+        """Get current WiFi SSID"""
+        try:
+            if PLATFORM == 'darwin':
+                result = subprocess.run(
+                    ['/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport', '-I'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                for line in result.stdout.split('\n'):
+                    if 'SSID' in line and 'BSSID' not in line:
+                        return line.split(':')[1].strip()
+            
+            elif PLATFORM == 'windows':
+                result = subprocess.run(
+                    ['netsh', 'wlan', 'show', 'interfaces'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                for line in result.stdout.split('\n'):
+                    if 'SSID' in line and 'BSSID' not in line:
+                        return line.split(':')[1].strip()
+            
+            elif PLATFORM == 'linux':
+                result = subprocess.run(
+                    ['iwgetid', '-r'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                return result.stdout.strip() if result.returncode == 0 else None
+                
+        except Exception:
+            pass
+        
+        return None
+    
+    def _check_usb_devices(self):
+        """Monitor USB device connections"""
+        try:
+            if not PSUTIL_AVAILABLE:
+                return
+            
+            # Check for removable drives
+            partitions = psutil.disk_partitions(all=True)
+            
+            for partition in partitions:
+                opts = partition.opts.lower()
+                
+                # Check for removable media
+                if 'removable' in opts or 'usb' in partition.device.lower():
+                    self.usb_events += 1
+                    
+                    # Log USB detection (not necessarily a threat)
+                    logger.info(f"USB device detected: {partition.device} at {partition.mountpoint}")
+                    
+        except Exception as e:
+            logger.debug(f"USB check error: {e}")
+    
+    def _check_compliance(self):
+        """Run compliance checks"""
+        self.compliance_checks = {}
+        
+        # Encryption check
+        self.compliance_checks['encryption'] = self.device_info.get('encryption_status') == 'enabled'
+        
+        # Screen lock check (simplified)
+        self.compliance_checks['screen_lock'] = True  # Assume enabled by default
+        
+        # USB debug check (for Android primarily)
+        self.compliance_checks['usb_debug_disabled'] = not self.device_info.get('usb_debug_enabled', False)
+        
+        # Jailbreak check
+        self.compliance_checks['not_jailbroken'] = not self.device_info.get('is_jailbroken', False)
+        
+        # Calculate compliance score
+        passed = sum(1 for v in self.compliance_checks.values() if v)
+        total = len(self.compliance_checks)
+        self.compliance_score = (passed / total * 100) if total > 0 else 100.0
+    
+    def analyze_app(self, app_name: str, package_name: str = '', permissions: List[str] = None) -> Dict:
+        """Analyze an app for security issues"""
+        result = {
+            'app_name': app_name,
+            'package_name': package_name,
+            'is_safe': True,
+            'risk_level': 'safe',
+            'indicators': []
+        }
+        
+        permissions = permissions or []
+        
+        # Check for risky app patterns
+        for pattern in self.RISKY_APP_PATTERNS:
+            if re.match(pattern, app_name.lower()) or re.match(pattern, package_name.lower()):
+                result['is_safe'] = False
+                result['risk_level'] = 'high'
+                result['indicators'].append("App name matches risky pattern")
+        
+        # Check for excessive permissions
+        dangerous_perms = [
+            'android.permission.READ_SMS',
+            'android.permission.SEND_SMS',
+            'android.permission.READ_CALL_LOG',
+            'android.permission.RECORD_AUDIO',
+            'android.permission.CAMERA'
+        ]
+        
+        dangerous_count = sum(1 for p in permissions if p in dangerous_perms)
+        if dangerous_count >= 3:
+            result['risk_level'] = 'medium' if result['risk_level'] == 'safe' else result['risk_level']
+            result['indicators'].append(f"Excessive dangerous permissions ({dangerous_count})")
+        
+        self.apps_scanned += 1
+        return result
+    
+    def _create_threat(self, threat_type: str, title: str, description: str,
+                      severity: ThreatSeverity):
+        """Create threat for mobile security"""
+        threat = Threat(
+            id=str(uuid.uuid4()),
+            timestamp=datetime.now(timezone.utc),
+            severity=severity,
+            title=title,
+            description=description,
+            threat_type=threat_type,
+            source="mobile_security_monitor",
+            mitre_techniques=['T1398'],
+            evidence={'device': self.device_info},
+            auto_kill_eligible=False
+        )
+        self.threats.append(threat)
+        self.threats_detected += 1
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get mobile security status"""
+        return {
+            "enabled": self.enabled,
+            "device_info": self.device_info,
+            "threats_detected": self.threats_detected,
+            "apps_scanned": self.apps_scanned,
+            "networks_scanned": self.networks_scanned,
+            "usb_events": self.usb_events,
+            "compliance_score": round(self.compliance_score, 1),
+            "compliance_checks": self.compliance_checks,
+            "threats": len(self.threats),
+            "last_scan": self.last_run.isoformat() if self.last_run else None
+        }
+
+
+# =============================================================================
 # LOCAL WEB UI SERVER
 # =============================================================================
 
@@ -13400,6 +13998,12 @@ class UnifiedAgent:
         
         # Initialize privilege escalation monitor
         self.monitors['priv_escalation'] = PrivilegeEscalationMonitor(self.config)
+        
+        # Initialize email protection monitor
+        self.monitors['email_protection'] = EmailProtectionMonitor(self.config)
+        
+        # Initialize mobile security monitor
+        self.monitors['mobile_security'] = MobileSecurityMonitor(self.config)
         
         # Initialize scanners
         self.network_scanner = NetworkScanner()

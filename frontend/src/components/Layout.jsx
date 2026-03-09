@@ -39,7 +39,9 @@ import {
   Cloud,
   Route,
   Eye,
-  Fingerprint
+  Fingerprint,
+  Smartphone,
+  Link
 } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -90,6 +92,10 @@ const Layout = () => {
     { path: '/ml-prediction', icon: Brain, label: 'ML Prediction' },
     { path: '/sandbox', icon: Box, label: 'Sandbox' },
     { path: '/browser-isolation', icon: Globe, label: 'Browser Isolation' },
+    { path: '/email-protection', icon: Mail, label: 'Email Protection' },
+    { path: '/email-gateway', icon: Server, label: 'Email Gateway' },
+    { path: '/mobile-security', icon: Smartphone, label: 'Mobile Security' },
+    { path: '/mdm', icon: Link, label: 'MDM Connectors' },
     { path: '/browser-extension', icon: Chrome, label: 'Browser Extension' },
     { path: '/kibana', icon: BarChart3, label: 'Kibana' },
     { path: '/reports', icon: FileText, label: 'Reports' },

@@ -1852,18 +1852,18 @@ async def download_agent_script():
         content = f.read()
     
     # Update the API URL dynamically
-    backend_url = os.environ.get("REACT_APP_BACKEND_URL", "https://agentic-armor.preview.emergentagent.com")
+    backend_url = os.environ.get("REACT_APP_BACKEND_URL", "https://seraph-security.preview.emergentagent.com")
     content = content.replace(
-        'CLOUD_API_URL = "https://agentic-armor.preview.emergentagent.com/api"',
+        'CLOUD_API_URL = "https://seraph-security.preview.emergentagent.com/api"',
         f'CLOUD_API_URL = "{backend_url}/api"'
     )
     # Also update for legacy format
     content = content.replace(
-        '"API_URL": "https://agentic-armor.preview.emergentagent.com/api"',
+        '"API_URL": "https://seraph-security.preview.emergentagent.com/api"',
         f'"API_URL": "{backend_url}/api"'
     )
     content = content.replace(
-        '"api_url": "https://agentic-armor.preview.emergentagent.com/api"',
+        '"api_url": "https://seraph-security.preview.emergentagent.com/api"',
         f'"api_url": "{backend_url}/api"'
     )
     
@@ -1884,9 +1884,9 @@ async def download_legacy_agent():
     with open(agent_script_path, 'r') as f:
         content = f.read()
     
-    backend_url = os.environ.get("REACT_APP_BACKEND_URL", "https://agentic-armor.preview.emergentagent.com")
+    backend_url = os.environ.get("REACT_APP_BACKEND_URL", "https://seraph-security.preview.emergentagent.com")
     content = content.replace(
-        '"API_URL": "https://agentic-armor.preview.emergentagent.com/api"',
+        '"API_URL": "https://seraph-security.preview.emergentagent.com/api"',
         f'"API_URL": "{backend_url}/api"'
     )
     

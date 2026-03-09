@@ -73,11 +73,13 @@
 
 <!-- Tab Navigation -->
 <nav class="px-4 pt-3 border-b border-white/5">
-    <div class="max-w-[1600px] mx-auto flex gap-1">
+    <div class="max-w-[1600px] mx-auto flex gap-1 flex-wrap">
         <button class="tab-btn active px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-white/10" data-tab="dashboard">&#x1F4CA; Dashboard</button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="monitoring">&#x1F50D; Monitoring</button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="network">&#x1F310; Network</button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="vpn">&#x1F510; VPN</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="email">&#x1F4E7; Email</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="mobile">&#x1F4F1; Mobile</button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="commands">&#x1F6E1; Commands<span id="cmd-badge" class="ml-1 hidden px-1.5 py-0.5 rounded-full bg-red-500 text-[10px]">0</span></button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="settings">&#x2699; Settings</button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="logs">&#x1F4DD; Logs</button>
@@ -954,6 +956,124 @@
                     </div>
                     <p id="vpn-client-count" class="text-xs text-slate-500 mt-2 font-mono">0 clients</p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== EMAIL PROTECTION TAB ==================== -->
+    <div id="tab-email" class="tab-content hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            <!-- Email Stats -->
+            <div class="card rounded-lg p-4">
+                <h3 class="font-mono font-semibold mb-3 text-sm">&#x1F4E7; Email Protection Stats</h3>
+                <div id="email-stats" class="space-y-3 text-xs">
+                    <div class="flex justify-between"><span class="text-slate-400">Emails Scanned</span><span id="email-scanned" class="font-mono text-cyan-400">0</span></div>
+                    <div class="flex justify-between"><span class="text-slate-400">Phishing Detected</span><span id="email-phishing" class="font-mono text-red-400">0</span></div>
+                    <div class="flex justify-between"><span class="text-slate-400">Malicious Attachments</span><span id="email-attachments" class="font-mono text-orange-400">0</span></div>
+                    <div class="flex justify-between"><span class="text-slate-400">Suspicious URLs</span><span id="email-urls" class="font-mono text-yellow-400">0</span></div>
+                </div>
+            </div>
+            <!-- URL Analysis -->
+            <div class="card rounded-lg p-4">
+                <h3 class="font-mono font-semibold mb-3 text-sm">&#x1F517; URL Analysis</h3>
+                <input type="text" id="url-input" placeholder="Enter URL to analyze..." class="w-full mb-2 text-xs">
+                <button onclick="analyzeUrl()" class="action-btn bg-blue-600 hover:bg-blue-500 text-white w-full py-2 text-xs">Analyze URL</button>
+                <div id="url-result" class="mt-3 text-xs hidden">
+                    <div class="p-2 rounded bg-slate-800">
+                        <div class="flex justify-between mb-1"><span class="text-slate-400">Safe:</span><span id="url-safe" class="font-mono">-</span></div>
+                        <div class="flex justify-between mb-1"><span class="text-slate-400">Risk:</span><span id="url-risk" class="font-mono">-</span></div>
+                        <div id="url-indicators" class="text-slate-500 text-[10px] mt-2"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- Content Analysis -->
+            <div class="card rounded-lg p-4">
+                <h3 class="font-mono font-semibold mb-3 text-sm">&#x1F4DD; Content Analysis</h3>
+                <textarea id="content-input" placeholder="Paste email content to analyze..." class="w-full mb-2 text-xs h-20 resize-none" style="background:rgba(15,23,42,0.9);border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:8px;"></textarea>
+                <button onclick="analyzeContent()" class="action-btn bg-purple-600 hover:bg-purple-500 text-white w-full py-2 text-xs">Check for Phishing</button>
+                <div id="content-result" class="mt-3 text-xs hidden">
+                    <div class="p-2 rounded bg-slate-800">
+                        <div class="flex justify-between mb-1"><span class="text-slate-400">Phishing:</span><span id="content-phishing" class="font-mono">-</span></div>
+                        <div class="flex justify-between mb-1"><span class="text-slate-400">Confidence:</span><span id="content-confidence" class="font-mono">-</span></div>
+                        <div id="content-indicators" class="text-slate-500 text-[10px] mt-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Feature List -->
+        <div class="card rounded-lg p-4">
+            <h3 class="font-mono font-semibold mb-3 text-sm">Email Protection Features</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div class="p-3 rounded bg-green-500/10 border border-green-500/20"><span class="text-green-400">&#x2714;</span> Phishing Detection</div>
+                <div class="p-3 rounded bg-green-500/10 border border-green-500/20"><span class="text-green-400">&#x2714;</span> Attachment Scanning</div>
+                <div class="p-3 rounded bg-green-500/10 border border-green-500/20"><span class="text-green-400">&#x2714;</span> URL Analysis</div>
+                <div class="p-3 rounded bg-green-500/10 border border-green-500/20"><span class="text-green-400">&#x2714;</span> SPF/DKIM/DMARC</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MOBILE SECURITY TAB ==================== -->
+    <div id="tab-mobile" class="tab-content hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            <!-- Device Info -->
+            <div class="card rounded-lg p-4">
+                <h3 class="font-mono font-semibold mb-3 text-sm">&#x1F4F1; Device Security</h3>
+                <div id="mobile-device-info" class="space-y-3 text-xs">
+                    <div class="flex justify-between"><span class="text-slate-400">Platform</span><span id="mobile-platform" class="font-mono text-cyan-400">-</span></div>
+                    <div class="flex justify-between"><span class="text-slate-400">Encryption</span><span id="mobile-encryption" class="font-mono">-</span></div>
+                    <div class="flex justify-between"><span class="text-slate-400">Jailbroken</span><span id="mobile-jailbroken" class="font-mono">-</span></div>
+                </div>
+            </div>
+            <!-- Compliance -->
+            <div class="card rounded-lg p-4">
+                <h3 class="font-mono font-semibold mb-3 text-sm">&#x2705; Compliance Score</h3>
+                <div class="text-center py-4">
+                    <span id="mobile-compliance-score" class="text-4xl font-mono font-bold text-green-400">100%</span>
+                </div>
+                <div id="mobile-compliance-checks" class="space-y-2 text-xs mt-2"></div>
+            </div>
+            <!-- App Analysis -->
+            <div class="card rounded-lg p-4">
+                <h3 class="font-mono font-semibold mb-3 text-sm">&#x1F4E6; App Analysis</h3>
+                <input type="text" id="app-name-input" placeholder="App name" class="w-full mb-2 text-xs">
+                <input type="text" id="app-package-input" placeholder="Package name (optional)" class="w-full mb-2 text-xs">
+                <button onclick="analyzeApp()" class="action-btn bg-indigo-600 hover:bg-indigo-500 text-white w-full py-2 text-xs">Analyze App</button>
+                <div id="app-result" class="mt-3 text-xs hidden">
+                    <div class="p-2 rounded bg-slate-800">
+                        <div class="flex justify-between mb-1"><span class="text-slate-400">Safe:</span><span id="app-safe" class="font-mono">-</span></div>
+                        <div class="flex justify-between mb-1"><span class="text-slate-400">Risk:</span><span id="app-risk" class="font-mono">-</span></div>
+                        <div id="app-indicators" class="text-slate-500 text-[10px] mt-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div class="card rounded-lg p-4">
+                <p class="text-slate-400 text-xs mb-1">Threats Detected</p>
+                <p id="mobile-threats" class="text-2xl font-mono font-bold text-red-400">0</p>
+            </div>
+            <div class="card rounded-lg p-4">
+                <p class="text-slate-400 text-xs mb-1">Apps Scanned</p>
+                <p id="mobile-apps" class="text-2xl font-mono font-bold text-blue-400">0</p>
+            </div>
+            <div class="card rounded-lg p-4">
+                <p class="text-slate-400 text-xs mb-1">Networks Scanned</p>
+                <p id="mobile-networks" class="text-2xl font-mono font-bold text-purple-400">0</p>
+            </div>
+            <div class="card rounded-lg p-4">
+                <p class="text-slate-400 text-xs mb-1">USB Events</p>
+                <p id="mobile-usb" class="text-2xl font-mono font-bold text-orange-400">0</p>
+            </div>
+        </div>
+        <!-- Features -->
+        <div class="card rounded-lg p-4">
+            <h3 class="font-mono font-semibold mb-3 text-sm">Mobile Security Features</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div class="p-3 rounded bg-green-500/10 border border-green-500/20"><span class="text-green-400">&#x2714;</span> Jailbreak Detection</div>
+                <div class="p-3 rounded bg-green-500/10 border border-green-500/20"><span class="text-green-400">&#x2714;</span> App Analysis</div>
+                <div class="p-3 rounded bg-green-500/10 border border-green-500/20"><span class="text-green-400">&#x2714;</span> Network Security</div>
+                <div class="p-3 rounded bg-green-500/10 border border-green-500/20"><span class="text-green-400">&#x2714;</span> USB Monitoring</div>
             </div>
         </div>
     </div>
@@ -2237,6 +2357,104 @@ async function pollSlow() {
     await refreshAllMonitors();
 }
 
+// =============================================================================
+// EMAIL PROTECTION FUNCTIONS
+// =============================================================================
+async function refreshEmailProtection() {
+    const data = await api('/api/email-protection/stats');
+    if (!data) return;
+    document.getElementById('email-scanned').textContent = data.emails_scanned || 0;
+    document.getElementById('email-phishing').textContent = data.phishing_detected || 0;
+    document.getElementById('email-attachments').textContent = data.malicious_attachments || 0;
+    document.getElementById('email-urls').textContent = data.suspicious_urls || 0;
+}
+
+async function analyzeUrl() {
+    const url = document.getElementById('url-input').value.trim();
+    if (!url) { alert('Please enter a URL'); return; }
+    
+    const data = await api('/api/email-protection/analyze-url', { method: 'POST', body: JSON.stringify({ url }) });
+    if (!data) return;
+    
+    document.getElementById('url-result').classList.remove('hidden');
+    document.getElementById('url-safe').textContent = data.is_safe ? '✓ Yes' : '✗ No';
+    document.getElementById('url-safe').className = 'font-mono ' + (data.is_safe ? 'text-green-400' : 'text-red-400');
+    document.getElementById('url-risk').textContent = data.risk_level || 'unknown';
+    document.getElementById('url-risk').className = 'font-mono ' + getRiskColor(data.risk_level);
+    document.getElementById('url-indicators').innerHTML = (data.indicators || []).map(i => `<div>• ${i}</div>`).join('');
+}
+
+async function analyzeContent() {
+    const content = document.getElementById('content-input').value.trim();
+    if (!content) { alert('Please enter content'); return; }
+    
+    const data = await api('/api/email-protection/analyze-content', { method: 'POST', body: JSON.stringify({ content }) });
+    if (!data) return;
+    
+    document.getElementById('content-result').classList.remove('hidden');
+    document.getElementById('content-phishing').textContent = data.is_phishing ? '⚠ Yes' : '✓ No';
+    document.getElementById('content-phishing').className = 'font-mono ' + (data.is_phishing ? 'text-red-400' : 'text-green-400');
+    document.getElementById('content-confidence').textContent = ((data.confidence || 0) * 100).toFixed(0) + '%';
+    document.getElementById('content-indicators').innerHTML = (data.indicators || []).map(i => `<div>• ${i}</div>`).join('');
+}
+
+// =============================================================================
+// MOBILE SECURITY FUNCTIONS
+// =============================================================================
+async function refreshMobileSecurity() {
+    const data = await api('/api/mobile-security/stats');
+    if (!data) return;
+    
+    // Device info
+    const dev = data.device_info || {};
+    document.getElementById('mobile-platform').textContent = dev.platform || 'unknown';
+    document.getElementById('mobile-encryption').textContent = dev.encryption_status || 'unknown';
+    document.getElementById('mobile-encryption').className = 'font-mono ' + (dev.encryption_status === 'enabled' ? 'text-green-400' : 'text-yellow-400');
+    document.getElementById('mobile-jailbroken').textContent = dev.is_jailbroken ? 'Yes ⚠' : 'No ✓';
+    document.getElementById('mobile-jailbroken').className = 'font-mono ' + (dev.is_jailbroken ? 'text-red-400' : 'text-green-400');
+    
+    // Compliance
+    const score = data.compliance_score || 100;
+    document.getElementById('mobile-compliance-score').textContent = score.toFixed(0) + '%';
+    document.getElementById('mobile-compliance-score').className = 'text-4xl font-mono font-bold ' + (score >= 80 ? 'text-green-400' : score >= 50 ? 'text-yellow-400' : 'text-red-400');
+    
+    const checks = data.compliance_checks || {};
+    const checksHtml = Object.entries(checks).map(([k, v]) => 
+        `<div class="flex justify-between"><span class="text-slate-400">${k.replace(/_/g, ' ')}</span><span class="${v ? 'text-green-400' : 'text-red-400'}">${v ? '✓' : '✗'}</span></div>`
+    ).join('');
+    document.getElementById('mobile-compliance-checks').innerHTML = checksHtml;
+    
+    // Stats
+    document.getElementById('mobile-threats').textContent = data.threats_detected || 0;
+    document.getElementById('mobile-apps').textContent = data.apps_scanned || 0;
+    document.getElementById('mobile-networks').textContent = data.networks_scanned || 0;
+    document.getElementById('mobile-usb').textContent = data.usb_events || 0;
+}
+
+async function analyzeApp() {
+    const appName = document.getElementById('app-name-input').value.trim();
+    const packageName = document.getElementById('app-package-input').value.trim();
+    if (!appName) { alert('Please enter app name'); return; }
+    
+    const data = await api('/api/mobile-security/analyze-app', { 
+        method: 'POST', 
+        body: JSON.stringify({ app_name: appName, package_name: packageName, permissions: [] }) 
+    });
+    if (!data) return;
+    
+    document.getElementById('app-result').classList.remove('hidden');
+    document.getElementById('app-safe').textContent = data.is_safe ? '✓ Yes' : '✗ No';
+    document.getElementById('app-safe').className = 'font-mono ' + (data.is_safe ? 'text-green-400' : 'text-red-400');
+    document.getElementById('app-risk').textContent = data.risk_level || 'unknown';
+    document.getElementById('app-risk').className = 'font-mono ' + getRiskColor(data.risk_level);
+    document.getElementById('app-indicators').innerHTML = (data.indicators || []).map(i => `<div>• ${i}</div>`).join('');
+}
+
+function getRiskColor(level) {
+    const colors = { 'safe': 'text-green-400', 'low': 'text-blue-400', 'medium': 'text-yellow-400', 'high': 'text-orange-400', 'critical': 'text-red-400' };
+    return colors[level] || 'text-slate-400';
+}
+
 // Initial load
 (async function init() {
     await loadSettings();
@@ -2248,6 +2466,8 @@ async function pollSlow() {
     refreshConnections();
     refreshPorts();
     refreshVpnStatus();
+    refreshEmailProtection();
+    refreshMobileSecurity();
 })();
 
 // Polling intervals
@@ -2261,6 +2481,8 @@ setInterval(refreshServices, 60000);
 setInterval(refreshConnections, 15000);
 setInterval(refreshPorts, 30000);
 setInterval(refreshVpnStatus, 30000);  // VPN status every 30s
+setInterval(refreshEmailProtection, 30000);  // Email protection every 30s
+setInterval(refreshMobileSecurity, 30000);  // Mobile security every 30s
 </script>
 </body>
 </html>

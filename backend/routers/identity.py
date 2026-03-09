@@ -8,9 +8,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from ..identity_protection import get_identity_protection_engine
+from identity_protection import get_identity_protection_engine
 
-from backend.routers.dependencies import get_db
+from .dependencies import get_db
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
