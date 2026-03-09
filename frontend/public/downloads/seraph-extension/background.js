@@ -1,6 +1,6 @@
 // Seraph AI Browser Extension - Background Service Worker
 // Configure your Seraph AI server URL here
-const SERAPH_API = "https://agentic-armor.preview.emergentagent.com";
+const SERAPH_API = "https://security-hardening-15.preview.emergentagent.com";
 
 let alertQueue = [];
 let isProcessing = false;

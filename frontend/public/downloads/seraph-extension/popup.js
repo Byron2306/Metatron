@@ -1,6 +1,6 @@
 // Seraph AI Browser Extension - Popup Script
 
-const SERAPH_DASHBOARD = "https://agentic-armor.preview.emergentagent.com";
+const SERAPH_DASHBOARD = "https://security-hardening-15.preview.emergentagent.com";
 
 // Update stats from storage
 function updateStats() {
