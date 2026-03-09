@@ -48,6 +48,8 @@ import DeceptionPage from "./pages/DeceptionPage";
 import KernelSensorsPage from "./pages/KernelSensorsPage";
 import SecureBootPage from "./pages/SecureBootPage";
 import IdentityProtectionPage from "./pages/IdentityProtectionPage";
+import EmailProtectionPage from "./pages/EmailProtectionPage";
+import MobileSecurityPage from "./pages/MobileSecurityPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -133,6 +135,8 @@ function App() {
               <Route path="kernel-sensors" element={<KernelSensorsPage />} />
               <Route path="secure-boot" element={<SecureBootPage />} />
               <Route path="identity" element={<IdentityProtectionPage />} />
+              <Route path="email-protection" element={<EmailProtectionPage />} />
+              <Route path="mobile-security" element={<MobileSecurityPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

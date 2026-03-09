@@ -236,6 +236,14 @@ app.include_router(advanced_router, prefix="/api")
 from routers.unified_agent import router as unified_agent_router
 app.include_router(unified_agent_router, prefix="/api")
 
+# ============ EMAIL PROTECTION ============
+from routers.email_protection import router as email_protection_router
+app.include_router(email_protection_router, prefix="/api")
+
+# ============ MOBILE SECURITY ============
+from routers.mobile_security import router as mobile_security_router
+app.include_router(mobile_security_router, prefix="/api")
+
 # ============ DECEPTION ENGINE ============
 # Import advanced deception system with Pebbles, Mystique, and Stonewall
 from routers.deception import router as deception_engine_router
