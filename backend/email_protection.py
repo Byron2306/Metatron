@@ -747,7 +747,7 @@ class EmailProtectionService:
         urgency_words = ['urgent', 'immediately', 'asap', 'right now', 'critical', 'emergency']
         urgency_count = sum(1 for word in urgency_words if word in body_lower or word in subject.lower())
         if urgency_count >= 2:
-            indicators.append(f"High urgency language detected")
+            indicators.append("High urgency language detected")
             confidence = max(confidence, 0.5)
         
         is_impersonation = confidence >= 0.6

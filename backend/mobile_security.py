@@ -569,7 +569,6 @@ class MobileSecurityService:
         """Check network connection for threats"""
         ssid = network_info.get('ssid', '')
         is_encrypted = network_info.get('is_encrypted', True)
-        is_captive = network_info.get('is_captive_portal', False)
         certificate_valid = network_info.get('certificate_valid', True)
         
         # Check for rogue WiFi patterns

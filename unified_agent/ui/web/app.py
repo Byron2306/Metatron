@@ -1924,6 +1924,60 @@ class WebAgentBridge:
             "stats": getattr(mon, 'stats', {}),
         }
 
+    def get_email_protection_stats(self) -> dict:
+        """Get email protection monitor stats."""
+        if 'email_protection' not in self.agent.monitors:
+            return {"enabled": False, "error": "Email protection monitor not initialized"}
+        mon = self.agent.monitors['email_protection']
+        return mon.get_status() if hasattr(mon, 'get_status') else {
+            "enabled": mon.enabled,
+            "emails_scanned": getattr(mon, 'emails_scanned', 0),
+            "phishing_detected": getattr(mon, 'phishing_detected', 0),
+            "malicious_attachments": getattr(mon, 'malicious_attachments', 0),
+            "suspicious_urls": getattr(mon, 'suspicious_urls', 0),
+            "stats": getattr(mon, 'stats', {}),
+        }
+
+    def analyze_url(self, url: str) -> dict:
+        """Analyze a URL for phishing indicators."""
+        if 'email_protection' not in self.agent.monitors:
+            return {"error": "Email protection monitor not available"}
+        mon = self.agent.monitors['email_protection']
+        if hasattr(mon, 'analyze_url'):
+            return mon.analyze_url(url)
+        return {"error": "URL analysis not available"}
+
+    def analyze_email_content(self, content: str) -> dict:
+        """Analyze email content for phishing indicators."""
+        if 'email_protection' not in self.agent.monitors:
+            return {"error": "Email protection monitor not available"}
+        mon = self.agent.monitors['email_protection']
+        if hasattr(mon, 'analyze_content'):
+            return mon.analyze_content(content)
+        return {"error": "Content analysis not available"}
+
+    def get_mobile_security_stats(self) -> dict:
+        """Get mobile security monitor stats."""
+        if 'mobile_security' not in self.agent.monitors:
+            return {"enabled": False, "error": "Mobile security monitor not initialized"}
+        mon = self.agent.monitors['mobile_security']
+        return mon.get_status() if hasattr(mon, 'get_status') else {
+            "enabled": mon.enabled,
+            "device_info": getattr(mon, 'device_info', {}),
+            "threats_detected": getattr(mon, 'threats_detected', 0),
+            "compliance_score": getattr(mon, 'compliance_score', 100.0),
+            "compliance_checks": getattr(mon, 'compliance_checks', {}),
+        }
+
+    def analyze_app(self, app_name: str, package_name: str = '', permissions: list = None) -> dict:
+        """Analyze an app for security issues."""
+        if 'mobile_security' not in self.agent.monitors:
+            return {"error": "Mobile security monitor not available"}
+        mon = self.agent.monitors['mobile_security']
+        if hasattr(mon, 'analyze_app'):
+            return mon.analyze_app(app_name, package_name, permissions or [])
+        return {"error": "App analysis not available"}
+
     def toggle_monitor(self, monitor_name: str, enabled: bool) -> dict:
         """Enable or disable a specific monitor."""
         if monitor_name not in self.agent.monitors:
@@ -2286,6 +2340,46 @@ def create_app() -> Flask:
     @app.route("/api/monitors/code-signing")
     def api_code_signing_stats():
         return jsonify(bridge.get_code_signing_stats())
+
+    # ------------------------------------------------------------------
+    # Email Protection
+    # ------------------------------------------------------------------
+    @app.route("/api/email-protection/stats")
+    def api_email_protection_stats():
+        return jsonify(bridge.get_email_protection_stats())
+
+    @app.route("/api/email-protection/analyze-url", methods=["POST"])
+    def api_analyze_url():
+        data = request.get_json(force=True)
+        url = data.get("url", "")
+        if not url:
+            return jsonify({"error": "URL required"}), 400
+        return jsonify(bridge.analyze_url(url))
+
+    @app.route("/api/email-protection/analyze-content", methods=["POST"])
+    def api_analyze_content():
+        data = request.get_json(force=True)
+        content = data.get("content", "")
+        if not content:
+            return jsonify({"error": "Content required"}), 400
+        return jsonify(bridge.analyze_email_content(content))
+
+    # ------------------------------------------------------------------
+    # Mobile Security
+    # ------------------------------------------------------------------
+    @app.route("/api/mobile-security/stats")
+    def api_mobile_security_stats():
+        return jsonify(bridge.get_mobile_security_stats())
+
+    @app.route("/api/mobile-security/analyze-app", methods=["POST"])
+    def api_analyze_app():
+        data = request.get_json(force=True)
+        app_name = data.get("app_name", "")
+        package_name = data.get("package_name", "")
+        permissions = data.get("permissions", [])
+        if not app_name:
+            return jsonify({"error": "App name required"}), 400
+        return jsonify(bridge.analyze_app(app_name, package_name, permissions))
 
     # ------------------------------------------------------------------
     # Logs
