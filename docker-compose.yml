@@ -62,7 +62,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       - REMOTE_ADMIN_ONLY=${REMOTE_ADMIN_ONLY:-true}
       - REMOTE_ADMIN_EMAILS=${REMOTE_ADMIN_EMAILS:-}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://165.22.41.184,http://165.22.41.184:3000,http://localhost:3000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       - VPN_SERVER_ENDPOINT=${VPN_SERVER_ENDPOINT:-vpn.yourdomain.com}
       - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
       - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME:-}
@@ -84,10 +84,6 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
-      ollama:
-        condition: service_started
     volumes:
       - vpn_config:/var/lib/anti-ai-defense/vpn
       - ./scripts:/app/scripts:ro

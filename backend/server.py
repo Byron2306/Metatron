@@ -67,7 +67,7 @@ app = FastAPI(
 )
 
 def _resolve_cors_origins() -> List[str]:
-    raw = os.environ.get("CORS_ORIGINS", "http://165.22.41.184,http://165.22.41.184:3000,http://localhost:3000,http://127.0.0.1:3000")
+    raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
     origins = [o.strip() for o in raw.split(",") if o.strip()]
     environment = os.environ.get("ENVIRONMENT", "").strip().lower()
     strict = os.environ.get("SERAPH_STRICT_SECURITY", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -76,7 +76,7 @@ def _resolve_cors_origins() -> List[str]:
     if prod_like and (not origins or "*" in origins):
         raise RuntimeError("CORS_ORIGINS must be explicit in production/strict mode; wildcard is not allowed.")
 
-    return origins or ["http://165.22.41.184", "http://localhost:3000"]
+    return origins or ["http://localhost:3000"]
 
 
 # Configure CORS

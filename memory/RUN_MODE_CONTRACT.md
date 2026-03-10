@@ -52,7 +52,7 @@ These are intentionally profile-gated and not required for baseline operation.
 
 ## 6) Health Validation Sequence
 1. `docker compose ps`
-2. `curl -fsS http://localhost:8000/health`
+2. `curl -fsS http://localhost:8001/api/health`
 3. `curl -fsS http://localhost:3000` (or deployed frontend URL)
 4. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
 
