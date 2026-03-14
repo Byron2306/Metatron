@@ -8,6 +8,45 @@ fails safely.
 """
 from typing import List, Dict, Any
 import os
+import asyncio
+import threading
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
+
+def _emit_reasoner_event(db: Any, event_type: str, entity_refs: List[str], payload: Dict[str, Any]):
+    if emit_world_event is None or db is None:
+        return
+    coro = emit_world_event(
+        db,
+        event_type=event_type,
+        entity_refs=entity_refs,
+        payload=payload,
+        trigger_triune=False,
+        source="ai.reasoner",
+    )
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            asyncio.run(coro)
+        except Exception:
+            pass
+        return
+
+    def _runner():
+        try:
+            asyncio.run(coro)
+        except Exception:
+            pass
+
+    threading.Thread(target=_runner, daemon=True).start()
 
 
 def _heuristic_explanation(candidate: str) -> Dict[str, Any]:
@@ -34,7 +73,7 @@ def _heuristic_explanation(candidate: str) -> Dict[str, Any]:
     return exp
 
 
-def explain_candidates(candidates: List[str]) -> Dict[str, Dict[str, Any]]:
+def explain_candidates(candidates: List[str], db: Any = None, context: Dict[str, Any] = None) -> Dict[str, Dict[str, Any]]:
     """Synchronous explanation for a list of candidate strings.
 
     Attempts lightweight LLM usage when `OPENAI_API_KEY` exists and the
@@ -55,19 +94,32 @@ def explain_candidates(candidates: List[str]) -> Dict[str, Dict[str, Any]]:
             out = {}
             for c in candidates:
                 out[c] = {"explanation": text.strip(), "score_delta": 0.0}
+            _emit_reasoner_event(
+                db,
+                event_type="ai_reasoner_candidates_explained",
+                entity_refs=[],
+                payload={"candidate_count": len(candidates), "provider": "openai", "context": context or {}},
+            )
             return out
         except Exception:
             # fall through to heuristics
             pass
 
     # fallback heuristics
-    return {c: _heuristic_explanation(c) for c in candidates}
+    out = {c: _heuristic_explanation(c) for c in candidates}
+    _emit_reasoner_event(
+        db,
+        event_type="ai_reasoner_candidates_explained",
+        entity_refs=[],
+        payload={"candidate_count": len(candidates), "provider": "heuristic", "context": context or {}},
+    )
+    return out
 
 
-async def async_explain_candidates(candidates: List[str]) -> Dict[str, Dict[str, Any]]:
+async def async_explain_candidates(candidates: List[str], db: Any = None, context: Dict[str, Any] = None) -> Dict[str, Dict[str, Any]]:
     """Async wrapper for `explain_candidates`.
 
     Keeps a consistent async interface for callers.
     """
     # run sync function; it's cheap in fallback path
-    return explain_candidates(candidates)
+    return explain_candidates(candidates, db=db, context=context)

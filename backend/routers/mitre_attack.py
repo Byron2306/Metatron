@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
+import re
 from typing import Dict, List, Set
 
 from fastapi import APIRouter, Depends
@@ -83,6 +85,63 @@ PRIORITY_GAPS = [
 ]
 
 
+
+ATTACK_TECHNIQUE_RE = re.compile(r"\bT\d{4}(?:\.\d{3})?\b", re.IGNORECASE)
+ATTACK_TACTIC_RE = re.compile(r"\bTA\d{4}\b", re.IGNORECASE)
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _scan_python_files_for_attack_ids(base_dirs: List[Path]) -> Dict[str, Dict]:
+    """Sweep repository Python sources for MITRE ATT&CK technique references."""
+    implemented: Dict[str, Dict] = {}
+    for base in base_dirs:
+        if not base.exists():
+            continue
+        for py_file in base.rglob('*.py'):
+            try:
+                text = py_file.read_text(encoding='utf-8', errors='ignore')
+            except Exception:
+                continue
+
+            tactic_hints = {m.group(0).upper() for m in ATTACK_TACTIC_RE.finditer(text)}
+            for m in ATTACK_TECHNIQUE_RE.finditer(text):
+                tech = _normalize_technique(m.group(0))
+                if not tech:
+                    continue
+                rel_path = str(py_file.relative_to(_repo_root()))
+                meta = implemented.setdefault(tech, {
+                    'sources': set(),
+                    'evidence_files': set(),
+                    'tactic_hints': set(),
+                })
+                meta['sources'].add('code_sweep')
+                meta['evidence_files'].add(rel_path)
+                meta['tactic_hints'].update(tactic_hints)
+
+    return implemented
+
+
+@lru_cache(maxsize=1)
+def _implemented_techniques_sweep() -> Dict[str, Dict]:
+    root = _repo_root()
+    base_dirs = [root / 'backend', root / 'unified_agent']
+    return _scan_python_files_for_attack_ids(base_dirs)
+
+
+def _merge_implemented_sweep(techniques: Dict[str, Dict]) -> Dict[str, Dict]:
+    """Merge static implementation sweep into dynamic MITRE coverage map."""
+    implemented = _implemented_techniques_sweep()
+    for tech, details in implemented.items():
+        techniques.setdefault(tech, {'score': 0, 'sources': set()})
+        techniques[tech]['score'] = max(techniques[tech]['score'], 2)
+        techniques[tech]['sources'].update(details.get('sources', set()))
+
+    return implemented
+
+
 def _normalize_technique(value: str) -> str:
     return (value or "").strip().upper()
 
@@ -91,8 +150,15 @@ def _parent_technique(technique: str) -> str:
     return technique.split(".")[0]
 
 
-def _technique_tactic(technique: str) -> str:
-    return TECHNIQUE_TO_TACTIC.get(technique) or TECHNIQUE_TO_TACTIC.get(_parent_technique(technique), "unknown")
+def _technique_tactic(technique: str, implemented_meta: Dict[str, Dict] = None) -> str:
+    mapped = TECHNIQUE_TO_TACTIC.get(technique) or TECHNIQUE_TO_TACTIC.get(_parent_technique(technique))
+    if mapped:
+        return mapped
+    if implemented_meta:
+        hints = implemented_meta.get(technique, {}).get('tactic_hints', set())
+        if len(hints) == 1:
+            return next(iter(hints))
+    return "unknown"
 
 
 def _collect_sigma(techniques: Dict[str, Dict]):
@@ -184,11 +250,11 @@ def _collect_threat_intel(techniques: Dict[str, Dict]):
             techniques[tnorm]['score'] = max(techniques[tnorm]['score'], 3)
 
 
-def _summarize_tactics(techniques: Dict[str, Dict]) -> List[Dict]:
+def _summarize_tactics(techniques: Dict[str, Dict], implemented_meta: Dict[str, Dict]) -> List[Dict]:
     index = {t["id"]: {"tactic_id": t["id"], "tactic_name": t["name"], "technique_count": 0, "score_gte3_count": 0} for t in TACTICS}
 
     for technique, meta in techniques.items():
-        tactic = _technique_tactic(technique)
+        tactic = _technique_tactic(technique, implemented_meta)
         if tactic not in index:
             continue
         index[tactic]["technique_count"] += 1
@@ -220,20 +286,24 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_atomic(techniques)
     # include indicators ingested via integrations (Amass, Velociraptor, etc.)
     _collect_threat_intel(techniques)
+    implemented_meta = _merge_implemented_sweep(techniques)
 
     ordered = []
     for technique in sorted(techniques.keys()):
         meta = techniques[technique]
+        impl = implemented_meta.get(technique, {})
         ordered.append(
             {
                 "technique": technique,
-                "tactic": _technique_tactic(technique),
+                "tactic": _technique_tactic(technique, implemented_meta),
                 "score": int(meta["score"]),
                 "sources": sorted(list(meta["sources"])),
+                "implemented": technique in implemented_meta,
+                "implemented_evidence_count": len(impl.get('evidence_files', set())),
             }
         )
 
-    tactics = _summarize_tactics(techniques)
+    tactics = _summarize_tactics(techniques, implemented_meta)
     score_dist = _score_distribution(techniques)
 
     priority = []
@@ -247,6 +317,13 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
         })
 
     covered_gte3 = len([t for t in ordered if t["score"] >= 3])
+    implemented_count = len(implemented_meta)
+    implemented_covered_gte3 = len([t for t in ordered if t["score"] >= 3 and t["technique"] in implemented_meta])
+    implemented_tactics = {
+        _technique_tactic(t, implemented_meta)
+        for t in implemented_meta.keys()
+        if _technique_tactic(t, implemented_meta) != 'unknown'
+    }
 
     checked_at = datetime.now(timezone.utc).isoformat()
     coverage_percent = round((covered_gte3 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
@@ -255,6 +332,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
         "checked_at": checked_at,
         "enterprise_total_techniques": ENTERPRISE_TECHNIQUE_TOTAL,
         "observed_techniques": len(ordered),
+        "implemented_techniques": implemented_count,
+        "implemented_tactics": len(implemented_tactics),
         "covered_score_gte3": covered_gte3,
         "coverage_percent_gte3": coverage_percent,
         "score_distribution": score_dist,

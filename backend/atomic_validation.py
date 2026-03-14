@@ -6,6 +6,15 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+import asyncio
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 
 class AtomicValidationManager:
@@ -14,6 +23,7 @@ class AtomicValidationManager:
         self.atomic_root = Path(os.environ.get("ATOMIC_RED_TEAM_PATH", "/opt/atomic-red-team"))
         self.results_dir = Path(os.environ.get("ATOMIC_VALIDATION_RESULTS_DIR", "/var/lib/seraph-ai/atomic-validation"))
         self.runner = os.environ.get("ATOMIC_RUNNER", "pwsh")
+        self.db = None
 
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -64,6 +74,26 @@ class AtomicValidationManager:
                 "frequency": "weekly",
             },
         ]
+
+    def set_db(self, db):
+        self.db = db
+
+    def _emit_atomic_event(self, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict] = None):
+        if emit_world_event is None or self.db is None:
+            return
+        try:
+            asyncio.run(
+                emit_world_event(
+                    self.db,
+                    event_type=event_type,
+                    entity_refs=entity_refs or [],
+                    payload=payload or {},
+                    trigger_triune=False,
+                    source="backend.atomic_validation",
+                )
+            )
+        except Exception:
+            pass
 
     def _runner_available(self) -> bool:
         return shutil.which(self.runner) is not None
@@ -138,6 +168,7 @@ class AtomicValidationManager:
     def run_job(self, job_id: str, dry_run: bool = False) -> Dict:
         job = next((j for j in self.jobs if j["job_id"] == job_id), None)
         if not job:
+            self._emit_atomic_event("atomic_validation_job_failed", [job_id], {"reason": "unknown_job"})
             return {
                 "ok": False,
                 "message": f"Unknown job_id: {job_id}",
@@ -159,6 +190,7 @@ class AtomicValidationManager:
                 "dry_run": dry_run,
             }
             self._persist_run(payload)
+            self._emit_atomic_event("atomic_validation_job_skipped", [job_id, run_id], {"reason": "disabled"})
             return {"ok": True, **payload}
 
         command = self._build_command(job.get("techniques", []))
@@ -177,6 +209,7 @@ class AtomicValidationManager:
                 "dry_run": True,
             }
             self._persist_run(payload)
+            self._emit_atomic_event("atomic_validation_job_dry_run", [job_id, run_id], {"techniques": job.get("techniques", [])})
             return {"ok": True, **payload}
 
         if not self._runner_available():
@@ -193,6 +226,7 @@ class AtomicValidationManager:
                 "dry_run": False,
             }
             self._persist_run(payload)
+            self._emit_atomic_event("atomic_validation_job_failed", [job_id, run_id], {"reason": "runner_unavailable"})
             return {"ok": False, **payload}
 
         if not self._atomic_available():
@@ -209,6 +243,7 @@ class AtomicValidationManager:
                 "dry_run": False,
             }
             self._persist_run(payload)
+            self._emit_atomic_event("atomic_validation_job_failed", [job_id, run_id], {"reason": "atomic_root_missing"})
             return {"ok": False, **payload}
 
         try:
@@ -230,6 +265,11 @@ class AtomicValidationManager:
                 "dry_run": False,
             }
             self._persist_run(payload)
+            self._emit_atomic_event(
+                "atomic_validation_job_completed",
+                [job_id, run_id],
+                {"status": status, "exit_code": proc.returncode, "techniques": job.get("techniques", [])},
+            )
             return {"ok": proc.returncode == 0, **payload}
         except subprocess.TimeoutExpired as exc:
             payload = {
@@ -247,6 +287,7 @@ class AtomicValidationManager:
                 "dry_run": False,
             }
             self._persist_run(payload)
+            self._emit_atomic_event("atomic_validation_job_failed", [job_id, run_id], {"reason": "timeout"})
             return {"ok": False, **payload}
 
 

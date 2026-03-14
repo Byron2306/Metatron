@@ -22,6 +22,14 @@ from enum import Enum
 import hashlib
 import re
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -538,6 +546,21 @@ class ThreatCorrelationEngine:
     @classmethod
     def set_database(cls, db):
         cls._db = db
+
+    async def _emit_correlation_event(self, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict[str, Any]] = None):
+        if emit_world_event is None or self._db is None:
+            return
+        try:
+            await emit_world_event(
+                self._db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=False,
+                source="backend.threat_correlation",
+            )
+        except Exception:
+            pass
     
     def set_threat_intel(self, threat_intel):
         """Set threat intelligence manager reference"""
@@ -600,12 +623,26 @@ class ThreatCorrelationEngine:
             # Store in database
             if self._db is not None:
                 await self._db.threat_correlations.insert_one(asdict(result))
+            await self._emit_correlation_event(
+                "threat_correlation_completed",
+                [threat_id, correlation_id],
+                {
+                    "confidence": result.confidence,
+                    "matched_indicator_count": len(result.matched_indicators),
+                    "auto_actions": len(result.auto_actions_taken),
+                },
+            )
             
             logger.info(f"Correlation complete for {threat_id}: confidence={result.confidence}")
             
         except Exception as e:
             logger.error(f"Correlation error for {threat_id}: {e}")
             result.enrichment_data["error"] = str(e)
+            await self._emit_correlation_event(
+                "threat_correlation_failed",
+                [threat_id, correlation_id],
+                {"error": str(e)[:500]},
+            )
         
         return result
     
@@ -1091,7 +1128,13 @@ class ThreatCorrelationEngine:
         for threat in threats:
             result = await self.correlate_threat(threat)
             results.append(result)
-        
+
+        await self._emit_correlation_event(
+            "threat_correlation_batch_completed",
+            [],
+            {"threat_count": len(threats), "result_count": len(results)},
+        )
+
         return results
     
     def get_correlation(self, threat_id: str) -> Optional[CorrelationResult]:

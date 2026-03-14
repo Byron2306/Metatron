@@ -51,6 +51,7 @@ class EvaluateAccessRequest(BaseModel):
 async def _sync_engine_from_db(db):
     """Hydrate in-memory zero trust engine state from MongoDB documents."""
     try:
+        zero_trust_engine.set_db(db)
         device_docs = await db.zt_devices.find({}, {"_id": 0}).to_list(1000)
         policy_docs = await db.zt_policies.find({}, {"_id": 0}).to_list(1000)
         access_log_docs = await db.zt_access_logs.find({}, {"_id": 0}).sort("timestamp", -1).to_list(1000)
@@ -443,4 +444,3 @@ async def unblock_device(
         "new_trust_score": device.trust_score,
         "new_trust_level": device.trust_level.value
     }
-

@@ -37,6 +37,14 @@ from pathlib import Path
 import httpx
 from runtime_paths import ensure_data_dir
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -861,6 +869,17 @@ class AgenticResponseEngine:
             },
             results=[asdict(r) for r in results],
         )
+        await cls._emit_response_event(
+            "threat_response_processed",
+            [context.threat_id, response_id],
+            {
+                "severity": context.severity,
+                "result_count": len(results),
+                "success_count": sum(1 for r in results if r.status == ResponseStatus.SUCCESS),
+                "failed_count": sum(1 for r in results if r.status == ResponseStatus.FAILED),
+                "final_status": final_status,
+            },
+        )
 
         return results
     
@@ -891,6 +910,22 @@ class AgenticResponseEngine:
     def configure_db(cls, db):
         """Configure an optional persistence backend for durable response records."""
         cls._db = db
+
+    @classmethod
+    async def _emit_response_event(cls, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict[str, Any]] = None):
+        if emit_world_event is None or cls._db is None:
+            return
+        try:
+            await emit_world_event(
+                cls._db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=False,
+                source="backend.threat_response",
+            )
+        except Exception:
+            pass
 
     @classmethod
     def _derive_final_status(cls, results: List[ResponseResult]) -> str:
@@ -1076,6 +1111,11 @@ class AgenticResponseEngine:
                 "auto_responded": False,
                 "manual": True,
             }
+        )
+        await cls._emit_response_event(
+            "threat_response_manual_action_recorded",
+            [threat_id, response_id],
+            {"action": action.value, "status": terminal, "actor": actor},
         )
     
     @classmethod
