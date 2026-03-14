@@ -10,6 +10,10 @@ from pydantic import BaseModel
 from datetime import datetime, timezone
 
 from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/hunting", tags=["Threat Hunting"])
 
@@ -32,6 +36,7 @@ class HypothesisGenerateRequest(BaseModel):
 async def get_hunting_status(current_user: dict = Depends(get_current_user)):
     """Get threat hunting engine status"""
     from services.threat_hunting import threat_hunting_engine
+    threat_hunting_engine.set_db(get_db())
     
     return {
         "status": "operational",
@@ -47,6 +52,7 @@ async def get_hunting_rules(
 ):
     """Get all hunting rules"""
     from services.threat_hunting import threat_hunting_engine
+    threat_hunting_engine.set_db(get_db())
     
     if tactic:
         rules = threat_hunting_engine.get_rules_by_tactic(tactic)
@@ -98,12 +104,20 @@ async def toggle_rule(
 ):
     """Enable or disable a hunting rule"""
     from services.threat_hunting import threat_hunting_engine
+    threat_hunting_engine.set_db(get_db())
     
     rule = threat_hunting_engine.rules.get(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
     
     rule.enabled = request.enabled
+    await emit_world_event(
+        get_db(),
+        event_type="hunting_rule_toggled",
+        entity_refs=[rule_id],
+        payload={"enabled": rule.enabled, "actor": current_user.get("id")},
+        trigger_triune=False,
+    )
     
     return {"rule_id": rule_id, "enabled": rule.enabled}
 
@@ -123,6 +137,17 @@ async def execute_hunt(
     db = get_db()
     if matches and db is not None:
         await db.hunting_matches.insert_many([asdict(m) for m in matches])
+    await emit_world_event(
+        db,
+        event_type="hunting_executed",
+        entity_refs=[],
+        payload={
+            "actor": current_user.get("id"),
+            "total_matches": len(matches),
+            "high_severity": len([m for m in matches if m.severity in ["critical", "high"]]),
+        },
+        trigger_triune=False,
+    )
     
     return {
         "matches": [asdict(m) for m in matches],
@@ -177,6 +202,7 @@ async def get_high_severity_matches(
 async def get_mitre_tactics(current_user: dict = Depends(get_current_user)):
     """Get covered MITRE ATT&CK tactics"""
     from services.threat_hunting import threat_hunting_engine
+    threat_hunting_engine.set_db(get_db())
     
     tactics = {}
     for rule in threat_hunting_engine.rules.values():
@@ -197,6 +223,7 @@ async def get_mitre_tactics(current_user: dict = Depends(get_current_user)):
 async def get_mitre_techniques(current_user: dict = Depends(get_current_user)):
     """Get all covered MITRE ATT&CK techniques"""
     from services.threat_hunting import threat_hunting_engine
+    threat_hunting_engine.set_db(get_db())
     
     techniques = {}
     for rule in threat_hunting_engine.rules.values():

@@ -21,6 +21,11 @@ Version: 1.0.0
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from .dependencies import get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from pydantic import BaseModel, Field
 import asyncio
 import logging
@@ -244,6 +249,7 @@ async def start_firmware_scan(
         verify_signatures=request.verify_signatures,
     )
     
+    await emit_world_event(get_db(), event_type="secure_boot_firmware_scanned", entity_refs=[scan_id], payload={"deep_scan": request.deep_scan, "suspicious_components": result.suspicious_components}, trigger_triune=False)
     return FirmwareScanResponse(
         scan_id=scan_id,
         status="completed",
@@ -392,6 +398,7 @@ async def verify_firmware(request: FirmwareVerifyRequest):
         check_rollback=request.check_rollback,
     )
     
+    await emit_world_event(get_db(), event_type="secure_boot_firmware_verified", entity_refs=request.component_ids[:10], payload={"total_checked": result.total_checked, "failed": result.failed}, trigger_triune=False)
     return FirmwareVerifyResponse(
         verified=result.all_verified,
         total_checked=result.total_checked,
@@ -517,9 +524,11 @@ async def acknowledge_alert(alert_id: str):
     if not success:
         raise HTTPException(status_code=404, detail=f"Alert not found: {alert_id}")
     
+    ts = datetime.now(timezone.utc).isoformat()
+    await emit_world_event(get_db(), event_type="secure_boot_alert_acknowledged", entity_refs=[alert_id], payload={"timestamp": ts}, trigger_triune=False)
     return {
         "message": f"Alert {alert_id} acknowledged",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": ts,
     }
 
 

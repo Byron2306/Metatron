@@ -35,6 +35,10 @@ from attack_path_analysis import (
     BlastRadiusResult,
 )
 from .dependencies import check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +73,13 @@ async def _persist_crown_jewel(asset: CrownJewelAsset) -> None:
         },
         upsert=True,
     )
+    await emit_world_event(
+        db,
+        event_type="attack_path_crown_jewel_upserted",
+        entity_refs=[asset.asset_id],
+        payload={"name": asset.name, "asset_type": asset.asset_type.value, "criticality": asset.criticality.value},
+        trigger_triune=False,
+    )
 
 
 async def _remove_crown_jewel(asset_id: str) -> None:
@@ -76,6 +87,13 @@ async def _remove_crown_jewel(asset_id: str) -> None:
     if db is None:
         return
     await db[_CROWN_JEWELS_COLLECTION].delete_one({"asset_id": asset_id})
+    await emit_world_event(
+        db,
+        event_type="attack_path_crown_jewel_removed",
+        entity_refs=[asset_id],
+        payload={"asset_id": asset_id},
+        trigger_triune=False,
+    )
 
 
 async def _hydrate_crown_jewels_from_db() -> None:

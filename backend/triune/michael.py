@@ -203,6 +203,43 @@ class MichaelService:
 
         return out
 
+    async def plan_actions(
+        self,
+        candidates: List[str],
+        world_snapshot: Dict[str, Any] | None = None,
+        policy_tier: str = "standard",
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """Produce ranked action candidates plus orchestration metadata.
+
+        Michael remains action-planning focused and does not invent world truth.
+        """
+        world_snapshot = world_snapshot or {}
+        context = context or {}
+        ranked = await self.rank_responses(candidates or [])
+        top = ranked[0] if ranked else None
+
+        # basic blast radius estimate from hotspot count
+        blast_radius = len(world_snapshot.get("hotspots") or [])
+        reversibility = "high" if top and any(k in top.get("candidate", "") for k in ["monitor", "investigate"]) else "medium"
+
+        return {
+            "policy_tier": policy_tier,
+            "context": context,
+            "ranked_action_candidates": ranked,
+            "selected_action": top,
+            "sector_preparation_plan": {
+                "identity": "require_step_up_auth" if blast_radius >= 2 else "monitor_idp",
+                "endpoint": "prepare_isolation_profiles" if blast_radius >= 3 else "raise_edr_sensitivity",
+                "network": "tighten_egress_controls" if blast_radius >= 3 else "watch_lateral_movement",
+            },
+            "orchestration_plan": {
+                "blast_radius": blast_radius,
+                "reversibility": reversibility,
+                "requires_human_approval": policy_tier in {"high", "critical"},
+            },
+        }
+
 
 @router.get("/michael/hello")
 async def hello():

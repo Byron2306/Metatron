@@ -5,7 +5,11 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Backgro
 from typing import Optional, List
 from pydantic import BaseModel
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from sandbox_analysis import sandbox_service, SandboxService
 
 router = APIRouter(prefix="/sandbox", tags=["Sandbox Analysis"])
@@ -81,7 +85,7 @@ async def submit_file_for_analysis(
             sandbox_service.run_analysis,
             result["analysis_id"]
         )
-    
+    await emit_world_event(get_db(), event_type="sandbox_file_submitted", entity_refs=[result.get("analysis_id", ""), file.filename], payload={"actor": current_user.get("id"), "success": result.get("success", False), "cached": result.get("cached", False)}, trigger_triune=False)
     return result
 
 
@@ -104,7 +108,7 @@ async def submit_url_for_analysis(
             sandbox_service.run_analysis,
             result["analysis_id"]
         )
-    
+    await emit_world_event(get_db(), event_type="sandbox_url_submitted", entity_refs=[result.get("analysis_id", ""), request.url], payload={"actor": current_user.get("id"), "success": result.get("success", False)}, trigger_triune=False)
     return result
 
 
@@ -124,7 +128,7 @@ async def rerun_analysis(
         sandbox_service.run_analysis,
         analysis_id
     )
-    
+    await emit_world_event(get_db(), event_type="sandbox_analysis_rerun_queued", entity_refs=[analysis_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Analysis queued for re-run", "analysis_id": analysis_id}
 
 

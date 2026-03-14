@@ -18,6 +18,10 @@ import logging
 import uuid
 
 from routers.dependencies import get_current_user, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/cli", tags=["CLI Events"])
@@ -173,6 +177,13 @@ async def ingest_cli_command(
     
     await db.cli_commands.insert_one(event_doc)
     await db.events_raw.insert_one({**event_doc})
+    await emit_world_event(
+        db,
+        event_type="cli_command_ingested",
+        entity_refs=[event.host_id, event.session_id],
+        payload={"command": event.command, "user": event.user, "shell_type": event.shell_type},
+        trigger_triune=False,
+    )
     
     # Trigger background cognition analysis
     background_tasks.add_task(
@@ -213,6 +224,13 @@ async def ingest_session_summary(
     
     await db.cli_session_summaries.insert_one(summary_doc)
     await db.events_raw.insert_one({**summary_doc})
+    await emit_world_event(
+        db,
+        event_type="cli_session_summary_ingested",
+        entity_refs=[summary.host_id, summary.session_id],
+        payload={"machine_likelihood": summary.machine_likelihood, "dominant_intents": summary.dominant_intents},
+        trigger_triune=False,
+    )
     
     # Trigger SOAR playbook evaluation
     background_tasks.add_task(
@@ -324,6 +342,13 @@ async def ingest_deception_hit(
     
     await db.deception_hits.insert_one(event_doc)
     await db.events_raw.insert_one({**event_doc})
+    await emit_world_event(
+        db,
+        event_type="cli_deception_hit_ingested",
+        entity_refs=[event.host_id, event.token_id],
+        payload={"severity": event.severity.value, "suspect_pid": event.suspect_pid},
+        trigger_triune=False,
+    )
     
     # Immediately trigger SOAR for deception hits
     background_tasks.add_task(

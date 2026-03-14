@@ -39,6 +39,10 @@ class EDMHitTelemetryModel(BaseModel):
 
 from .dependencies import get_db
 try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
+try:
     from .dependencies import get_current_user, check_permission, db
 except Exception:
     def get_current_user(*args, **kwargs):
@@ -627,6 +631,7 @@ async def register_agent(
             }}
         )
         logger.info(f"Agent re-registered: {agent.agent_id} ({agent.platform})")
+        await emit_world_event(get_db(), event_type="unified_agent_registered", entity_refs=[agent.agent_id], payload={"platform": agent.platform, "re_registered": True, "enrollment_type": auth.get("type")}, trigger_triune=False)
         return {
             "status": "updated",
             "agent_id": agent.agent_id,
@@ -656,7 +661,7 @@ async def register_agent(
     
     await db.unified_agents.insert_one(agent_doc)
     logger.info(f"New agent registered: {agent.agent_id} ({agent.platform}) from {agent.ip_address}")
-    
+    await emit_world_event(get_db(), event_type="unified_agent_registered", entity_refs=[agent.agent_id], payload={"platform": agent.platform, "re_registered": False, "enrollment_type": auth.get("type")}, trigger_triune=False)
     return {
         "status": "registered",
         "agent_id": agent.agent_id,
@@ -717,6 +722,7 @@ async def agent_heartbeat(
         {"agent_id": agent_id},
         {"$set": update_data}
     )
+    await emit_world_event(get_db(), event_type="unified_agent_heartbeat", entity_refs=[agent_id], payload={"status": heartbeat.status, "threat_count": heartbeat.threat_count or 0}, trigger_triune=False)
     
     # Process any alerts
     for alert_data in heartbeat.alerts:
@@ -921,6 +927,7 @@ async def send_agent_command(
 
     resolved_parameters = command.parameters or command.params or {}
 
+    await emit_world_event(get_db(), event_type="unified_agent_command_requested", entity_refs=[agent_id], payload={"command_type": resolved_command_type, "actor": current_user.get("id")}, trigger_triune=False)
     return await _dispatch_agent_command(
         agent_id=agent_id,
         command_type=resolved_command_type,
@@ -959,6 +966,7 @@ async def send_agent_tooling_command(
             detail=f"Unsupported tooling command '{tool_name}'. Supported: {sorted(_TOOLING_COMMAND_MAP.keys())}",
         )
 
+    await emit_world_event(get_db(), event_type="unified_agent_command_requested", entity_refs=[agent_id], payload={"command_type": resolved_command_type, "actor": current_user.get("id")}, trigger_triune=False)
     return await _dispatch_agent_command(
         agent_id=agent_id,
         command_type=command_type,
@@ -2435,7 +2443,7 @@ async def report_command_result(
     })
     
     logger.info(f"Command result received: {command_id} from {agent_id} - {finalize.get('status')}")
-    
+    await emit_world_event(get_db(), event_type="unified_agent_command_result_received", entity_refs=[agent_id, command_id], payload={"status": finalize.get("status")}, trigger_triune=False)
     return {"status": "received", "command_id": command_id}
 
 
@@ -2579,9 +2587,8 @@ async def create_alert(alert: AlertModel):
     )
     
     await db.unified_alerts.insert_one(alert_doc)
-    
     logger.warning(f"ALERT [{alert.severity.upper()}] from {alert.agent_id}: {alert.message}")
-    
+    await emit_world_event(get_db(), event_type="unified_agent_alert_created", entity_refs=[alert_id, alert.agent_id], payload={"severity": alert.severity, "category": alert.category}, trigger_triune=False)
     return {"alert_id": alert_id, "status": "created"}
 
 
@@ -2670,6 +2677,7 @@ async def acknowledge_alert(
             raise HTTPException(status_code=409, detail="Alert already acknowledged")
         raise HTTPException(status_code=409, detail="Alert acknowledgment conflict; state changed concurrently")
     
+    await emit_world_event(get_db(), event_type="unified_agent_alert_acknowledged", entity_refs=[alert_id], payload={"actor": actor}, trigger_triune=False)
     return {"status": "acknowledged"}
 
 
@@ -3751,6 +3759,7 @@ async def _hunt_telemetry(telemetry: Dict):
     try:
         from services.threat_hunting import threat_hunting_engine
         from dataclasses import asdict
+        threat_hunting_engine.set_db(db)
         
         matches = threat_hunting_engine.hunt_all(telemetry)
         

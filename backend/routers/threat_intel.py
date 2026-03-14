@@ -6,6 +6,10 @@ from typing import Optional, List
 from pydantic import BaseModel
 
 from .dependencies import get_current_user, check_permission
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import threat intel service
 from threat_intel import threat_intel, ThreatIntelManager
@@ -64,6 +68,7 @@ async def check_indicator(request: IOCCheckRequest, current_user: dict = Depends
                 "threat_level": match.indicator.threat_level
             }
         ))
+        await emit_world_event(db, event_type="threat_intel_match", entity_refs=[match.query_value], payload={"ioc_type": match.query_type, "confidence": match.indicator.confidence, "threat_level": match.indicator.threat_level}, trigger_triune=False)
     result = {
         "matched": match.matched,
         "query_value": match.query_value,
@@ -135,4 +140,5 @@ async def ingest_indicators(request: IngestRequest, current_user: dict = Depends
     wm = WorldModelService(db)
     for it in items:
         await wm.upsert_entity(WorldEntity(id=it.get("value"), type="detection", attributes=it))
+        await emit_world_event(db, event_type="threat_intel_indicator_ingested", entity_refs=[it.get("value")], payload=it, trigger_triune=False)
     return {"message": "ingest recorded", "result": result}

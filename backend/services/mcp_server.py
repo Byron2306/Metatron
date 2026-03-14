@@ -21,6 +21,14 @@ from enum import Enum
 import uuid
 from collections import deque
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -219,6 +227,24 @@ class MCPServer:
         self._register_builtin_handlers()
         
         logger.info("MCP Server initialized")
+
+    def set_db(self, db):
+        """Attach optional DB context for canonical event emission."""
+        self.db = db
+
+    async def _emit_mcp_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        if emit_world_event is None or getattr(self, "db", None) is None:
+            return
+        try:
+            await emit_world_event(
+                self.db,
+                event_type=event_type,
+                entity_refs=entity_refs,
+                payload=payload,
+                trigger_triune=trigger_triune,
+            )
+        except Exception:
+            pass
     
     def _sign_message(self, message: MCPMessage) -> str:
         """Sign a message"""
@@ -1689,6 +1715,17 @@ class MCPServer:
         execution.audit_hash = hashlib.sha256(
             json.dumps(asdict(execution), sort_keys=True).encode()
         ).hexdigest()[:32]
+
+        await self._emit_mcp_event(
+            event_type="mcp_tool_request_executed",
+            entity_refs=[execution.execution_id, execution.tool_id, execution.principal],
+            payload={
+                "status": execution.status,
+                "policy_decision_id": execution.policy_decision_id,
+                "has_error": execution.error is not None,
+            },
+            trigger_triune=execution.status in {"failed", "timeout"},
+        )
         
         # Create response
         return self.create_message(
@@ -1709,6 +1746,8 @@ class MCPServer:
         """Handle a policy check request"""
         # Delegate to policy engine
         from services.policy_engine import policy_engine
+        if getattr(self, "db", None) is not None and hasattr(policy_engine, "set_db"):
+            policy_engine.set_db(self.db)
         
         payload = message.payload
         decision = policy_engine.evaluate(
@@ -1717,6 +1756,17 @@ class MCPServer:
             targets=payload.get("targets", []),
             trust_state=payload.get("trust_state", "unknown"),
             role=payload.get("role", "agent")
+        )
+
+        await self._emit_mcp_event(
+            event_type="mcp_policy_checked",
+            entity_refs=[decision.decision_id, payload.get("principal", message.source)],
+            payload={
+                "action": payload.get("action", ""),
+                "permitted": decision.permitted,
+                "approval_tier": decision.approval_tier.value,
+            },
+            trigger_triune=not decision.permitted,
         )
         
         return self.create_message(
@@ -1740,6 +1790,8 @@ class MCPServer:
     async def _handle_telemetry(self, message: MCPMessage) -> MCPMessage:
         """Handle telemetry ingestion"""
         from services.telemetry_chain import tamper_evident_telemetry
+        if getattr(self, "db", None) is not None and hasattr(tamper_evident_telemetry, "set_db"):
+            tamper_evident_telemetry.set_db(self.db)
         
         payload = message.payload
         event = tamper_evident_telemetry.ingest_event(

@@ -16,6 +16,7 @@ from threat_response import (
 )
 # Use centralized reasoning snapshot input
 from services.ai_reasoning import ai_reasoning, ReasoningContext
+from services.world_events import emit_world_event
 
 router = APIRouter(prefix="/threat-response", tags=["Threat Response"])
 
@@ -63,6 +64,13 @@ async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_p
         db = get_db()
         wm = WorldModelService(db)
         await wm.upsert_entity(WorldEntity(id=request.ip, type="agent", attributes={"blocked": True, "reason": request.reason}))
+        triune = await emit_world_event(
+            db,
+            event_type="response_block_ip",
+            entity_refs=[request.ip],
+            payload={"reason": request.reason, "duration_hours": request.duration_hours, "actor": current_user.get("name", "admin")},
+        )
+        result["triune"] = triune.get("triune")
         return result
     except Exception as e:
         logger.error(f"Failed to block IP: {str(e)}")
@@ -79,6 +87,13 @@ async def unblock_ip(ip: str, current_user: dict = Depends(check_permission("wri
         db = get_db()
         wm = WorldModelService(db)
         await wm.entities.update_one({"id": ip}, {"$set": {"attributes.blocked": False}})
+        triune = await emit_world_event(
+            db,
+            event_type="response_unblock_ip",
+            entity_refs=[ip],
+            payload={"actor": current_user.get("name", "admin")},
+        )
+        result["triune"] = triune.get("triune")
         return result
     except Exception as e:
         logger.error(f"Failed to unblock IP: {str(e)}")
@@ -109,7 +124,7 @@ async def toggle_auto_block(enabled: bool, current_user: dict = Depends(check_pe
     
     # Update in-memory config
     response_config.auto_block_enabled = enabled
-    
+    await emit_world_event(get_db(), event_type="response_auto_block_toggled", entity_refs=[], payload={"enabled": enabled, "actor": current_user.get("id")}, trigger_triune=False)
     return {"auto_block_enabled": enabled, "message": f"Auto-block {'enabled' if enabled else 'disabled'}"}
 
 @router.get("/settings")
@@ -190,7 +205,7 @@ async def update_response_settings(settings: dict, current_user: dict = Depends(
     sms_service.account_sid = update_doc["twilio_account_sid"]
     sms_service.auth_token = update_doc["twilio_auth_token"]
     sms_service.from_number = update_doc["twilio_phone_number"]
-    
+    await emit_world_event(get_db(), event_type="response_settings_updated", entity_refs=[], payload={"actor": current_user.get("id"), "auto_block_enabled": update_doc["auto_block_enabled"], "sms_alerts_enabled": update_doc["sms_alerts_enabled"]}, trigger_triune=False)
     return {"message": "Settings updated", "updated_at": update_doc["updated_at"]}
 
 @router.post("/test-sms")
@@ -199,6 +214,7 @@ async def test_sms(request: SMSTestRequest, current_user: dict = Depends(check_p
     try:
         result = await sms_service.send_alert(request.phone_number, request.message)
         if result:
+            await emit_world_event(get_db(), event_type="response_sms_tested", entity_refs=[request.phone_number], payload={"actor": current_user.get("id"), "success": True}, trigger_triune=False)
             return {"success": True, "message": "SMS sent"}
         else:
             raise HTTPException(status_code=500, detail="SMS sending failed")
@@ -233,6 +249,7 @@ async def analyze_with_openclaw(threat_data: dict, current_user: dict = Depends(
 
         # Primary analysis uses the canonical snapshot analyzer
         analysis = ai_reasoning.analyze_snapshot(ctx)
+        await emit_world_event(get_db(), event_type="response_openclaw_analysis_requested", entity_refs=[str(threat_data.get("id", "unknown"))], payload={"actor": current_user.get("id"), "threat_type": threat_data.get("type", "unknown")}, trigger_triune=False)
 
         # Optionally enrich with OpenClaw's agent analysis when enabled; do not fail if unavailable
         openclaw_result = None

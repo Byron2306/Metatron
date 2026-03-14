@@ -18,6 +18,10 @@ except ImportError:
 from .dependencies import (
     AIAnalysisRequest, AIAnalysisResponse, get_current_user, get_db, logger
 )
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/ai", tags=["AI Analysis"])
 
@@ -209,6 +213,13 @@ async def ai_analyze(request: AIAnalysisRequest, current_user: dict = Depends(ge
             {"date": today},
             {"$inc": {"count": 1}},
             upsert=True
+        )
+        await emit_world_event(
+            db,
+            event_type="ai_analysis_completed",
+        trigger_triune=False,
+            entity_refs=[analysis_id],
+            payload={"analysis_type": request.analysis_type, "user_id": current_user.get("id")},
         )
         
         return AIAnalysisResponse(

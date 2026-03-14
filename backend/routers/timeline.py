@@ -10,6 +10,10 @@ from .dependencies import get_current_user, get_db, check_permission
 
 # world model ingestion helpers
 from services.world_model import WorldModelService, WorldEntity, WorldEdge
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import timeline services
 from threat_timeline import timeline_builder, ReportType
@@ -101,6 +105,7 @@ async def get_timeline_report(
         raise HTTPException(status_code=404, detail="Could not build timeline")
 
     report = timeline_builder.generate_report(timeline, report_type=report_type)
+    await emit_world_event(get_db(), event_type="timeline_report_generated", entity_refs=[threat_id], payload={"report_type": report_type.value, "actor": current_user.get("id")}, trigger_triune=False)
     return {
         "threat_id": threat_id,
         "report_type": report_type.value,
@@ -132,6 +137,7 @@ async def register_timeline_artifact(
             type="file",  # use existing EntityType
             attributes=asdict(artifact),
         ))
+        await emit_world_event(db, event_type="timeline_artifact_registered", entity_refs=[artifact.artifact_id], payload=asdict(artifact), trigger_triune=False)
     except Exception:
         # ingestion is best-effort
         logger.warning("Failed to ingest timeline artifact into world model")
@@ -165,6 +171,7 @@ async def update_artifact_custody(
         db = get_db()
         wm = WorldModelService(db)
         await wm.add_edge(WorldEdge(source=artifact_id, target=actor, relation="custody_update"))
+        await emit_world_event(db, event_type="timeline_custody_updated", entity_refs=[artifact_id, actor], payload={"action": request.action, "notes": request.notes or ""}, trigger_triune=False)
     except Exception:
         logger.warning("Failed to record custody edge in world model")
 
@@ -222,6 +229,7 @@ async def export_threat_timeline(threat_id: str, format: str = "json", current_u
         raise HTTPException(status_code=404, detail="Could not build timeline")
     
     from dataclasses import asdict
+    await emit_world_event(get_db(), event_type="timeline_export_requested", entity_refs=[threat_id], payload={"format": format, "actor": current_user.get("id")}, trigger_triune=False)
     if format == "json":
         return asdict(timeline)
     elif format == "markdown":

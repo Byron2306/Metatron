@@ -16,6 +16,10 @@ from datetime import datetime, timezone
 
 from .dependencies import get_db
 try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
+try:
     from .dependencies import get_current_user, check_permission, db
 except Exception:
     def get_current_user(*args, **kwargs):
@@ -120,6 +124,7 @@ async def submit_attestation(request: AttestationRequest):
     Returns trust state and score.
     """
     from services.identity import identity_service, AttestationData
+    identity_service.set_db(get_db())
     
     # Create attestation data
     attestation = AttestationData(
@@ -142,6 +147,7 @@ async def submit_attestation(request: AttestationRequest):
         cert_fingerprint=request.cert_fingerprint,
         attestation=attestation
     )
+    await emit_world_event(get_db(), event_type="enterprise_identity_attested", entity_refs=[request.agent_id], payload={"hostname": request.hostname, "os_type": request.os_type}, trigger_triune=False)
     
     return {
         "spiffe_id": identity.spiffe_id,
@@ -157,6 +163,7 @@ async def submit_attestation(request: AttestationRequest):
 async def get_attestation_nonce():
     """Get a one-time nonce for attestation"""
     from services.identity import identity_service
+    identity_service.set_db(get_db())
     
     nonce = identity_service.generate_nonce()
     return {"nonce": nonce, "valid_seconds": 60}
@@ -166,6 +173,7 @@ async def get_attestation_nonce():
 async def get_identity(agent_id: str, current_user: dict = Depends(get_current_user)):
     """Get identity for an agent"""
     from services.identity import identity_service
+    identity_service.set_db(get_db())
     
     identity = identity_service.get_identity(agent_id)
     if not identity:
@@ -185,6 +193,7 @@ async def get_identity(agent_id: str, current_user: dict = Depends(get_current_u
 async def list_identities(current_user: dict = Depends(get_current_user)):
     """List all registered identities"""
     from services.identity import identity_service
+    identity_service.set_db(get_db())
     
     return {"identities": identity_service.get_all_identities()}
 
@@ -197,10 +206,12 @@ async def quarantine_agent(
 ):
     """Quarantine an agent"""
     from services.identity import identity_service
+    identity_service.set_db(get_db())
     
     success = identity_service.quarantine_agent(agent_id, reason)
     if not success:
         raise HTTPException(status_code=404, detail="Agent not found")
+    await emit_world_event(get_db(), event_type="enterprise_identity_quarantined", entity_refs=[agent_id], payload={"reason": reason, "actor": current_user.get("id")}, trigger_triune=False)
     
     return {"status": "quarantined", "agent_id": agent_id, "reason": reason}
 
@@ -216,6 +227,7 @@ async def evaluate_policy(request: PolicyEvaluationRequest):
     Returns permit/deny and constraints.
     """
     from services.policy_engine import policy_engine
+    policy_engine.set_db(get_db())
     
     decision = policy_engine.evaluate(
         principal=request.principal,
@@ -227,6 +239,7 @@ async def evaluate_policy(request: PolicyEvaluationRequest):
         evidence_confidence=request.evidence_confidence,
         incident_mode=request.incident_mode
     )
+    await emit_world_event(get_db(), event_type="enterprise_policy_evaluated", entity_refs=[request.principal], payload={"action": request.action, "permitted": decision.permitted}, trigger_triune=False)
     
     return {
         "decision_id": decision.decision_id,
@@ -249,9 +262,11 @@ async def approve_decision(
 ):
     """Approve a pending policy decision"""
     from services.policy_engine import policy_engine
+    policy_engine.set_db(get_db())
     
     approver = current_user.get("email", "unknown")
     success, message = policy_engine.approve(decision_id, approver)
+    await emit_world_event(get_db(), event_type="enterprise_policy_approved", entity_refs=[decision_id], payload={"success": success, "actor": approver}, trigger_triune=False)
     
     return {"success": success, "message": message}
 
@@ -264,9 +279,11 @@ async def deny_decision(
 ):
     """Deny a pending policy decision"""
     from services.policy_engine import policy_engine
+    policy_engine.set_db(get_db())
     
     denier = current_user.get("email", "unknown")
     success = policy_engine.deny(decision_id, denier, reason)
+    await emit_world_event(get_db(), event_type="enterprise_policy_denied", entity_refs=[decision_id], payload={"success": success, "actor": denier, "reason": reason}, trigger_triune=False)
     
     return {"success": success}
 
@@ -275,6 +292,7 @@ async def deny_decision(
 async def get_pending_approvals(current_user: dict = Depends(get_current_user)):
     """Get pending policy approvals"""
     from services.policy_engine import policy_engine
+    policy_engine.set_db(get_db())
     
     return {"pending": policy_engine.get_pending_approvals()}
 
@@ -283,6 +301,7 @@ async def get_pending_approvals(current_user: dict = Depends(get_current_user)):
 async def get_policy_status(current_user: dict = Depends(get_current_user)):
     """Get policy engine status"""
     from services.policy_engine import policy_engine
+    policy_engine.set_db(get_db())
     
     return policy_engine.get_policy_status()
 
@@ -309,6 +328,7 @@ async def issue_token(
         max_uses=request.max_uses,
         constraints=request.constraints
     )
+    await emit_world_event(get_db(), event_type="enterprise_token_issued", entity_refs=[token.token_id, request.principal], payload={"action": request.action, "targets": request.targets}, trigger_triune=False)
     
     return {
         "token_id": token.token_id,
@@ -337,6 +357,7 @@ async def validate_token(
         action=action,
         target=target
     )
+    await emit_world_event(get_db(), event_type="enterprise_token_validated", entity_refs=[token_id, principal], payload={"valid": valid, "action": action, "target": target}, trigger_triune=False)
     
     return {"valid": valid, "message": message}
 
@@ -350,6 +371,7 @@ async def revoke_token(
     from services.token_broker import token_broker
     
     success = token_broker.revoke_token(token_id)
+    await emit_world_event(get_db(), event_type="enterprise_token_revoked", entity_refs=[token_id], payload={"success": success, "actor": current_user.get("id")}, trigger_triune=False)
     return {"success": success}
 
 
@@ -362,6 +384,7 @@ async def revoke_principal_tokens(
     from services.token_broker import token_broker
     
     count = token_broker.revoke_tokens_for_principal(principal)
+    await emit_world_event(get_db(), event_type="enterprise_principal_tokens_revoked", entity_refs=[principal], payload={"revoked_count": count, "actor": current_user.get("id")}, trigger_triune=False)
     return {"revoked_count": count}
 
 
@@ -455,6 +478,7 @@ async def execute_tool(
         token_id=request.token_id,
         trust_state=request.trust_state
     )
+    await emit_world_event(get_db(), event_type="enterprise_tool_executed", entity_refs=[request.tool_id, principal], payload={"execution_id": execution.execution_id, "status": execution.status}, trigger_triune=False)
     
     return {
         "execution_id": execution.execution_id,
@@ -475,6 +499,7 @@ async def execute_tool(
 async def ingest_event(request: TelemetryEventRequest):
     """Ingest a telemetry event into the tamper-evident chain"""
     from services.telemetry_chain import tamper_evident_telemetry
+    tamper_evident_telemetry.set_db(get_db())
     
     event = tamper_evident_telemetry.ingest_event(
         event_type=request.event_type,
@@ -485,6 +510,7 @@ async def ingest_event(request: TelemetryEventRequest):
         signature=request.signature,
         trace_id=request.trace_id
     )
+    await emit_world_event(get_db(), event_type="enterprise_telemetry_event_ingested", entity_refs=[event.event_id], payload={"event_type": request.event_type, "severity": request.severity}, trigger_triune=False)
     
     return {
         "event_id": event.event_id,
@@ -502,6 +528,7 @@ async def record_audit_action(
 ):
     """Record an action in the audit chain"""
     from services.telemetry_chain import tamper_evident_telemetry
+    tamper_evident_telemetry.set_db(get_db())
     
     record = tamper_evident_telemetry.record_action(
         principal=request.principal,
@@ -515,6 +542,7 @@ async def record_audit_action(
         tool_id=request.tool_id,
         constraints=request.constraints
     )
+    await emit_world_event(get_db(), event_type="enterprise_telemetry_audit_recorded", entity_refs=[record.record_id], payload={"principal": request.principal, "action": request.action}, trigger_triune=False)
     
     return {
         "record_id": record.record_id,
@@ -533,6 +561,7 @@ async def query_events(
 ):
     """Query telemetry events"""
     from services.telemetry_chain import tamper_evident_telemetry
+    tamper_evident_telemetry.set_db(get_db())
     
     return {"events": tamper_evident_telemetry.get_events(event_type, agent_id, severity, limit)}
 
@@ -547,6 +576,7 @@ async def query_audit_trail(
 ):
     """Query audit trail"""
     from services.telemetry_chain import tamper_evident_telemetry
+    tamper_evident_telemetry.set_db(get_db())
     
     return {"records": tamper_evident_telemetry.get_audit_trail(principal, action, case_id, limit)}
 
@@ -555,6 +585,7 @@ async def query_audit_trail(
 async def verify_chain_integrity(current_user: dict = Depends(get_current_user)):
     """Verify chain integrity"""
     from services.telemetry_chain import tamper_evident_telemetry
+    tamper_evident_telemetry.set_db(get_db())
     
     valid, message = tamper_evident_telemetry.verify_chain_integrity()
     status = tamper_evident_telemetry.get_chain_status()

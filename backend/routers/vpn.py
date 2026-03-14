@@ -6,7 +6,11 @@ from fastapi.responses import PlainTextResponse
 from typing import Optional
 from pydantic import BaseModel
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import VPN service
 from vpn_integration import vpn_manager, VPNManager
@@ -31,18 +35,21 @@ async def get_vpn_status(current_user: dict = Depends(get_current_user)):
 async def initialize_vpn(current_user: dict = Depends(check_permission("write"))):
     """Initialize VPN server (generates keys and config)"""
     result = await vpn_manager.initialize()
+    await emit_world_event(get_db(), event_type="vpn_initialized", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return result
 
 @router.post("/start")
 async def start_vpn(current_user: dict = Depends(check_permission("write"))):
     """Start VPN server"""
     result = await vpn_manager.start()
+    await emit_world_event(get_db(), event_type="vpn_started", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return result
 
 @router.post("/stop")
 async def stop_vpn(current_user: dict = Depends(check_permission("write"))):
     """Stop VPN server"""
     result = await vpn_manager.stop()
+    await emit_world_event(get_db(), event_type="vpn_stopped", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return result
 
 @router.get("/peers")
@@ -57,10 +64,10 @@ async def add_peer(request: AddPeerRequest, current_user: dict = Depends(check_p
     peer = await vpn_manager.add_peer(request.name)
     # ingest peer into world model
     from services.world_model import WorldModelService, WorldEntity
-    from routers.dependencies import get_db
     db = get_db()
     wm = WorldModelService(db)
     await wm.upsert_entity(WorldEntity(id=peer.get("id"), type="agent", attributes={"name": peer.get("name"), "vpn": True}))
+    await emit_world_event(db, event_type="vpn_peer_added", entity_refs=[peer.get("id")], payload=peer, trigger_triune=False)
     return {"message": "Peer added", "peer": peer}
 
 @router.get("/peers/{peer_id}/config")
@@ -79,10 +86,10 @@ async def remove_peer(peer_id: str, current_user: dict = Depends(check_permissio
         raise HTTPException(status_code=404, detail="Peer not found")
     # update world model
     from services.world_model import WorldModelService
-    from routers.dependencies import get_db
     db = get_db()
     wm = WorldModelService(db)
     await wm.entities.update_one({"id": peer_id}, {"$set": {"attributes.removed": True}})
+    await emit_world_event(db, event_type="vpn_peer_removed", entity_refs=[peer_id], payload={"removed": True}, trigger_triune=False)
     return {"message": "Peer removed"}
 
 @router.get("/kill-switch")
@@ -94,10 +101,12 @@ async def get_kill_switch_status(current_user: dict = Depends(get_current_user))
 async def enable_kill_switch(current_user: dict = Depends(check_permission("manage_users"))):
     """Enable VPN kill switch"""
     result = await vpn_manager.kill_switch.enable()
+    await emit_world_event(get_db(), event_type="vpn_kill_switch_enabled", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return result
 
 @router.post("/kill-switch/disable")
 async def disable_kill_switch(current_user: dict = Depends(check_permission("manage_users"))):
     """Disable VPN kill switch"""
     result = await vpn_manager.kill_switch.disable()
+    await emit_world_event(get_db(), event_type="vpn_kill_switch_disabled", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return result

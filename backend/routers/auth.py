@@ -11,6 +11,10 @@ from .dependencies import (
     hash_password, verify_password, create_token, get_current_user,
     get_db, check_permission, ROLES
 )
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -40,6 +44,8 @@ async def register(user_data: UserCreate):
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.users.insert_one(user_doc)
+    await emit_world_event(db, event_type="auth_user_registered",
+        trigger_triune=False, entity_refs=[user_id], payload={"email": normalized_email, "role": role})
     
     token = create_token(user_id, normalized_email)
     return TokenResponse(
@@ -115,6 +121,13 @@ async def setup_admin(
             {"email": normalized_email},
             {"$set": {"role": "admin"}}
         )
+        await emit_world_event(
+            db,
+            event_type="auth_admin_setup_promote",
+        trigger_triune=False,
+            entity_refs=[existing_user["id"]],
+            payload={"email": normalized_email, "role": "admin"},
+        )
         user_id = existing_user["id"]
         name = existing_user["name"]
         created_at = existing_user["created_at"]
@@ -130,6 +143,13 @@ async def setup_admin(
             "role": "admin",
             "created_at": created_at,
         })
+        await emit_world_event(
+            db,
+            event_type="auth_admin_setup_created",
+        trigger_triune=False,
+            entity_refs=[user_id],
+            payload={"email": normalized_email, "role": "admin"},
+        )
 
     token = create_token(user_id, normalized_email)
     return TokenResponse(
@@ -159,6 +179,13 @@ async def update_user_role(user_id: str, role_update: RoleUpdate, current_user: 
     )
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
+    await emit_world_event(
+        db,
+        event_type="auth_user_role_updated",
+        trigger_triune=False,
+        entity_refs=[user_id],
+        payload={"role": role_update.role, "updated_by": current_user.get("id")},
+    )
     return {"message": "Role updated", "role": role_update.role}
 
 @users_router.get("")

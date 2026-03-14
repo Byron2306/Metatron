@@ -10,6 +10,10 @@ from .dependencies import get_current_user, check_permission, logger
 import uuid
 # world model service for ingestion
 from services.world_model import WorldModelService, WorldEntity, WorldEdge
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from routers.dependencies import get_db
 from soar_engine import soar_engine, PlaybookStatus
 
@@ -84,6 +88,7 @@ async def create_playbook(
             "created_by": current_user["id"]
         })
         logger.info(f"Created playbook {playbook['id']} by user {current_user['id']}")
+        await emit_world_event(get_db(), event_type="soar_playbook_created", entity_refs=[playbook["id"]], payload={"actor": current_user.get("id"), "trigger": playbook.get("trigger")}, trigger_triune=False)
         return playbook
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -100,6 +105,7 @@ async def update_playbook(
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
     logger.info(f"Updated playbook {playbook_id} by user {current_user['id']}")
+    await emit_world_event(get_db(), event_type="soar_playbook_updated", entity_refs=[playbook_id], payload={"actor": current_user.get("id"), "updated_fields": list(update_data.keys())}, trigger_triune=False)
     return playbook
 
 @router.delete("/playbooks/{playbook_id}")
@@ -111,6 +117,7 @@ async def delete_playbook(
     if not soar_engine.delete_playbook(playbook_id):
         raise HTTPException(status_code=404, detail="Playbook not found")
     logger.info(f"Deleted playbook {playbook_id} by user {current_user['id']}")
+    await emit_world_event(get_db(), event_type="soar_playbook_deleted", entity_refs=[playbook_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"success": True, "message": "Playbook deleted"}
 
 @router.post("/playbooks/{playbook_id}/toggle")
@@ -125,6 +132,7 @@ async def toggle_playbook(
     
     new_status = "disabled" if playbook["status"] == "active" else "active"
     updated = soar_engine.update_playbook(playbook_id, {"status": new_status})
+    await emit_world_event(get_db(), event_type="soar_playbook_toggled", entity_refs=[playbook_id], payload={"actor": current_user.get("id"), "new_status": new_status}, trigger_triune=False)
     return {"success": True, "new_status": new_status}
 
 @router.post("/playbooks/{playbook_id}/execute")
@@ -170,6 +178,7 @@ async def trigger_playbooks(
             await wm.add_edge(
                 WorldEdge(source=event_dict["source_ip"], target=event_id, relation="soar_event")
             )
+        await emit_world_event(db, event_type="soar_trigger", entity_refs=[event_id], payload=event_dict, trigger_triune=False)
     except Exception:
         logger.warning("SOAR trigger event ingestion failed")
     

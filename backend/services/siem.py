@@ -13,6 +13,15 @@ from typing import Optional, List, Dict, Any
 from collections import deque
 import threading
 import time
+import asyncio
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 try:
     import httpx
@@ -78,6 +87,30 @@ class SIEMService:
         # Start background flush thread
         if self.enabled:
             self._start_flush_thread()
+
+    def set_db(self, db):
+        self.db = db
+
+    def _emit_siem_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        if emit_world_event is None or getattr(self, "db", None) is None:
+            return
+        coro = emit_world_event(self.db, event_type=event_type, entity_refs=entity_refs, payload=payload, trigger_triune=trigger_triune)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def _start_flush_thread(self):
         """Start background thread to flush buffer"""
@@ -132,6 +165,13 @@ class SIEMService:
             # Buffer for batch sending
             with self.buffer_lock:
                 self.buffer.append(event)
+
+        self._emit_siem_event(
+            event_type="siem_event_logged",
+            entity_refs=[event_type, agent_id or "server"],
+            payload={"severity": severity, "immediate": bool(immediate)},
+            trigger_triune=severity in {"critical", "high"},
+        )
     
     def log_threat(self, threat_data: Dict[str, Any], action: str = "detected"):
         """Log a threat detection/remediation event"""

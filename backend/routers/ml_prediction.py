@@ -5,7 +5,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 from pydantic import BaseModel
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from ml_threat_prediction import ml_predictor, MLThreatPredictor
 
 router = APIRouter(prefix="/ml", tags=["ML Threat Prediction"])
@@ -114,6 +118,7 @@ async def predict_network_threat(
 ):
     """Analyze network traffic with ML for threat prediction"""
     prediction = await ml_predictor.predict_network_threat(request.model_dump())
+    await emit_world_event(get_db(), event_type="ml_network_prediction_generated", entity_refs=[prediction.prediction_id, request.source_ip], payload={"actor": current_user.get("id"), "threat_score": prediction.threat_score, "risk_level": prediction.risk_level.value}, trigger_triune=False)
     return {
         "prediction_id": prediction.prediction_id,
         "threat_score": prediction.threat_score,
@@ -133,6 +138,7 @@ async def predict_process_threat(
 ):
     """Analyze process behavior with ML for threat prediction"""
     prediction = await ml_predictor.predict_process_threat(request.model_dump())
+    await emit_world_event(get_db(), event_type="ml_process_prediction_generated", entity_refs=[prediction.prediction_id, request.process_name], payload={"actor": current_user.get("id"), "threat_score": prediction.threat_score, "risk_level": prediction.risk_level.value}, trigger_triune=False)
     return {
         "prediction_id": prediction.prediction_id,
         "threat_score": prediction.threat_score,
@@ -152,6 +158,7 @@ async def predict_file_threat(
 ):
     """Analyze file with ML for threat prediction"""
     prediction = await ml_predictor.predict_file_threat(request.model_dump())
+    await emit_world_event(get_db(), event_type="ml_file_prediction_generated", entity_refs=[prediction.prediction_id, request.filename], payload={"actor": current_user.get("id"), "threat_score": prediction.threat_score, "risk_level": prediction.risk_level.value}, trigger_triune=False)
     return {
         "prediction_id": prediction.prediction_id,
         "threat_score": prediction.threat_score,
@@ -171,6 +178,7 @@ async def predict_user_threat(
 ):
     """Analyze user behavior with ML for insider threat prediction (UEBA)"""
     prediction = await ml_predictor.predict_user_threat(request.model_dump())
+    await emit_world_event(get_db(), event_type="ml_user_prediction_generated", entity_refs=[prediction.prediction_id, request.user_id], payload={"actor": current_user.get("id"), "threat_score": prediction.threat_score, "risk_level": prediction.risk_level.value}, trigger_triune=False)
     return {
         "prediction_id": prediction.prediction_id,
         "threat_score": prediction.threat_score,
@@ -188,4 +196,5 @@ async def predict_from_snapshot(snapshot: dict, current_user: dict = Depends(get
     """Accept a canonical ReasoningContext-like snapshot and return ML predictions mapped to triune."""
     # Best-effort: forward the snapshot to the ML predictor which will decide per-entity
     result = await ml_predictor.predict_from_snapshot(snapshot)
+    await emit_world_event(get_db(), event_type="ml_snapshot_prediction_generated", entity_refs=[], payload={"actor": current_user.get("id"), "result_type": type(result).__name__}, trigger_triune=False)
     return result

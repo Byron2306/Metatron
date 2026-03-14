@@ -3,6 +3,14 @@ from datetime import datetime, timezone
 import secrets
 import logging
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,6 +63,18 @@ class OutboundGateService:
             raise
 
         logger.info("Enqueued command %s for agent %s as queue=%s decision=%s", command_id, agent_id, queue_doc["queue_id"], decision_doc["decision_id"])
+
+        if emit_world_event is not None and self.db is not None:
+            try:
+                await emit_world_event(
+                    self.db,
+                    event_type="outbound_gate_command_queued",
+                    entity_refs=[agent_id, command_id, queue_doc["queue_id"], decision_doc["decision_id"]],
+                    payload={"status": "pending"},
+                    trigger_triune=True,
+                )
+            except Exception:
+                pass
 
         return {
             "status": "queued",

@@ -5,7 +5,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 from pydantic import BaseModel
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import EDR service
 from edr_service import edr_manager, EDRManager
@@ -44,12 +48,14 @@ async def get_fim_status(current_user: dict = Depends(get_current_user)):
 async def create_fim_baseline(current_user: dict = Depends(check_permission("write"))):
     """Create FIM baseline"""
     result = await edr_manager.create_fim_baseline()
+    await emit_world_event(get_db(), event_type="edr_fim_baseline_created", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return result
 
 @router.post("/fim/check")
 async def check_file_integrity(current_user: dict = Depends(get_current_user)):
     """Check file integrity against baseline"""
     events = await edr_manager.check_file_integrity()
+    await emit_world_event(get_db(), event_type="edr_fim_check_completed", entity_refs=[], payload={"violations": len(events)}, trigger_triune=False)
     return {
         "events": events,
         "count": len(events),
@@ -60,6 +66,7 @@ async def check_file_integrity(current_user: dict = Depends(get_current_user)):
 async def add_monitored_path(request: FIMPathRequest, current_user: dict = Depends(check_permission("write"))):
     """Add path to FIM monitoring"""
     edr_manager.fim.add_monitored_path(request.path)
+    await emit_world_event(get_db(), event_type="edr_fim_monitored_path_added", entity_refs=[request.path], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": f"Added {request.path} to monitoring"}
 
 # USB Device Control endpoints
@@ -78,12 +85,14 @@ async def get_usb_status(current_user: dict = Depends(get_current_user)):
 async def allow_usb_device(request: USBDeviceRequest, current_user: dict = Depends(check_permission("write"))):
     """Allow a USB device"""
     edr_manager.usb_control.allow_device(request.vendor_id, request.product_id)
+    await emit_world_event(get_db(), event_type="edr_usb_allowlisted", entity_refs=[f"{request.vendor_id}:{request.product_id}"], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": f"Device {request.vendor_id}:{request.product_id} allowed"}
 
 @router.post("/usb/block")
 async def block_usb_device(request: USBDeviceRequest, current_user: dict = Depends(check_permission("write"))):
     """Block a USB device"""
     edr_manager.usb_control.block_device(request.vendor_id, request.product_id)
+    await emit_world_event(get_db(), event_type="edr_usb_blocklisted", entity_refs=[f"{request.vendor_id}:{request.product_id}"], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": f"Device {request.vendor_id}:{request.product_id} blocked"}
 
 # Memory Forensics endpoints
@@ -96,12 +105,14 @@ async def get_memory_forensics_status(current_user: dict = Depends(get_current_u
 async def analyze_memory_dump(request: MemoryAnalysisRequest, current_user: dict = Depends(check_permission("write"))):
     """Analyze a memory dump file"""
     result = await edr_manager.analyze_memory(request.dump_path)
+    await emit_world_event(get_db(), event_type="edr_memory_analyzed", entity_refs=[request.dump_path], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return result
 
 @router.post("/memory/capture")
 async def capture_live_memory(current_user: dict = Depends(check_permission("manage_users"))):
     """Capture live system memory"""
     result = await edr_manager.capture_memory()
+    await emit_world_event(get_db(), event_type="edr_memory_capture_requested", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return result
 
 # Telemetry endpoints

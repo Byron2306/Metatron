@@ -6,7 +6,11 @@ from typing import Optional, List
 from pydantic import BaseModel
 from dataclasses import asdict
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from mobile_security import mobile_security_service
 
 router = APIRouter(prefix="/mobile-security", tags=["Mobile Security"])
@@ -91,6 +95,7 @@ async def register_device(
         user_email=request.user_email,
         imei=request.imei
     )
+    await emit_world_event(get_db(), event_type="mobile_device_registered", entity_refs=[device.id, request.user_id], payload={"platform": device.platform.value, "actor": current_user.get("id")}, trigger_triune=False)
     return {
         **asdict(device),
         "platform": device.platform.value,
@@ -117,7 +122,7 @@ async def update_device_status(
     
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+    await emit_world_event(get_db(), event_type="mobile_device_status_updated", entity_refs=[device_id], payload={"actor": current_user.get("id"), "is_jailbroken": request.is_jailbroken, "is_encrypted": request.is_encrypted}, trigger_triune=False)
     return {
         **asdict(device),
         "platform": device.platform.value,
@@ -134,6 +139,7 @@ async def unenroll_device(
     success = mobile_security_service.unenroll_device(device_id)
     if not success:
         raise HTTPException(status_code=404, detail="Device not found")
+    await emit_world_event(get_db(), event_type="mobile_device_unenrolled", entity_refs=[device_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Device unenrolled", "device_id": device_id}
 
 
@@ -181,6 +187,7 @@ async def resolve_threat(
     success = mobile_security_service.resolve_threat(threat_id, request.resolution_notes)
     if not success:
         raise HTTPException(status_code=404, detail="Threat not found")
+    await emit_world_event(get_db(), event_type="mobile_threat_resolved", entity_refs=[threat_id], payload={"actor": current_user.get("id"), "resolution_notes": request.resolution_notes}, trigger_triune=False)
     return {"message": "Threat resolved", "threat_id": threat_id}
 
 
@@ -204,6 +211,7 @@ async def analyze_app(
     result = asdict(analysis)
     result['platform'] = analysis.platform.value
     result['risk_level'] = analysis.risk_level.value
+    await emit_world_event(get_db(), event_type="mobile_app_analyzed", entity_refs=[request.package_name], payload={"actor": current_user.get("id"), "risk_level": analysis.risk_level.value, "platform": analysis.platform.value}, trigger_triune=False)
     return result
 
 
@@ -238,6 +246,7 @@ async def update_policy(
         "name": request.settings.get("name", policy_name),
         **request.settings
     }
+    await emit_world_event(get_db(), event_type="mobile_policy_updated", entity_refs=[policy_name], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": f"Policy {policy_name} updated", "policy": mobile_security_service.policies[policy_name]}
 
 

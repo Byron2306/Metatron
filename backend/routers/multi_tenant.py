@@ -17,9 +17,17 @@ from services.multi_tenant import (
     TenantStatus,
     TIER_QUOTAS
 )
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/tenants", tags=["Multi-Tenant"])
+
+
+def _bind_tenant_service_db():
+    multi_tenant_service.set_db(get_db())
 
 
 class CreateTenantRequest(BaseModel):
@@ -56,6 +64,7 @@ async def list_tenants(
     current_user: dict = Depends(get_current_user)
 ):
     """List all tenants"""
+    _bind_tenant_service_db()
     status_enum = TenantStatus(status) if status else None
     tier_enum = TenantTier(tier) if tier else None
     
@@ -86,6 +95,7 @@ async def create_tenant(
     current_user: dict = Depends(get_current_user)
 ):
     """Create a new tenant"""
+    _bind_tenant_service_db()
     try:
         tier_enum = TenantTier(request.tier)
     except ValueError:
@@ -97,7 +107,7 @@ async def create_tenant(
         tier=tier_enum,
         trial_days=request.trial_days
     )
-    
+    await emit_world_event(get_db(), event_type="tenant_created", entity_refs=[tenant.id, tenant.slug], payload={"tier": tenant.tier.value, "actor": current_user.get("id")}, trigger_triune=False)
     return {
         "id": tenant.id,
         "name": tenant.name,
@@ -113,6 +123,7 @@ async def get_tenant_stats(
     current_user: dict = Depends(get_current_user)
 ):
     """Get multi-tenant statistics"""
+    _bind_tenant_service_db()
     return multi_tenant_service.get_tenant_stats()
 
 
@@ -143,6 +154,7 @@ async def get_tenant(
     current_user: dict = Depends(get_current_user)
 ):
     """Get tenant details"""
+    _bind_tenant_service_db()
     tenant = multi_tenant_service.get_tenant(tenant_id)
     
     if not tenant:
@@ -171,13 +183,14 @@ async def update_tenant(
     current_user: dict = Depends(get_current_user)
 ):
     """Update a tenant"""
+    _bind_tenant_service_db()
     updates = request.dict(exclude_unset=True)
     
     tenant = multi_tenant_service.update_tenant(tenant_id, updates)
-    
+
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
-    
+    await emit_world_event(get_db(), event_type="tenant_updated", entity_refs=[tenant_id], payload={"updates": list(updates.keys()), "actor": current_user.get("id")}, trigger_triune=False)
     return {
         "id": tenant.id,
         "name": tenant.name,
@@ -193,11 +206,12 @@ async def delete_tenant(
     current_user: dict = Depends(get_current_user)
 ):
     """Delete (suspend) a tenant"""
+    _bind_tenant_service_db()
     success = multi_tenant_service.delete_tenant(tenant_id)
-    
+
     if not success:
         raise HTTPException(status_code=404, detail="Tenant not found or cannot be deleted")
-    
+    await emit_world_event(get_db(), event_type="tenant_suspended", entity_refs=[tenant_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Tenant suspended successfully"}
 
 
@@ -207,6 +221,7 @@ async def get_tenant_context(
     current_user: dict = Depends(get_current_user)
 ):
     """Get full tenant context for request handling"""
+    _bind_tenant_service_db()
     context = multi_tenant_service.get_tenant_context(tenant_id)
     
     if not context:
@@ -221,11 +236,12 @@ async def generate_api_key(
     current_user: dict = Depends(get_current_user)
 ):
     """Generate an API key for a tenant"""
+    _bind_tenant_service_db()
     api_key = multi_tenant_service.generate_api_key(tenant_id)
-    
+
     if not api_key:
         raise HTTPException(status_code=404, detail="Tenant not found")
-    
+    await emit_world_event(get_db(), event_type="tenant_api_key_generated", entity_refs=[tenant_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {
         "api_key": api_key,
         "message": "Store this key securely. It won't be shown again."
@@ -240,6 +256,7 @@ async def check_tenant_quota(
     current_user: dict = Depends(get_current_user)
 ):
     """Check if tenant has quota for a resource"""
+    _bind_tenant_service_db()
     has_quota = multi_tenant_service.check_quota(tenant_id, resource, amount)
     
     tenant = multi_tenant_service.get_tenant(tenant_id)
@@ -262,6 +279,7 @@ async def check_tenant_feature(
     current_user: dict = Depends(get_current_user)
 ):
     """Check if tenant has access to a feature"""
+    _bind_tenant_service_db()
     has_feature = multi_tenant_service.has_feature(tenant_id, feature)
     
     return {
@@ -277,6 +295,7 @@ async def assign_user_to_tenant(
     current_user: dict = Depends(get_current_user)
 ):
     """Assign a user to a tenant"""
+    _bind_tenant_service_db()
     success = multi_tenant_service.assign_user_to_tenant(user_id, tenant_id)
     
     if not success:

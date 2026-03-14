@@ -6,6 +6,11 @@ from typing import Optional
 from dataclasses import asdict
 
 from .dependencies import get_current_user, check_permission
+from .dependencies import get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import audit logging services
 from audit_logging import audit, AuditCategory, AuditSeverity
@@ -52,4 +57,12 @@ async def get_recent_audit(limit: int = 20, current_user: dict = Depends(get_cur
 async def cleanup_audit_logs(days: int = 90, current_user: dict = Depends(check_permission("manage_users"))):
     """Clean up old audit logs"""
     result = await audit.cleanup_old_entries(days)
+    db = get_db()
+    await emit_world_event(
+        db,
+        event_type="audit_cleanup_executed",
+        trigger_triune=False,
+        entity_refs=[],
+        payload={"days": days, "deleted_count": result, "actor": current_user.get("id")},
+    )
     return {"deleted_count": result}
