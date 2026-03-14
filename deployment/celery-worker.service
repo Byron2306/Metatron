@@ -1,0 +1,19 @@
+[Unit]
+Description=Celery Worker for Metatron-Seraph
+After=network.target mongod.service redis.service
+
+[Service]
+User=metatron
+Group=metatron
+WorkingDirectory=/opt/metatron-seraph
+Environment="MONGO_URL=mongodb://localhost:27017"
+Environment="DB_NAME=metatron"
+Environment="REDIS_URL=redis://localhost:6379/0"
+Environment="CELERY_BROKER_URL=redis://localhost:6379/0"
+Environment="CELERY_RESULT_BACKEND=redis://localhost:6379/0"
+ExecStart=/usr/bin/celery -A backend.celery_app.celery_app worker --loglevel=info --concurrency=4
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,209 @@
+try:
+    from fastapi import APIRouter
+    router = APIRouter()
+except Exception:
+    # FastAPI may not be installed in lightweight test environments; provide
+    # a minimal dummy router so module-level decorators don't fail during import.
+    class _DummyRouter:
+        def get(self, *args, **kwargs):
+            def _decorator(f):
+                return f
+            return _decorator
+
+    router = _DummyRouter()
+from typing import Any, List, Dict
+import math
+from datetime import datetime, timezone
+
+
+class MichaelService:
+    """Lightweight analysis/ranking service.
+
+    This service provides simple, explainable heuristics to rank candidate
+    remediation actions or hypotheses produced by the world model (Metatron).
+    It is intentionally simple so it can run without heavyweight ML deps.
+    """
+
+    def __init__(self, db: Any = None):
+        self.db = db
+        # lazy import WorldModelService to avoid importing heavyweight
+        # dependencies (pydantic, fastapi) during lightweight unit tests
+        self.wm = None
+        if db is not None:
+            try:
+                from services.world_model import WorldModelService
+                self.wm = WorldModelService(db)
+            except Exception:
+                self.wm = None
+
+    def set_database(self, db: Any):
+        self.__init__(db)
+
+    async def rank_responses(self, candidates: List[str]) -> List[Dict[str, float]]:
+        """Score and rank candidate actions.
+
+        Returns a list of dicts: [{"candidate": str, "score": float}, ...]
+        Sorted by `score` descending.
+        """
+        out = []
+        # best-effort: consult world-model for entity risk if present
+        for cand in (candidates or []):
+            # components
+            base = getattr(self, "weights", {}).get("base", 0.35)
+            keyword_comp = 0.0
+            risk_comp = 0.0
+            recency_comp = 0.0
+            degree_comp = 0.0
+
+            lc = cand.lower()
+            # keyword heuristics with diminishing returns
+            if "isolate" in lc or "quarantine" in lc:
+                keyword_comp += 0.9
+            if "kill" in lc or "terminate" in lc:
+                keyword_comp += 1.0
+            if "force_password_reset" in lc or "password_reset" in lc:
+                keyword_comp += 0.6
+            if "require_2fa" in lc or "enable_2fa" in lc:
+                keyword_comp += 0.4
+            if "monitor" in lc or "investigate" in lc:
+                keyword_comp += 0.2
+
+            # entity-aware augmentations
+            ent_id = None
+            if ":" in cand:
+                parts = cand.split(":", 1)
+                ent_id = parts[1]
+                try:
+                    if self.wm is not None:
+                        # entity doc
+                        doc = await self.wm.entities.find_one({"id": ent_id}, {"_id": 0})
+                        if doc:
+                            attrs = doc.get("attributes", {}) or {}
+                            # risk_score expected in 0..1
+                            risk = float(attrs.get("risk_score") or 0.0)
+                            risk_comp = max(0.0, min(1.0, risk))
+
+                            # recency: prefer recent sightings; last_seen may be iso string
+                            last_seen = attrs.get("last_seen")
+                            if last_seen:
+                                try:
+                                    if isinstance(last_seen, str):
+                                        dt = datetime.fromisoformat(last_seen)
+                                    elif isinstance(last_seen, (int, float)):
+                                        dt = datetime.fromtimestamp(float(last_seen), tz=timezone.utc)
+                                    else:
+                                        dt = None
+                                    if dt is not None:
+                                        # treat naive datetimes as UTC
+                                        if dt.tzinfo is None:
+                                            dt = dt.replace(tzinfo=timezone.utc)
+                                        delta = datetime.now(timezone.utc) - dt
+                                        days = max(0.0, delta.total_seconds() / 86400.0)
+                                        # exponential decay: recent => near 1, old => near 0
+                                        recency_comp = math.exp(-days / 7.0)
+                                except Exception:
+                                    recency_comp = 0.0
+
+                            # degree: how many edges connect to this entity (normalize later)
+                            try:
+                                # prefer edges collection if present
+                                if hasattr(self.wm, "edges"):
+                                    # countDocuments may be async in some implementations
+                                    cnt = await self.wm.edges.count_documents({"$or": [{"source": ent_id}, {"target": ent_id}]})
+                                    degree_comp = float(cnt)
+                            except Exception:
+                                degree_comp = 0.0
+                except Exception:
+                    # ignore DB lookup errors
+                    risk_comp = recency_comp = degree_comp = 0.0
+
+            # normalize degree using logistic mapping
+            if degree_comp:
+                degree_comp = 1.0 / (1.0 + math.exp(-0.3 * (degree_comp - 3)))
+
+            # combine components using configured weights
+            w = getattr(self, "weights", {"base": 0.35, "keyword": 0.3, "risk": 0.2, "recency": 0.1, "degree": 0.05})
+            raw_score = (
+                w.get("base", 0.0) * 1.0
+                + w.get("keyword", 0.0) * (keyword_comp / (1.0 + keyword_comp))
+                + w.get("risk", 0.0) * risk_comp
+                + w.get("recency", 0.0) * recency_comp
+                + w.get("degree", 0.0) * degree_comp
+            )
+
+            # final normalization to 0..1
+            score = max(0.0, min(1.0, raw_score))
+
+            out.append({
+                "candidate": cand,
+                "score": round(score, 4),
+                "components": {
+                    "base": round(base, 4),
+                    "keyword": round(keyword_comp, 4),
+                    "risk": round(risk_comp, 4),
+                    "recency": round(recency_comp, 4),
+                    "degree": round(degree_comp, 4),
+                },
+            })
+
+        # optional AI reasoning: use the centralized ai_reasoning explain API if present
+        try:
+            from services.ai_reasoning import ai_reasoning, ReasoningContext
+            if ai_reasoning is not None and hasattr(ai_reasoning, "explain_candidates"):
+                # build a lightweight context from available world-model (best-effort)
+                ctx = None
+                try:
+                    # if wm available, construct snapshot entities list
+                    if getattr(self, "wm", None) is not None:
+                        # fetch a small set of entities for context
+                        cursor = self.wm.entities.find({}, {"_id": 0}).limit(10)
+                        entities = [e async for e in cursor]
+                        # attempt to fetch a small attack-path snapshot
+                        rels = await self.wm.compute_attack_path()
+                        # timeline: empty for lightweight context
+                        ctx = ReasoningContext(entities=entities, relationships=rels, evidence_set=[], trust_state={}, timeline_window=[])
+                except Exception:
+                    ctx = None
+
+                try:
+                    explanations = ai_reasoning.explain_candidates([r["candidate"] for r in out], context=ctx)
+                    if isinstance(explanations, dict):
+                        for r in out:
+                            cand = r.get("candidate")
+                            info = explanations.get(cand) or {}
+                            if info:
+                                comps = r.setdefault("components", {})
+                                comps["ai"] = info
+                except Exception:
+                    pass
+        except Exception:
+            # best-effort: do not affect scoring if ai_reasoning is unavailable
+            pass
+
+        # stable sort by score desc, candidate asc for determinism
+        out.sort(key=lambda x: (-x["score"], x["candidate"]))
+
+        # persist triune analysis to DB if available (best-effort, non-fatal)
+        try:
+            import uuid
+            if getattr(self, "db", None) is not None and hasattr(self.db, "triune_analysis"):
+                triune_doc = {
+                    "id": f"triune-{uuid.uuid4().hex[:8]}",
+                    "created": datetime.now(timezone.utc).isoformat(),
+                    "entities": [],
+                    "candidates": [r["candidate"] for r in out],
+                    "ranked": out,
+                }
+                try:
+                    await self.db.triune_analysis.insert_one(triune_doc)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        return out
+
+
+@router.get("/michael/hello")
+async def hello():
+    return {"msg": "Michael stands ready"}
