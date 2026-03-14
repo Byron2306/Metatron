@@ -8,6 +8,10 @@ from pydantic import BaseModel
 import os
 
 from .dependencies import get_current_user, get_db, check_permission, logger
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/openclaw", tags=["OpenClaw"])
 
@@ -69,7 +73,7 @@ async def update_openclaw_config(config: OpenClawConfig, current_user: dict = De
         {"$set": update_doc},
         upsert=True
     )
-    
+    await emit_world_event(get_db(), event_type="openclaw_config_updated", entity_refs=[], payload={"actor": current_user.get("id"), "gateway_url": update_doc.get("gateway_url", "")}, trigger_triune=False)
     return {"message": "OpenClaw configuration updated", "updated_at": update_doc["updated_at"]}
 
 @router.post("/test")
@@ -95,9 +99,12 @@ async def test_openclaw_connection(current_user: dict = Depends(get_current_user
             )
             
             if response.status_code == 200:
+                await emit_world_event(get_db(), event_type="openclaw_connection_tested", entity_refs=[config.get("gateway_url", "")], payload={"connected": True, "actor": current_user.get("id")}, trigger_triune=False)
                 return {"connected": True, "message": "OpenClaw gateway is reachable"}
             else:
+                await emit_world_event(get_db(), event_type="openclaw_connection_tested", entity_refs=[config.get("gateway_url", "")], payload={"connected": False, "status_code": response.status_code, "actor": current_user.get("id")}, trigger_triune=False)
                 return {"connected": False, "message": f"Gateway returned status {response.status_code}"}
     except Exception as e:
         logger.error(f"OpenClaw test failed: {str(e)}")
+        await emit_world_event(get_db(), event_type="openclaw_connection_tested", entity_refs=[config.get("gateway_url", "")], payload={"connected": False, "error": str(e), "actor": current_user.get("id")}, trigger_triune=False)
         return {"connected": False, "error": str(e)}

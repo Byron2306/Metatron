@@ -22,6 +22,10 @@ from reportlab.graphics.charts.barcharts import VerticalBarChart
 from .dependencies import (
     get_current_user, get_db, check_permission, logger
 )
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from .ai_analysis import call_openai
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
@@ -322,7 +326,7 @@ async def generate_threat_report(current_user: dict = Depends(check_permission("
     pdf_buffer = generate_threat_report_pdf(threats, alerts, stats)
     
     filename = f"threat_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.pdf"
-    
+    await emit_world_event(get_db(), event_type="report_threat_intelligence_generated", entity_refs=[filename], payload={"actor": current_user.get("id"), "threat_count": total_threats, "alert_count": len(alerts)}, trigger_triune=False)
     return StreamingResponse(
         pdf_buffer,
         media_type="application/pdf",
@@ -360,6 +364,7 @@ Keep the summary professional and actionable."""
 
     try:
         summary = await call_openai(system_message, f"Analyze this security data and provide an executive summary:\n{context}")
+        await emit_world_event(get_db(), event_type="report_ai_summary_generated", entity_refs=[], payload={"actor": current_user.get("id"), "threats_analyzed": len(threats), "alerts_analyzed": len(alerts)}, trigger_triune=False)
         return {
             "summary": summary,
             "generated_at": datetime.now(timezone.utc).isoformat(),

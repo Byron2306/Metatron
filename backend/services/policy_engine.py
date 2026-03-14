@@ -9,11 +9,21 @@ import os
 import json
 import hashlib
 import logging
+import asyncio
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
 from collections import defaultdict
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +119,37 @@ class PolicyEngine:
         self._load_policy_rules()
         
         logger.info("Policy & Permissions Engine initialized")
+
+    def set_db(self, db):
+        """Attach optional DB context for canonical world-event emission."""
+        self.db = db
+
+    def _emit_policy_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        if emit_world_event is None or getattr(self, "db", None) is None:
+            return
+        coro = emit_world_event(
+            self.db,
+            event_type=event_type,
+            entity_refs=entity_refs,
+            payload=payload,
+            trigger_triune=trigger_triune,
+        )
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def _load_policy_rules(self):
         """Load policy rules from config"""
@@ -369,6 +410,18 @@ class PolicyEngine:
         
         logger.info(f"POLICY: {principal} | {action} | {len(targets)} targets | "
                    f"PERMIT ({base_tier.value})")
+
+        self._emit_policy_event(
+            event_type="decision_gate_evaluated",
+            entity_refs=[decision.decision_id, principal],
+            payload={
+                "action": action,
+                "permitted": True,
+                "approval_tier": base_tier.value,
+                "target_count": len(targets),
+            },
+            trigger_triune=base_tier in {ApprovalTier.REQUIRE_APPROVAL, ApprovalTier.TWO_PERSON},
+        )
         
         return decision
     
@@ -396,6 +449,18 @@ class PolicyEngine:
         decision.decision_hash = self._hash_decision(decision)
         
         logger.warning(f"POLICY: {principal} | {action} | DENY: {reason}")
+
+        self._emit_policy_event(
+            event_type="decision_gate_evaluated",
+            entity_refs=[decision.decision_id, principal],
+            payload={
+                "action": action,
+                "permitted": False,
+                "denial_reason": reason,
+                "target_count": len(targets),
+            },
+            trigger_triune=True,
+        )
         
         return decision
     
@@ -428,15 +493,33 @@ class PolicyEngine:
             self.approval_votes[decision_id].append(approver)
             
             if len(self.approval_votes[decision_id]) < 2:
+                self._emit_policy_event(
+                    event_type="decision_gate_approval_recorded",
+                    entity_refs=[decision_id, approver],
+                    payload={"two_person": True, "votes": len(self.approval_votes[decision_id])},
+                    trigger_triune=False,
+                )
                 return True, "Approval recorded (1/2). Need one more approver."
             
             # Two approvals received
             del self.pending_approvals[decision_id]
             del self.approval_votes[decision_id]
+            self._emit_policy_event(
+                event_type="decision_gate_approved",
+                entity_refs=[decision_id, approver],
+                payload={"two_person": True},
+                trigger_triune=True,
+            )
             return True, "Two-person approval complete. Action permitted."
         
         else:
             del self.pending_approvals[decision_id]
+            self._emit_policy_event(
+                event_type="decision_gate_approved",
+                entity_refs=[decision_id, approver],
+                payload={"two_person": False},
+                trigger_triune=True,
+            )
             return True, "Approval granted. Action permitted."
     
     def deny(self, decision_id: str, denier: str, reason: str = None) -> bool:
@@ -446,6 +529,12 @@ class PolicyEngine:
             if decision_id in self.approval_votes:
                 del self.approval_votes[decision_id]
             logger.info(f"POLICY: Decision {decision_id} denied by {denier}")
+            self._emit_policy_event(
+                event_type="decision_gate_denied",
+                entity_refs=[decision_id, denier],
+                payload={"reason": reason},
+                trigger_triune=True,
+            )
             return True
         return False
     

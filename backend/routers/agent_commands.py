@@ -12,6 +12,10 @@ import asyncio
 
 from .dependencies import get_db
 try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
+try:
     from .dependencies import get_current_user, check_permission, logger
 except Exception:
     def get_current_user(*args, **kwargs):
@@ -798,6 +802,13 @@ async def create_command(
     
     pending_commands[command_id] = command.copy()
     await db.agent_commands.insert_one(command)
+    await emit_world_event(
+        db,
+        event_type="agent_command_created",
+        trigger_triune=False,
+        entity_refs=[request.agent_id, command_id],
+        payload={"command_type": request.command_type, "priority": request.priority},
+    )
     
     # Remove MongoDB _id before returning
     command.pop("_id", None)
@@ -917,6 +928,18 @@ async def approve_command(
                 reason="agent offline; queued for pickup",
                 expected_state_version=post_approval_version,
             )
+
+    await emit_world_event(
+        db,
+        event_type="agent_command_approval_decision",
+        trigger_triune=False,
+        entity_refs=[command.get("agent_id"), command_id],
+        payload={
+            "approved": bool(approval.approved),
+            "notes": approval.notes,
+            "actor": current_user.get("email", current_user.get("id")),
+        },
+    )
     
     return {"command_id": command_id, "status": new_status, "message": "Command approved and queued for agent"}
 
@@ -980,7 +1003,14 @@ async def report_command_result(
         raise HTTPException(status_code=409, detail="Command result conflict; state changed concurrently")
     
     command_results[command_id] = result
-    
+    await emit_world_event(
+        db,
+        event_type="agent_command_result_recorded",
+        trigger_triune=False,
+        entity_refs=[command.get("agent_id"), command_id],
+        payload={"success": bool(result.get("success")), "result": result},
+    )
+
     return {"status": "recorded"}
 
 

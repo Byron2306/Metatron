@@ -16,6 +16,10 @@ import logging
 
 from deception_engine import deception_engine, RouteDecision, EscalationLevel
 from .dependencies import get_current_user
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +233,8 @@ async def record_decoy_interaction(request: DecoyInteractionRequest):
     await wm.upsert_entity(WorldEntity(id=request.decoy_id, type="alert", attributes={"decoy_type": request.decoy_type}))
     # add relationship
     await wm.add_edge(WorldEdge(source=request.ip, target=request.decoy_id, relation="hit_decoy"))
-    
+    await emit_world_event(db, event_type="deception_interaction", entity_refs=[request.ip, request.decoy_id], payload={"session_id": request.session_id, "decoy_type": request.decoy_type, "route": assessment.route.value, "score": assessment.score})
+
     return {
         "recorded": True,
         "score": assessment.score,
@@ -254,6 +259,14 @@ async def deploy_decoy(request: DeployDecoyRequest, current_user: dict = Depends
 
     payload = asdict(result)
     payload["requested_by"] = current_user.get("email", "unknown")
+    from routers.dependencies import get_db
+    await emit_world_event(
+        get_db(),
+        event_type="deception_decoy_deployed",
+        entity_refs=[request.host_id],
+        payload={"decoy_type": request.decoy_type, "decoy_count": request.decoys},
+        trigger_triune=False,
+    )
     return payload
 
 
@@ -344,6 +357,8 @@ async def get_events_summary():
 async def add_to_allowlist(request: IPRequest):
     """Add IP to allowlist"""
     success = deception_engine.add_to_allowlist(request.ip)
+    from routers.dependencies import get_db
+    await emit_world_event(get_db(), event_type="deception_allowlist_updated", entity_refs=[request.ip], payload={"action": "add", "success": success}, trigger_triune=False)
     return {"success": success, "ip": request.ip, "action": "allowlisted"}
 
 
@@ -351,6 +366,8 @@ async def add_to_allowlist(request: IPRequest):
 async def add_to_blocklist(request: IPRequest):
     """Add IP to blocklist"""
     success = deception_engine.add_to_blocklist(request.ip)
+    from routers.dependencies import get_db
+    await emit_world_event(get_db(), event_type="deception_blocklist_updated", entity_refs=[request.ip], payload={"action": "add", "success": success}, trigger_triune=False)
     return {"success": success, "ip": request.ip, "action": "blocklisted"}
 
 
@@ -358,6 +375,8 @@ async def add_to_blocklist(request: IPRequest):
 async def remove_from_blocklist(request: IPRequest):
     """Remove IP from blocklist"""
     success = deception_engine.remove_from_blocklist(request.ip)
+    from routers.dependencies import get_db
+    await emit_world_event(get_db(), event_type="deception_blocklist_updated", entity_refs=[request.ip], payload={"action": "remove", "success": success}, trigger_triune=False)
     return {"success": success, "ip": request.ip, "action": "unblocked"}
 
 
@@ -433,6 +452,8 @@ async def force_mystique_adapt(campaign_id: str):
     )
     
     adapted = deception_engine.mystique_adapt(campaign_id)
+    from routers.dependencies import get_db
+    await emit_world_event(get_db(), event_type="deception_mystique_forced_adapt", entity_refs=[campaign_id], payload={"adapted": adapted, "original_events": original_events, "new_events": campaign.total_events}, trigger_triune=False)
     
     return {
         "adapted": adapted,

@@ -5,6 +5,10 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 
 from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import correlation engine
 from threat_correlation import correlation_engine, ThreatCorrelationEngine
@@ -50,6 +54,14 @@ async def correlate_threat(threat_id: str, current_user: dict = Depends(get_curr
         response["ai_reasoning"] = ai_response
     except Exception as e:
         response["ai_reasoning"] = {"method": "unavailable", "error": str(e)}
+
+    await emit_world_event(
+        db,
+        event_type="correlation_threat_analyzed",
+        entity_refs=[threat_id],
+        payload={"matched": bool(response.get("matched_indicators")), "confidence": response.get("confidence")},
+        trigger_triune=False,
+    )
 
     return response
 
@@ -164,6 +176,13 @@ async def update_correlation_settings(
 ):
     """Update correlation engine settings"""
     correlation_engine.auto_correlate_enabled = auto_correlate
+    await emit_world_event(
+        get_db(),
+        event_type="correlation_settings_updated",
+        entity_refs=[],
+        payload={"auto_correlate_enabled": auto_correlate},
+        trigger_triune=False,
+    )
     
     return {
         "message": "Settings updated",

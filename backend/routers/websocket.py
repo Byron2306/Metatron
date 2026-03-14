@@ -4,7 +4,11 @@ WebSocket Router - Real-time communication management
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 
-from .dependencies import get_current_user
+from .dependencies import get_current_user, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import websocket services
 from websocket_service import realtime_ws, WSMessageType, WSMessage
@@ -36,7 +40,7 @@ async def send_command_to_agent(agent_id: str, command: Dict[str, Any], current_
     result = await realtime_ws.send_to_agent(agent_id, message)
     if not result:
         raise HTTPException(status_code=404, detail="Agent not connected")
-    
+    await emit_world_event(get_db(), event_type="websocket_command_sent", entity_refs=[agent_id], payload={"command": command.get("command"), "actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Command sent", "agent_id": agent_id, "command": command.get("command")}
 
 @router.post("/scan/{agent_id}")
@@ -53,5 +57,5 @@ async def request_agent_scan(agent_id: str, scan_type: str = "full", current_use
     result = await realtime_ws.send_to_agent(agent_id, message)
     if not result:
         raise HTTPException(status_code=404, detail="Agent not connected")
-    
+    await emit_world_event(get_db(), event_type="websocket_scan_requested", entity_refs=[agent_id], payload={"scan_type": scan_type, "actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Scan requested", "agent_id": agent_id, "scan_type": scan_type}

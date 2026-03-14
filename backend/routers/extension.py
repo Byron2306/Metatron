@@ -10,6 +10,11 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 import logging
 import os
+from routers.dependencies import get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +121,7 @@ async def report_alerts(report: AlertReport):
         extension_alerts = extension_alerts[-10000:]
     
     logger.info(f"Received {processed} alerts from browser extension")
+    await emit_world_event(get_db(), event_type="extension_alerts_reported", entity_refs=[], payload={"received": len(report.alerts), "processed": processed}, trigger_triune=False)
     
     return AlertReportResponse(
         received=len(report.alerts),
@@ -176,6 +182,7 @@ async def download_extension():
 async def add_malicious_domain(domain: str, reason: str):
     """Add a domain to the malicious list (admin only)"""
     MALICIOUS_DOMAINS[domain.lower().strip()] = reason
+    await emit_world_event(get_db(), event_type="extension_malicious_domain_added", entity_refs=[domain.lower().strip()], payload={"reason": reason}, trigger_triune=False)
     return {"status": "added", "domain": domain}
 
 
@@ -185,5 +192,6 @@ async def remove_malicious_domain(domain: str):
     domain = domain.lower().strip()
     if domain in MALICIOUS_DOMAINS:
         del MALICIOUS_DOMAINS[domain]
+        await emit_world_event(get_db(), event_type="extension_malicious_domain_removed", entity_refs=[domain], payload={}, trigger_triune=False)
         return {"status": "removed", "domain": domain}
     raise HTTPException(status_code=404, detail="Domain not found")

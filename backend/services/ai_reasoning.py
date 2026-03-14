@@ -9,10 +9,19 @@ from __future__ import annotations
 
 
 import os
+import asyncio
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 import json
 import hashlib
 import logging
 import re
+import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, asdict
@@ -20,6 +29,31 @@ from collections import defaultdict
 import uuid
 
 logger = logging.getLogger(__name__)
+
+
+def _run_awaitable_sync(awaitable):
+    """Run an awaitable from sync code in both loop and no-loop contexts."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(awaitable)
+
+    result_box: Dict[str, Any] = {"value": None, "error": None}
+
+    def _runner():
+        try:
+            result_box["value"] = asyncio.run(awaitable)
+        except Exception as exc:
+            result_box["error"] = exc
+
+    t = threading.Thread(target=_runner, daemon=True)
+    t.start()
+    t.join(timeout=30)
+    if t.is_alive():
+        raise TimeoutError("Timed out running async operation from sync wrapper")
+    if result_box["error"] is not None:
+        raise result_box["error"]
+    return result_box["value"]
 
 
 @dataclass
@@ -885,16 +919,19 @@ Provide a comprehensive threat analysis."""
             engine = get_aatl_engine()
             if engine is None and db is not None:
                 # initialize engine if not yet created
-                import asyncio
-                asyncio.get_event_loop().run_until_complete(init_aatl_engine(db))
+                _run_awaitable_sync(init_aatl_engine(db))
                 engine = get_aatl_engine()
 
             if engine is None:
                 return None
 
             # process_cli_event is async
-            import asyncio
-            assessment = asyncio.get_event_loop().run_until_complete(engine.process_cli_event(event))
+            assessment = _run_awaitable_sync(engine.process_cli_event(event))
+            if assessment is not None and db is not None and emit_world_event is not None:
+                try:
+                    _run_awaitable_sync(emit_world_event(db, event_type="cognition_aatl_assessed", entity_refs=[str(event.get("session_id", "")), str(event.get("host_id", ""))], payload={"threat_score": getattr(assessment, "threat_score", None), "threat_level": getattr(assessment, "threat_level", None)}, trigger_triune=False))
+                except Exception:
+                    pass
             return assessment.to_dict() if assessment is not None else None
         except Exception:
             return None
@@ -912,7 +949,15 @@ Provide a comprehensive threat analysis."""
                 return []
             # prefer match_behavior when available
             if hasattr(reg, "match_behavior"):
-                return reg.match_behavior(behavior_data)
+                matches = reg.match_behavior(behavior_data)
+                if emit_world_event is not None and isinstance(behavior_data, dict):
+                    try:
+                        db_obj = behavior_data.get("db")
+                        if db_obj is not None:
+                            _run_awaitable_sync(emit_world_event(db_obj, event_type="cognition_aatr_queried", entity_refs=[], payload={"match_count": len(matches)}, trigger_triune=False))
+                    except Exception:
+                        pass
+                return matches
             return []
         except Exception:
             return []
@@ -929,8 +974,12 @@ Provide a comprehensive threat analysis."""
                 return None
 
             engine = CognitionEngine(db)
-            import asyncio
-            summary = asyncio.get_event_loop().run_until_complete(engine.analyze_session(host_id, session_id, window_s))
+            summary = _run_awaitable_sync(engine.analyze_session(host_id, session_id, window_s))
+            if db is not None and emit_world_event is not None:
+                try:
+                    _run_awaitable_sync(emit_world_event(db, event_type="cognition_session_analyzed", entity_refs=[host_id, session_id], payload={"has_summary": summary is not None}, trigger_triune=False))
+                except Exception:
+                    pass
             return summary
         except Exception:
             return None
@@ -945,16 +994,15 @@ Provide a comprehensive threat analysis."""
                 from backend.ml_threat_prediction import ml_predictor
 
             # many ml_predictor methods are async; use the network/process prediction helpers
-            import asyncio
             # choose prediction method heuristically
             if features.get("entity_type") == "network":
-                pred = asyncio.get_event_loop().run_until_complete(ml_predictor.predict_network_threat(features))
+                pred = _run_awaitable_sync(ml_predictor.predict_network_threat(features))
             elif features.get("entity_type") == "process":
-                pred = asyncio.get_event_loop().run_until_complete(ml_predictor.predict_process_threat(features))
+                pred = _run_awaitable_sync(ml_predictor.predict_process_threat(features))
             elif features.get("entity_type") == "file":
-                pred = asyncio.get_event_loop().run_until_complete(ml_predictor.predict_file_threat(features))
+                pred = _run_awaitable_sync(ml_predictor.predict_file_threat(features))
             else:
-                pred = asyncio.get_event_loop().run_until_complete(ml_predictor.predict_user_threat(features))
+                pred = _run_awaitable_sync(ml_predictor.predict_user_threat(features))
 
             return pred
         except Exception:
@@ -968,10 +1016,9 @@ Provide a comprehensive threat analysis."""
             except Exception:
                 from backend.soar_engine import soar_engine
 
-            import asyncio
             # execute_playbook may be async depending on implementation
             if hasattr(soar_engine, "execute_playbook"):
-                exec_result = asyncio.get_event_loop().run_until_complete(soar_engine.execute_playbook(playbook_id, event))
+                exec_result = _run_awaitable_sync(soar_engine.execute_playbook(playbook_id, event))
                 return exec_result
 
             return None

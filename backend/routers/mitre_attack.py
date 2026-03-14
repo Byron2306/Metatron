@@ -4,7 +4,11 @@ from typing import Dict, List, Set
 
 from fastapi import APIRouter, Depends
 
-from .dependencies import get_current_user
+from .dependencies import get_current_user, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from sigma_engine import sigma_engine
 from osquery_fleet import osquery_fleet
 import atomic_validation as atomic_validation_module
@@ -244,12 +248,15 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
 
     covered_gte3 = len([t for t in ordered if t["score"] >= 3])
 
+    checked_at = datetime.now(timezone.utc).isoformat()
+    coverage_percent = round((covered_gte3 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
+    await emit_world_event(get_db(), event_type="mitre_coverage_calculated", entity_refs=[], payload={"actor": current_user.get("id"), "observed_techniques": len(ordered), "covered_score_gte3": covered_gte3, "coverage_percent_gte3": coverage_percent}, trigger_triune=False)
     return {
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": checked_at,
         "enterprise_total_techniques": ENTERPRISE_TECHNIQUE_TOTAL,
         "observed_techniques": len(ordered),
         "covered_score_gte3": covered_gte3,
-        "coverage_percent_gte3": round((covered_gte3 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2),
+        "coverage_percent_gte3": coverage_percent,
         "score_distribution": score_dist,
         "tactics": tactics,
         "techniques": ordered,

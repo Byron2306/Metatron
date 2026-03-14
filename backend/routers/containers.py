@@ -6,6 +6,10 @@ from typing import Optional
 from pydantic import BaseModel
 
 from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import container security service
 from container_security import container_security, ContainerSecurityManager
@@ -75,6 +79,17 @@ async def scan_container_image(request: ScanImageRequest, current_user: dict = D
         {"$set": result},
         upsert=True
     )
+    await emit_world_event(
+        db,
+        event_type="container_image_scanned",
+        entity_refs=[request.image_name],
+        payload={
+            "critical_count": result.get("critical_count"),
+            "high_count": result.get("high_count"),
+            "total_vulnerabilities": result.get("total_vulnerabilities"),
+        },
+        trigger_triune=False,
+    )
     
     return result
 
@@ -86,6 +101,14 @@ async def scan_all_images(current_user: dict = Depends(check_permission("write")
     # Summary
     total_vulns = sum(r.get("total_vulnerabilities", 0) for r in results)
     critical = sum(r.get("critical_count", 0) for r in results)
+    db = get_db()
+    await emit_world_event(
+        db,
+        event_type="container_scan_all_completed",
+        entity_refs=[],
+        payload={"images_scanned": len(results), "total_vulnerabilities": total_vulns, "critical_count": critical},
+        trigger_triune=False,
+    )
     
     return {
         "images_scanned": len(results),

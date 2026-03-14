@@ -6,7 +6,11 @@ from typing import Optional, List
 from pydantic import BaseModel
 from dataclasses import asdict
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from email_protection import email_protection_service
 
 router = APIRouter(prefix="/email-protection", tags=["Email Protection"])
@@ -117,6 +121,8 @@ async def analyze_email(
     
     if result.get('dlp_analysis'):
         result['dlp_analysis']['risk_level'] = assessment.dlp_analysis.risk_level.value
+
+    await emit_world_event(get_db(), event_type="email_protection_email_analyzed", entity_refs=[request.sender, request.recipient], payload={"overall_risk": result.get("overall_risk"), "threat_types": result.get("threat_types", [])}, trigger_triune=False)
     
     return result
 
@@ -215,6 +221,7 @@ async def release_from_quarantine(
     success = email_protection_service.release_from_quarantine(assessment_id)
     if not success:
         raise HTTPException(status_code=404, detail="Assessment not found in quarantine")
+    await emit_world_event(get_db(), event_type="email_protection_quarantine_released", entity_refs=[assessment_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Email released from quarantine", "assessment_id": assessment_id}
 
 
@@ -241,9 +248,11 @@ async def add_protected_user(
         success = email_protection_service.add_protected_executive(
             request.email, request.name, request.title
         )
+        await emit_world_event(get_db(), event_type="email_protection_protected_user_added", entity_refs=[request.email], payload={"user_type": "executive", "success": success}, trigger_triune=False)
         return {"message": f"Executive {request.email} added to protection", "success": success}
     else:
         success = email_protection_service.add_vip_user(request.email)
+        await emit_world_event(get_db(), event_type="email_protection_protected_user_added", entity_refs=[request.email], payload={"user_type": "vip", "success": success}, trigger_triune=False)
         return {"message": f"VIP user {request.email} added to protection", "success": success}
 
 
@@ -265,6 +274,7 @@ async def remove_protected_user(
     
     if not removed:
         raise HTTPException(status_code=404, detail="User not found in protected list")
+    await emit_world_event(get_db(), event_type="email_protection_protected_user_removed", entity_refs=[email], payload={"actor": current_user.get("id")}, trigger_triune=False)
     
     return {"message": f"User {email} removed from protection"}
 
@@ -285,6 +295,7 @@ async def add_blocked_sender(
 ):
     """Block a sender"""
     success = email_protection_service.add_blocked_sender(request.sender)
+    await emit_world_event(get_db(), event_type="email_protection_blocked_sender_updated", entity_refs=[request.sender], payload={"action": "add", "success": success}, trigger_triune=False)
     return {"message": f"Sender {request.sender} blocked", "success": success}
 
 
@@ -297,6 +308,7 @@ async def remove_blocked_sender(
     sender_lower = sender.lower()
     if sender_lower in email_protection_service.blocked_senders:
         email_protection_service.blocked_senders.discard(sender_lower)
+        await emit_world_event(get_db(), event_type="email_protection_blocked_sender_updated", entity_refs=[sender], payload={"action": "remove", "success": True}, trigger_triune=False)
         return {"message": f"Sender {sender} unblocked"}
     raise HTTPException(status_code=404, detail="Sender not in blocklist")
 
@@ -317,6 +329,7 @@ async def add_trusted_domain(
 ):
     """Add a trusted domain"""
     success = email_protection_service.add_trusted_domain(request.domain)
+    await emit_world_event(get_db(), event_type="email_protection_trusted_domain_updated", entity_refs=[request.domain], payload={"action": "add", "success": success}, trigger_triune=False)
     return {"message": f"Domain {request.domain} added to trusted list", "success": success}
 
 
@@ -329,5 +342,6 @@ async def remove_trusted_domain(
     domain_lower = domain.lower()
     if domain_lower in email_protection_service.trusted_domains:
         email_protection_service.trusted_domains.discard(domain_lower)
+        await emit_world_event(get_db(), event_type="email_protection_trusted_domain_updated", entity_refs=[domain], payload={"action": "remove", "success": True}, trigger_triune=False)
         return {"message": f"Domain {domain} removed from trusted list"}
     raise HTTPException(status_code=404, detail="Domain not in trusted list")

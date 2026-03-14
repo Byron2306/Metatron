@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from routers.dependencies import get_db
 from services.world_model import WorldEntity, WorldEdge, WorldModelService
+from services.world_events import emit_world_event
 from typing import Dict, Any
 
 router = APIRouter(prefix="/ingest", tags=["World Ingest"])
@@ -28,7 +29,8 @@ async def ingest_entity(payload: Dict[str, Any], db=Depends(get_db)):
     # after upsert, recalc risk
     if hasattr(wm, "calculate_risk"):
         await wm.calculate_risk(entity.id)
-    return {"status": "ok", "id": entity.id}
+    triune = await emit_world_event(db, event_type="entity_ingested", entity_refs=[entity.id], payload=payload)
+    return {"status": "ok", "id": entity.id, "triune": triune.get("triune")}
 
 @router.post("/edge")
 async def ingest_edge(payload: Dict[str, Any], db=Depends(get_db)):
@@ -36,7 +38,8 @@ async def ingest_edge(payload: Dict[str, Any], db=Depends(get_db)):
     wm = WorldModelService(db)
     edge = _edge_from_payload(payload)
     await wm.add_edge(edge)
-    return {"status": "ok"}
+    triune = await emit_world_event(db, event_type="edge_ingested", entity_refs=[edge.source, edge.target], payload=payload)
+    return {"status": "ok", "triune": triune.get("triune")}
 
 @router.post("/detection")
 async def ingest_detection(payload: Dict[str, Any], db=Depends(get_db)):
@@ -49,7 +52,8 @@ async def ingest_detection(payload: Dict[str, Any], db=Depends(get_db)):
     await wm.entities.update_one({"id": eid}, {"$push": {"attributes.detections": payload}}, upsert=True)
     if hasattr(wm, "calculate_risk"):
         await wm.calculate_risk(eid)
-    return {"status": "ok"}
+    triune = await emit_world_event(db, event_type="detection_ingested", entity_refs=[eid], payload=payload)
+    return {"status": "ok", "triune": triune.get("triune")}
 
 @router.post("/alert")
 async def ingest_alert(payload: Dict[str, Any], db=Depends(get_db)):
@@ -63,7 +67,8 @@ async def ingest_alert(payload: Dict[str, Any], db=Depends(get_db)):
     await wm.upsert_entity(ent)
     if hasattr(wm, "calculate_risk"):
         await wm.calculate_risk(eid)
-    return {"status": "ok"}
+    triune = await emit_world_event(db, event_type="alert_ingested", entity_refs=[eid], payload=payload)
+    return {"status": "ok", "triune": triune.get("triune")}
 
 @router.post("/policy-violation")
 async def ingest_policy_violation(payload: Dict[str, Any], db=Depends(get_db)):
@@ -74,7 +79,8 @@ async def ingest_policy_violation(payload: Dict[str, Any], db=Depends(get_db)):
     await wm.entities.update_one({"id": eid}, {"$set": {"attributes.policy_violation": True}}, upsert=True)
     if hasattr(wm, "calculate_risk"):
         await wm.calculate_risk(eid)
-    return {"status": "ok"}
+    triune = await emit_world_event(db, event_type="policy_violation_ingested", entity_refs=[eid], payload=payload)
+    return {"status": "ok", "triune": triune.get("triune")}
 
 @router.post("/token-event")
 async def ingest_token_event(payload: Dict[str, Any], db=Depends(get_db)):
@@ -85,4 +91,5 @@ async def ingest_token_event(payload: Dict[str, Any], db=Depends(get_db)):
     await wm.entities.update_one({"id": eid}, {"$push": {"attributes.token_events": payload}}, upsert=True)
     if hasattr(wm, "calculate_risk"):
         await wm.calculate_risk(eid)
-    return {"status": "ok"}
+    triune = await emit_world_event(db, event_type="token_event_ingested", entity_refs=[eid], payload=payload)
+    return {"status": "ok", "triune": triune.get("triune")}
