@@ -4,6 +4,7 @@ from typing import Any, Dict
 from pydantic import BaseModel, Field
 from routers.dependencies import get_db
 from services.world_model import WorldModelService, WorldEntity, WorldEdge, EntityType
+from services.world_events import emit_world_event
 import uuid
 from datetime import datetime, timezone
 
@@ -57,6 +58,7 @@ async def ingest_async(payload: Dict[str, Any], db=Depends(get_db)):
             attrs = payload.get("attributes", {}) or {}
             ent = WorldEntity(id=eid, type=et, attributes=attrs)
             await wm.upsert_entity(ent)
+            await emit_world_event(db, event_type="loki_entity_ingested", entity_refs=[eid], payload=payload)
             return {"status": "ok", "id": eid}
         if kind == "edge":
             src = payload.get("source")
@@ -66,12 +68,14 @@ async def ingest_async(payload: Dict[str, Any], db=Depends(get_db)):
                 raise HTTPException(status_code=400, detail="edge requires source and target")
             edge = WorldEdge(source=src, target=tgt, relation=rel, created=datetime.now(timezone.utc))
             await wm.add_edge(edge)
+            await emit_world_event(db, event_type="loki_edge_ingested", entity_refs=[src, tgt], payload=payload)
             return {"status": "ok"}
         if kind == "campaign":
             cid = payload.get("id") or str(uuid.uuid4())
             attrs = payload.get("attributes", {}) or {}
             ent = WorldEntity(id=cid, type=EntityType.campaign, attributes=attrs)
             await wm.upsert_entity(ent)
+            await emit_world_event(db, event_type="loki_campaign_ingested", entity_refs=[cid], payload=payload)
             return {"status": "ok", "id": cid}
         raise HTTPException(status_code=400, detail=f"unsupported kind: {kind}")
 
@@ -113,6 +117,7 @@ async def ingest(payload: LokiIngestRequest = Body(..., examples={
         attrs = payload.attributes or {}
         ent = WorldEntity(id=eid, type=et, attributes=attrs)
         await wm.upsert_entity(ent)
+        await emit_world_event(db, event_type="loki_entity_ingested", entity_refs=[eid], payload=payload.model_dump())
         logger.info("loki.ingest: upserted entity %s type=%s", eid, et)
         return {"status": "ok", "id": eid}
 
@@ -125,6 +130,7 @@ async def ingest(payload: LokiIngestRequest = Body(..., examples={
             raise HTTPException(status_code=400, detail="edge requires source and target")
         edge = WorldEdge(source=src, target=tgt, relation=rel, created=datetime.now(timezone.utc))
         await wm.add_edge(edge)
+        await emit_world_event(db, event_type="loki_edge_ingested", entity_refs=[src, tgt], payload=payload.model_dump())
         logger.info("loki.ingest: added edge %s->%s rel=%s", src, tgt, rel)
         return {"status": "ok"}
 
@@ -133,6 +139,7 @@ async def ingest(payload: LokiIngestRequest = Body(..., examples={
         attrs = payload.attributes or {}
         ent = WorldEntity(id=cid, type=EntityType.campaign, attributes=attrs)
         await wm.upsert_entity(ent)
+        await emit_world_event(db, event_type="loki_campaign_ingested", entity_refs=[cid], payload=payload.model_dump())
         logger.info("loki.ingest: upserted campaign %s", cid)
         return {"status": "ok", "id": cid}
 

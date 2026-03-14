@@ -4,7 +4,11 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import asyncio
 
-from .dependencies import check_permission, get_current_user
+from .dependencies import check_permission, get_current_user, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from integrations_manager import run_amass, ingest_indicators_direct, get_job, list_jobs
 from integrations_manager import run_velociraptor, ingest_host_logs
 from integrations_manager import run_purplesharp
@@ -49,6 +53,7 @@ async def start_amass(req: AmassRequest, user: dict = Depends(check_permission("
     if not matches:
         raise HTTPException(status_code=500, detail='Failed to start amass job')
     job = sorted(matches, key=lambda x: x.get('created_at'), reverse=True)[0]
+    await emit_world_event(get_db(), event_type="integration_amass_started", entity_refs=[job["id"], req.domain], payload={"actor": user.get("id")}, trigger_triune=False)
     return {"job_id": job['id'], "status": job['status']}
 
 @router.get("/jobs")
@@ -82,6 +87,7 @@ async def direct_ingest(req: DirectIngestRequest, request: Request, user: dict =
 
     items = [i.dict() for i in req.indicators]
     job = await ingest_indicators_direct(req.source, items)
+    await emit_world_event(get_db(), event_type="integration_direct_ingest", entity_refs=[job["id"], req.source], payload={"indicator_count": len(items), "internal": internal, "actor": user.get("id") if isinstance(user, dict) else None}, trigger_triune=False)
     return {"job_id": job['id'], "status": job['status'], "result": job.get('result')}
 
 
@@ -93,6 +99,7 @@ class VelociraptorRequest(BaseModel):
 async def start_velociraptor(req: VelociraptorRequest, user: dict = Depends(check_permission('write'))):
     """Start a Velociraptor collection on the server (enqueues Celery task)."""
     job = await run_velociraptor(req.collection_name)
+    await emit_world_event(get_db(), event_type="integration_velociraptor_started", entity_refs=[job["id"]], payload={"collection_name": req.collection_name, "actor": user.get("id")}, trigger_triune=False)
     return {"job_id": job['id'], "status": job.get('status')}
 
 
@@ -104,6 +111,7 @@ class PurpleSharpRequest(BaseModel):
 @router.post('/purplesharp/run')
 async def start_purplesharp(req: PurpleSharpRequest, user: dict = Depends(check_permission('write'))):
     job = await run_purplesharp(req.target, req.options)
+    await emit_world_event(get_db(), event_type="integration_purplesharp_started", entity_refs=[job["id"]], payload={"target": req.target, "actor": user.get("id")}, trigger_triune=False)
     return {"job_id": job['id'], "status": job.get('status')}
 
 
@@ -116,6 +124,7 @@ class HostLogIngestRequest(BaseModel):
 async def ingest_host(req: HostLogIngestRequest, user: dict = Depends(check_permission('write'))):
     """Ingest raw host telemetry (Sysmon/Auditd) text and extract indicators."""
     job = await ingest_host_logs(req.source, req.raw)
+    await emit_world_event(get_db(), event_type="integration_host_ingest", entity_refs=[job["id"], req.source], payload={"raw_size": len(req.raw), "actor": user.get("id")}, trigger_triune=False)
     return {"job_id": job['id'], "status": job['status'], "result": job.get('result')}
 
 

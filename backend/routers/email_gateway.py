@@ -7,7 +7,11 @@ from pydantic import BaseModel
 from dataclasses import asdict
 import base64
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from email_gateway import smtp_gateway, GatewayAction, GatewayMode
 
 router = APIRouter(prefix="/email-gateway", tags=["Email Gateway"])
@@ -71,6 +75,13 @@ async def process_email(
             )
         
         decision = smtp_gateway.process_message(message)
+        await emit_world_event(
+            get_db(),
+            event_type="email_gateway_message_processed",
+            entity_refs=[message.message_id],
+            payload={"action": decision.action.value, "client_ip": request.client_ip},
+            trigger_triune=False,
+        )
         
         return {
             **asdict(decision),
@@ -96,6 +107,7 @@ async def release_from_gateway_quarantine(
     success = smtp_gateway.release_from_quarantine(quarantine_id)
     if not success:
         raise HTTPException(status_code=404, detail="Quarantine entry not found")
+    await emit_world_event(get_db(), event_type="email_gateway_quarantine_released", entity_refs=[quarantine_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Message released", "quarantine_id": quarantine_id}
 
 
@@ -108,6 +120,7 @@ async def delete_from_gateway_quarantine(
     success = smtp_gateway.delete_from_quarantine(quarantine_id)
     if not success:
         raise HTTPException(status_code=404, detail="Quarantine entry not found")
+    await emit_world_event(get_db(), event_type="email_gateway_quarantine_deleted", entity_refs=[quarantine_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Message deleted", "quarantine_id": quarantine_id}
 
 
@@ -125,6 +138,7 @@ async def update_gateway_policy(
 ):
     """Update gateway policy"""
     smtp_gateway.update_policy(policy_name, request.settings)
+    await emit_world_event(get_db(), event_type="email_gateway_policy_updated", entity_refs=[policy_name], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": f"Policy {policy_name} updated"}
 
 
@@ -142,7 +156,7 @@ async def add_to_blocklist(
         smtp_gateway.add_ip_blocklist(request.value)
     else:
         raise HTTPException(status_code=400, detail="Invalid list_type")
-    
+    await emit_world_event(get_db(), event_type="email_gateway_blocklist_updated", entity_refs=[request.value], payload={"list_type": request.list_type, "action": "add"}, trigger_triune=False)
     return {"message": f"Added {request.value} to {request.list_type} blocklist"}
 
 
@@ -161,7 +175,7 @@ async def remove_from_blocklist(
         smtp_gateway.ip_blocklist.discard(value)
     else:
         raise HTTPException(status_code=400, detail="Invalid list_type")
-    
+    await emit_world_event(get_db(), event_type="email_gateway_blocklist_updated", entity_refs=[value], payload={"list_type": list_type, "action": "remove"}, trigger_triune=False)
     return {"message": f"Removed {value} from {list_type} blocklist"}
 
 
@@ -179,7 +193,7 @@ async def add_to_allowlist(
         smtp_gateway.add_ip_allowlist(request.value)
     else:
         raise HTTPException(status_code=400, detail="Invalid list_type")
-    
+    await emit_world_event(get_db(), event_type="email_gateway_allowlist_updated", entity_refs=[request.value], payload={"list_type": request.list_type, "action": "add"}, trigger_triune=False)
     return {"message": f"Added {request.value} to {request.list_type} allowlist"}
 
 

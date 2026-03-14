@@ -40,6 +40,15 @@ from enum import Enum
 import urllib.request
 import urllib.error
 import urllib.parse
+import asyncio
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -1434,6 +1443,7 @@ class CuckooSandboxService:
         
         # Analysis profiles
         self.profiles: Dict[str, AnalysisConfig] = self._load_default_profiles()
+        self.db = None
         
         if self.enabled:
             logger.info(f"Cuckoo Sandbox Service initialized (API v{self.api_version}): {self.api_url}")
@@ -1442,6 +1452,37 @@ class CuckooSandboxService:
         else:
             logger.info("Cuckoo Sandbox Service initialized (no API configured - using static analysis)")
             self.machine_pool.refresh_machines()  # Generate simulated machines
+
+    def set_db(self, db):
+        """Attach optional DB context so service can emit world events."""
+        self.db = db
+
+    def _emit_sandbox_event(self, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict[str, Any]] = None, trigger_triune: bool = False):
+        if emit_world_event is None or self.db is None:
+            return
+        try:
+            coro = emit_world_event(
+                self.db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=trigger_triune,
+            )
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(coro)
+                return
+
+            def _runner():
+                try:
+                    asyncio.run(coro)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_runner, daemon=True).start()
+        except Exception:
+            pass
     
     def _load_default_profiles(self) -> Dict[str, AnalysisConfig]:
         """Load default analysis profiles"""
@@ -1559,6 +1600,23 @@ class CuckooSandboxService:
                 self.tasks[task.task_id] = task
             
             result["task"] = asdict(task)
+            self._emit_sandbox_event(
+                event_type="sandbox_file_submitted",
+                entity_refs=[task.task_id, file_hash],
+                payload={
+                    "sample_name": file_name,
+                    "enabled": self.enabled,
+                    "initial_status": task.status,
+                },
+                trigger_triune=False,
+            )
+        else:
+            self._emit_sandbox_event(
+                event_type="sandbox_file_submission_failed",
+                entity_refs=[file_hash],
+                payload={"sample_name": file_name, "error": result.get("error")},
+                trigger_triune=False,
+            )
         
         return result
     
@@ -1705,6 +1763,12 @@ class CuckooSandboxService:
                 status="running"
             )
             self.tasks[task_id] = task
+            self._emit_sandbox_event(
+                event_type="sandbox_url_submitted",
+                entity_refs=[task_id],
+                payload={"url": url[:200]},
+                trigger_triune=False,
+            )
             
             return {
                 "success": True,
@@ -1714,6 +1778,12 @@ class CuckooSandboxService:
             
         except Exception as e:
             self.stats["api_errors"] += 1
+            self._emit_sandbox_event(
+                event_type="sandbox_url_submission_failed",
+                entity_refs=[],
+                payload={"url": url[:200], "error": str(e)},
+                trigger_triune=False,
+            )
             return {"success": False, "error": str(e)}
     
     def _static_analysis(self, file_path: str, file_data: bytes, file_hash: str) -> Dict:
@@ -1851,6 +1921,12 @@ class CuckooSandboxService:
                         
                         self.completed_tasks[task_id] = task
                         del self.tasks[task_id]
+                        self._emit_sandbox_event(
+                            event_type="sandbox_task_completed",
+                            entity_refs=[task_id, task.sample_hash],
+                            payload={"verdict": task.verdict, "score": task.score},
+                            trigger_triune=True,
+                        )
                     
                     return {
                         "task_id": task_id,
@@ -1923,6 +1999,12 @@ class CuckooSandboxService:
                 verdict = "clean"
             
             self.stats["completed_analyses"] += 1
+            self._emit_sandbox_event(
+                event_type="sandbox_report_retrieved",
+                entity_refs=[task_id],
+                payload={"verdict": verdict, "score": score},
+                trigger_triune=verdict in {"malicious", "suspicious"},
+            )
             
             return {
                 "success": True,

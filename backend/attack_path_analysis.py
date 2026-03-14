@@ -38,6 +38,14 @@ import heapq
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Tuple, Set, NamedTuple
 from dataclasses import dataclass, asdict, field
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 from collections import defaultdict
 from enum import Enum, auto
 import hashlib
@@ -1281,6 +1289,25 @@ class AttackPathService:
         self.analyzer = AttackPathAnalyzer()
         self.simulator = AttackSimulator(self.analyzer)
         self._last_analysis: Optional[Dict] = None
+        self.db = None
+
+    def set_db(self, db):
+        self.db = db
+
+    async def _emit_attack_path_event(self, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict[str, Any]] = None):
+        if emit_world_event is None or self.db is None:
+            return
+        try:
+            await emit_world_event(
+                self.db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=False,
+                source="backend.attack_path_analysis",
+            )
+        except Exception:
+            pass
     
     async def import_from_agents(self, agent_telemetry: List[Dict]) -> Dict[str, Any]:
         """
@@ -1303,10 +1330,16 @@ class AttackPathService:
                 self.analyzer.add_asset(asset)
                 assets_added += 1
         
-        return {
+        result = {
             "assets_imported": assets_added,
             "total_assets": len(self.analyzer.assets)
         }
+        await self._emit_attack_path_event(
+            "attack_path_assets_imported",
+            [],
+            {"assets_imported": assets_added, "telemetry_items": len(agent_telemetry)},
+        )
+        return result
     
     def _infer_asset_type(self, host: Dict) -> AssetType:
         """Infer asset type from host information"""
@@ -1338,6 +1371,14 @@ class AttackPathService:
     async def run_analysis(self) -> Dict[str, Any]:
         """Run full attack path analysis"""
         self._last_analysis = self.analyzer.analyze()
+        await self._emit_attack_path_event(
+            "attack_path_analysis_completed",
+            [],
+            {
+                "path_count": len(self._last_analysis.get("attack_paths", [])) if isinstance(self._last_analysis, dict) else 0,
+                "choke_point_count": len(self._last_analysis.get("choke_points", [])) if isinstance(self._last_analysis, dict) else 0,
+            },
+        )
         return self._last_analysis
     
     async def get_crown_jewels(self) -> List[Dict]:
@@ -1355,6 +1396,11 @@ class AttackPathService:
             auto_tag=rule.get("auto_tag", [])
         )
         self.analyzer.crown_jewel_rules.append(cj_rule)
+        await self._emit_attack_path_event(
+            "attack_path_crown_jewel_rule_added",
+            [cj_rule.rule_id],
+            {"name": cj_rule.name, "criticality": cj_rule.criticality.value},
+        )
         return cj_rule.rule_id
     
     async def simulate_breach(
@@ -1362,7 +1408,15 @@ class AttackPathService:
         compromised_asset_id: str
     ) -> Dict[str, Any]:
         """Simulate a breach starting from a specific asset"""
-        return self.analyzer.calculate_blast_radius(compromised_asset_id)
+        result = self.analyzer.calculate_blast_radius(compromised_asset_id)
+        await self._emit_attack_path_event(
+            "attack_path_breach_simulated",
+            [compromised_asset_id],
+            {
+                "total_impacted": result.get("total_impacted", 0) if isinstance(result, dict) else None,
+            },
+        )
+        return result
     
     async def get_cytoscape_graph(self) -> Dict[str, Any]:
         """Get graph in Cytoscape.js format for visualization"""

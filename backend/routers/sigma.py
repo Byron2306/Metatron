@@ -2,7 +2,11 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from typing import Any, Dict
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from sigma_engine import sigma_engine
 
 router = APIRouter(prefix="/sigma", tags=["Sigma"])
@@ -21,6 +25,7 @@ async def sigma_status(current_user: dict = Depends(get_current_user)):
 @router.post("/reload")
 async def sigma_reload(current_user: dict = Depends(check_permission("write"))):
     result = sigma_engine.reload_rules()
+    await emit_world_event(get_db(), event_type="sigma_rules_reloaded", entity_refs=[], payload={"actor": current_user.get("id"), "loaded": result.get("loaded", 0), "error_count": len(result.get("errors", []))}, trigger_triune=False)
     return {
         "message": "Sigma rules reloaded",
         "loaded": result.get("loaded", 0),
@@ -46,4 +51,6 @@ async def sigma_coverage(current_user: dict = Depends(get_current_user)):
 
 @router.post("/evaluate")
 async def sigma_evaluate(payload: SigmaEventRequest, current_user: dict = Depends(get_current_user)):
-    return sigma_engine.evaluate_event(payload.event, max_matches=payload.max_matches)
+    result = sigma_engine.evaluate_event(payload.event, max_matches=payload.max_matches)
+    await emit_world_event(get_db(), event_type="sigma_event_evaluated", entity_refs=[], payload={"actor": current_user.get("id"), "max_matches": payload.max_matches, "match_count": len(result.get("matches", [])) if isinstance(result, dict) else None}, trigger_triune=False)
+    return result

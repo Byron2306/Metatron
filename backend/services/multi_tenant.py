@@ -8,10 +8,20 @@ Provides tenant isolation, resource management, and cross-tenant analytics.
 import os
 import uuid
 import logging
+import asyncio
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field, asdict
 from enum import Enum
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +168,37 @@ class MultiTenantService:
         self._init_default_tenant()
         
         logger.info("Multi-Tenant Service initialized")
+
+    def set_db(self, db):
+        """Attach optional DB context for canonical event emission."""
+        self.db = db
+
+    def _emit_tenant_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        if emit_world_event is None or getattr(self, "db", None) is None:
+            return
+        coro = emit_world_event(
+            self.db,
+            event_type=event_type,
+            entity_refs=entity_refs,
+            payload=payload,
+            trigger_triune=trigger_triune,
+        )
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def _init_default_tenant(self):
         """Initialize the default tenant"""
@@ -240,6 +281,12 @@ class MultiTenantService:
         self.tenants[tenant_id] = tenant
         
         logger.info(f"Created tenant: {tenant.name} ({tenant.id}) - Tier: {tier.value}")
+        self._emit_tenant_event(
+            event_type="multi_tenant_created",
+            entity_refs=[tenant.id, tenant.slug],
+            payload={"tier": tenant.tier.value, "status": tenant.status.value},
+            trigger_triune=tier in {TenantTier.PROFESSIONAL, TenantTier.ENTERPRISE},
+        )
         
         return tenant
     
@@ -288,6 +335,12 @@ class MultiTenantService:
         tenant.updated_at = datetime.now(timezone.utc).isoformat()
         
         logger.info(f"Updated tenant: {tenant.name} ({tenant.id})")
+        self._emit_tenant_event(
+            event_type="multi_tenant_updated",
+            entity_refs=[tenant.id],
+            payload={"updated_fields": sorted(list(updates.keys()))},
+            trigger_triune=False,
+        )
         
         return tenant
     
@@ -301,6 +354,12 @@ class MultiTenantService:
         tenant.updated_at = datetime.now(timezone.utc).isoformat()
         
         logger.info(f"Suspended tenant: {tenant.name} ({tenant.id})")
+        self._emit_tenant_event(
+            event_type="multi_tenant_suspended",
+            entity_refs=[tenant.id],
+            payload={"status": tenant.status.value},
+            trigger_triune=True,
+        )
         
         return True
     
@@ -319,6 +378,12 @@ class MultiTenantService:
         self.user_tenants[user_id] = tenant_id
         tenant.usage.users += 1
         tenant.usage.last_updated = datetime.now(timezone.utc).isoformat()
+        self._emit_tenant_event(
+            event_type="multi_tenant_user_assigned",
+            entity_refs=[tenant_id, user_id],
+            payload={"user_count": tenant.usage.users},
+            trigger_triune=False,
+        )
         
         return True
     
@@ -374,6 +439,12 @@ class MultiTenantService:
             tenant.usage.api_calls_today += amount
         
         tenant.usage.last_updated = datetime.now(timezone.utc).isoformat()
+        self._emit_tenant_event(
+            event_type="multi_tenant_usage_incremented",
+            entity_refs=[tenant_id],
+            payload={"resource": resource, "amount": amount},
+            trigger_triune=False,
+        )
         
         return True
     
@@ -384,6 +455,12 @@ class MultiTenantService:
             tenant.usage.last_updated = datetime.now(timezone.utc).isoformat()
         
         logger.info("Reset daily usage counters for all tenants")
+        self._emit_tenant_event(
+            event_type="multi_tenant_daily_usage_reset",
+            entity_refs=[],
+            payload={"tenant_count": len(self.tenants)},
+            trigger_triune=False,
+        )
     
     def has_feature(self, tenant_id: str, feature: str) -> bool:
         """Check if a tenant has access to a feature"""
@@ -407,6 +484,12 @@ class MultiTenantService:
         
         api_key = f"sk_{tenant.slug}_{uuid.uuid4().hex}"
         self.api_keys[api_key] = tenant_id
+        self._emit_tenant_event(
+            event_type="multi_tenant_api_key_generated",
+            entity_refs=[tenant_id],
+            payload={"tenant_slug": tenant.slug},
+            trigger_triune=False,
+        )
         
         return api_key
     

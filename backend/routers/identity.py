@@ -13,6 +13,10 @@ from pydantic import BaseModel
 from identity_protection import get_identity_protection_engine
 
 from .dependencies import get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -1049,10 +1053,12 @@ async def update_identity_incident_status(incident_id: str, update: IncidentStat
                 raise HTTPException(status_code=409, detail=f"Incident already in status={target_status}")
             from fastapi import HTTPException
             raise HTTPException(status_code=409, detail="Incident update conflict; state changed concurrently")
+        updated_at = datetime.now(timezone.utc).isoformat()
+        await emit_world_event(get_db(), event_type="identity_incident_status_updated", entity_refs=[incident_id], payload={"status": target_status, "actor": update.updated_by, "reason": reason}, trigger_triune=False)
         return {
             "incident_id": incident_id,
             "status": target_status,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": updated_at,
         }
 
     # Fallback in-memory path
@@ -1108,10 +1114,13 @@ async def run_identity_scan(request: Optional[IdentityScanRequest] = None) -> Di
     _ = request
     engine = get_identity_protection_engine()
     summary = engine.get_threat_summary()
+    scan_id = f"identity-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    timestamp = datetime.now(timezone.utc).isoformat()
+    await emit_world_event(get_db(), event_type="identity_scan_completed", entity_refs=[scan_id], payload={"active_threats": summary.get("active_threats", 0), "threats_last_hour": summary.get("threats_last_hour", 0)}, trigger_triune=False)
     return {
         "status": "completed",
-        "scan_id": f"identity-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "scan_id": scan_id,
+        "timestamp": timestamp,
         "active_threats": summary.get("active_threats", 0),
         "threats_last_hour": summary.get("threats_last_hour", 0),
     }
@@ -1121,6 +1130,7 @@ async def run_identity_scan(request: Optional[IdentityScanRequest] = None) -> Di
 async def ingest_entra_events(request: IdentityProviderEventIngestRequest) -> Dict[str, Any]:
     normalized_events = [_normalize_identity_provider_event("entra", event) for event in request.events]
     await _persist_identity_provider_events(normalized_events)
+    await emit_world_event(get_db(), event_type="identity_provider_events_ingested", entity_refs=["entra"], payload={"provider": "entra", "ingested": len(normalized_events)}, trigger_triune=False)
     return {
         "status": "ok",
         "provider": "entra",
@@ -1133,6 +1143,7 @@ async def ingest_entra_events(request: IdentityProviderEventIngestRequest) -> Di
 async def ingest_okta_events(request: IdentityProviderEventIngestRequest) -> Dict[str, Any]:
     normalized_events = [_normalize_identity_provider_event("okta", event) for event in request.events]
     await _persist_identity_provider_events(normalized_events)
+    await emit_world_event(get_db(), event_type="identity_provider_events_ingested", entity_refs=["okta"], payload={"provider": "okta", "ingested": len(normalized_events)}, trigger_triune=False)
     return {
         "status": "ok",
         "provider": "okta",
@@ -1164,6 +1175,7 @@ async def ingest_m365_oauth_consents(request: IdentityProviderEventIngestRequest
         event["longitude"] = event.get("longitude") or raw.get("longitude") or (raw.get("location") or {}).get("longitude")
 
     await _persist_identity_provider_events(normalized_events)
+    await emit_world_event(get_db(), event_type="identity_provider_events_ingested", entity_refs=["m365"], payload={"provider": "m365", "ingested": len(normalized_events)}, trigger_triune=False)
     return {
         "status": "ok",
         "provider": "m365",
@@ -1221,6 +1233,7 @@ async def queue_identity_response_action(request: IdentityResponseActionRequest)
 
     action_doc = _normalize_identity_response_action(request)
     await _persist_identity_response_action(action_doc)
+    await emit_world_event(get_db(), event_type="identity_response_action_queued", entity_refs=[action_doc.get("id", "")], payload={"action": action_doc.get("action"), "requested_by": action_doc.get("requested_by")}, trigger_triune=False)
 
     return {
         "status": "queued",
@@ -1247,6 +1260,7 @@ async def dispatch_identity_response_action(action_id: str, dry_run: bool = Quer
 
     trigger_event = _build_soar_trigger_event(action_doc)
     if dry_run:
+        await emit_world_event(get_db(), event_type="identity_response_action_dispatch_requested", entity_refs=[action_id], payload={"dry_run": True}, trigger_triune=False)
         return {
             "status": "dry_run",
             "action_id": action_id,
@@ -1254,7 +1268,9 @@ async def dispatch_identity_response_action(action_id: str, dry_run: bool = Quer
         }
 
     try:
-        return await _dispatch_identity_action_doc(action_doc)
+        result = await _dispatch_identity_action_doc(action_doc)
+        await emit_world_event(get_db(), event_type="identity_response_action_dispatched", entity_refs=[action_id], payload={"status": result.get("status")}, trigger_triune=False)
+        return result
     except Exception as e:
         await _update_identity_response_action_status(
             action_id,

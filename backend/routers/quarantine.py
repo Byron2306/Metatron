@@ -5,6 +5,10 @@ from fastapi import APIRouter, HTTPException, Depends
 from dataclasses import asdict
 
 from .dependencies import get_current_user, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import quarantine service
 from quarantine import (
@@ -51,6 +55,7 @@ async def restore_entry(entry_id: str, current_user: dict = Depends(get_current_
     result = restore_file(entry_id)
     if not result:
         raise HTTPException(status_code=400, detail="Restore failed - entry not found or already restored")
+    await emit_world_event(get_db(), event_type="quarantine_entry_restored", entity_refs=[entry_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"success": True, "message": "File restored successfully"}
 
 @router.delete("/{entry_id}")
@@ -60,4 +65,5 @@ async def delete_entry(entry_id: str, current_user: dict = Depends(get_current_u
     result = delete_quarantined(entry_id)
     if not result:
         raise HTTPException(status_code=400, detail="Delete failed - entry not found")
+    await emit_world_event(get_db(), event_type="quarantine_entry_deleted", entity_refs=[entry_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"success": True, "message": "File deleted successfully"}

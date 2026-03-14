@@ -6,7 +6,11 @@ from fastapi.responses import PlainTextResponse
 from typing import Optional
 from pydantic import BaseModel
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from kibana_dashboards import kibana_dashboard_service, KibanaDashboardService
 
 router = APIRouter(prefix="/kibana", tags=["Kibana Dashboards"])
@@ -91,6 +95,7 @@ async def configure_kibana(
         username=request.username,
         password=request.password
     )
+    await emit_world_event(get_db(), event_type="kibana_configured", entity_refs=[request.kibana_url or request.elasticsearch_url], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Kibana configured successfully"}
 
 
@@ -100,6 +105,7 @@ async def setup_index_pattern(
 ):
     """Create security-events index pattern in Kibana"""
     result = await kibana_dashboard_service.create_index_pattern()
+    await emit_world_event(get_db(), event_type="kibana_index_pattern_setup", entity_refs=[], payload={"actor": current_user.get("id"), "success": bool(result)}, trigger_triune=False)
     return result
 
 
@@ -120,7 +126,6 @@ async def get_live_dashboard_data(
     current_user: dict = Depends(get_current_user)
 ):
     """Get live dashboard data from MongoDB (fallback when ES is not available)"""
-    from .dependencies import get_db
     db = get_db()
     
     config = kibana_dashboard_service.get_dashboard_config(dashboard_id)

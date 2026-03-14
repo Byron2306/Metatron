@@ -6,7 +6,11 @@ from typing import Optional, Dict, List
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from .dependencies import get_current_user, check_permission, logger
+from .dependencies import get_current_user, check_permission, logger, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from zero_trust import (
     zero_trust_engine,
     DeviceTrust,
@@ -47,6 +51,7 @@ class EvaluateAccessRequest(BaseModel):
 async def _sync_engine_from_db(db):
     """Hydrate in-memory zero trust engine state from MongoDB documents."""
     try:
+        zero_trust_engine.set_db(db)
         device_docs = await db.zt_devices.find({}, {"_id": 0}).to_list(1000)
         policy_docs = await db.zt_policies.find({}, {"_id": 0}).to_list(1000)
         access_log_docs = await db.zt_access_logs.find({}, {"_id": 0}).sort("timestamp", -1).to_list(1000)
@@ -226,6 +231,7 @@ async def register_device(
     await _persist_device(db, device, registered_by=current_user.get("name", current_user["id"]))
     
     logger.info(f"Registered device {device['device_id']} by user {current_user['id']}")
+    await emit_world_event(get_db(), event_type="zero_trust_device_registered", entity_refs=[device.get("device_id")], payload={"actor": current_user.get("id"), "device_type": device.get("device_type")}, trigger_triune=False)
     return device
 
 @router.get("/policies")
@@ -249,6 +255,7 @@ async def create_policy(
     policy = zero_trust_engine.create_policy(request.model_dump())
     await _persist_policy(db, policy, updated_by=current_user.get("id"))
     logger.info(f"Created policy {policy['id']} by user {current_user['id']}")
+    await emit_world_event(get_db(), event_type="zero_trust_policy_created", entity_refs=[policy.get("id")], payload={"actor": current_user.get("id"), "resource_pattern": policy.get("resource_pattern")}, trigger_triune=False)
     return policy
 
 @router.post("/evaluate")
@@ -281,6 +288,7 @@ async def evaluate_access(
         request_context=request_context
     )
     await _persist_latest_access_log(db)
+    await emit_world_event(get_db(), event_type="zero_trust_access_evaluated", entity_refs=[request.device_id, request.resource], payload={"actor": current_user.get("id"), "decision": result.get("decision") if isinstance(result, dict) else None}, trigger_triune=False)
     return result
 
 @router.post("/trust-score")
@@ -428,7 +436,7 @@ async def unblock_device(
     await _persist_device(db, _device_to_dict(device))
     
     logger.info(f"Device {device_id} unblocked by {current_user.get('email')}")
-    
+    await emit_world_event(get_db(), event_type="zero_trust_device_unblocked", entity_refs=[device_id], payload={"actor": current_user.get("id"), "new_trust_score": device.trust_score}, trigger_triune=False)
     return {
         "success": True,
         "device_id": device_id,
@@ -436,4 +444,3 @@ async def unblock_device(
         "new_trust_score": device.trust_score,
         "new_trust_level": device.trust_level.value
     }
-

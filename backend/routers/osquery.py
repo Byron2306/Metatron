@@ -3,7 +3,11 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from osquery_fleet import osquery_fleet
 
 router = APIRouter(prefix="/osquery", tags=["Osquery Fleet"])
@@ -54,4 +58,6 @@ async def osquery_live_query(
     payload: LiveQueryRequest,
     current_user: dict = Depends(check_permission("write")),
 ):
-    return osquery_fleet.run_live_query(payload.sql, selected=payload.selected)
+    result = osquery_fleet.run_live_query(payload.sql, selected=payload.selected)
+    await emit_world_event(get_db(), event_type="osquery_live_query_executed", entity_refs=[], payload={"actor": current_user.get("id"), "sql": payload.sql[:120], "selected_count": len(payload.selected)}, trigger_triune=False)
+    return result

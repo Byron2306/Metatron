@@ -29,6 +29,14 @@ from pathlib import Path
 from enum import Enum
 from runtime_paths import ensure_data_dir
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -393,6 +401,21 @@ class ThreatIntelManager:
     def set_database(cls, db):
         """Set MongoDB database for storing matches"""
         cls._db = db
+
+    async def _emit_ti_event(self, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict[str, Any]] = None):
+        if emit_world_event is None or self._db is None:
+            return
+        try:
+            await emit_world_event(
+                self._db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=False,
+                source="backend.threat_intel",
+            )
+        except Exception:
+            pass
     
     async def update_all_feeds(self):
         """Update all enabled feeds"""
@@ -481,6 +504,15 @@ class ThreatIntelManager:
                 "query_type": match.query_type,
                 "context": context or {}
             })
+            await self._emit_ti_event(
+                "threat_intel_match_logged",
+                [match.query_value],
+                {
+                    "query_type": match.query_type,
+                    "threat_level": match.indicator.threat_level if match.indicator else None,
+                    "confidence": match.indicator.confidence if match.indicator else None,
+                },
+            )
         
         return match
     
@@ -623,6 +655,11 @@ class ThreatIntelManager:
                 logger.error(f"Failed to record ingest event: {e}")
 
         logger.info(f"Ingested {added} indicators into feed '{src}'")
+        await self._emit_ti_event(
+            "threat_intel_indicators_ingested",
+            [src],
+            {"ingested": added, "raw_count": len(indicators)},
+        )
         return {"ingested": added, "feed": src}
 
     def _assign_techniques(self, source: str, item: Dict[str, Any]) -> List[str]:

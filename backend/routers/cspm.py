@@ -58,6 +58,10 @@ from cspm_azure_scanner import AzureScanner
 from cspm_gcp_scanner import GCPScanner
 from .dependencies import get_db
 try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
+try:
     from .dependencies import get_current_user
 except Exception:
     # Tests may provide a minimal dependencies stub without get_current_user.
@@ -694,6 +698,13 @@ async def configure_provider(config: ProviderConfig) -> Dict[str, Any]:
 
     # Persist provider config with encrypted secrets.
     await _persist_provider_to_db(config.provider, credentials)
+    await emit_world_event(
+        get_db(),
+        event_type="cspm_provider_configured",
+        entity_refs=[config.provider.value],
+        payload={"account_id": config.account_id, "region": config.region},
+        trigger_triune=False,
+    )
     
     # Register scanner with engine
     engine = get_cspm_engine()
@@ -731,6 +742,13 @@ async def remove_provider(provider: CloudProvider) -> Dict[str, str]:
         db = get_db()
         if db is not None:
             await db[_PROVIDER_COLLECTION].delete_one({"provider": provider.value})
+        await emit_world_event(
+            get_db(),
+            event_type="cspm_provider_removed",
+            entity_refs=[provider.value],
+            payload={"provider": provider.value},
+            trigger_triune=False,
+        )
         return {"status": "removed", "provider": provider.value}
     raise HTTPException(status_code=404, detail="Provider not configured")
 
@@ -769,6 +787,13 @@ async def start_scan(
     scan_id = str(uuid.uuid4())
     selected_providers = [p.value for p in (request.providers or list(engine.scanners.keys()))]
     await _create_scan_record(scan_id, request, selected_providers)
+    await emit_world_event(
+        get_db(),
+        event_type="cspm_scan_started",
+        entity_refs=[scan_id],
+        payload={"providers": selected_providers, "requested_by": current_user.get("id")},
+        trigger_triune=False,
+    )
     
     # Start scan in background
     async def run_scan():
@@ -1120,6 +1145,14 @@ async def update_finding_status(
                 raise HTTPException(status_code=409, detail=f"Finding already in status={target_status}")
             raise HTTPException(status_code=409, detail="Finding update conflict; state changed concurrently")
 
+        await emit_world_event(
+            get_db(),
+            event_type="cspm_finding_status_updated",
+            entity_refs=[finding_id],
+            payload={"status": target_status, "updated_by": update.updated_by},
+            trigger_triune=False,
+        )
+
         return {
             "finding_id": finding_id,
             "status": target_status,
@@ -1138,6 +1171,14 @@ async def update_finding_status(
         engine.resolve_finding(finding_id, update.reason or "Manually resolved")
     else:
         engine.findings_db[finding_id].status = update.status
+
+    await emit_world_event(
+        get_db(),
+        event_type="cspm_finding_status_updated",
+        entity_refs=[finding_id],
+        payload={"status": update.status.value, "updated_by": update.updated_by},
+        trigger_triune=False,
+    )
 
     return {
         "finding_id": finding_id,
@@ -1247,6 +1288,13 @@ async def toggle_check(check_id: str, toggle: CheckToggle) -> Dict[str, Any]:
         if check_id in scanner.checks:
             scanner.checks[check_id].enabled = toggle.enabled
             scanner.checks[check_id].auto_remediate = toggle.auto_remediate
+            await emit_world_event(
+                get_db(),
+                event_type="cspm_check_toggled",
+                entity_refs=[check_id],
+                payload={"enabled": toggle.enabled, "auto_remediate": toggle.auto_remediate},
+                trigger_triune=False,
+            )
             return {
                 "check_id": check_id,
                 "enabled": toggle.enabled,
@@ -1450,6 +1498,14 @@ async def seed_demo_cspm_data(count: int = Query(12, ge=1, le=200)) -> Dict[str,
         engine.findings_db[finding.finding_id] = finding
         engine.resources_db[resource.resource_id] = resource
         seeded += 1
+
+    await emit_world_event(
+        get_db(),
+        event_type="cspm_demo_seeded",
+        entity_refs=[],
+        payload={"findings_added": seeded, "resources_total": len(engine.resources_db)},
+        trigger_triune=False,
+    )
 
     return {
         "status": "seeded",

@@ -7,6 +7,10 @@ from typing import List
 from .dependencies import (
     NetworkNode, NetworkLink, NetworkTopology, get_current_user, get_db
 )
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/network", tags=["Network"])
 

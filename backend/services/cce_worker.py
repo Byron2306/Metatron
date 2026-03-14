@@ -20,6 +20,14 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from services.cognition_engine import CognitionEngine
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,6 +70,20 @@ class CCEWorker:
         self._analysis_cooldown_s = 15  # Don't re-analyze same session within this period
         
         logger.info(f"CCE Worker initialized: interval={analysis_interval_s}s, window={window_s}s")
+
+    async def _emit_worker_event(self, event_type: str, entity_refs: List[str], payload: Dict, trigger_triune: bool = False):
+        if emit_world_event is None or self.db is None:
+            return
+        try:
+            await emit_world_event(
+                self.db,
+                event_type=event_type,
+                entity_refs=entity_refs,
+                payload=payload,
+                trigger_triune=trigger_triune,
+            )
+        except Exception:
+            pass
     
     async def start(self):
         """Start the background worker"""
@@ -72,6 +94,12 @@ class CCEWorker:
         self.running = True
         self.task = asyncio.create_task(self._run_loop())
         logger.info("CCE Worker started")
+        await self._emit_worker_event(
+            "cce_worker_started",
+            [],
+            {"analysis_interval_s": self.analysis_interval_s, "window_s": self.window_s},
+            trigger_triune=False,
+        )
     
     async def stop(self):
         """Stop the background worker"""
@@ -83,6 +111,7 @@ class CCEWorker:
             except asyncio.CancelledError:
                 pass
         logger.info("CCE Worker stopped")
+        await self._emit_worker_event("cce_worker_stopped", [], {"running": False}, trigger_triune=False)
     
     async def _run_loop(self):
         """Main worker loop"""
@@ -210,10 +239,25 @@ class CCEWorker:
             summary["source"] = "cce_worker"
             await self.db.cli_session_summaries.insert_one(summary)
             await self.db.events_raw.insert_one({**summary, "_id": None})
+            await self._emit_worker_event(
+                "cce_summary_stored",
+                [host_id, session_id],
+                {
+                    "machine_likelihood": summary.get("machine_likelihood", 0),
+                    "dominant_intents": summary.get("dominant_intents", []),
+                },
+                trigger_triune=summary.get("machine_likelihood", 0) >= 0.8,
+            )
             
             # Trigger SOAR evaluation for high-risk sessions
             if summary.get("machine_likelihood", 0) >= 0.6:
                 await self._trigger_soar(summary)
+                await self._emit_worker_event(
+                    "cce_soar_triggered",
+                    [host_id, session_id],
+                    {"machine_likelihood": summary.get("machine_likelihood", 0)},
+                    trigger_triune=False,
+                )
             
             logger.info(
                 f"CCE Summary stored: {host_id}/{session_id} - "

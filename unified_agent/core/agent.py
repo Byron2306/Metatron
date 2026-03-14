@@ -511,6 +511,12 @@ class AgentConfig:
     siem_integration: bool = False
     quantum_secure: bool = False
     threat_hunting: bool = True
+
+    # Triune decision hooks
+    require_triune_approval: bool = True  # Gate remediation actions via triune/backend approval
+    triune_rank_before_handle: bool = True  # Rank threats by triune heuristic before handling
+    triune_preflight_gate: bool = True  # Allow local triune-style suppression before remediation
+    triune_hypothesis_enabled: bool = True  # Attach hypothesis metadata to handled threats
     
     # SIEM Configuration
     elasticsearch_url: str = ""
@@ -14918,6 +14924,52 @@ class UnifiedAgent:
         except:
             return "127.0.0.1"
     
+    def _threat_severity_rank(self, severity: Any) -> int:
+        """Convert severity to a sortable rank (higher is worse)."""
+        if isinstance(severity, ThreatSeverity):
+            value = severity.value
+        else:
+            value = str(severity or '').lower()
+        return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(value, 0)
+
+    def _triune_rank_threats(self, threats: List[Threat]) -> List[Threat]:
+        """Apply lightweight triune-inspired ranking prior to handling."""
+        def score(t: Threat) -> Tuple[int, int, str]:
+            sev = self._threat_severity_rank(t.severity)
+            indicator_count = len((t.evidence or {}).get('indicators', []) or [])
+            return (sev, indicator_count, t.detected_at or "")
+
+        ranked = sorted(threats, key=score, reverse=True)
+        if ranked:
+            self._log_event("triune_rank_applied", {
+                "threat_count": len(ranked),
+                "top_threat_id": ranked[0].threat_id,
+                "top_severity": ranked[0].severity.value if isinstance(ranked[0].severity, ThreatSeverity) else ranked[0].severity,
+            })
+        return ranked
+
+    def _triune_hypothesis_for_threat(self, threat: Threat) -> str:
+        """Generate a concise analyst-facing hypothesis for the threat."""
+        indicators = (threat.evidence or {}).get('indicators', []) or []
+        if indicators:
+            top = ', '.join(str(x) for x in indicators[:3])
+            return f"Likely malicious behavior due to indicators: {top}"
+        return f"Suspicious {threat.threat_type or 'activity'} requiring analyst validation"
+
+    def _triune_preflight_gate(self, threat: Threat) -> Tuple[bool, str]:
+        """Best-effort local gate to reduce obvious trusted-tool false positives."""
+        if not self.config.triune_preflight_gate:
+            return True, "gate_disabled"
+
+        process_name = str((threat.evidence or {}).get('name') or '').strip()
+        process_path = str((threat.evidence or {}).get('exe') or '').strip()
+        cmdline = str((threat.evidence or {}).get('cmdline') or '').strip()
+        trusted, reason = is_trusted_ai_process(process_name, process_path, cmdline)
+        if trusted and self._threat_severity_rank(threat.severity) <= self._threat_severity_rank(ThreatSeverity.MEDIUM):
+            return False, f"trusted_ai_process:{reason}"
+
+        return True, "passed"
+
     def scan_all(self) -> Dict[str, Any]:
         """Run all enabled monitors"""
         results = {}
@@ -14931,6 +14983,9 @@ class UnifiedAgent:
                 except Exception as e:
                     logger.error(f"Monitor {name} error: {e}")
                     results[name] = {"error": str(e)}
+
+        if self.config.triune_rank_before_handle and all_threats:
+            all_threats = self._triune_rank_threats(all_threats)
         
         # Process detected threats
         for threat in all_threats:
@@ -14945,6 +15000,24 @@ class UnifiedAgent:
     
     def _handle_threat(self, threat: Threat):
         """Handle a detected threat with aggressive auto-kill"""
+        gate_passed, gate_reason = self._triune_preflight_gate(threat)
+        if not gate_passed:
+            threat.status = "suppressed"
+            threat.user_approved = False
+            threat.evidence = dict(threat.evidence or {})
+            threat.evidence["triune_gate_reason"] = gate_reason
+            self._log_event("threat_suppressed", {
+                "threat_id": threat.threat_id,
+                "title": threat.title,
+                "reason": gate_reason,
+            })
+            self.siem.log_threat(threat, "suppressed")
+            return
+
+        if self.config.triune_hypothesis_enabled:
+            threat.evidence = dict(threat.evidence or {})
+            threat.evidence.setdefault("triune_hypothesis", self._triune_hypothesis_for_threat(threat))
+
         self.threat_history.append(threat)
         self.stats["threats_detected"] += 1
         
