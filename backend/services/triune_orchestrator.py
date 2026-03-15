@@ -7,6 +7,10 @@ try:
     from services.world_model import WorldModelService
 except Exception:
     from backend.services.world_model import WorldModelService
+try:
+    from services.cognition_fabric import CognitionFabricService
+except Exception:
+    from backend.services.cognition_fabric import CognitionFabricService
 
 try:
     from triune.loki import LokiService
@@ -28,6 +32,7 @@ class TriuneOrchestrator:
     def __init__(self, db: Any):
         self.db = db
         self.world_model = WorldModelService(db)
+        self.cognition = CognitionFabricService(db)
         self.metatron = MetatronService(db)
         self.michael = MichaelService(db)
         self.loki = LokiService(db)
@@ -42,6 +47,15 @@ class TriuneOrchestrator:
         context = context or {}
 
         world_snapshot = await self._build_world_snapshot(entity_ids)
+        try:
+            world_snapshot["cognition"] = await self.cognition.build_cognition_snapshot(
+                world_snapshot=world_snapshot,
+                event_type=event_type,
+                entity_ids=entity_ids,
+                context=context,
+            )
+        except Exception:
+            world_snapshot["cognition"] = {}
         metatron_assessment = await self.metatron.assess_world_state(
             snapshot=world_snapshot,
             event_type=event_type,
@@ -54,18 +68,26 @@ class TriuneOrchestrator:
             or metatron_assessment.get("approval_tier_suggestion")
             or "standard"
         )
+        planning_context = dict(context)
+        planning_context["metatron_belief"] = metatron_assessment.get("metatron_belief") or {}
+        planning_context["metatron_predicted_next_sectors"] = metatron_assessment.get("predicted_next_sectors") or []
+        planning_context["cognitive_signal"] = (world_snapshot.get("cognition") or {}).get("fused_signal") or {}
         michael_plan = await self.michael.plan_actions(
             candidates=candidates,
             world_snapshot=world_snapshot,
             policy_tier=policy_tier,
-            context=context,
+            context=planning_context,
         )
 
+        loki_context = dict(context)
+        loki_context["metatron_policy_tier"] = policy_tier
+        loki_context["michael_selected_action"] = (michael_plan.get("selected_action") or {}).get("candidate")
+        loki_context["metatron_predicted_next_sectors"] = metatron_assessment.get("predicted_next_sectors") or []
         loki_advisory = await self.loki.challenge_plan(
             world_snapshot=world_snapshot,
             michael_plan=michael_plan,
             event_type=event_type,
-            context=context,
+            context=loki_context,
         )
 
         beacon_cascade = await self._apply_beacon_cascade(

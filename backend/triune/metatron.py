@@ -57,6 +57,9 @@ class MetatronService:
         active_responses = snapshot.get("active_responses") or []
         sector_risk = snapshot.get("sector_risk") or {}
         attack_path_summary = snapshot.get("attack_path_summary") or {}
+        cognition = snapshot.get("cognition") or {}
+        fused_signal = cognition.get("fused_signal") or {}
+        ai_reasoning = cognition.get("ai_reasoning") or {}
 
         sector_risk_values = [
             float((details or {}).get("avg_risk") or 0.0)
@@ -70,6 +73,9 @@ class MetatronService:
             + 0.3 * max_sector_risk
             + 0.2 * min(1.0, len(active_responses) / 10.0),
         )
+        cognitive_pressure = max(0.0, min(1.0, float(fused_signal.get("cognitive_pressure") or 0.0)))
+        autonomous_confidence = max(0.0, min(1.0, float(fused_signal.get("autonomous_confidence") or 0.0)))
+        strategic_pressure = min(1.0, strategic_pressure * 0.72 + cognitive_pressure * 0.28)
 
         degraded_trust_count = len(
             [v for v in trust_state.values() if str(v).lower().strip() in {"degraded", "quarantined", "compromised"}]
@@ -85,6 +91,9 @@ class MetatronService:
             reverse=True,
         )
         top_predicted_sectors = [sector for sector, _ in top_sector_pairs[:3]]
+        cognitive_predicted_sectors = [str(s) for s in (fused_signal.get("predicted_next_sectors") or []) if s]
+        if cognitive_predicted_sectors:
+            top_predicted_sectors = list(dict.fromkeys(cognitive_predicted_sectors + top_predicted_sectors))
         if not top_predicted_sectors:
             top_predicted_sectors = ["identity", "endpoint", "network"] if strategic_pressure >= 0.5 else ["monitoring"]
 
@@ -96,6 +105,10 @@ class MetatronService:
             policy_tier = "medium"
         else:
             policy_tier = "low"
+        cognitive_tier = str(fused_signal.get("recommended_policy_tier") or "").strip().lower()
+        tier_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        if cognitive_tier in tier_rank and tier_rank[cognitive_tier] > tier_rank.get(policy_tier, 0):
+            policy_tier = cognitive_tier
 
         return {
             "status": "ok",
@@ -107,6 +120,8 @@ class MetatronService:
                 "degraded_trust_count": degraded_trust_count,
                 "active_response_count": len(active_responses),
                 "recent_event_count": len(recent_events),
+                "cognitive_pressure": round(cognitive_pressure, 4),
+                "autonomous_confidence": round(autonomous_confidence, 4),
             },
             "environment_state": {
                 "entity_count": snapshot.get("entity_count", 0),
@@ -114,8 +129,18 @@ class MetatronService:
                 "timeline_window": timeline,
                 "attack_path_summary": attack_path_summary,
             },
+            "cognition_state": {
+                "fused_signal": fused_signal,
+                "cce": cognition.get("cce") or {},
+                "aatl": cognition.get("aatl") or {},
+                "aatr": cognition.get("aatr") or {},
+                "ai_reasoning_predictions": {
+                    "predicted_next_step": ai_reasoning.get("predicted_next_step"),
+                    "predicted_lateral_path": ai_reasoning.get("predicted_lateral_path") or [],
+                },
+            },
             "campaign_narratives": campaigns[:10],
-            "predicted_next_sectors": top_predicted_sectors,
+            "predicted_next_sectors": top_predicted_sectors[:5],
             "recommended_response_posture": "containment_ready" if strategic_pressure >= 0.7 else "elevated_monitoring",
             "policy_tier_suggestion": policy_tier,
             # Backward compatibility for downstream consumers.

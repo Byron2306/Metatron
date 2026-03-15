@@ -268,3 +268,68 @@ async def test_deception_interaction_runs_beacon_cascade():
     cascade = out["triune"]["beacon_cascade"]
     assert cascade["activated"] is True
     assert cascade["predicted_sectors"]
+
+
+@pytest.mark.asyncio
+async def test_triune_bundle_includes_cognition_fabric_signals():
+    base = pathlib.Path(__file__).resolve().parents[1]
+    _, events_mod = _load_services(base)
+
+    fake = types.SimpleNamespace(
+        world_entities=FakeColl(),
+        world_edges=FakeColl(),
+        campaigns=FakeColl(),
+        world_events=FakeColl(),
+        response_history=FakeColl(),
+        triune_analysis=FakeColl(),
+        aatl_assessments=FakeColl(),
+        cli_session_summaries=FakeColl(),
+        ml_predictions=FakeColl(),
+        aatr_entries=FakeColl(),
+    )
+    fake.world_entities["h-1"] = {
+        "id": "h-1",
+        "type": "host",
+        "attributes": {"risk_score": 0.8, "sector": "endpoint"},
+    }
+    fake.aatl_assessments["a1"] = {
+        "host_id": "h-1",
+        "session_id": "s-1",
+        "threat_score": 87,
+        "threat_level": "high",
+        "actor_type": "autonomous_agent",
+        "recommended_strategy": "deceive",
+        "recommended_actions": ["full_honeypot_engagement", "isolate_host"],
+        "timestamp": "2026-03-15T00:00:00+00:00",
+    }
+    fake.cli_session_summaries["c1"] = {
+        "host_id": "h-1",
+        "session_id": "s-1",
+        "machine_likelihood": 0.88,
+        "dominant_intents": ["credential_access", "lateral_movement"],
+        "tool_switch_latency_ms": 180,
+        "command_count": 22,
+        "timestamp": "2026-03-15T00:00:00+00:00",
+    }
+    fake.ml_predictions["m1"] = {
+        "prediction_id": "pred-1",
+        "entity_id": "h-1",
+        "threat_score": 78,
+        "predicted_category": "lateral_movement",
+        "timestamp": "2026-03-15T00:00:00+00:00",
+    }
+
+    out = await events_mod.emit_world_event(
+        fake,
+        event_type="detection_ingested",
+        entity_refs=["h-1"],
+        payload={"signal": "cli_autonomy"},
+        trigger_triune=True,
+    )
+
+    triune = out["triune"]
+    cognition = triune["world_snapshot"].get("cognition") or {}
+    assert cognition.get("fused_signal"), "Expected fused cognition signal in world snapshot"
+    assert triune["metatron"].get("cognition_state"), "Metatron should expose cognition state"
+    assert triune["michael"]["plan"].get("cognitive_action_alignment"), "Michael should include cognition alignment outputs"
+    assert triune["loki"].get("cognitive_dissent"), "Loki should include cognition-aware dissent"

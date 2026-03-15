@@ -97,3 +97,14 @@ Goal: every execution is cryptographically/audit-linked to policy + decision + t
 - Triune beacon cascade no longer bypasses canonical event helper; direct `world_events.insert_one` was replaced with `emit_world_event`.
 - Governance executor now includes concrete domain-operation handlers for additional high-impact action types (`response_*`, `quarantine_*`, `vpn_*`, `quarantine_agent`).
 - Quantum cryptography now includes end-to-end API support for Dilithium signing + verification + stored-signature verification + SHA3 hashing, all with canonical world-event and tamper-audit linkage.
+
+### Phase 5 — Triune cognition convergence
+
+Goal: ensure Metatron/Michael/Loki consume a unified cognitive signal plane rather than fragmented side integrations.
+
+- Added `backend/services/cognition_fabric.py` to aggregate AATL/AATR/CCE/ML/AI-reasoning into a canonical `world_snapshot["cognition"]`.
+- `triune_orchestrator` now injects cognition snapshot before Metatron/Michael/Loki execute.
+- Metatron now fuses cognitive pressure/autonomy confidence into strategic pressure and policy-tier suggestion.
+- Michael now augments candidate actions from cognitive recommendations and exposes `cognitive_action_alignment`.
+- Loki now adds cognition-derived dissent (`cognitive_dissent`) including strategy challenge, AATR match hypotheses, and uncertainty expansion.
+- Detailed capability summary published in `docs/triune_cognition_feature_summary.md`.
