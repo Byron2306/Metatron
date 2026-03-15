@@ -94,10 +94,8 @@ const NAV_SECTIONS = [
       { path: '/cspm', icon: Cloud, label: 'Cloud Security' },
       { path: '/containers', icon: Container, label: 'Containers' },
       { path: '/browser-isolation', icon: Globe, label: 'Browser Isolation' },
-      { path: '/email-protection', icon: Mail, label: 'Email Protection' },
-      { path: '/email-gateway', icon: Server, label: 'Email Gateway' },
-      { path: '/mobile-security', icon: Smartphone, label: 'Mobile Security' },
-      { path: '/mdm', icon: Link, label: 'MDM Connectors' },
+      { path: '/email-security', icon: Mail, label: 'Email Security' },
+      { path: '/endpoint-mobility', icon: Smartphone, label: 'Endpoint Mobility' },
     ],
   },
   {
