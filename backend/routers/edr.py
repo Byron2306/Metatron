@@ -10,11 +10,30 @@ try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
 
 # Import EDR service
 from edr_service import edr_manager, EDRManager
 
 router = APIRouter(prefix="/edr", tags=["EDR"])
+
+
+def _record_edr_audit(action: str, principal: str, targets: list, result: str, constraints: Optional[dict] = None):
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            constraints=constraints or {},
+            result=result,
+        )
+    except Exception:
+        pass
 
 class MemoryAnalysisRequest(BaseModel):
     dump_path: str
@@ -120,4 +139,19 @@ async def capture_live_memory(current_user: dict = Depends(check_permission("man
 async def collect_telemetry(current_user: dict = Depends(get_current_user)):
     """Collect EDR telemetry"""
     telemetry = await edr_manager.collect_telemetry()
+    actor = (current_user or {}).get("email", (current_user or {}).get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="edr_telemetry_collected",
+        entity_refs=[],
+        payload={"actor": actor, "keys": list((telemetry or {}).keys())[:20]},
+        trigger_triune=False,
+    )
+    _record_edr_audit(
+        action="edr_collect_telemetry",
+        principal=f"operator:{actor}",
+        targets=["edr.telemetry"],
+        result="success",
+        constraints={"keys_count": len((telemetry or {}).keys())},
+    )
     return telemetry

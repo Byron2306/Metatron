@@ -90,3 +90,8 @@ Goal: every execution is cryptographically/audit-linked to policy + decision + t
 - `governance_executor` now emits mandatory `governance_execution_completed` world events for executed/skipped/failed outcomes with decision/queue/token/execution linkage in payload.
 - `governance_executor` now records audit-chain entries for every terminal execution outcome (success/skip/failure), binding queue decisions to execution artifacts.
 - `mcp_server` now writes execution audit-chain records with governance + token linkage for terminal MCP execution outcomes (including token-validation failures).
+- Report/export pathways now emit canonical world events and tamper-audit records in key routers (`reports`, `timeline`, `cspm`).
+- Vector-memory and VNS write-path endpoints in `advanced` now emit canonical world events and tamper-audit records to reduce telemetry blind spots.
+- EDR telemetry collection now emits canonical `edr_telemetry_collected` world events and matching tamper-audit records.
+- Triune beacon cascade no longer bypasses canonical event helper; direct `world_events.insert_one` was replaced with `emit_world_event`.
+- Governance executor now includes concrete domain-operation handlers for additional high-impact action types (`response_*`, `quarantine_*`, `vpn_*`, `quarantine_agent`).

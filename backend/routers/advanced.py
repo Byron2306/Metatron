@@ -23,12 +23,42 @@ try:
     from services.outbound_gate import OutboundGateService
 except Exception:
     from backend.services.outbound_gate import OutboundGateService
+try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/advanced", tags=["Advanced Security"])
+
+
+def _record_advanced_audit(
+    *,
+    principal: str,
+    action: str,
+    targets: List[str],
+    result: str,
+    result_details: Optional[str] = None,
+    tool_id: Optional[str] = None,
+    constraints: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            tool_id=tool_id,
+            constraints=constraints or {},
+            result=result,
+            result_details=result_details,
+        )
+    except Exception:
+        logger.exception("Failed to record advanced audit action: %s", action)
 
 
 def _safe_get_reasoning_stats() -> Dict[str, Any]:
@@ -340,6 +370,26 @@ async def store_memory(
         confidence=request.confidence,
         ttl_days=request.ttl_days
     )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_stored",
+        entity_refs=[entry.entry_id, entry.namespace.value],
+        payload={
+            "actor": actor,
+            "namespace": entry.namespace.value,
+            "trust_level": entry.trust_level.value,
+            "source": entry.source,
+        },
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_memory_store",
+        targets=[entry.entry_id, entry.namespace.value],
+        result="success",
+        constraints={"trust_level": entry.trust_level.value, "source": entry.source},
+    )
     
     return {
         "entry_id": entry.entry_id,
@@ -363,6 +413,28 @@ async def search_memory(
         namespace=namespace,
         top_k=request.top_k,
         min_confidence=request.min_confidence
+    )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    namespace_value = namespace.value if namespace else "all"
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_searched",
+        entity_refs=[namespace_value],
+        payload={
+            "actor": actor,
+            "query": request.query[:128],
+            "top_k": request.top_k,
+            "min_confidence": request.min_confidence,
+            "result_count": len(results),
+        },
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_memory_search",
+        targets=[namespace_value],
+        result="success",
+        constraints={"top_k": request.top_k, "result_count": len(results)},
     )
     
     return {
@@ -398,6 +470,26 @@ async def create_incident_case(
         created_by=current_user.get("email", "unknown"),
         confidence=request.confidence
     )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_case_created",
+        entity_refs=[case.case_id],
+        payload={
+            "actor": actor,
+            "title": case.title,
+            "affected_hosts": case.affected_hosts,
+            "confidence": case.confidence,
+        },
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_memory_case_create",
+        targets=[case.case_id],
+        result="success",
+        constraints={"affected_hosts_count": len(case.affected_hosts or [])},
+    )
     
     return {
         "case_id": case.case_id,
@@ -422,6 +514,21 @@ async def find_similar_cases(
         symptoms=case.symptoms,
         indicators=case.indicators
     )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_case_similarity_queried",
+        entity_refs=[case_id],
+        payload={"actor": actor, "result_count": len(similar)},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_memory_case_similarity",
+        targets=[case_id],
+        result="success",
+        constraints={"result_count": len(similar)},
+    )
     
     return {
         "similar_cases": [
@@ -441,7 +548,16 @@ async def find_similar_cases(
 async def get_memory_stats(current_user: dict = Depends(get_current_user)):
     """Get memory database statistics"""
     from services.vector_memory import vector_memory
-    return vector_memory.get_memory_stats()
+    stats = vector_memory.get_memory_stats()
+    actor = (current_user or {}).get("email", (current_user or {}).get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_stats_requested",
+        entity_refs=[],
+        payload={"actor": actor, "total_entries": stats.get("total_entries", 0)},
+        trigger_triune=False,
+    )
+    return stats
 
 
 # =============================================================================
@@ -467,6 +583,26 @@ async def record_network_flow(
         ja3_hash=request.ja3_hash,
         sni=request.sni
     )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_vns_flow_recorded",
+        entity_refs=[flow.flow_id, request.src_ip, request.dst_ip],
+        payload={
+            "actor": actor,
+            "protocol": request.protocol,
+            "threat_score": flow.threat_score,
+            "status": flow.status.value,
+        },
+        trigger_triune=flow.threat_score >= 0.8,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_vns_flow_record",
+        targets=[flow.flow_id, request.src_ip, request.dst_ip],
+        result="success",
+        constraints={"threat_score": flow.threat_score, "protocol": request.protocol},
+    )
     
     return {
         "flow_id": flow.flow_id,
@@ -491,6 +627,26 @@ async def record_dns_query(
         query_type=request.query_type,
         response_code=request.response_code,
         response_ips=request.response_ips
+    )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_vns_dns_query_recorded",
+        entity_refs=[query.query_id, request.src_ip, request.query_name],
+        payload={
+            "actor": actor,
+            "query_type": request.query_type,
+            "response_code": request.response_code,
+            "is_suspicious": query.is_suspicious,
+        },
+        trigger_triune=bool(query.is_suspicious),
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_vns_dns_record",
+        targets=[query.query_id, request.query_name],
+        result="success",
+        constraints={"is_suspicious": bool(query.is_suspicious), "response_code": request.response_code},
     )
     
     return {
@@ -644,6 +800,14 @@ async def generate_kyber_keypair(
     quantum_security.set_db(get_db())
     
     keypair = quantum_security.generate_kyber_keypair(key_id, security_level)
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_generate_kyber",
+        targets=[keypair.key_id],
+        result="success",
+        constraints={"security_level": security_level},
+    )
     
     return {
         "key_id": keypair.key_id,
@@ -664,6 +828,14 @@ async def generate_dilithium_keypair(
     quantum_security.set_db(get_db())
     
     keypair = quantum_security.generate_dilithium_keypair(key_id, security_level)
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_generate_dilithium",
+        targets=[keypair.key_id],
+        result="success",
+        constraints={"security_level": security_level},
+    )
     
     return {
         "key_id": keypair.key_id,
@@ -687,6 +859,14 @@ async def quantum_hybrid_encrypt(
         plaintext.encode(),
         recipient_public_key
     )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_encrypt",
+        targets=["quantum_encryption"],
+        result="success",
+        constraints={"ciphertext_len": len(encrypted.get("ciphertext", ""))},
+    )
     
     return encrypted
 
@@ -704,8 +884,23 @@ async def quantum_hybrid_decrypt(
     plaintext = quantum_security.hybrid_decrypt(key_id, encrypted_data)
     
     if plaintext is None:
+        actor = current_user.get("email", current_user.get("id", "unknown"))
+        _record_advanced_audit(
+            principal=f"operator:{actor}",
+            action="advanced_quantum_decrypt",
+            targets=[key_id],
+            result="failed",
+            result_details="decryption_failed",
+        )
         raise HTTPException(status_code=400, detail="Decryption failed")
-    
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_decrypt",
+        targets=[key_id],
+        result="success",
+        constraints={"plaintext_len": len(plaintext)},
+    )
     return {"plaintext": plaintext.decode()}
 
 

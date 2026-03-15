@@ -43,6 +43,20 @@ class GovernanceExecutorService:
         "response_execution",
         "cross_sector_hardening",
     }
+    DOMAIN_OPERATION_ACTIONS = {
+        "response_block_ip",
+        "response_unblock_ip",
+        "quarantine_restore",
+        "quarantine_delete",
+        "quarantine_agent",
+        "vpn_initialize",
+        "vpn_start",
+        "vpn_stop",
+        "vpn_peer_add",
+        "vpn_peer_remove",
+        "vpn_kill_switch_enable",
+        "vpn_kill_switch_disable",
+    }
 
     def __init__(self, db: Any):
         self.db = db
@@ -148,6 +162,257 @@ class GovernanceExecutorService:
                 queue_id,
             )
 
+    async def _run_domain_operation(
+        self,
+        *,
+        action_type: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if action_type == "response_block_ip":
+            from threat_response import ResponseStatus, firewall
+
+            ip = str(payload.get("ip") or "").strip()
+            if not ip:
+                raise ValueError("Missing ip for response_block_ip")
+            reason = str(payload.get("reason") or "Governed block")
+            duration_hours = int(payload.get("duration_hours") or 24)
+            result = await firewall.block_ip(ip=ip, reason=reason, duration_hours=duration_hours)
+            if result.status != ResponseStatus.SUCCESS:
+                raise RuntimeError(result.message)
+            return {"operation": action_type, "ip": ip, "details": result.details}
+
+        if action_type == "response_unblock_ip":
+            from threat_response import ResponseStatus, firewall
+
+            ip = str(payload.get("ip") or "").strip()
+            if not ip:
+                raise ValueError("Missing ip for response_unblock_ip")
+            result = await firewall.unblock_ip(ip=ip)
+            if result.status != ResponseStatus.SUCCESS:
+                raise RuntimeError(result.message)
+            return {"operation": action_type, "ip": ip, "details": result.details}
+
+        if action_type == "quarantine_restore":
+            from quarantine import restore_file
+
+            entry_id = str(payload.get("entry_id") or "").strip()
+            if not entry_id:
+                raise ValueError("Missing entry_id for quarantine_restore")
+            restored = bool(restore_file(entry_id))
+            if not restored:
+                raise RuntimeError(f"Failed to restore quarantined entry: {entry_id}")
+            return {"operation": action_type, "entry_id": entry_id, "restored": True}
+
+        if action_type == "quarantine_delete":
+            from quarantine import delete_quarantined
+
+            entry_id = str(payload.get("entry_id") or "").strip()
+            if not entry_id:
+                raise ValueError("Missing entry_id for quarantine_delete")
+            deleted = bool(delete_quarantined(entry_id))
+            if not deleted:
+                raise RuntimeError(f"Failed to delete quarantined entry: {entry_id}")
+            return {"operation": action_type, "entry_id": entry_id, "deleted": True}
+
+        if action_type == "quarantine_agent":
+            try:
+                from services.identity import identity_service
+            except Exception:
+                from backend.services.identity import identity_service
+
+            identity_service.set_db(self.db)
+            agent_id = str(payload.get("agent_id") or "").strip()
+            reason = str(payload.get("reason") or "Governed quarantine")
+            if not agent_id:
+                raise ValueError("Missing agent_id for quarantine_agent")
+            quarantined = bool(identity_service.quarantine_agent(agent_id=agent_id, reason=reason))
+            if not quarantined:
+                raise RuntimeError(f"Failed to quarantine agent: {agent_id}")
+            return {"operation": action_type, "agent_id": agent_id, "quarantined": True}
+
+        if action_type in {
+            "vpn_initialize",
+            "vpn_start",
+            "vpn_stop",
+            "vpn_peer_add",
+            "vpn_peer_remove",
+            "vpn_kill_switch_enable",
+            "vpn_kill_switch_disable",
+        }:
+            from vpn_integration import vpn_manager
+
+            if action_type == "vpn_initialize":
+                result = await vpn_manager.initialize()
+            elif action_type == "vpn_start":
+                result = await vpn_manager.start()
+            elif action_type == "vpn_stop":
+                result = await vpn_manager.stop()
+            elif action_type == "vpn_peer_add":
+                peer_name = str(payload.get("peer_name") or payload.get("name") or "").strip()
+                if not peer_name:
+                    raise ValueError("Missing peer_name for vpn_peer_add")
+                result = await vpn_manager.add_peer(peer_name)
+            elif action_type == "vpn_peer_remove":
+                peer_id = str(payload.get("peer_id") or "").strip()
+                if not peer_id:
+                    raise ValueError("Missing peer_id for vpn_peer_remove")
+                removed = bool(await vpn_manager.remove_peer(peer_id))
+                if not removed:
+                    raise RuntimeError(f"Failed to remove VPN peer: {peer_id}")
+                result = {"peer_id": peer_id, "removed": True}
+            elif action_type == "vpn_kill_switch_enable":
+                result = await vpn_manager.kill_switch.enable()
+            else:
+                result = await vpn_manager.kill_switch.disable()
+            return {"operation": action_type, "result": result}
+
+        raise ValueError(f"Unsupported domain action_type: {action_type}")
+
+    async def _execute_domain_operation(
+        self,
+        *,
+        decision: Dict[str, Any],
+        queue_doc: Dict[str, Any],
+        payload: Dict[str, Any],
+        actor: str,
+        action_type: str,
+    ) -> Dict[str, Any]:
+        decision_id = decision.get("decision_id")
+        related_queue_id = queue_doc.get("queue_id")
+        now = _iso_now()
+        try:
+            op_result = await self._run_domain_operation(action_type=action_type, payload=payload)
+            await self.db.triune_outbound_queue.update_one(
+                {"queue_id": related_queue_id},
+                {
+                    "$set": {
+                        "status": "released_to_execution",
+                        "released_at": now,
+                        "updated_at": now,
+                        "execution_result": op_result,
+                    }
+                },
+            )
+            await self.db.triune_decisions.update_one(
+                {"decision_id": decision_id},
+                {
+                    "$set": {
+                        "execution_status": "executed",
+                        "executed_at": now,
+                        "updated_at": now,
+                        "execution_result": op_result,
+                    }
+                },
+            )
+            if emit_world_event is not None:
+                await emit_world_event(
+                    self.db,
+                    event_type="governance_domain_operation_executed",
+                    entity_refs=[decision_id, related_queue_id, action_type],
+                    payload=op_result,
+                    trigger_triune=False,
+                    source="governance_executor",
+                )
+            resolved_execution_id = str(
+                op_result.get("execution_id")
+                or op_result.get("entry_id")
+                or op_result.get("ip")
+                or op_result.get("agent_id")
+                or f"{action_type}:{decision_id}"
+            )
+            resolved_token_id = str(payload.get("token_id") or "")
+            resolved_trace_id = str(payload.get("trace_id") or "")
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="executed",
+                actor=actor,
+                command_type=action_type,
+                token_id=resolved_token_id,
+                execution_id=resolved_execution_id,
+                trace_id=resolved_trace_id,
+                targets=[
+                    payload.get("agent_id"),
+                    payload.get("entry_id"),
+                    payload.get("ip"),
+                    payload.get("peer_id"),
+                    payload.get("peer_name"),
+                    related_queue_id,
+                ],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="executed",
+                reason=action_type,
+                command_type=action_type,
+                token_id=resolved_token_id,
+                execution_id=resolved_execution_id,
+                trace_id=resolved_trace_id,
+            )
+            return {"outcome": "executed", "result": op_result}
+        except Exception as exc:
+            error_reason = str(exc)
+            logger.exception(
+                "Failed domain operation '%s' for decision %s: %s",
+                action_type,
+                decision_id,
+                exc,
+            )
+            await self.db.triune_decisions.update_one(
+                {"decision_id": decision_id},
+                {
+                    "$set": {
+                        "execution_status": "failed",
+                        "execution_error": error_reason,
+                        "updated_at": _iso_now(),
+                    }
+                },
+            )
+            await self.db.triune_outbound_queue.update_one(
+                {"queue_id": related_queue_id},
+                {
+                    "$set": {
+                        "status": "approved_execution_failed",
+                        "updated_at": _iso_now(),
+                    }
+                },
+            )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=error_reason,
+                actor=actor,
+                command_type=action_type,
+                token_id=str(payload.get("token_id") or ""),
+                execution_id=str(payload.get("entry_id") or payload.get("ip") or f"{action_type}:{decision_id}"),
+                trace_id=str(payload.get("trace_id") or ""),
+                targets=[
+                    payload.get("agent_id"),
+                    payload.get("entry_id"),
+                    payload.get("ip"),
+                    payload.get("peer_id"),
+                    payload.get("peer_name"),
+                    related_queue_id,
+                ],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=error_reason,
+                command_type=action_type,
+                token_id=str(payload.get("token_id") or ""),
+                execution_id=str(payload.get("entry_id") or payload.get("ip") or f"{action_type}:{decision_id}"),
+                trace_id=str(payload.get("trace_id") or ""),
+            )
+            return {"outcome": "failed", "reason": "domain_operation_exception"}
+
     async def process_approved_decisions(self, *, limit: int = 100) -> Dict[str, Any]:
         cursor = self.db.triune_decisions.find(
             {
@@ -232,6 +497,15 @@ class GovernanceExecutorService:
                     operation=operation,
                     actor=actor,
                 )
+
+        if action_type in self.DOMAIN_OPERATION_ACTIONS:
+            return await self._execute_domain_operation(
+                decision=decision,
+                queue_doc=queue_doc,
+                payload=payload,
+                actor=actor,
+                action_type=action_type,
+            )
 
         if action_type not in self.DISPATCHABLE_ACTIONS:
             await self.db.triune_outbound_queue.update_one(

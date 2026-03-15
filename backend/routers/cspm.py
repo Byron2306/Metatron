@@ -66,6 +66,10 @@ try:
 except Exception:
     from backend.services.outbound_gate import OutboundGateService
 try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
+try:
     from .dependencies import get_current_user, check_permission
 except Exception:
     # Tests may provide a minimal dependencies stub without get_current_user.
@@ -82,6 +86,30 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/cspm", tags=["CSPM"])
+
+
+def _record_cspm_audit(
+    *,
+    principal: str,
+    action: str,
+    targets: List[str],
+    result: str,
+    result_details: Optional[str] = None,
+    constraints: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            constraints=constraints or {},
+            result=result,
+            result_details=result_details,
+        )
+    except Exception:
+        logger.exception("Failed to record CSPM audit action: %s", action)
 
 
 def _normalize_framework(framework: str) -> Optional[ComplianceFramework]:
@@ -1168,7 +1196,32 @@ async def get_compliance_report(framework: str) -> Dict[str, Any]:
             },
         )
 
-    return engine.get_compliance_report(normalized)
+    report = engine.get_compliance_report(normalized)
+    await emit_world_event(
+        get_db(),
+        event_type="cspm_compliance_report_generated",
+        entity_refs=[normalized.value],
+        payload={
+            "framework": normalized.value,
+            "compliance_percentage": report.get("compliance_percentage"),
+            "controls_total": report.get("controls_total"),
+            "controls_passed": report.get("controls_passed"),
+            "actor": "service:cspm-api",
+        },
+        trigger_triune=False,
+    )
+    _record_cspm_audit(
+        principal="service:cspm-api",
+        action="cspm_generate_compliance_report",
+        targets=[normalized.value],
+        result="success",
+        constraints={
+            "compliance_percentage": report.get("compliance_percentage"),
+            "controls_total": report.get("controls_total"),
+            "controls_passed": report.get("controls_passed"),
+        },
+    )
+    return report
 
 
 @router.get("/checks", summary="List security checks")
@@ -1268,12 +1321,37 @@ async def export_findings(
     finally:
         engine.findings_db = original_findings
     
-    return {
+    response_payload = {
         "format": format,
         "count": len(findings),
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "data": export_data,
     }
+    await emit_world_event(
+        get_db(),
+        event_type="cspm_findings_exported",
+        entity_refs=[format],
+        payload={
+            "format": format,
+            "count": len(findings),
+            "severity": severity.value if severity else None,
+            "provider": provider.value if provider else None,
+            "actor": "service:cspm-api",
+        },
+        trigger_triune=False,
+    )
+    _record_cspm_audit(
+        principal="service:cspm-api",
+        action="cspm_export_findings",
+        targets=[format],
+        result="success",
+        constraints={
+            "count": len(findings),
+            "severity": severity.value if severity else None,
+            "provider": provider.value if provider else None,
+        },
+    )
+    return response_payload
 
 
 @router.get("/dashboard", summary="Get dashboard statistics")
@@ -1326,7 +1404,7 @@ async def get_dashboard() -> DashboardStats:
         cat = finding.category
         findings_by_category[cat] = findings_by_category.get(cat, 0) + 1
     
-    return DashboardStats(
+    dashboard = DashboardStats(
         posture=PostureResponse(**posture),
         recent_scans=recent_scans,
         top_risks=[
@@ -1346,6 +1424,30 @@ async def get_dashboard() -> DashboardStats:
         resource_counts=resource_counts,
         findings_by_category=findings_by_category,
     )
+    await emit_world_event(
+        get_db(),
+        event_type="cspm_dashboard_requested",
+        entity_refs=[],
+        payload={
+            "overall_score": posture.get("overall_score", 0.0),
+            "open_findings": posture.get("open_findings", 0),
+            "critical_findings": posture.get("critical_findings", 0),
+            "actor": "service:cspm-api",
+        },
+        trigger_triune=False,
+    )
+    _record_cspm_audit(
+        principal="service:cspm-api",
+        action="cspm_dashboard_requested",
+        targets=["dashboard"],
+        result="success",
+        constraints={
+            "overall_score": posture.get("overall_score", 0.0),
+            "open_findings": posture.get("open_findings", 0),
+            "critical_findings": posture.get("critical_findings", 0),
+        },
+    )
+    return dashboard
 
 
 @router.get("/stats", summary="Get CSPM statistics")

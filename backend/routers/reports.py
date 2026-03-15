@@ -6,7 +6,7 @@ Enhanced PDF reporting with multiple report types and robust error handling.
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import io
 import traceback
 
@@ -26,9 +26,37 @@ try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
 from .ai_analysis import call_openai
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
+
+
+def _record_report_audit(
+    *,
+    principal: str,
+    action: str,
+    targets: List[str],
+    result: str,
+    result_details: Optional[str] = None,
+    constraints: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            constraints=constraints or {},
+            result=result,
+            result_details=result_details,
+        )
+    except Exception:
+        logger.exception("Failed to record report audit action: %s", action)
 
 
 def safe_str(value, max_length=50, default="N/A"):
@@ -326,7 +354,21 @@ async def generate_threat_report(current_user: dict = Depends(check_permission("
     pdf_buffer = generate_threat_report_pdf(threats, alerts, stats)
     
     filename = f"threat_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.pdf"
-    await emit_world_event(get_db(), event_type="report_threat_intelligence_generated", entity_refs=[filename], payload={"actor": current_user.get("id"), "threat_count": total_threats, "alert_count": len(alerts)}, trigger_triune=False)
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="report_threat_intelligence_generated",
+        entity_refs=[filename],
+        payload={"actor": actor, "threat_count": total_threats, "alert_count": len(alerts)},
+        trigger_triune=False,
+    )
+    _record_report_audit(
+        principal=f"operator:{actor}",
+        action="report_generate_threat_intelligence",
+        targets=[filename],
+        result="success",
+        constraints={"threat_count": total_threats, "alert_count": len(alerts)},
+    )
     return StreamingResponse(
         pdf_buffer,
         media_type="application/pdf",
@@ -364,7 +406,21 @@ Keep the summary professional and actionable."""
 
     try:
         summary = await call_openai(system_message, f"Analyze this security data and provide an executive summary:\n{context}")
-        await emit_world_event(get_db(), event_type="report_ai_summary_generated", entity_refs=[], payload={"actor": current_user.get("id"), "threats_analyzed": len(threats), "alerts_analyzed": len(alerts)}, trigger_triune=False)
+        actor = current_user.get("email", current_user.get("id", "unknown"))
+        await emit_world_event(
+            get_db(),
+            event_type="report_ai_summary_generated",
+            entity_refs=[],
+            payload={"actor": actor, "threats_analyzed": len(threats), "alerts_analyzed": len(alerts)},
+            trigger_triune=False,
+        )
+        _record_report_audit(
+            principal=f"operator:{actor}",
+            action="report_generate_ai_summary",
+            targets=["ai_summary"],
+            result="success",
+            constraints={"threats_analyzed": len(threats), "alerts_analyzed": len(alerts)},
+        )
         return {
             "summary": summary,
             "generated_at": datetime.now(timezone.utc).isoformat(),
