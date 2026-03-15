@@ -83,6 +83,11 @@ TECHNIQUE_TO_TACTIC = {
     "T1566.002": "TA0001",
     "T1570": "TA0008",
     "T1105": "TA0011",
+    "T1055": "TA0005",
+    "T1078": "TA0001",
+    "T1071.004": "TA0011",
+    "T1490": "TA0040",
+    "T1562.001": "TA0005",
 }
 
 PRIORITY_GAPS = [
@@ -286,6 +291,49 @@ def _extract_attack_techniques(value: Any) -> Set[str]:
     return found
 
 
+def _extract_semantic_attack_techniques(value: Any) -> Set[str]:
+    """Infer ATT&CK techniques from operational text semantics."""
+    text = str(value or "").lower()
+    if not text:
+        return set()
+
+    keyword_map: Dict[str, List[str]] = {
+        "phish": ["T1566", "T1566.001"],
+        "spear phish": ["T1566.001"],
+        "malware": ["T1204", "T1105"],
+        "ransom": ["T1486", "T1489", "T1490"],
+        "credential": ["T1003.001", "T1555", "T1078"],
+        "lsass": ["T1003.001"],
+        "lateral movement": ["T1021", "T1570"],
+        "privilege escalation": ["T1068", "T1548"],
+        "persistence": ["T1547.001", "T1053"],
+        "powershell": ["T1059.001"],
+        "command and control": ["T1071", "T1095"],
+        "c2": ["T1071", "T1095"],
+        "beacon": ["T1071", "T1095"],
+        "dns tunnel": ["T1071.004"],
+        "exfil": ["T1041", "T1048", "T1567.002"],
+        "injection": ["T1055"],
+        "rootkit": ["T1014"],
+        "defense evasion": ["T1562.001"],
+        "impair defenses": ["T1562.001"],
+        "api exploit": ["T1190"],
+        "public-facing": ["T1190"],
+        "external remote": ["T1133"],
+        "botnet": ["T1071", "T1095"],
+        "ai agent": ["T1190", "T1059.001"],
+    }
+
+    found: Set[str] = set()
+    for keyword, techniques in keyword_map.items():
+        if keyword in text:
+            for technique in techniques:
+                normalized = _normalize_technique(technique)
+                if normalized:
+                    found.add(normalized)
+    return found
+
+
 async def _collect_audit_and_world_event_evidence(techniques: Dict[str, Dict], db: Any):
     """Collect ATT&CK evidence from telemetry/audit/event stores."""
     if db is None:
@@ -327,6 +375,63 @@ async def _collect_audit_and_world_event_evidence(techniques: Dict[str, Dict], d
         # Multiple sightings/sources promote confidence.
         if seen_count >= 3 or len(source_map.get(technique, set())) >= 2:
             score = 4
+        techniques[technique]["score"] = max(techniques[technique]["score"], score)
+        techniques[technique]["sources"].update(source_map.get(technique, set()))
+
+
+async def _collect_semantic_security_collections(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from semantic security telemetry in non-indexed collections."""
+    if db is None:
+        return
+
+    collection_sources = [
+        ("alerts", "alerts_semantic"),
+        ("unified_alerts", "unified_alerts_semantic"),
+        ("critical_alerts", "critical_alerts_semantic"),
+        ("agent_alerts", "agent_alerts_semantic"),
+        ("response_history", "response_history_semantic"),
+        ("response_actions", "response_actions_semantic"),
+        ("container_runtime_events", "container_runtime_semantic"),
+        ("deception_hits", "deception_hits_semantic"),
+        ("honeypot_interactions", "honeypot_interactions_semantic"),
+        ("ai_analyses", "ai_analyses_semantic"),
+    ]
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    for collection_name, source_tag in collection_sources:
+        col = getattr(db, collection_name, None)
+        if col is None:
+            continue
+        try:
+            docs = await col.find({}, {"_id": 0}).to_list(length=500)
+        except Exception:
+            docs = []
+
+        for doc in docs:
+            explicit = _extract_attack_techniques(doc)
+            semantic = _extract_semantic_attack_techniques(doc)
+            local_techniques = explicit | semantic
+            if not local_techniques:
+                continue
+
+            text = str(doc).lower()
+            score = 3
+            if any(token in text for token in ["critical", "high", "blocked", "quarantine", "contained", "resolved", "confirmed"]):
+                score = 4
+
+            for technique in local_techniques:
+                counts[technique] = counts.get(technique, 0) + 1
+                source_map.setdefault(technique, set()).add(source_tag)
+                max_score[technique] = max(max_score.get(technique, 0), score)
+
+    for technique, seen_count in counts.items():
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        score = max_score.get(technique, 3)
+        if seen_count >= 3 or len(source_map.get(technique, set())) >= 2:
+            score = max(score, 4)
         techniques[technique]["score"] = max(techniques[technique]["score"], score)
         techniques[technique]["sources"].update(source_map.get(technique, set()))
 
@@ -666,6 +771,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_threat_intel(techniques)
     # Technique update pass #3: evidence from canonical audit/event telemetry.
     await _collect_audit_and_world_event_evidence(techniques, db)
+    # Technique update pass #3b: semantic security telemetry collections.
+    await _collect_semantic_security_collections(techniques, db)
     # Technique update pass #4: Celery task ATT&CK metadata envelope evidence.
     await _collect_celery_task_attack_metadata(techniques, db)
     # Technique update pass #5: operational threat incident evidence.
