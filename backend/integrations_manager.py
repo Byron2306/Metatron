@@ -54,14 +54,6 @@ async def _emit_integration_event(event_type: str, entity_refs: List[str] = None
     except Exception:
         logger.debug("integration world event emission failed", exc_info=True)
 
-
-def _db_collection():
-    db = get_db()
-    if db is None:
-        return None
-    return db.integrations_jobs
-
-
 async def _new_job(tool: str, params: Dict[str, Any]):
     job_id = str(uuid.uuid4())
     job_doc = {
