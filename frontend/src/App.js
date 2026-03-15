@@ -13,7 +13,6 @@ import AgentsPage from "./pages/AgentsPage";
 import SettingsPage from "./pages/SettingsPage";
 import TimelinePage from "./pages/TimelinePage";
 import AuditLogPage from "./pages/AuditLogPage";
-import ThreatIntelPage from "./pages/ThreatIntelPage";
 import SigmaPage from "./pages/SigmaPage";
 import ZeekPage from "./pages/ZeekPage";
 import OsqueryFleetPage from "./pages/OsqueryFleetPage";
@@ -22,7 +21,6 @@ import MitreAttackCoveragePage from "./pages/MitreAttackCoveragePage";
 import RansomwarePage from "./pages/RansomwarePage";
 import ContainerSecurityPage from "./pages/ContainerSecurityPage";
 import VPNPage from "./pages/VPNPage";
-import CorrelationPage from "./pages/CorrelationPage";
 import HoneyTokensPage from "./pages/HoneyTokensPage";
 import ZeroTrustPage from "./pages/ZeroTrustPage";
 import MLPredictionPage from "./pages/MLPredictionPage";
@@ -42,7 +40,6 @@ import TenantsPage from "./pages/TenantsPage";
 import UnifiedAgentPage from "./pages/UnifiedAgentPage";
 import WorldViewPage from "./pages/WorldViewPage";
 import CSPMPage from "./pages/CSPMPage";
-import AttackPathsPage from "./pages/AttackPathsPage";
 import DeceptionPage from "./pages/DeceptionPage";
 import KernelSensorsPage from "./pages/KernelSensorsPage";
 import SecureBootPage from "./pages/SecureBootPage";
@@ -53,6 +50,7 @@ import EmailGatewayPage from "./pages/EmailGatewayPage";
 import MDMConnectorsPage from "./pages/MDMConnectorsPage";
 import AIActivityWorkspacePage from "./pages/AIActivityWorkspacePage";
 import ResponseOperationsPage from "./pages/ResponseOperationsPage";
+import InvestigationWorkspacePage from "./pages/InvestigationWorkspacePage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -110,7 +108,8 @@ function App() {
               <Route path="timeline" element={<TimelinePage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="settings" element={<SettingsPage />} />
-              <Route path="threat-intel" element={<ThreatIntelPage />} />
+              <Route path="investigation" element={<InvestigationWorkspacePage />} />
+              <Route path="threat-intel" element={<Navigate to="/investigation?tab=intel" replace />} />
               <Route path="sigma" element={<SigmaPage />} />
               <Route path="zeek" element={<ZeekPage />} />
               <Route path="osquery-fleet" element={<OsqueryFleetPage />} />
@@ -119,7 +118,7 @@ function App() {
               <Route path="ransomware" element={<RansomwarePage />} />
               <Route path="containers" element={<ContainerSecurityPage />} />
               <Route path="vpn" element={<VPNPage />} />
-              <Route path="correlation" element={<CorrelationPage />} />
+              <Route path="correlation" element={<Navigate to="/investigation?tab=correlation" replace />} />
               <Route path="edr" element={<Navigate to="/response-operations?tab=edr" replace />} />
               <Route path="soar" element={<Navigate to="/response-operations?tab=soar" replace />} />
               <Route path="honey-tokens" element={<HoneyTokensPage />} />
@@ -142,7 +141,7 @@ function App() {
               <Route path="tenants" element={<TenantsPage />} />
               <Route path="unified-agent" element={<UnifiedAgentPage />} />
               <Route path="cspm" element={<CSPMPage />} />
-              <Route path="attack-paths" element={<AttackPathsPage />} />
+              <Route path="attack-paths" element={<Navigate to="/investigation?tab=paths" replace />} />
               <Route path="deception" element={<DeceptionPage />} />
               <Route path="kernel-sensors" element={<KernelSensorsPage />} />
               <Route path="secure-boot" element={<SecureBootPage />} />
