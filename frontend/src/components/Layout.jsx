@@ -3,9 +3,6 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, 
-  Shield, 
-  Bell, 
-  AlertTriangle, 
   LogOut, 
   ChevronRight,
   Cpu,
@@ -50,10 +47,7 @@ const NAV_SECTIONS = [
     title: 'Command',
     defaultOpen: true,
     items: [
-      { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-      { path: '/command-center', icon: ShieldAlert, label: 'Command Center' },
-      { path: '/alerts', icon: Bell, label: 'Alerts' },
-      { path: '/threats', icon: AlertTriangle, label: 'Threats' },
+      { path: '/command', icon: LayoutDashboard, label: 'Command Workspace' },
       { path: '/timeline', icon: Clock, label: 'Timeline' },
     ],
   },
@@ -103,9 +97,7 @@ const NAV_SECTIONS = [
     title: 'Engineering',
     defaultOpen: false,
     items: [
-      { path: '/sigma', icon: Shield, label: 'Sigma Rules' },
-      { path: '/mitre-attack', icon: Shield, label: 'MITRE ATT&CK' },
-      { path: '/atomic-validation', icon: FlaskConical, label: 'Atomic Validation' },
+      { path: '/detection-engineering', icon: FlaskConical, label: 'Detection Engineering' },
       { path: '/zeek', icon: Radio, label: 'Zeek NDR' },
       { path: '/osquery-fleet', icon: Terminal, label: 'osquery / Fleet' },
       { path: '/kernel-sensors', icon: Cpu, label: 'Kernel Sensors' },
