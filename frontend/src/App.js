@@ -44,13 +44,11 @@ import DeceptionPage from "./pages/DeceptionPage";
 import KernelSensorsPage from "./pages/KernelSensorsPage";
 import SecureBootPage from "./pages/SecureBootPage";
 import IdentityProtectionPage from "./pages/IdentityProtectionPage";
-import EmailProtectionPage from "./pages/EmailProtectionPage";
-import MobileSecurityPage from "./pages/MobileSecurityPage";
-import EmailGatewayPage from "./pages/EmailGatewayPage";
-import MDMConnectorsPage from "./pages/MDMConnectorsPage";
 import AIActivityWorkspacePage from "./pages/AIActivityWorkspacePage";
 import ResponseOperationsPage from "./pages/ResponseOperationsPage";
 import InvestigationWorkspacePage from "./pages/InvestigationWorkspacePage";
+import EmailSecurityWorkspacePage from "./pages/EmailSecurityWorkspacePage";
+import EndpointMobilityWorkspacePage from "./pages/EndpointMobilityWorkspacePage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -146,10 +144,12 @@ function App() {
               <Route path="kernel-sensors" element={<KernelSensorsPage />} />
               <Route path="secure-boot" element={<SecureBootPage />} />
               <Route path="identity" element={<IdentityProtectionPage />} />
-              <Route path="email-protection" element={<EmailProtectionPage />} />
-              <Route path="mobile-security" element={<MobileSecurityPage />} />
-              <Route path="email-gateway" element={<EmailGatewayPage />} />
-              <Route path="mdm" element={<MDMConnectorsPage />} />
+              <Route path="email-security" element={<EmailSecurityWorkspacePage />} />
+              <Route path="endpoint-mobility" element={<EndpointMobilityWorkspacePage />} />
+              <Route path="email-protection" element={<Navigate to="/email-security?tab=protection" replace />} />
+              <Route path="email-gateway" element={<Navigate to="/email-security?tab=gateway" replace />} />
+              <Route path="mobile-security" element={<Navigate to="/endpoint-mobility?tab=mobile" replace />} />
+              <Route path="mdm" element={<Navigate to="/endpoint-mobility?tab=mdm" replace />} />
             </Route>
           </Routes>
         </BrowserRouter>
