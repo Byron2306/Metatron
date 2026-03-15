@@ -969,7 +969,7 @@ async def deploy_agent_to_device(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     
-    task = await service.queue_deployment(
+    task_id = await service.queue_deployment(
         device_ip=request.device_ip,
         device_hostname=device.get("hostname"),
         os_type=device.get("os_type", "unknown"),
@@ -979,7 +979,8 @@ async def deploy_agent_to_device(
     return {
         "message": "Deployment queued",
         "device_ip": request.device_ip,
-        "status": task.status,
+        "task_id": task_id,
+        "status": "queued",
         "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 

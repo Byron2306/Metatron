@@ -43,6 +43,24 @@ def _db_collection():
     return db.integrations_jobs
 
 
+def _json_safe(value: Any) -> Any:
+    """Recursively make integration job payloads JSON-safe."""
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for key, inner in value.items():
+            if key == "_id":
+                # Do not leak database-specific identifiers in API payloads.
+                continue
+            out[key] = _json_safe(inner)
+        return out
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    # Handle bson.ObjectId without importing bson as hard dependency.
+    if value.__class__.__name__ == "ObjectId":
+        return str(value)
+    return value
+
+
 async def _emit_integration_event(event_type: str, entity_refs: List[str] = None, payload: Dict[str, Any] = None, trigger_triune: bool = False):
     db = get_db()
     if db is None or emit_world_event is None:
@@ -72,9 +90,9 @@ async def _new_job(tool: str, params: Dict[str, Any]):
     # insert into DB if available
     col = _db_collection()
     if col is not None:
-        await col.insert_one(job_doc)
+        await col.insert_one(dict(job_doc))
     # also keep in-memory copy for quick listing
-    _jobs[job_id] = job_doc
+    _jobs[job_id] = dict(job_doc)
     await _emit_integration_event(
         "integration_job_created_service",
         entity_refs=[job_id],
@@ -222,14 +240,20 @@ async def ingest_indicators_direct(source: str, indicators: List[Dict[str, Any]]
 def get_job(job_id: str):
     # attempt in-memory first
     if job_id in _jobs:
-        return _jobs[job_id]
+        return _json_safe(_jobs[job_id])
+    # avoid blocking event loop from async request handlers
+    try:
+        asyncio.get_running_loop()
+        return None
+    except RuntimeError:
+        pass
     # otherwise try DB (synchronous fallback not ideal but quick)
     try:
         db = get_db()
         if db is None:
             return None
         doc = asyncio.get_event_loop().run_until_complete(db.integrations_jobs.find_one({"id": job_id}, {"_id": 0}))
-        return doc
+        return _json_safe(doc) if doc else None
     except Exception:
         return None
 
@@ -237,16 +261,22 @@ def get_job(job_id: str):
 def list_jobs():
     # return in-memory snapshot combined with DB entries
     try:
+        asyncio.get_running_loop()
+        return [_json_safe(job) for job in _jobs.values()]
+    except RuntimeError:
+        pass
+
+    try:
         db = get_db()
         if db is None:
-            return list(_jobs.values())
+            return [_json_safe(job) for job in _jobs.values()]
         docs = asyncio.get_event_loop().run_until_complete(db.integrations_jobs.find({}, {"_id": 0}).to_list(length=100))
         # merge: overlay _jobs entries by id
-        jobs_map = {j['id']: j for j in docs}
+        jobs_map = {j["id"]: j for j in docs if isinstance(j, dict) and j.get("id")}
         jobs_map.update(_jobs)
-        return list(jobs_map.values())
+        return [_json_safe(job) for job in jobs_map.values()]
     except Exception:
-        return list(_jobs.values())
+        return [_json_safe(job) for job in _jobs.values()]
 
 
 async def _scheduler_loop():
