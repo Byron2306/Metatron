@@ -14,7 +14,14 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from .dependencies import get_current_user, check_permission, get_db
+from .dependencies import (
+    get_current_user,
+    get_optional_current_user,
+    check_permission,
+    has_permission,
+    optional_machine_token,
+    get_db,
+)
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -33,6 +40,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/advanced", tags=["Advanced Security"])
+verify_advanced_ingest_machine_token = optional_machine_token(
+    env_keys=["ADVANCED_INGEST_TOKEN", "INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-advanced-token", "x-internal-token", "x-agent-token"],
+    subject="advanced ingest",
+)
 
 
 def _record_advanced_audit(
@@ -59,6 +71,20 @@ def _record_advanced_audit(
         )
     except Exception:
         logger.exception("Failed to record advanced audit action: %s", action)
+
+
+def _resolve_write_actor(
+    *,
+    machine_auth: Optional[dict],
+    current_user: Optional[dict],
+) -> str:
+    if machine_auth is not None:
+        return f"machine:{machine_auth.get('subject', 'advanced ingest')}"
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not has_permission(current_user, "write"):
+        raise HTTPException(status_code=403, detail="Permission denied. Required: write or machine token")
+    return current_user.get("email", current_user.get("id", "unknown"))
 
 
 def _safe_get_reasoning_stats() -> Dict[str, Any]:
@@ -587,7 +613,8 @@ async def get_memory_stats(current_user: dict = Depends(get_current_user)):
 @router.post("/vns/flow")
 async def record_network_flow(
     request: FlowRecordRequest,
-    current_user: dict = Depends(check_permission("write"))
+    machine_auth: Optional[dict] = Depends(verify_advanced_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Record a network flow"""
     from services.vns import vns
@@ -603,7 +630,7 @@ async def record_network_flow(
         ja3_hash=request.ja3_hash,
         sni=request.sni
     )
-    actor = current_user.get("email", current_user.get("id", "unknown"))
+    actor = _resolve_write_actor(machine_auth=machine_auth, current_user=current_user)
     await emit_world_event(
         get_db(),
         event_type="advanced_vns_flow_recorded",
@@ -617,7 +644,7 @@ async def record_network_flow(
         trigger_triune=flow.threat_score >= 0.8,
     )
     _record_advanced_audit(
-        principal=f"operator:{actor}",
+        principal=("operator:" + actor) if not actor.startswith("machine:") else actor,
         action="advanced_vns_flow_record",
         targets=[flow.flow_id, request.src_ip, request.dst_ip],
         result="success",
@@ -636,7 +663,8 @@ async def record_network_flow(
 @router.post("/vns/dns")
 async def record_dns_query(
     request: DNSQueryRequest,
-    current_user: dict = Depends(check_permission("write"))
+    machine_auth: Optional[dict] = Depends(verify_advanced_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Record a DNS query"""
     from services.vns import vns
@@ -648,7 +676,7 @@ async def record_dns_query(
         response_code=request.response_code,
         response_ips=request.response_ips
     )
-    actor = current_user.get("email", current_user.get("id", "unknown"))
+    actor = _resolve_write_actor(machine_auth=machine_auth, current_user=current_user)
     await emit_world_event(
         get_db(),
         event_type="advanced_vns_dns_query_recorded",
@@ -662,7 +690,7 @@ async def record_dns_query(
         trigger_triune=bool(query.is_suspicious),
     )
     _record_advanced_audit(
-        principal=f"operator:{actor}",
+        principal=("operator:" + actor) if not actor.startswith("machine:") else actor,
         action="advanced_vns_dns_record",
         targets=[query.query_id, request.query_name],
         result="success",
@@ -1136,10 +1164,12 @@ async def get_quantum_status(current_user: dict = Depends(get_current_user)):
 @router.post("/ai/analyze")
 async def analyze_threat_with_ai(
     request: ThreatAnalysisRequest,
-    current_user: dict = Depends(check_permission("write"))
+    machine_auth: Optional[dict] = Depends(verify_advanced_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Analyze a threat with AI reasoning"""
     from dataclasses import asdict
+    actor = _resolve_write_actor(machine_auth=machine_auth, current_user=current_user)
     
     analysis = _safe_call_ai_sync('analyze_threat', {
         "title": request.title,
@@ -1152,9 +1182,23 @@ async def analyze_threat_with_ai(
 
     # analysis may be a dataclass or a dict/fallback
     try:
-        return asdict(analysis)
+        payload = asdict(analysis)
     except Exception:
-        return analysis
+        payload = analysis
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_ai_threat_analyzed",
+        entity_refs=[],
+        payload={"actor": actor, "source": "advanced_ai_analyze"},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=("operator:" + actor) if not actor.startswith("machine:") else actor,
+        action="advanced_ai_analyze_threat",
+        targets=["ai_reasoning"],
+        result="success",
+    )
+    return payload
 
 
 @router.post("/ai/triage")
@@ -1170,16 +1214,33 @@ async def triage_incidents(
 @router.post("/ai/query")
 async def query_ai(
     request: AIQueryRequest,
-    current_user: dict = Depends(check_permission("write"))
+    machine_auth: Optional[dict] = Depends(verify_advanced_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Query the AI reasoning engine"""
     from dataclasses import asdict
+    actor = _resolve_write_actor(machine_auth=machine_auth, current_user=current_user)
 
     result = _safe_call_ai_sync('query', request.question, request.context)
     try:
-        return asdict(result)
+        payload = asdict(result)
     except Exception:
-        return result
+        payload = result
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_ai_query_executed",
+        entity_refs=[],
+        payload={"actor": actor, "question_len": len(request.question or "")},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=("operator:" + actor) if not actor.startswith("machine:") else actor,
+        action="advanced_ai_query",
+        targets=["ai_reasoning"],
+        result="success",
+        constraints={"question_len": len(request.question or "")},
+    )
+    return payload
 
 
 @router.get("/ai/stats")

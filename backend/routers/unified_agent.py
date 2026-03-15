@@ -8,7 +8,7 @@ Provides cross-platform agent registration, heartbeat, deployment, and monitorin
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect, Request, Header
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime, timezone, timedelta
 import secrets
 import logging
@@ -66,6 +66,32 @@ logger = logging.getLogger('seraph.unified_agent')
 
 router = APIRouter(prefix="/unified", tags=["Unified Agent"])
 ALERT_STATUSES = {"unacknowledged", "acknowledged"}
+MONITOR_TELEMETRY_KEYS = [
+    "registry",
+    "process_tree",
+    "lolbin",
+    "code_signing",
+    "dns",
+    "memory",
+    "whitelist",
+    "dlp",
+    "vulnerability",
+    "amsi",
+    "firewall",
+    "ransomware",
+    "rootkit",
+    "kernel_security",
+    "self_protection",
+    "identity",
+    "auto_throttle",
+    "cli_telemetry",
+    "hidden_file",
+    "alias_rename",
+    "priv_escalation",
+    "email_protection",
+    "mobile_security",
+    "webview2",
+]
 
 
 def _record_unified_audit(
@@ -90,6 +116,151 @@ def _record_unified_audit(
         )
     except Exception:
         logger.exception("Failed to record unified audit action: %s", action)
+
+
+def _coerce_monitor_payload(monitor_data: Any) -> Dict[str, Any]:
+    if monitor_data is None:
+        return {}
+    if isinstance(monitor_data, dict):
+        return dict(monitor_data)
+    if hasattr(monitor_data, "model_dump"):
+        try:
+            return monitor_data.model_dump()
+        except Exception:
+            return {}
+    return {}
+
+
+def _extract_telemetry_threat_count(telemetry: Optional[Dict[str, Any]]) -> int:
+    if not isinstance(telemetry, dict):
+        return 0
+    direct_count = telemetry.get("threat_count")
+    if isinstance(direct_count, (int, float)):
+        return max(0, int(direct_count))
+    threats = telemetry.get("threats")
+    if isinstance(threats, list):
+        return len(threats)
+    detections = telemetry.get("detections")
+    if isinstance(detections, list):
+        return len(detections)
+    return 0
+
+
+def _build_monitor_summary(monitors: Any) -> Dict[str, Dict[str, Any]]:
+    if not monitors:
+        return {}
+    summary: Dict[str, Dict[str, Any]] = {}
+    for monitor_name in MONITOR_TELEMETRY_KEYS:
+        payload = _coerce_monitor_payload(getattr(monitors, monitor_name, None))
+        if not payload:
+            continue
+        threats_found = payload.get("threats_found")
+        if not isinstance(threats_found, (int, float)):
+            threats_found = 0
+        condensed = {
+            "last_run": payload.get("last_run"),
+            "threats_found": int(threats_found),
+            "status": "active",
+        }
+        # Preserve numeric/boolean detail fields so downstream analytics can aggregate.
+        for key, value in payload.items():
+            if key in condensed:
+                continue
+            if isinstance(value, (int, float, bool, str)):
+                condensed[key] = value
+        summary[monitor_name] = condensed
+    return summary
+
+
+async def _project_unified_state_snapshot(
+    *,
+    agent_id: str,
+    source: str,
+    status: Optional[str],
+    telemetry: Optional[Dict[str, Any]] = None,
+    monitors_summary: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> None:
+    db_handle = get_db()
+    if db_handle is None or not hasattr(db_handle, "world_entities"):
+        return
+    monitors_summary = monitors_summary or {}
+    monitor_threat_total = sum(int((item or {}).get("threats_found") or 0) for item in monitors_summary.values())
+    telemetry_threat_count = _extract_telemetry_threat_count(telemetry if isinstance(telemetry, dict) else {})
+    hot_monitors = [
+        name for name, item in monitors_summary.items()
+        if int((item or {}).get("threats_found") or 0) > 0
+    ][:12]
+    trust_state = "trusted"
+    if monitor_threat_total >= 8 or telemetry_threat_count >= 8:
+        trust_state = "compromised"
+    elif monitor_threat_total > 0 or telemetry_threat_count > 0:
+        trust_state = "degraded"
+
+    now = datetime.now(timezone.utc).isoformat()
+    attributes = {
+        "agent_status": status or "unknown",
+        "trust_state": trust_state,
+        "last_projection_source": source,
+        "monitor_summary": monitors_summary,
+        "monitor_threat_total": monitor_threat_total,
+        "telemetry_threat_count": telemetry_threat_count,
+        "hot_monitors": hot_monitors,
+        "updated_at": now,
+    }
+    if isinstance(telemetry, dict):
+        attributes["telemetry_overview"] = {
+            "cpu_usage": telemetry.get("cpu_usage"),
+            "memory_usage": telemetry.get("memory_usage"),
+            "disk_usage": telemetry.get("disk_usage"),
+            "network_connections": telemetry.get("network_connections"),
+            "process_count": telemetry.get("process_count"),
+        }
+    try:
+        await db_handle.world_entities.update_one(
+            {"id": agent_id},
+            {
+                "$set": {
+                    "id": agent_id,
+                    "type": "agent",
+                    "updated": now,
+                    "attributes": attributes,
+                }
+            },
+            upsert=True,
+        )
+    except Exception:
+        logger.exception("Failed to project unified agent state for %s", agent_id)
+        return
+
+    trigger_triune = (monitor_threat_total + telemetry_threat_count) >= 3
+    try:
+        await emit_world_event(
+            db_handle,
+            event_type="unified_agent_world_state_projected",
+            entity_refs=[agent_id],
+            payload={
+                "source": source,
+                "trust_state": trust_state,
+                "monitor_threat_total": monitor_threat_total,
+                "telemetry_threat_count": telemetry_threat_count,
+                "hot_monitors": hot_monitors,
+            },
+            trigger_triune=trigger_triune,
+        )
+        _record_unified_audit(
+            principal=f"agent:{agent_id}",
+            action="unified_agent_world_state_projection",
+            targets=[agent_id],
+            result="success",
+            constraints={
+                "source": source,
+                "monitor_threat_total": monitor_threat_total,
+                "telemetry_threat_count": telemetry_threat_count,
+                "trust_state": trust_state,
+            },
+        )
+    except Exception:
+        logger.exception("Failed to emit world-state projection event for %s", agent_id)
 
 
 def _alert_transition_entry(
@@ -446,6 +617,7 @@ class AMSIMonitorTelemetry(MonitorTelemetry):
 
 class MonitorsTelemetry(BaseModel):
     """Aggregated telemetry from all monitors"""
+    model_config = ConfigDict(extra="allow")
     registry: Optional[RegistryMonitorTelemetry] = None
     process_tree: Optional[ProcessTreeMonitorTelemetry] = None
     lolbin: Optional[LOLBinMonitorTelemetry] = None
@@ -456,6 +628,20 @@ class MonitorsTelemetry(BaseModel):
     dlp: Optional[DLPMonitorTelemetry] = None
     vulnerability: Optional[VulnerabilityScannerTelemetry] = None
     amsi: Optional[AMSIMonitorTelemetry] = None
+    firewall: Optional[Dict[str, Any]] = None
+    ransomware: Optional[Dict[str, Any]] = None
+    rootkit: Optional[Dict[str, Any]] = None
+    kernel_security: Optional[Dict[str, Any]] = None
+    self_protection: Optional[Dict[str, Any]] = None
+    identity: Optional[Dict[str, Any]] = None
+    auto_throttle: Optional[Dict[str, Any]] = None
+    cli_telemetry: Optional[Dict[str, Any]] = None
+    hidden_file: Optional[Dict[str, Any]] = None
+    alias_rename: Optional[Dict[str, Any]] = None
+    priv_escalation: Optional[Dict[str, Any]] = None
+    email_protection: Optional[Dict[str, Any]] = None
+    mobile_security: Optional[Dict[str, Any]] = None
+    webview2: Optional[Dict[str, Any]] = None
 
 
 class AgentHeartbeatModel(BaseModel):
@@ -748,18 +934,10 @@ async def agent_heartbeat(
     if heartbeat.local_ui_url:
         update_data["local_ui_url"] = heartbeat.local_ui_url
     
-    # Store monitor summary in agent document for quick access (include firewall)
+    monitors_summary: Dict[str, Dict[str, Any]] = {}
+    # Store monitor summary in agent document for quick access.
     if heartbeat.monitors:
-        monitors_summary = {}
-        for monitor_name in ['registry', 'process_tree', 'lolbin', 'code_signing', 
-                            'dns', 'memory', 'whitelist', 'dlp', 'vulnerability', 'amsi', 'firewall']:
-            monitor_data = getattr(heartbeat.monitors, monitor_name, None)
-            if monitor_data:
-                monitors_summary[monitor_name] = {
-                    "last_run": monitor_data.last_run,
-                    "threats_found": monitor_data.threats_found,
-                    "status": "active"
-                }
+        monitors_summary = _build_monitor_summary(heartbeat.monitors)
         update_data["monitors_summary"] = monitors_summary
     
     await db.unified_agents.update_one(
@@ -807,19 +985,52 @@ async def agent_heartbeat(
         # Run threat hunting on telemetry
         await _hunt_telemetry(heartbeat.telemetry)
     
-    # Store structured monitor telemetry separately (include firewall)
+    # Store structured monitor telemetry separately.
     if heartbeat.monitors:
         monitor_doc = {
             "agent_id": agent_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        for monitor_name in ['registry', 'process_tree', 'lolbin', 'code_signing', 
-                            'dns', 'memory', 'whitelist', 'dlp', 'vulnerability', 'amsi', 'firewall']:
-            monitor_data = getattr(heartbeat.monitors, monitor_name, None)
-            if monitor_data:
-                monitor_doc[monitor_name] = monitor_data.model_dump()
+        for monitor_name in MONITOR_TELEMETRY_KEYS:
+            monitor_payload = _coerce_monitor_payload(getattr(heartbeat.monitors, monitor_name, None))
+            if monitor_payload:
+                monitor_doc[monitor_name] = monitor_payload
         
         await db.agent_monitor_telemetry.insert_one(monitor_doc)
+        await emit_world_event(
+            get_db(),
+            event_type="unified_agent_monitor_telemetry_ingested",
+            entity_refs=[agent_id],
+            payload={
+                "source": "heartbeat",
+                "monitor_count": len(monitors_summary),
+                "monitor_threat_total": sum(
+                    int((item or {}).get("threats_found") or 0) for item in monitors_summary.values()
+                ),
+                "hot_monitors": [
+                    name for name, item in monitors_summary.items()
+                    if int((item or {}).get("threats_found") or 0) > 0
+                ][:12],
+            },
+            trigger_triune=sum(
+                int((item or {}).get("threats_found") or 0) for item in monitors_summary.values()
+            ) >= 3,
+        )
+        _record_unified_audit(
+            principal=f"agent:{agent_id}",
+            action="unified_agent_monitor_telemetry_ingest",
+            targets=[agent_id],
+            result="success",
+            constraints={"source": "heartbeat", "monitor_count": len(monitors_summary)},
+        )
+    if heartbeat.telemetry or heartbeat.monitors:
+        await _project_unified_state_snapshot(
+            agent_id=agent_id,
+            source="heartbeat",
+            status=heartbeat.status,
+            telemetry=heartbeat.telemetry if isinstance(heartbeat.telemetry, dict) else {},
+            monitors_summary=monitors_summary,
+        )
     
     # Get queued commands for this agent
     commands = agent_ws_manager.get_queued_commands(agent_id)
@@ -2970,6 +3181,13 @@ async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
                     targets=[agent_id],
                     result="success",
                     constraints={"source": "websocket"},
+                )
+                await _project_unified_state_snapshot(
+                    agent_id=agent_id,
+                    source="websocket",
+                    status="online",
+                    telemetry=telemetry if isinstance(telemetry, dict) else {},
+                    monitors_summary={},
                 )
                 # Run threat hunting
                 await _hunt_telemetry(telemetry)

@@ -15175,6 +15175,7 @@ class UnifiedAgent:
             # Execute remediation
             success, msg = self.remediation.execute(threat)
             queued_for_triune = isinstance(msg, str) and msg.startswith("queued_for_triune_approval")
+            governance_deferred = isinstance(msg, str) and msg == "approved_via_governance_executor"
             
             if success:
                 self.stats["threats_auto_killed"] += 1
@@ -15184,7 +15185,7 @@ class UnifiedAgent:
                 
                 # Log to SIEM
                 self.siem.log_threat(threat, "auto_killed")
-            elif queued_for_triune:
+            elif queued_for_triune or governance_deferred:
                 threat.status = "queued_for_triune_approval"
                 threat.user_approved = False
                 threat.evidence = dict(threat.evidence or {})
@@ -15201,7 +15202,7 @@ class UnifiedAgent:
                 logger.error(f"AUTO-KILL FAILED: {threat.title} - {msg}")
             
             # Trigger alarm
-            if queued_for_triune:
+            if queued_for_triune or governance_deferred:
                 self._trigger_alarm(threat, f"AUTO_KILL_QUEUED:{kill_reason}")
             else:
                 self._trigger_alarm(threat, f"AUTO_KILL:{kill_reason}")
@@ -15329,6 +15330,60 @@ class UnifiedAgent:
         if self.on_telemetry_update:
             self.on_telemetry_update(self.telemetry)
 
+    def _compact_monitor_value(self, value: Any, depth: int = 0) -> Any:
+        """Bound monitor payload size before heartbeat transport."""
+        if depth >= 3:
+            return str(value)[:240]
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            if isinstance(value, str):
+                return value[:500]
+            return value
+        if isinstance(value, list):
+            return [self._compact_monitor_value(v, depth + 1) for v in value[:40]]
+        if isinstance(value, dict):
+            compacted: Dict[str, Any] = {}
+            for key, item in list(value.items())[:40]:
+                compacted[str(key)[:80]] = self._compact_monitor_value(item, depth + 1)
+            return compacted
+        return str(value)[:240]
+
+    def _build_monitors_payload(self) -> Dict[str, Any]:
+        """Serialize all monitor status snapshots for backend SSOT ingestion."""
+        payload: Dict[str, Any] = {}
+        for name, monitor in self.monitors.items():
+            if not getattr(monitor, "enabled", True):
+                continue
+            monitor_snapshot: Dict[str, Any] = {}
+            last_run = getattr(monitor, "last_run", None)
+            if hasattr(last_run, "isoformat"):
+                monitor_snapshot["last_run"] = last_run.isoformat()
+            elif last_run is not None:
+                monitor_snapshot["last_run"] = str(last_run)
+
+            threat_count = 0
+            if hasattr(monitor, "get_threats"):
+                try:
+                    monitor_threats = monitor.get_threats() or []
+                    if isinstance(monitor_threats, list):
+                        threat_count = len(monitor_threats)
+                except Exception:
+                    threat_count = 0
+            monitor_snapshot["threats_found"] = int(max(0, threat_count))
+
+            if hasattr(monitor, "get_status"):
+                try:
+                    status_payload = monitor.get_status()
+                    if isinstance(status_payload, dict):
+                        for key, value in status_payload.items():
+                            if key in {"last_run", "threats_found"}:
+                                continue
+                            monitor_snapshot[key] = self._compact_monitor_value(value)
+                except Exception:
+                    pass
+
+            payload[name] = monitor_snapshot
+        return payload
+
     def _mask_file_path(self, path_value: Any) -> Optional[str]:
         """Mask file path while preserving minimal triage value."""
         path = str(path_value or "").strip()
@@ -15421,6 +15476,7 @@ class UnifiedAgent:
                     "is_admin": self._is_admin,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "telemetry": asdict(self.telemetry),
+                    "monitors": self._build_monitors_payload(),
                     "edm_hits": outbound_hits,
                     "local_ui_url": self._local_ui_url,
                 },

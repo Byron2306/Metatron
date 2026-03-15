@@ -109,3 +109,6 @@ Goal: ensure Metatron/Michael/Loki consume a unified cognitive signal plane rath
 - Loki now adds cognition-derived dissent (`cognitive_dissent`) including strategy challenge, AATR match hypotheses, and uncertainty expansion.
 - Detailed capability summary published in `docs/triune_cognition_feature_summary.md`.
 - Unified endpoint agent now submits local auto-remediation proposals to backend governed dispatch (`/api/unified/agents/{agent_id}/remediation/propose`) instead of relying on deprecated direct triune approval endpoint semantics.
+- Unified endpoint agent heartbeat now includes structured per-monitor telemetry snapshots (all active monitor families), not only generic telemetry aggregates.
+- Unified-agent ingest now projects monitor + telemetry signals into canonical `world_entities` state and emits `unified_agent_world_state_projected`/`unified_agent_monitor_telemetry_ingested` events with tamper-audit linkage; high-risk telemetry automatically triggers Triune recompute.
+- `advanced` AI/VNS write paths now accept either write-permission user auth or machine-token ingest auth, enabling first-class agent side-channel ingestion without bearer-only dependence.
