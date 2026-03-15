@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import uuid
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -117,6 +118,15 @@ class AtomicValidationManager:
         )
         return [self.runner, "-NoProfile", "-Command", script]
 
+    def _extract_techniques_from_output(self, *chunks: str) -> List[str]:
+        pattern = re.compile(r"\bT\d{4}(?:\.\d{3})?\b", re.IGNORECASE)
+        found = set()
+        for chunk in chunks:
+            text = str(chunk or "")
+            for match in pattern.finditer(text):
+                found.add(match.group(0).upper())
+        return sorted(found)
+
     def get_status(self) -> Dict:
         return {
             "enabled": self.enabled,
@@ -159,7 +169,7 @@ class AtomicValidationManager:
         for row in rows:
             if row.get("status") == "success":
                 successful_runs += 1
-                for t in row.get("techniques", []):
+                for t in row.get("techniques_executed", []) or row.get("techniques", []):
                     validated_techniques.add(t)
 
         return {
@@ -192,6 +202,7 @@ class AtomicValidationManager:
                 "status": "skipped",
                 "message": "Atomic validation is disabled by configuration",
                 "techniques": job.get("techniques", []),
+                "techniques_executed": job.get("techniques", []),
                 "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "dry_run": dry_run,
@@ -210,6 +221,7 @@ class AtomicValidationManager:
                 "status": "dry_run",
                 "message": "Dry run only. Command not executed.",
                 "techniques": job.get("techniques", []),
+                "techniques_executed": job.get("techniques", []),
                 "command": command,
                 "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
@@ -227,6 +239,7 @@ class AtomicValidationManager:
                 "status": "failed",
                 "message": f"Runner '{self.runner}' not available in container PATH",
                 "techniques": job.get("techniques", []),
+                "techniques_executed": job.get("techniques", []),
                 "command": command,
                 "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
@@ -244,6 +257,7 @@ class AtomicValidationManager:
                 "status": "failed",
                 "message": f"Atomic Red Team folder not found: {self.atomic_root}",
                 "techniques": job.get("techniques", []),
+                "techniques_executed": job.get("techniques", []),
                 "command": command,
                 "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
@@ -256,6 +270,8 @@ class AtomicValidationManager:
         try:
             proc = subprocess.run(command, capture_output=True, text=True, timeout=1200, check=False)
             status = "success" if proc.returncode == 0 else "failed"
+            detected_techniques = self._extract_techniques_from_output(proc.stdout, proc.stderr)
+            techniques_executed = sorted(set((job.get("techniques", []) or []) + detected_techniques))
             payload = {
                 "run_id": run_id,
                 "job_id": job_id,
@@ -263,6 +279,8 @@ class AtomicValidationManager:
                 "status": status,
                 "message": "Completed" if proc.returncode == 0 else "Atomic execution returned non-zero",
                 "techniques": job.get("techniques", []),
+                "detected_techniques": detected_techniques,
+                "techniques_executed": techniques_executed,
                 "command": command,
                 "exit_code": proc.returncode,
                 "stdout": (proc.stdout or "")[-12000:],
@@ -275,10 +293,17 @@ class AtomicValidationManager:
             self._emit_atomic_event(
                 "atomic_validation_job_completed",
                 [job_id, run_id],
-                {"status": status, "exit_code": proc.returncode, "techniques": job.get("techniques", [])},
+                {
+                    "status": status,
+                    "exit_code": proc.returncode,
+                    "techniques": job.get("techniques", []),
+                    "techniques_executed": techniques_executed,
+                },
             )
             return {"ok": proc.returncode == 0, **payload}
         except subprocess.TimeoutExpired as exc:
+            detected_techniques = self._extract_techniques_from_output(exc.stdout, exc.stderr)
+            techniques_executed = sorted(set((job.get("techniques", []) or []) + detected_techniques))
             payload = {
                 "run_id": run_id,
                 "job_id": job_id,
@@ -286,6 +311,8 @@ class AtomicValidationManager:
                 "status": "failed",
                 "message": "Atomic validation run timed out",
                 "techniques": job.get("techniques", []),
+                "detected_techniques": detected_techniques,
+                "techniques_executed": techniques_executed,
                 "command": command,
                 "stdout": (exc.stdout or "")[-12000:] if isinstance(exc.stdout, str) else "",
                 "stderr": (exc.stderr or "")[-12000:] if isinstance(exc.stderr, str) else "",

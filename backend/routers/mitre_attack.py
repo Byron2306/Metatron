@@ -277,6 +277,7 @@ def _collect_atomic(techniques: Dict[str, Dict]):
             if not t:
                 continue
             techniques.setdefault(t, {"score": 0, "sources": set()})
+            # Configured validation test exists for this technique.
             techniques[t]["score"] = max(techniques[t]["score"], 3)
             techniques[t]["sources"].add("atomic_job")
 
@@ -284,7 +285,8 @@ def _collect_atomic(techniques: Dict[str, Dict]):
     for run in runs:
         if run.get("status") != "success":
             continue
-        for tt in run.get("techniques", []):
+        executed = run.get("techniques_executed", []) or run.get("techniques", [])
+        for tt in executed:
             t = _normalize_technique(tt)
             if not t:
                 continue
@@ -309,12 +311,94 @@ def _collect_threat_intel(techniques: Dict[str, Dict]):
         if not tnorm:
             continue
         techniques.setdefault(tnorm, {'score': 0, 'sources': set()})
-        # telemetry-only baseline
-        techniques[tnorm]['score'] = max(techniques[tnorm]['score'], 2)
+        # feed + enrichment baseline
+        techniques[tnorm]['score'] = max(techniques[tnorm]['score'], 3)
         techniques[tnorm]['sources'].add('threat_intel')
         # bump score if many indicators exist
         if count and count > 5:
             techniques[tnorm]['score'] = max(techniques[tnorm]['score'], 3)
+        if count and count > 100:
+            techniques[tnorm]['score'] = max(techniques[tnorm]['score'], 4)
+
+
+async def _collect_threat_intel_match_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect operational ATT&CK evidence from threat-intel match/update telemetry."""
+    if db is None:
+        return
+
+    match_sources = [
+        ("threat_intel_matches", "threat_intel_match_evidence"),
+        ("threat_intel_updates", "threat_intel_update_evidence"),
+    ]
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    for collection_name, source_tag in match_sources:
+        col = getattr(db, collection_name, None)
+        if col is None:
+            continue
+        try:
+            docs = await col.find({}, {"_id": 0}).sort("timestamp", -1).to_list(length=800)
+        except Exception:
+            docs = []
+        for doc in docs:
+            local_techniques = set()
+            local_techniques.update(_extract_attack_techniques(doc))
+            indicator = doc.get("indicator") or {}
+            local_techniques.update(_extract_attack_techniques(indicator))
+            for technique in local_techniques:
+                counts[technique] = counts.get(technique, 0) + 1
+                source_map.setdefault(technique, set()).add(source_tag)
+
+    for technique, seen_count in counts.items():
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        score = 3
+        if seen_count >= 3 or len(source_map.get(technique, set())) >= 2:
+            score = 4
+        techniques[technique]["score"] = max(techniques[technique]["score"], score)
+        techniques[technique]["sources"].update(source_map.get(technique, set()))
+
+
+async def _collect_integration_job_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from integration job lifecycle (Amass/Velociraptor/PurpleSharp)."""
+    if db is None:
+        return
+    col = getattr(db, "integrations_jobs", None)
+    if col is None:
+        return
+
+    tool_map: Dict[str, List[str]] = {
+        "amass": ["T1590.002", "T1590.004", "T1595.001"],
+        "velociraptor": ["T1053", "T1018", "T1083", "T1003"],
+        "purplesharp": ["T1543", "T1021", "T1068", "T1059"],
+    }
+
+    try:
+        docs = await col.find({}, {"_id": 0, "tool": 1, "status": 1, "result": 1}).to_list(length=800)
+    except Exception:
+        docs = []
+
+    for doc in docs:
+        tool = str(doc.get("tool") or "").strip().lower()
+        status = str(doc.get("status") or "").strip().lower()
+        mapped = tool_map.get(tool, [])
+        extracted = _extract_attack_techniques(doc)
+        local_techniques = set(_normalize_technique(t) for t in mapped) | extracted
+        local_techniques = {t for t in local_techniques if t}
+        if not local_techniques:
+            continue
+
+        score = 3
+        if status in {"completed", "success"}:
+            score = 4
+        source = f"integration_job_{tool}" if tool else "integration_job_evidence"
+        if score == 4:
+            source = f"{source}_completed"
+
+        for technique in local_techniques:
+            techniques.setdefault(technique, {"score": 0, "sources": set()})
+            techniques[technique]["score"] = max(techniques[technique]["score"], score)
+            techniques[technique]["sources"].add(source)
 
 
 def _extract_attack_techniques(value: Any) -> Set[str]:
@@ -900,6 +984,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_identity_protection_catalog(techniques)
     # include indicators ingested via integrations (Amass, Velociraptor, etc.)
     _collect_threat_intel(techniques)
+    await _collect_threat_intel_match_evidence(techniques, db)
+    await _collect_integration_job_evidence(techniques, db)
     # Technique update pass #3: evidence from canonical audit/event telemetry.
     await _collect_audit_and_world_event_evidence(techniques, db)
     # Technique update pass #3b: semantic security telemetry collections.

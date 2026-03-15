@@ -22,6 +22,8 @@ import asyncio
 import aiohttp
 import hashlib
 import logging
+import re
+import csv
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Set, Any
 from dataclasses import dataclass, field, asdict
@@ -38,6 +40,8 @@ except Exception:
         emit_world_event = None
 
 logger = logging.getLogger(__name__)
+
+ATTACK_TECHNIQUE_RE = re.compile(r"\bT\d{4}(?:\.\d{3})?\b", re.IGNORECASE)
 
 # =============================================================================
 # CONFIGURATION
@@ -96,6 +100,89 @@ class ThreatMatch:
     query_value: str = ""
     query_type: str = ""
     matched_at: str = ""
+
+
+def _normalize_technique(value: str) -> str:
+    return (value or "").strip().upper()
+
+
+def _extract_attack_techniques(value: Any) -> List[str]:
+    text = str(value or "")
+    found = {_normalize_technique(m.group(0)) for m in ATTACK_TECHNIQUE_RE.finditer(text)}
+    return sorted(t for t in found if t)
+
+
+def assign_mitre_techniques(source: str, item: Dict[str, Any]) -> List[str]:
+    """Derive ATT&CK techniques from source/type/tags/description/content."""
+    src = (source or "").strip().lower()
+    ioc_type = str(item.get("type") or "").strip().lower()
+    tags = [str(t).strip().lower() for t in (item.get("tags") or [])]
+    description = str(item.get("description") or "").lower()
+    value = str(item.get("value") or "").lower()
+    references = [str(r) for r in (item.get("references") or [])]
+
+    techniques: List[str] = []
+
+    source_map: Dict[str, List[str]] = {
+        "amass": ["T1590.002", "T1590.004", "T1595.001"],
+        "velociraptor": ["T1053", "T1018", "T1083", "T1003"],
+        "purplesharp": ["T1543", "T1021", "T1068", "T1059"],
+        "abusech": ["T1071", "T1095", "T1041"],
+        "abusech_urlhaus": ["T1189", "T1566.002", "T1204"],
+        "abusech_feodo": ["T1071", "T1095", "T1041"],
+        "abusech_malwarebazaar": ["T1204", "T1105", "T1059"],
+        "emergingthreats": ["T1071", "T1095", "T1041"],
+        "alienvault": ["T1071", "T1595.001"],
+        "osint": ["T1595.001", "T1590.001", "T1592.001", "T1596"],
+        "spiderfoot": ["T1595.001", "T1590.001", "T1592.001", "T1596"],
+        "shodan": ["T1595.001", "T1592.002"],
+        "censys": ["T1595.001", "T1592.002"],
+        "theharvester": ["T1590.001", "T1589.001", "T1592.001"],
+        "bloodhound": ["T1087.002", "T1069.002", "T1482"],
+        "arkime": ["T1046", "T1071", "T1041"],
+        "zeek": ["T1046", "T1071", "T1041"],
+    }
+    techniques.extend(source_map.get(src, []))
+
+    keyword_map: Dict[str, List[str]] = {
+        "ransom": ["T1486", "T1490"],
+        "credential": ["T1003", "T1555"],
+        "phish": ["T1566", "T1566.002"],
+        "botnet": ["T1071", "T1095"],
+        "c2": ["T1071", "T1095"],
+        "command and control": ["T1071", "T1095"],
+        "beacon": ["T1071", "T1095"],
+        "exfil": ["T1041", "T1048"],
+        "lateral": ["T1021"],
+        "persistence": ["T1547", "T1053"],
+        "powershell": ["T1059.001"],
+        "privilege": ["T1068", "T1548"],
+        "dns": ["T1071.004"],
+        "smb": ["T1021.002"],
+        "rdp": ["T1021.001"],
+        "webshell": ["T1505.003"],
+        "remote service": ["T1133"],
+        "drive-by": ["T1189"],
+    }
+    combined_text = " ".join([description, value, " ".join(tags)]).lower()
+    for keyword, mapped in keyword_map.items():
+        if keyword in combined_text:
+            techniques.extend(mapped)
+
+    if ioc_type == "url":
+        techniques.extend(["T1189", "T1566.002"])
+    elif ioc_type == "domain":
+        techniques.append("T1071")
+    elif ioc_type == "ip":
+        techniques.extend(["T1071", "T1095"])
+    elif ioc_type in {"sha256", "sha1", "md5"}:
+        techniques.extend(["T1204", "T1105"])
+
+    for raw in [description, value, *tags, *references]:
+        techniques.extend(_extract_attack_techniques(raw))
+
+    normalized = [_normalize_technique(t) for t in techniques if _normalize_technique(t)]
+    return list(dict.fromkeys(normalized))
 
 # =============================================================================
 # THREAT INTELLIGENCE FEEDS
@@ -204,6 +291,15 @@ class AbuseChFeed(ThreatIntelFeed):
                                         source="URLhaus",
                                         description="Malicious URL from URLhaus",
                                         tags=["malware", "urlhaus"],
+                                        techniques=assign_mitre_techniques(
+                                            "abusech_urlhaus",
+                                            {
+                                                "type": "url",
+                                                "value": url,
+                                                "tags": ["malware", "urlhaus"],
+                                                "description": "Malicious URL from URLhaus",
+                                            },
+                                        ),
                                         confidence=85
                                     )
                         logger.info(f"Loaded {len(self.indicators['url'])} URLs from URLhaus")
@@ -228,11 +324,68 @@ class AbuseChFeed(ThreatIntelFeed):
                                     source="Feodo Tracker",
                                     description="Botnet C2 server IP",
                                     tags=["botnet", "c2", "feodo"],
+                                    techniques=assign_mitre_techniques(
+                                        "abusech_feodo",
+                                        {
+                                            "type": "ip",
+                                            "value": ip,
+                                            "tags": ["botnet", "c2", "feodo"],
+                                            "description": "Botnet C2 server IP",
+                                        },
+                                    ),
                                     confidence=95
                                 )
                         logger.info(f"Loaded {len(self.indicators['ip'])} IPs from Feodo Tracker")
             except Exception as e:
                 logger.error(f"Feodo Tracker fetch failed: {e}")
+
+            # MalwareBazaar - malware sample hashes
+            try:
+                async with session.get(self.MALWARE_BAZAAR_URL, timeout=30) as resp:
+                    if resp.status == 200:
+                        text = await resp.text()
+                        loaded_hashes = 0
+                        for line in text.split("\n"):
+                            if line.startswith("#") or not line.strip():
+                                continue
+                            try:
+                                row = next(csv.reader([line]))
+                            except Exception:
+                                row = []
+                            candidate = ""
+                            # Prefer explicit sha256 field if present.
+                            for part in row:
+                                part = (part or "").strip().strip('"')
+                                if re.fullmatch(r"[a-fA-F0-9]{64}", part):
+                                    candidate = part.lower()
+                                    break
+                            if not candidate:
+                                continue
+                            self.indicators["sha256"].add(candidate)
+                            self.indicator_details[f"sha256:{candidate}"] = ThreatIndicator(
+                                ioc_type="sha256",
+                                value=candidate,
+                                threat_level="high",
+                                source="MalwareBazaar",
+                                description="Malware sample hash from MalwareBazaar",
+                                tags=["malware", "malwarebazaar"],
+                                techniques=assign_mitre_techniques(
+                                    "abusech_malwarebazaar",
+                                    {
+                                        "type": "sha256",
+                                        "value": candidate,
+                                        "tags": ["malware", "malwarebazaar"],
+                                        "description": "Malware sample hash from MalwareBazaar",
+                                    },
+                                ),
+                                confidence=90,
+                            )
+                            loaded_hashes += 1
+                            if loaded_hashes >= 5000:
+                                break
+                        logger.info(f"Loaded {loaded_hashes} SHA256 hashes from MalwareBazaar")
+            except Exception as e:
+                logger.error(f"MalwareBazaar fetch failed: {e}")
         
         self.last_updated = datetime.now(timezone.utc)
         self.save_cache()
@@ -268,6 +421,15 @@ class EmergingThreatsFeed(ThreatIntelFeed):
                                     source="Emerging Threats",
                                     description="Compromised IP address",
                                     tags=["compromised", "et"],
+                                    techniques=assign_mitre_techniques(
+                                        "emergingthreats",
+                                        {
+                                            "type": "ip",
+                                            "value": line,
+                                            "tags": ["compromised", "et"],
+                                            "description": "Compromised IP address",
+                                        },
+                                    ),
                                     confidence=80
                                 )
                         logger.info(f"Loaded {len(self.indicators['ip'])} IPs from Emerging Threats")
@@ -335,6 +497,16 @@ class AlienVaultOTXFeed(ThreatIntelFeed):
                                         source="AlienVault OTX",
                                         description=pulse.get("description", "")[:200],
                                         tags=pulse.get("tags", [])[:5],
+                                        techniques=assign_mitre_techniques(
+                                            "alienvault",
+                                            {
+                                                "type": mapped_type,
+                                                "value": value,
+                                                "tags": pulse.get("tags", [])[:5],
+                                                "description": pulse.get("description", "")[:200],
+                                                "references": [pulse.get("id", ""), pulse.get("name", "")],
+                                            },
+                                        ),
                                         confidence=75,
                                         references=[pulse.get("id", "")]
                                     )
@@ -601,6 +773,14 @@ class ThreatIntelManager:
                     continue
 
                 key = f"{ioc_type}:{value}"
+                assigned_techniques = self._assign_techniques(
+                    src,
+                    {
+                        **item,
+                        "type": ioc_type,
+                        "value": value,
+                    },
+                )
                 if value in feed.indicators.get(ioc_type, set()):
                     # update details if confidence higher
                     existing = feed.indicator_details.get(key)
@@ -612,15 +792,30 @@ class ThreatIntelManager:
                             source=source,
                             description=item.get('description', ''),
                             tags=item.get('tags', []),
+                            techniques=list(
+                                dict.fromkeys(
+                                    list(getattr(existing, "techniques", []) or [])
+                                    + assigned_techniques
+                                )
+                            ),
                             confidence=int(item.get('confidence', 50)),
                             references=item.get('references', [])
                         )
+                    elif existing:
+                        merged = list(
+                            dict.fromkeys(
+                                list(getattr(existing, "techniques", []) or [])
+                                + assigned_techniques
+                            )
+                        )
+                        if merged != list(getattr(existing, "techniques", []) or []):
+                            existing.techniques = merged
                     continue
 
                 # Add to feed
                 feed.indicators.setdefault(ioc_type, set()).add(value)
                 # assign MITRE technique annotations based on source/tags
-                techniques = self._assign_techniques(src, item)
+                techniques = assigned_techniques
                 feed.indicator_details[key] = ThreatIndicator(
                     ioc_type=ioc_type,
                     value=value,
@@ -668,30 +863,7 @@ class ThreatIntelManager:
         A simple heuristic table drives mapping; this should be expanded as
         coverage increases (see ATTACK_COVERAGE_BACKLOG.md).
         """
-        src = (source or '').lower()
-        techniques: List[str] = []
-
-        # source-based mappings
-        if src == 'amass':
-            # reconnaissance: domain discovery, external remote services
-            techniques.extend(['T1590.002', 'T1590.004'])
-        elif src == 'velociraptor':
-            # host collection -> persistence/discovery/credential access
-            techniques.extend(['T1053', 'T1018', 'T1083', 'T1003'])
-        elif src == 'purplesharp':
-            techniques.extend(['T1543', 'T1021'])  # priv esc & lateral
-        elif src in ('arkime', 'bloodhound'):
-            techniques.extend(['T1087', 'T1134'])
-
-        # tag/description hints (example)
-        tags = item.get('tags', []) or []
-        if 'ransomware' in tags:
-            techniques.append('T1486')
-        if 'credential' in tags:
-            techniques.append('T1003')
-
-        # remove duplicates
-        return list(dict.fromkeys(techniques))
+        return assign_mitre_techniques(source, item)
 
 
 # Global instance
