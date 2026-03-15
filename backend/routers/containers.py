@@ -89,6 +89,7 @@ async def scan_container_image(request: ScanImageRequest, current_user: dict = D
             "total_vulnerabilities": result.get("total_vulnerabilities"),
         },
         trigger_triune=(result.get("critical_count", 0) > 0),
+        trigger_triune=False,
     )
     
     return result
@@ -108,6 +109,7 @@ async def scan_all_images(current_user: dict = Depends(check_permission("write")
         entity_refs=[],
         payload={"images_scanned": len(results), "total_vulnerabilities": total_vulns, "critical_count": critical},
         trigger_triune=(critical > 0),
+        trigger_triune=False,
     )
     
     return {

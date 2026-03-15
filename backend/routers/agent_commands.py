@@ -17,6 +17,10 @@ try:
 except Exception:
     from backend.services.world_events import emit_world_event
 try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
+try:
     from .dependencies import get_current_user, check_permission, logger
 except Exception:
     def get_current_user(*args, **kwargs):
@@ -830,6 +834,11 @@ async def create_command(
         payload={"command_type": request.command_type, "priority": request.priority, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")},
     )
 
+        trigger_triune=False,
+        entity_refs=[request.agent_id, command_id],
+        payload={"command_type": request.command_type, "priority": request.priority},
+    )
+    
     # Remove MongoDB _id before returning
     command.pop("_id", None)
     return {"command_id": command_id, "status": "gated_pending_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "command": command}

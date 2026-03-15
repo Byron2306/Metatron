@@ -91,6 +91,18 @@ class OutboundGateService:
             except Exception:
                 pass
 
+        if emit_world_event is not None and self.db is not None:
+            try:
+                await emit_world_event(
+                    self.db,
+                    event_type="outbound_gate_command_queued",
+                    entity_refs=[agent_id, command_id, queue_doc["queue_id"], decision_doc["decision_id"]],
+                    payload={"status": "pending"},
+                    trigger_triune=True,
+                )
+            except Exception:
+                pass
+
         return {
             "status": "queued",
             "action_id": action_id,

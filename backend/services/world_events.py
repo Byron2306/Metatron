@@ -50,6 +50,7 @@ async def emit_world_event(
             event_type=event_type,
             entity_ids=entity_refs,
             context={"source": source or "world_event_emitter", "payload": payload},
+            context={"source": "world_event_emitter", "payload": payload},
         )
 
     return {"event": event, "triune": triune_bundle}

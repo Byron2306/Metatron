@@ -225,6 +225,8 @@ async def send_command_to_agent(
     await db.agent_commands.insert_one(command_doc)
     await emit_world_event(get_db(), event_type="swarm_agent_command_gated", entity_refs=[agent_id, command_doc["command_id"]], payload={"command_type": request.type, "actor": current_user.get("email", "system"), "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
     logger.info(f"Command gated for agent {agent_id}: {request.type}")
+    await emit_world_event(get_db(), event_type="swarm_agent_command_queued", entity_refs=[agent_id, command_doc["command_id"]], payload={"command_type": request.type, "actor": current_user.get("email", "system")}, trigger_triune=False)
+    logger.info(f"Command queued for agent {agent_id}: {request.type}")
     return {
         "status": "queued_for_triune_approval",
         "command_id": command_doc["command_id"],

@@ -161,6 +161,9 @@ class TriuneOrchestrator:
             "sector_risk": sector_risk,
             "attack_path_graph": attack_path_graph,
             "attack_path_summary": attack_path_summary,
+        return {
+            "entities": entities,
+            "hotspots": hotspots,
             "entity_count": await self.world_model.count_entities(),
         }
 

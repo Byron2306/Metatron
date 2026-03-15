@@ -490,6 +490,8 @@ async def execute_tool(
 
     await emit_world_event(get_db(), event_type="enterprise_tool_execution_gated", entity_refs=[request.tool_id, principal], payload={"queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
 
+    await emit_world_event(get_db(), event_type="enterprise_tool_executed", entity_refs=[request.tool_id, principal], payload={"execution_id": execution.execution_id, "status": execution.status}, trigger_triune=False)
+    
     return {
         "status": "queued_for_triune_approval",
         "tool_id": request.tool_id,
