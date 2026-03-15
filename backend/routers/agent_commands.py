@@ -833,11 +833,6 @@ async def create_command(
         entity_refs=[request.agent_id, command_id],
         payload={"command_type": request.command_type, "priority": request.priority, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")},
     )
-
-        trigger_triune=False,
-        entity_refs=[request.agent_id, command_id],
-        payload={"command_type": request.command_type, "priority": request.priority},
-    )
     
     # Remove MongoDB _id before returning
     command.pop("_id", None)
@@ -849,7 +844,7 @@ async def get_pending_commands(current_user: dict = Depends(get_current_user)):
     """Get all commands pending approval"""
     db = get_db()
     commands = await db.agent_commands.find(
-        {"status": "pending_approval"},
+        {"status": {"$in": ["pending_approval", "gated_pending_approval"]}},
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     

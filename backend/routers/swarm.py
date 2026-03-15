@@ -353,47 +353,66 @@ async def respond_to_threat(
     params: dict = None,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Send a remediation command to an agent in response to a threat"""
-    
-    # Create command for agent
+    """Queue remediation command via mandatory outbound gate."""
+    now = datetime.now(timezone.utc).isoformat()
     command_doc = {
         "command_id": f"cmd-{uuid.uuid4().hex[:8]}",
         "agent_id": target_agent,
         "type": action,
         "params": params or {},
         "priority": "critical",
-        "status": "pending",
+        "status": "gated_pending_approval",
         "state_version": 1,
         "state_transition_log": [
             {
                 "from_status": None,
-                "to_status": "pending",
+                "to_status": "gated_pending_approval",
                 "actor": current_user.get("email", "system"),
-                "reason": "threat response command queued",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "reason": "threat response command queued for triune approval",
+                "timestamp": now,
             }
         ],
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now,
         "created_by": current_user.get("email", "system"),
-        "threat_id": threat_id
+        "threat_id": threat_id,
     }
-    
+
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="response_execution",
+        actor=current_user.get("email", "system"),
+        payload=command_doc,
+        impact_level="critical",
+        subject_id=target_agent,
+        entity_refs=[target_agent, command_doc["command_id"], threat_id],
+        requires_triune=True,
+    )
+    command_doc["gate"] = {
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "action_id": gated.get("action_id"),
+    }
+
     await db.agent_commands.insert_one(command_doc)
-    
-    # Log the response
+
     await db.threat_responses.insert_one({
         "threat_id": threat_id,
         "action": action,
         "target_agent": target_agent,
         "command_id": command_doc["command_id"],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "initiated_by": current_user.get("email", "system")
+        "timestamp": now,
+        "initiated_by": current_user.get("email", "system"),
+        "status": "gated_pending_approval",
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     })
-    
+
     return {
-        "status": "ok",
-        "message": f"Remediation command sent to agent {target_agent}",
-        "command_id": command_doc["command_id"]
+        "status": "queued_for_triune_approval",
+        "message": f"Remediation command gated for agent {target_agent}",
+        "command_id": command_doc["command_id"],
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     }
 
 
@@ -1307,6 +1326,76 @@ class AutoKillRequest(BaseModel):
     priority: str = "critical"
 
 
+async def _queue_auto_kill_command(
+    *,
+    agent_id: str,
+    command_type: str,
+    command_name: str,
+    parameters: Dict[str, Any],
+    current_user: Dict[str, Any],
+    reason: str,
+    risk_level: str = "high",
+    batch: bool = False,
+) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    command_id = f"ak-{uuid.uuid4().hex[:8]}"
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": command_type,
+        "command_name": command_name,
+        "parameters": parameters,
+        "status": "gated_pending_approval",
+        "state_version": 1,
+        "state_transition_log": [{
+            "from_status": None,
+            "to_status": "gated_pending_approval",
+            "actor": current_user.get("email", "system"),
+            "reason": "auto-kill command queued for triune approval",
+            "timestamp": now,
+        }],
+        "priority": "critical",
+        "risk_level": risk_level,
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True,
+        "batch": bool(batch),
+    }
+
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="response_execution",
+        actor=current_user.get("email", "system"),
+        payload=command_doc,
+        impact_level="critical",
+        subject_id=agent_id,
+        entity_refs=[agent_id, command_id],
+        requires_triune=True,
+    )
+    command_doc["gate"] = {
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "action_id": gated.get("action_id"),
+    }
+    await db.agent_commands.insert_one(command_doc)
+
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_auto_kill_command_gated",
+        entity_refs=[agent_id, command_id],
+        payload={"command_type": command_type, "reason": reason, "queue_id": gated.get("queue_id")},
+        trigger_triune=True,
+    )
+
+    return {
+        "status": "queued_for_triune_approval",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
+
+
 @router.post("/auto-kill/process")
 async def auto_kill_process(
     agent_id: str,
@@ -1314,55 +1403,19 @@ async def auto_kill_process(
     reason: str = "Server-initiated kill",
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Server-initiated process kill on agent"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    command_id = f"kill-{uuid.uuid4().hex[:8]}"
-    
-    # Create kill command
-    command_doc = {
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "kill_process",
-        "command_name": "Server Auto-Kill Process",
-        "parameters": {"pid": pid, "reason": reason},
-        "status": "approved",  # Auto-approved for kill commands
-        "state_version": 1,
-        "state_transition_log": [{
-            "from_status": None,
-            "to_status": "approved",
-            "actor": current_user.get("email", "system"),
-            "reason": "auto-kill command approved",
-            "timestamp": now,
-        }],
-        "priority": "critical",
-        "risk_level": "high",
-        "created_by": current_user.get("email", "system"),
-        "created_at": now,
-        "auto_kill": True
-    }
-    
-    await db.agent_commands.insert_one(command_doc)
-    
-    # Also add to command queue for immediate pickup
-    await db.command_queue.insert_one({
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "kill_process",
-        "parameters": {"pid": pid, "reason": reason},
-        "status": "pending",
-        "created_at": now
-    })
-    
-    logger.warning(f"🔥 AUTO-KILL: Process {pid} on agent {agent_id} - {reason}")
-    
-    return {
-        "status": "queued",
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "target": f"PID {pid}",
-        "message": f"Kill command sent to agent {agent_id}"
-    }
+    """Queue server-initiated process kill via outbound gate."""
+    queued = await _queue_auto_kill_command(
+        agent_id=agent_id,
+        command_type="kill_process",
+        command_name="Server Auto-Kill Process",
+        parameters={"pid": pid, "reason": reason},
+        current_user=current_user,
+        reason=reason,
+        risk_level="high",
+    )
+    queued["target"] = f"PID {pid}"
+    queued["message"] = f"Kill command gated for agent {agent_id}"
+    return queued
 
 
 @router.post("/auto-kill/ip")
@@ -1373,56 +1426,19 @@ async def auto_kill_ip(
     duration_hours: int = 24,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Server-initiated IP block on agent"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    command_id = f"block-{uuid.uuid4().hex[:8]}"
-    
-    command_doc = {
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "block_ip",
-        "command_name": "Server Auto-Block IP",
-        "parameters": {
-            "ip_address": ip_address,
-            "reason": reason,
-            "duration_hours": duration_hours
-        },
-        "status": "approved",
-        "state_version": 1,
-        "state_transition_log": [{
-            "from_status": None,
-            "to_status": "approved",
-            "actor": current_user.get("email", "system"),
-            "reason": "auto-kill command approved",
-            "timestamp": now,
-        }],
-        "priority": "critical",
-        "risk_level": "medium",
-        "created_by": current_user.get("email", "system"),
-        "created_at": now,
-        "auto_kill": True
-    }
-    
-    await db.agent_commands.insert_one(command_doc)
-    await db.command_queue.insert_one({
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "block_ip",
-        "parameters": {"ip_address": ip_address, "duration_hours": duration_hours},
-        "status": "pending",
-        "created_at": now
-    })
-    
-    logger.warning(f"🔥 AUTO-KILL: Blocking IP {ip_address} on agent {agent_id} - {reason}")
-    
-    return {
-        "status": "queued",
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "target": ip_address,
-        "message": f"IP block command sent to agent {agent_id}"
-    }
+    """Queue server-initiated IP block via outbound gate."""
+    queued = await _queue_auto_kill_command(
+        agent_id=agent_id,
+        command_type="block_ip",
+        command_name="Server Auto-Block IP",
+        parameters={"ip_address": ip_address, "reason": reason, "duration_hours": duration_hours},
+        current_user=current_user,
+        reason=reason,
+        risk_level="medium",
+    )
+    queued["target"] = ip_address
+    queued["message"] = f"IP block command gated for agent {agent_id}"
+    return queued
 
 
 @router.post("/auto-kill/file")
@@ -1432,52 +1448,19 @@ async def auto_kill_file(
     reason: str = "Server-initiated quarantine",
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Server-initiated file quarantine on agent"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    command_id = f"quar-{uuid.uuid4().hex[:8]}"
-    
-    command_doc = {
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "quarantine_file",
-        "command_name": "Server Auto-Quarantine File",
-        "parameters": {"file_path": file_path, "reason": reason},
-        "status": "approved",
-        "state_version": 1,
-        "state_transition_log": [{
-            "from_status": None,
-            "to_status": "approved",
-            "actor": current_user.get("email", "system"),
-            "reason": "auto-kill command approved",
-            "timestamp": now,
-        }],
-        "priority": "critical",
-        "risk_level": "high",
-        "created_by": current_user.get("email", "system"),
-        "created_at": now,
-        "auto_kill": True
-    }
-    
-    await db.agent_commands.insert_one(command_doc)
-    await db.command_queue.insert_one({
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "quarantine_file",
-        "parameters": {"file_path": file_path},
-        "status": "pending",
-        "created_at": now
-    })
-    
-    logger.warning(f"🔥 AUTO-KILL: Quarantining {file_path} on agent {agent_id} - {reason}")
-    
-    return {
-        "status": "queued",
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "target": file_path,
-        "message": f"Quarantine command sent to agent {agent_id}"
-    }
+    """Queue server-initiated file quarantine via outbound gate."""
+    queued = await _queue_auto_kill_command(
+        agent_id=agent_id,
+        command_type="quarantine_file",
+        command_name="Server Auto-Quarantine File",
+        parameters={"file_path": file_path, "reason": reason},
+        current_user=current_user,
+        reason=reason,
+        risk_level="high",
+    )
+    queued["target"] = file_path
+    queued["message"] = f"Quarantine command gated for agent {agent_id}"
+    return queued
 
 
 @router.post("/auto-kill/isolate")
@@ -1487,52 +1470,19 @@ async def auto_kill_isolate_host(
     duration_hours: int = 1,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Server-initiated host isolation (block all network)"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    command_id = f"iso-{uuid.uuid4().hex[:8]}"
-    
-    command_doc = {
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "isolate_host",
-        "command_name": "Server Auto-Isolate Host",
-        "parameters": {"reason": reason, "duration_hours": duration_hours},
-        "status": "approved",
-        "state_version": 1,
-        "state_transition_log": [{
-            "from_status": None,
-            "to_status": "approved",
-            "actor": current_user.get("email", "system"),
-            "reason": "auto-kill command approved",
-            "timestamp": now,
-        }],
-        "priority": "critical",
-        "risk_level": "critical",
-        "created_by": current_user.get("email", "system"),
-        "created_at": now,
-        "auto_kill": True
-    }
-    
-    await db.agent_commands.insert_one(command_doc)
-    await db.command_queue.insert_one({
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "isolate_host",
-        "parameters": {"duration_hours": duration_hours},
-        "status": "pending",
-        "created_at": now
-    })
-    
-    logger.warning(f"🔥 AUTO-KILL: Isolating host {agent_id} - {reason}")
-    
-    return {
-        "status": "queued",
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "target": "full_network_isolation",
-        "message": f"Host isolation command sent to agent {agent_id}"
-    }
+    """Queue server-initiated host isolation via outbound gate."""
+    queued = await _queue_auto_kill_command(
+        agent_id=agent_id,
+        command_type="isolate_host",
+        command_name="Server Auto-Isolate Host",
+        parameters={"reason": reason, "duration_hours": duration_hours},
+        current_user=current_user,
+        reason=reason,
+        risk_level="critical",
+    )
+    queued["target"] = "full_network_isolation"
+    queued["message"] = f"Host isolation command gated for agent {agent_id}"
+    return queued
 
 
 @router.post("/auto-kill/batch")
@@ -1540,60 +1490,38 @@ async def auto_kill_batch(
     targets: List[Dict[str, Any]],
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Send multiple kill commands at once"""
-    now = datetime.now(timezone.utc).isoformat()
+    """Queue multiple high-impact commands through outbound gate."""
     results = []
     
     for target in targets:
-        command_id = f"batch-{uuid.uuid4().hex[:8]}"
         agent_id = target.get("agent_id")
         command_type = target.get("type")
         params = target.get("parameters", {})
-        
-        command_doc = {
-            "command_id": command_id,
-            "agent_id": agent_id,
-            "command_type": command_type,
-            "command_name": f"Batch Auto-Kill: {command_type}",
-            "parameters": params,
-            "status": "approved",
-            "state_version": 1,
-            "state_transition_log": [{
-                "from_status": None,
-                "to_status": "approved",
-                "actor": current_user.get("email", "system"),
-                "reason": "batch auto-kill command approved",
-                "timestamp": now,
-            }],
-            "priority": "critical",
-            "risk_level": "high",
-            "created_by": current_user.get("email", "system"),
-            "created_at": now,
-            "auto_kill": True,
-            "batch": True
-        }
-        
-        await db.agent_commands.insert_one(command_doc)
-        await db.command_queue.insert_one({
-            "command_id": command_id,
-            "agent_id": agent_id,
-            "command_type": command_type,
-            "parameters": params,
-            "status": "pending",
-            "created_at": now
-        })
-        
+        if not agent_id or not command_type:
+            continue
+        queued = await _queue_auto_kill_command(
+            agent_id=agent_id,
+            command_type=command_type,
+            command_name=f"Batch Auto-Kill: {command_type}",
+            parameters=params,
+            current_user=current_user,
+            reason="batch_auto_kill",
+            risk_level="high",
+            batch=True,
+        )
         results.append({
-            "command_id": command_id,
+            "command_id": queued["command_id"],
             "agent_id": agent_id,
             "type": command_type,
-            "status": "queued"
+            "status": queued["status"],
+            "queue_id": queued["queue_id"],
+            "decision_id": queued["decision_id"],
         })
     
-    logger.warning(f"🔥 BATCH AUTO-KILL: {len(results)} commands queued")
+    logger.warning("🔥 BATCH AUTO-KILL gated: %s commands queued", len(results))
     
     return {
-        "status": "queued",
+        "status": "queued_for_triune_approval",
         "count": len(results),
         "commands": results
     }

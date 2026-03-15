@@ -397,7 +397,15 @@ async def block_device(
         from backend.services.outbound_gate import OutboundGateService
         gate = OutboundGateService(db)
         try:
-            queued = await gate.enqueue_command_for_approval(device_id, command)
+            queued = await gate.gate_action(
+                action_type="cross_sector_hardening",
+                actor=current_user.get("email", "system"),
+                payload=command,
+                impact_level="critical",
+                subject_id=device_id,
+                entity_refs=[device_id, command_id],
+                requires_triune=True,
+            )
             await db.agent_commands.insert_one({**command, "status": queued.get("status"), "queue_id": queued.get("queue_id"), "decision_id": queued.get("decision_id")})
             commands_created.append(command_id)
             logger.info(f"Zero Trust remediation command queued for device {device_id}: {command_id} (queue={queued.get('queue_id')})")

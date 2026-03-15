@@ -983,7 +983,7 @@ async def _dispatch_agent_command(
     priority: str,
     issued_by: str,
 ) -> Dict[str, Any]:
-    """Queue or immediately dispatch a command to a unified agent."""
+    """Queue command through outbound gate before any execution path."""
     command_id = secrets.token_hex(8)
     command_data = {
         "command_id": command_id,
@@ -995,67 +995,44 @@ async def _dispatch_agent_command(
         "issued_by": issued_by,
     }
 
-    # Decide whether this command requires triune approval before dispatch.
-    sensitive_keywords = ("update", "reload", "execute", "publish")
-    requires_approval = any(k in (command_type or "").lower() for k in sensitive_keywords)
+    gate = OutboundGateService(db)
+    action_type = "cross_sector_hardening" if command_type in {"remediate_compliance", "remove_persistence"} else "agent_command"
+    queued = await gate.gate_action(
+        action_type=action_type,
+        actor=issued_by,
+        payload=command_data,
+        impact_level="high",
+        subject_id=agent_id,
+        entity_refs=[agent_id, command_id],
+        requires_triune=True,
+    )
 
-    if requires_approval:
-        # Enqueue for triune approval instead of immediate dispatch
-        gate = OutboundGateService(db)
-        queued = await gate.enqueue_command_for_approval(agent_id, command_data)
-
-        # Record the command as queued and link to decision
-        await db.agent_commands.insert_one({
-            **command_data,
-            "agent_id": agent_id,
-            "status": "queued_for_approval",
-            "queue_id": queued.get("queue_id"),
-            "decision_id": queued.get("decision_id"),
-            "state_version": 1,
-            "state_transition_log": [
-                {
-                    "from_status": None,
-                    "to_status": "queued_for_approval",
-                    "actor": issued_by,
-                    "reason": "queued for triune approval",
-                    "timestamp": command_data["timestamp"],
-                    "metadata": {"delivery_mode": "triune_queue"},
-                }
-            ],
-        })
-
-        logger.info(f"Command {command_type} queued for triune approval for agent {agent_id}")
-        return {
-            "command_id": command_id,
-            "status": "queued_for_approval",
-            "decision_id": queued.get("decision_id"),
-            "message": "Command queued for triune approval; will be dispatched after Metatron decision",
-        }
-
-    # Non-sensitive: attempt immediate websocket dispatch (existing behavior)
-    sent = await agent_ws_manager.send_command(agent_id, command_data)
     await db.agent_commands.insert_one({
         **command_data,
         "agent_id": agent_id,
-        "status": "sent" if sent else "queued",
+        "status": "gated_pending_approval",
+        "queue_id": queued.get("queue_id"),
+        "decision_id": queued.get("decision_id"),
         "state_version": 1,
         "state_transition_log": [
             {
                 "from_status": None,
-                "to_status": "sent" if sent else "queued",
+                "to_status": "gated_pending_approval",
                 "actor": issued_by,
-                "reason": "command dispatched",
+                "reason": "queued for triune approval",
                 "timestamp": command_data["timestamp"],
-                "metadata": {"delivery_mode": "websocket" if sent else "queue"},
+                "metadata": {"delivery_mode": "triune_queue"},
             }
         ],
     })
 
-    logger.info(f"Command {command_type} sent to {agent_id}: {'immediate' if sent else 'queued'}")
+    logger.info("Command %s queued for triune approval for %s", command_type, agent_id)
     return {
         "command_id": command_id,
-        "status": "sent" if sent else "queued",
-        "message": f"Command {'sent immediately' if sent else 'queued for delivery'}",
+        "status": "queued_for_approval",
+        "queue_id": queued.get("queue_id"),
+        "decision_id": queued.get("decision_id"),
+        "message": "Command queued for triune approval; execution awaits outbound gate decision",
     }
 
 

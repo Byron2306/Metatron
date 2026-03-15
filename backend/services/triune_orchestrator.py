@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -48,10 +49,15 @@ class TriuneOrchestrator:
         )
 
         candidates = await self._resolve_candidates(entity_ids)
+        policy_tier = (
+            metatron_assessment.get("policy_tier_suggestion")
+            or metatron_assessment.get("approval_tier_suggestion")
+            or "standard"
+        )
         michael_plan = await self.michael.plan_actions(
             candidates=candidates,
             world_snapshot=world_snapshot,
-            policy_tier=metatron_assessment.get("approval_tier_suggestion", "standard"),
+            policy_tier=policy_tier,
             context=context,
         )
 
@@ -60,6 +66,13 @@ class TriuneOrchestrator:
             michael_plan=michael_plan,
             event_type=event_type,
             context=context,
+        )
+
+        beacon_cascade = await self._apply_beacon_cascade(
+            event_type=event_type,
+            context=context,
+            metatron_assessment=metatron_assessment,
+            world_snapshot=world_snapshot,
         )
 
         return {
@@ -74,6 +87,7 @@ class TriuneOrchestrator:
                 "plan": michael_plan,
             },
             "loki": loki_advisory,
+            "beacon_cascade": beacon_cascade,
         }
 
     async def _build_world_snapshot(self, entity_ids: List[str]) -> Dict[str, Any]:
@@ -143,16 +157,27 @@ class TriuneOrchestrator:
         except Exception:
             sector_risk = {}
 
+        entity_count = 0
+        try:
+            entity_count = await self.world_model.count_entities()
+        except Exception:
+            entity_count = len(entities)
+
         attack_path_summary = {
             "node_count": len(attack_path_graph.get("nodes", [])),
             "edge_count": len(attack_path_graph.get("edges", [])),
             "top_nodes": [n.get("id") for n in attack_path_graph.get("nodes", [])[:10]],
             "graph_metrics": graph_metrics,
+            "top_risky_sectors": [
+                {"sector": sector, "avg_risk": details.get("avg_risk", 0.0)}
+                for sector, details in list(sector_risk.items())[:5]
+            ],
         }
 
         return {
             "entities": entities,
             "hotspots": hotspots,
+            "entity_count": entity_count,
             "edges": edges,
             "campaigns": campaigns,
             "trust_state": trust_state,
@@ -161,10 +186,6 @@ class TriuneOrchestrator:
             "sector_risk": sector_risk,
             "attack_path_graph": attack_path_graph,
             "attack_path_summary": attack_path_summary,
-        return {
-            "entities": entities,
-            "hotspots": hotspots,
-            "entity_count": await self.world_model.count_entities(),
         }
 
     async def _resolve_candidates(self, entity_ids: List[str]) -> List[str]:
@@ -173,3 +194,112 @@ class TriuneOrchestrator:
 
         actions = await self.world_model.list_actions(limit=10)
         return [f"{action['action']}:{action['entity_id']}" for action in actions]
+
+    async def _apply_beacon_cascade(
+        self,
+        *,
+        event_type: str,
+        context: Dict[str, Any],
+        metatron_assessment: Dict[str, Any],
+        world_snapshot: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """First concrete reflex cascade for deception-driven beacon events."""
+        if event_type != "deception_interaction":
+            return {"activated": False}
+
+        payload = (context or {}).get("payload") or {}
+        source_sector = payload.get("sector") or "unknown"
+        predicted_sectors = list(dict.fromkeys(metatron_assessment.get("predicted_next_sectors") or []))
+
+        if not predicted_sectors:
+            return {"activated": False, "reason": "no_predicted_sectors"}
+
+        now = datetime.now(timezone.utc).isoformat()
+        hardened = []
+        posture_updates = 0
+        deception_deployments = []
+
+        for sector in predicted_sectors:
+            hardened.append({"sector": sector, "posture": "hardened"})
+            if self.db is not None and hasattr(self.db, "sector_posture"):
+                try:
+                    await self.db.sector_posture.update_one(
+                        {"sector": sector},
+                        {
+                            "$set": {
+                                "sector": sector,
+                                "posture": "hardened",
+                                "source_event": event_type,
+                                "source_sector": source_sector,
+                                "updated_at": now,
+                            }
+                        },
+                        upsert=True,
+                    )
+                except Exception:
+                    pass
+
+            deploy_doc = {
+                "deployment_id": f"dd-{sector}-{now}",
+                "sector": sector,
+                "source_event": event_type,
+                "source_sector": source_sector,
+                "deception_type": "additional_honeytokens",
+                "status": "planned",
+                "created_at": now,
+            }
+            deception_deployments.append(deploy_doc)
+            if self.db is not None and hasattr(self.db, "deception_deployments"):
+                try:
+                    await self.db.deception_deployments.insert_one(deploy_doc)
+                except Exception:
+                    pass
+
+        if self.db is not None and hasattr(self.db, "world_entities"):
+            try:
+                result = await self.db.world_entities.update_many(
+                    {
+                        "type": {"$in": ["host", "agent"]},
+                        "attributes.sector": {"$in": predicted_sectors},
+                    },
+                    {
+                        "$set": {
+                            "attributes.posture": "hardened",
+                            "attributes.extra_deception": True,
+                            "attributes.posture_updated_at": now,
+                        }
+                    },
+                )
+                posture_updates = int(getattr(result, "modified_count", 0) or 0)
+            except Exception:
+                posture_updates = 0
+
+        if self.db is not None and hasattr(self.db, "world_events"):
+            try:
+                await self.db.world_events.insert_one(
+                    {
+                        "id": f"wevt-cascade-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                        "type": "beacon_cascade_activated",
+                        "event_class": "local_reflex",
+                        "entity_refs": predicted_sectors,
+                        "payload": {
+                            "source_sector": source_sector,
+                            "predicted_sectors": predicted_sectors,
+                            "posture_updates": posture_updates,
+                            "active_response_count": len(world_snapshot.get("active_responses") or []),
+                        },
+                        "source": "triune_orchestrator",
+                        "created": now,
+                    }
+                )
+            except Exception:
+                pass
+
+        return {
+            "activated": True,
+            "source_sector": source_sector,
+            "predicted_sectors": predicted_sectors,
+            "hardened_sectors": hardened,
+            "agent_posture_updates": posture_updates,
+            "deception_deployments": deception_deployments,
+        }

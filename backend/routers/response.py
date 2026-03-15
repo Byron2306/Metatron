@@ -65,16 +65,6 @@ async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_p
             requires_triune=True,
         )
         return {"status": "queued_for_triune_approval", "action": "block_ip", "ip": request.ip, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "IP block queued; execution awaits triune approval"}
-        wm = WorldModelService(db)
-        await wm.upsert_entity(WorldEntity(id=request.ip, type="agent", attributes={"blocked": True, "reason": request.reason}))
-        triune = await emit_world_event(
-            db,
-            event_type="response_block_ip",
-            entity_refs=[request.ip],
-            payload={"reason": request.reason, "duration_hours": request.duration_hours, "actor": current_user.get("name", "admin")},
-        )
-        result["triune"] = triune.get("triune")
-        return result
     except Exception as e:
         logger.error(f"Failed to gate block IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -96,16 +86,6 @@ async def unblock_ip(ip: str, current_user: dict = Depends(check_permission("wri
             requires_triune=True,
         )
         return {"status": "queued_for_triune_approval", "action": "unblock_ip", "ip": ip, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "IP unblock queued; execution awaits triune approval"}
-        wm = WorldModelService(db)
-        await wm.entities.update_one({"id": ip}, {"$set": {"attributes.blocked": False}})
-        triune = await emit_world_event(
-            db,
-            event_type="response_unblock_ip",
-            entity_refs=[ip],
-            payload={"actor": current_user.get("name", "admin")},
-        )
-        result["triune"] = triune.get("triune")
-        return result
     except Exception as e:
         logger.error(f"Failed to gate unblock IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

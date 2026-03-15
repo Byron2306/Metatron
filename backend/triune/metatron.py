@@ -45,37 +45,81 @@ class MetatronService:
 
         wm = WorldModelService(self.db)
         hotspots = await wm.list_hotspots(limit=5)
-        actions = await wm.list_actions(limit=5)
-        timeline = await wm.list_timeline(limit=10)
+        actions = await wm.list_actions(limit=8)
+        timeline = await wm.list_timeline(limit=15)
 
         hotspot_docs = [h.model_dump() if hasattr(h, "model_dump") else h.dict() for h in hotspots]
-        max_risk = max([float((h.get("attributes") or {}).get("risk_score") or 0.0) for h in hotspot_docs] + [0.0])
-        confidence = max(0.2, min(0.98, 0.3 + (0.5 * max_risk)))
+        max_hotspot_risk = max([float((h.get("attributes") or {}).get("risk_score") or 0.0) for h in hotspot_docs] + [0.0])
 
-        campaigns = []
-        for doc in (snapshot.get("entities") or []):
-            if str(doc.get("type") or "") == "campaign":
-                campaigns.append({
-                    "id": doc.get("id"),
-                    "name": (doc.get("attributes") or {}).get("name"),
-                    "stage": (doc.get("attributes") or {}).get("stage"),
-                    "confidence": (doc.get("attributes") or {}).get("confidence", confidence),
-                })
+        campaigns = snapshot.get("campaigns") or []
+        trust_state = snapshot.get("trust_state") or {}
+        recent_events = snapshot.get("recent_world_events") or []
+        active_responses = snapshot.get("active_responses") or []
+        sector_risk = snapshot.get("sector_risk") or {}
+        attack_path_summary = snapshot.get("attack_path_summary") or {}
+
+        sector_risk_values = [
+            float((details or {}).get("avg_risk") or 0.0)
+            for details in sector_risk.values()
+            if isinstance(details, dict)
+        ]
+        max_sector_risk = max(sector_risk_values + [0.0])
+        strategic_pressure = min(
+            1.0,
+            0.5 * max_hotspot_risk
+            + 0.3 * max_sector_risk
+            + 0.2 * min(1.0, len(active_responses) / 10.0),
+        )
+
+        degraded_trust_count = len(
+            [v for v in trust_state.values() if str(v).lower().strip() in {"degraded", "quarantined", "compromised"}]
+        )
+        confidence = max(0.25, min(0.98, 0.35 + (0.45 * strategic_pressure)))
+
+        top_sector_pairs = sorted(
+            [
+                (sector, float((details or {}).get("avg_risk") or 0.0))
+                for sector, details in sector_risk.items()
+            ],
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        top_predicted_sectors = [sector for sector, _ in top_sector_pairs[:3]]
+        if not top_predicted_sectors:
+            top_predicted_sectors = ["identity", "endpoint", "network"] if strategic_pressure >= 0.5 else ["monitoring"]
+
+        if strategic_pressure >= 0.85:
+            policy_tier = "critical"
+        elif strategic_pressure >= 0.65:
+            policy_tier = "high"
+        elif strategic_pressure >= 0.4:
+            policy_tier = "medium"
+        else:
+            policy_tier = "low"
 
         return {
             "status": "ok",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": event_type,
             "context": context,
+            "metatron_belief": {
+                "strategic_pressure": round(strategic_pressure, 4),
+                "degraded_trust_count": degraded_trust_count,
+                "active_response_count": len(active_responses),
+                "recent_event_count": len(recent_events),
+            },
             "environment_state": {
                 "entity_count": snapshot.get("entity_count", 0),
                 "top_risky_entities": hotspot_docs,
                 "timeline_window": timeline,
+                "attack_path_summary": attack_path_summary,
             },
-            "campaign_narratives": campaigns,
-            "predicted_next_sectors": ["identity", "endpoint", "network"] if max_risk >= 0.5 else ["monitoring"],
-            "recommended_response_posture": "containment_ready" if max_risk >= 0.7 else "elevated_monitoring",
-            "approval_tier_suggestion": "high" if max_risk >= 0.8 else ("medium" if max_risk >= 0.5 else "low"),
+            "campaign_narratives": campaigns[:10],
+            "predicted_next_sectors": top_predicted_sectors,
+            "recommended_response_posture": "containment_ready" if strategic_pressure >= 0.7 else "elevated_monitoring",
+            "policy_tier_suggestion": policy_tier,
+            # Backward compatibility for downstream consumers.
+            "approval_tier_suggestion": policy_tier,
             "confidence": round(confidence, 4),
             "recommended_actions": actions,
         }

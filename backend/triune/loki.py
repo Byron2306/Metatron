@@ -33,24 +33,33 @@ class LokiService:
             {"hypothesis": "attacker_objective_is_data_staging", "confidence": 0.41},
         ]
 
+        hunt_suggestions = [
+            f"hunt:children_of_{top.split(':', 1)[0]}",
+            "hunt:unexpected_identity_provider_tokens",
+            "hunt:lateral_movement_artifacts",
+        ]
+        deception_suggestions = [
+            "deploy_high_interaction_honeytoken",
+            "seed_decoy_credential_path",
+        ]
+        uncertainty_markers = [
+            "correlation_gap_possible",
+            "campaign_objective_ambiguous",
+            "likely attacker objective differs from current campaign hypothesis",
+        ]
+
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": event_type,
             "context": context,
             "alternative_hypotheses": alternatives,
-            "hunt_recommendations": [
-                f"hunt:children_of_{top.split(':', 1)[0]}",
-                "hunt:unexpected_identity_provider_tokens",
-                "hunt:lateral_movement_artifacts",
-            ],
-            "deception_recommendations": [
-                "deploy_high_interaction_honeytoken",
-                "seed_decoy_credential_path",
-            ],
-            "uncertainty_flags": [
-                "correlation_gap_possible",
-                "campaign_objective_ambiguous",
-            ],
+            "hunt_suggestions": hunt_suggestions,
+            "deception_suggestions": deception_suggestions,
+            "uncertainty_markers": uncertainty_markers,
+            # Backward-compatible keys for older consumers.
+            "hunt_recommendations": hunt_suggestions,
+            "deception_recommendations": deception_suggestions,
+            "uncertainty_flags": uncertainty_markers,
             "world_snapshot_size": {
                 "entities": len(world_snapshot.get("entities") or []),
                 "hotspots": len(world_snapshot.get("hotspots") or []),

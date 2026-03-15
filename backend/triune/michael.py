@@ -219,15 +219,48 @@ class MichaelService:
         ranked = await self.rank_responses(candidates or [])
         top = ranked[0] if ranked else None
 
-        # basic blast radius estimate from hotspot count
-        blast_radius = len(world_snapshot.get("hotspots") or [])
-        reversibility = "high" if top and any(k in top.get("candidate", "") for k in ["monitor", "investigate"]) else "medium"
+        # basic blast radius estimate from hotspot count + attack-path size
+        hotspot_count = len(world_snapshot.get("hotspots") or [])
+        path_nodes = len((world_snapshot.get("attack_path_graph") or {}).get("nodes") or [])
+        blast_radius = max(hotspot_count, min(path_nodes, 25))
+
+        top_candidate = (top or {}).get("candidate", "")
+        if any(k in top_candidate for k in ["monitor", "investigate", "collect_forensics"]):
+            reversibility = "high"
+            reversibility_score = 0.85
+        elif any(k in top_candidate for k in ["block", "quarantine", "isolate"]):
+            reversibility = "medium"
+            reversibility_score = 0.55
+        else:
+            reversibility = "low"
+            reversibility_score = 0.35
+
+        ranked_action_sets = {
+            "immediate": ranked[:3],
+            "stabilization": ranked[3:6],
+            "deferred": ranked[6:10],
+        }
+
+        endpoint_preparation_recommendations = [
+            "pre-stage isolation scripts for high-risk endpoints",
+            "validate EDR policy sync for predicted target sectors",
+            "cache forensic collection packages on responders",
+        ]
+
+        sector_readiness_changes = {
+            "identity": "step_up_authentication" if policy_tier in {"high", "critical"} else "monitor_auth_anomalies",
+            "endpoint": "raise_prevention_mode" if blast_radius >= 3 else "increase_detection_sensitivity",
+            "network": "tighten_egress_controls" if blast_radius >= 3 else "increase_flow_sampling",
+        }
 
         return {
             "policy_tier": policy_tier,
             "context": context,
             "ranked_action_candidates": ranked,
+            "ranked_action_sets": ranked_action_sets,
             "selected_action": top,
+            "endpoint_preparation_recommendations": endpoint_preparation_recommendations,
+            "sector_readiness_changes": sector_readiness_changes,
             "sector_preparation_plan": {
                 "identity": "require_step_up_auth" if blast_radius >= 2 else "monitor_idp",
                 "endpoint": "prepare_isolation_profiles" if blast_radius >= 3 else "raise_edr_sensitivity",
@@ -236,6 +269,7 @@ class MichaelService:
             "orchestration_plan": {
                 "blast_radius": blast_radius,
                 "reversibility": reversibility,
+                "reversibility_score": round(reversibility_score, 3),
                 "requires_human_approval": policy_tier in {"high", "critical"},
             },
         }

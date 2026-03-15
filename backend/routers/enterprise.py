@@ -208,16 +208,40 @@ async def quarantine_agent(
     reason: str = "Manual quarantine",
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Quarantine an agent"""
+    """Queue an agent quarantine through mandatory outbound gate."""
     from services.identity import identity_service
     identity_service.set_db(get_db())
-    
-    success = identity_service.quarantine_agent(agent_id, reason)
-    if not success:
+
+    identity = identity_service.get_identity(agent_id)
+    if not identity:
         raise HTTPException(status_code=404, detail="Agent not found")
-    await emit_world_event(get_db(), event_type="enterprise_identity_quarantined", entity_refs=[agent_id], payload={"reason": reason, "actor": current_user.get("id")}, trigger_triune=False)
-    
-    return {"status": "quarantined", "agent_id": agent_id, "reason": reason}
+
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="quarantine_agent",
+        actor=actor,
+        payload={"agent_id": agent_id, "reason": reason},
+        impact_level="critical",
+        subject_id=agent_id,
+        entity_refs=[agent_id],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="enterprise_identity_quarantine_gated",
+        entity_refs=[agent_id, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"reason": reason, "actor": actor},
+        trigger_triune=True,
+    )
+
+    return {
+        "status": "queued_for_triune_approval",
+        "agent_id": agent_id,
+        "reason": reason,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 
 # =============================================================================
@@ -470,7 +494,7 @@ async def execute_tool(
     request: ToolExecutionRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Execute a tool through the gateway"""
+    """Queue tool execution through mandatory outbound gate."""
     from services.tool_gateway import tool_gateway
     
     principal = f"operator:{current_user.get('email', 'unknown')}"
@@ -489,8 +513,6 @@ async def execute_tool(
     )
 
     await emit_world_event(get_db(), event_type="enterprise_tool_execution_gated", entity_refs=[request.tool_id, principal], payload={"queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
-
-    await emit_world_event(get_db(), event_type="enterprise_tool_executed", entity_refs=[request.tool_id, principal], payload={"execution_id": execution.execution_id, "status": execution.status}, trigger_triune=False)
     
     return {
         "status": "queued_for_triune_approval",
