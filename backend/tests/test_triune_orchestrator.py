@@ -118,3 +118,30 @@ async def test_emit_world_event_runs_triune_bundle():
     assert out["triune"]["michael"]["plan"].get("sector_preparation_plan")
     assert out["triune"]["loki"].get("uncertainty_flags")
     assert fake.world_events
+
+
+@pytest.mark.asyncio
+async def test_emit_world_event_accepts_source_keyword():
+    base = pathlib.Path(__file__).resolve().parents[1]
+    _, events_mod = _load_services(base)
+
+    fake = types.SimpleNamespace(
+        world_entities=FakeColl(),
+        world_edges=FakeColl(),
+        campaigns=FakeColl(),
+        world_events=FakeColl(),
+        triune_analysis=FakeColl(),
+    )
+
+    out = await events_mod.emit_world_event(
+        fake,
+        event_type="unit_test_event",
+        entity_refs=["entity-1"],
+        payload={"ok": True},
+        trigger_triune=False,
+        source="test.source",
+    )
+
+    assert out["event"]["type"] == "unit_test_event"
+    assert out["event"]["source"] == "test.source"
+    assert out["triune"] is None
