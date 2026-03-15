@@ -223,7 +223,7 @@ async def get_openclaw_status(current_user: dict = Depends(get_current_user)):
         return {"connected": False, "error": str(e)}
 
 @router.post("/openclaw/analyze")
-async def analyze_with_openclaw(threat_data: dict, current_user: dict = Depends(get_current_user)):
+async def analyze_with_openclaw(threat_data: dict, current_user: dict = Depends(check_permission("write"))):
     """Analyze threat with OpenClaw AI"""
     try:
         # Build a minimal ReasoningContext snapshot from threat data so all reasoning

@@ -262,7 +262,7 @@ async def create_policy(
 async def evaluate_access(
     request: EvaluateAccessRequest,
     req: Request,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Evaluate an access request"""
     from .dependencies import get_db
@@ -295,7 +295,7 @@ async def evaluate_access(
 async def calculate_trust_score(
     request: EvaluateAccessRequest,
     req: Request,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Calculate trust score for current context"""
     from .dependencies import get_db

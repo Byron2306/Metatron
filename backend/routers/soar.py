@@ -176,7 +176,7 @@ async def execute_playbook(
 @router.post("/trigger")
 async def trigger_playbooks(
     event: TriggerEventRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Queue SOAR trigger through outbound governance."""
     event_dict = event.model_dump()

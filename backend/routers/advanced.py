@@ -351,7 +351,7 @@ async def store_memory(
 @router.post("/memory/search")
 async def search_memory(
     request: MemorySearchRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Search memory by semantic similarity"""
     from services.vector_memory import vector_memory, MemoryNamespace
@@ -409,7 +409,7 @@ async def create_incident_case(
 @router.post("/memory/case/{case_id}/similar")
 async def find_similar_cases(
     case_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Find similar historical cases"""
     from services.vector_memory import vector_memory
@@ -613,7 +613,7 @@ async def add_canary_domain(
 async def validate_endpoint_telemetry(
     endpoint_ip: str,
     endpoint_flows: List[Dict[str, Any]],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Validate endpoint telemetry against VNS"""
     from services.vns import vns
@@ -735,7 +735,7 @@ async def get_quantum_status(current_user: dict = Depends(get_current_user)):
 @router.post("/ai/analyze")
 async def analyze_threat_with_ai(
     request: ThreatAnalysisRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Analyze a threat with AI reasoning"""
     from dataclasses import asdict
@@ -759,7 +759,7 @@ async def analyze_threat_with_ai(
 @router.post("/ai/triage")
 async def triage_incidents(
     incidents: List[Dict[str, Any]],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Triage and prioritize incidents"""
     prioritized = _safe_call_ai_sync('triage_incident', incidents)
@@ -769,7 +769,7 @@ async def triage_incidents(
 @router.post("/ai/query")
 async def query_ai(
     request: AIQueryRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Query the AI reasoning engine"""
     from dataclasses import asdict
@@ -828,7 +828,7 @@ async def get_ollama_status(current_user: dict = Depends(get_current_user)):
 @router.post("/ai/ollama/generate")
 async def ollama_generate(
     request: OllamaGenerateRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Generate response using Ollama"""
     result = await _safe_call_ai_async('ollama_generate', request.prompt, request.model, request.system_prompt)
@@ -838,7 +838,7 @@ async def ollama_generate(
 @router.post("/ai/ollama/analyze")
 async def ollama_analyze_threat(
     request: ThreatAnalysisRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Analyze threat using Ollama LLM"""
     result = await _safe_call_ai_async('ollama_analyze_threat', {

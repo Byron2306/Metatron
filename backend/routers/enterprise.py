@@ -28,7 +28,7 @@ try:
 except Exception:
     from backend.services.governance_authority import GovernanceDecisionAuthority
 try:
-    from .dependencies import get_current_user, check_permission, db
+    from .dependencies import get_current_user, check_permission, require_machine_token, db
 except Exception:
     def get_current_user(*args, **kwargs):
         return None
@@ -38,6 +38,11 @@ except Exception:
             return None
         return _checker
 
+    def require_machine_token(*args, **kwargs):
+        async def _checker(*a, **k):
+            return {"auth": "ok", "subject": "enterprise machine"}
+        return _checker
+
     db = None
 
 import logging
@@ -45,6 +50,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/enterprise", tags=["Enterprise Security"])
+verify_enterprise_machine_token = require_machine_token(
+    env_keys=["ENTERPRISE_MACHINE_TOKEN", "INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-enterprise-token", "x-internal-token", "x-agent-token"],
+    subject="enterprise machine",
+)
 
 ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
 
@@ -126,7 +136,10 @@ class AuditActionRequest(BaseModel):
 # =============================================================================
 
 @router.post("/identity/attest")
-async def submit_attestation(request: AttestationRequest):
+async def submit_attestation(
+    request: AttestationRequest,
+    auth: dict = Depends(verify_enterprise_machine_token),
+):
     """
     Submit agent attestation for identity registration.
     Returns trust state and score.
@@ -253,7 +266,10 @@ async def quarantine_agent(
 # =============================================================================
 
 @router.post("/policy/evaluate")
-async def evaluate_policy(request: PolicyEvaluationRequest):
+async def evaluate_policy(
+    request: PolicyEvaluationRequest,
+    current_user: dict = Depends(check_permission("write")),
+):
     """
     Evaluate a policy decision.
     Returns permit/deny and constraints.
@@ -410,7 +426,8 @@ async def validate_token(
     principal: str,
     principal_identity: str,
     action: str,
-    target: str
+    target: str,
+    current_user: dict = Depends(check_permission("write")),
 ):
     """Validate a capability token"""
     from services.token_broker import token_broker
@@ -593,7 +610,10 @@ async def execute_tool(
 # =============================================================================
 
 @router.post("/telemetry/event")
-async def ingest_event(request: TelemetryEventRequest):
+async def ingest_event(
+    request: TelemetryEventRequest,
+    auth: dict = Depends(verify_enterprise_machine_token),
+):
     """Ingest a telemetry event into the tamper-evident chain"""
     from services.telemetry_chain import tamper_evident_telemetry
     tamper_evident_telemetry.set_db(get_db())

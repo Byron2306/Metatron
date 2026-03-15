@@ -4,7 +4,7 @@ Quarantine Router
 from fastapi import APIRouter, HTTPException, Depends
 from dataclasses import asdict
 
-from .dependencies import get_current_user, get_db
+from .dependencies import get_current_user, check_permission, get_db
 try:
     from services.outbound_gate import OutboundGateService
 except Exception:
@@ -53,7 +53,7 @@ async def get_entry(entry_id: str, current_user: dict = Depends(get_current_user
     return asdict(entry)
 
 @router.post("/{entry_id}/restore")
-async def restore_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
+async def restore_entry(entry_id: str, current_user: dict = Depends(check_permission("write"))):
     """Queue quarantine restore via mandatory outbound gate."""
     gate = OutboundGateService(get_db())
     gated = await gate.gate_action(
@@ -70,7 +70,7 @@ async def restore_entry(entry_id: str, current_user: dict = Depends(get_current_
 
 
 @router.delete("/{entry_id}")
-async def delete_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_entry(entry_id: str, current_user: dict = Depends(check_permission("write"))):
     """Queue quarantine delete via mandatory outbound gate."""
     gate = OutboundGateService(get_db())
     gated = await gate.gate_action(

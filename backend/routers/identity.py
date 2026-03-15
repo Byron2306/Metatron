@@ -1016,19 +1016,24 @@ async def get_identity_incident(incident_id: str) -> Dict[str, Any]:
 class IncidentStatusUpdate(BaseModel):
     status: str
     reason: Optional[str] = None
-    updated_by: str
+    updated_by: Optional[str] = None
 
 @router.post("/incident/{incident_id}/status")
-async def update_identity_incident_status(incident_id: str, update: IncidentStatusUpdate) -> Dict[str, Any]:
+async def update_identity_incident_status(
+    incident_id: str,
+    update: IncidentStatusUpdate,
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     if update.status == "suppressed" and not update.reason:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Reason required for suppression")
 
     db = get_db()
+    actor = current_user.get("email", current_user.get("id", "unknown"))
     if db is not None:
         incident = await _ensure_incident_state_fields(
             incident_id,
-            actor=update.updated_by,
+            actor=actor,
             reason="bootstrap identity incident durability fields",
         )
         if not incident:
@@ -1057,7 +1062,7 @@ async def update_identity_incident_status(incident_id: str, update: IncidentStat
         evidence = dict(incident.get("evidence") or {})
         if target_status == "suppressed":
             evidence["suppression_reason"] = reason
-            evidence["suppressed_by"] = update.updated_by
+            evidence["suppressed_by"] = actor
             evidence["suppressed_at"] = datetime.now(timezone.utc).isoformat()
         elif target_status == "resolved":
             evidence["resolution_note"] = reason
@@ -1068,10 +1073,10 @@ async def update_identity_incident_status(incident_id: str, update: IncidentStat
             incident_id,
             expected_statuses=[current_status],
             next_status=target_status,
-            actor=update.updated_by,
+            actor=actor,
             reason=reason,
             expected_state_version=int(incident.get("state_version") or 0),
-            transition_metadata={"updated_by": update.updated_by},
+            transition_metadata={"updated_by": update.updated_by or actor},
             extra_updates=extra_updates,
         )
         if not transitioned:
@@ -1085,7 +1090,7 @@ async def update_identity_incident_status(incident_id: str, update: IncidentStat
             from fastapi import HTTPException
             raise HTTPException(status_code=409, detail="Incident update conflict; state changed concurrently")
         updated_at = datetime.now(timezone.utc).isoformat()
-        await emit_world_event(get_db(), event_type="identity_incident_status_updated", entity_refs=[incident_id], payload={"status": target_status, "actor": update.updated_by, "reason": reason}, trigger_triune=False)
+        await emit_world_event(get_db(), event_type="identity_incident_status_updated", entity_refs=[incident_id], payload={"status": target_status, "actor": actor, "reason": reason}, trigger_triune=False)
         return {
             "incident_id": incident_id,
             "status": target_status,

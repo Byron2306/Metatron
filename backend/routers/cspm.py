@@ -1209,7 +1209,11 @@ async def list_checks(
 
 
 @router.put("/checks/{check_id}", summary="Toggle security check")
-async def toggle_check(check_id: str, toggle: CheckToggle) -> Dict[str, Any]:
+async def toggle_check(
+    check_id: str,
+    toggle: CheckToggle,
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     """Enable or disable a security check"""
     engine = get_cspm_engine()
     
@@ -1368,7 +1372,10 @@ async def get_stats() -> Dict[str, Any]:
 
 
 @router.post("/demo-seed", summary="Seed demo CSPM findings/resources")
-async def seed_demo_cspm_data(count: int = Query(12, ge=1, le=200)) -> Dict[str, Any]:
+async def seed_demo_cspm_data(
+    count: int = Query(12, ge=1, le=200),
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     """Populate synthetic CSPM data for UI validation when real cloud credentials are unavailable."""
     engine = get_cspm_engine()
 
