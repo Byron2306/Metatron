@@ -23,7 +23,7 @@ import uuid
 import logging
 import hashlib
 from collections import defaultdict
-from backend.services.outbound_gate import OutboundGateService
+from backend.services.governed_dispatch import GovernedDispatchService
 
 logger = logging.getLogger(__name__)
 
@@ -2333,7 +2333,7 @@ class SOAREngine:
         
         # Create agent commands for each action (requires manual approval)
         if db is not None:
-            gate = OutboundGateService(db)
+            dispatch = GovernedDispatchService(db)
             for action in actions:
                 command_id = str(uuid.uuid4())[:12]
                 command = {
@@ -2366,14 +2366,16 @@ class SOAREngine:
 
                 # Enqueue via triune outbound gate so Metatron must approve before dispatch
                 try:
-                    queued = await gate.enqueue_command_for_approval(host_id, command)
-                    # Mirror to agent_commands collection for audit/visibility
-                    await db.agent_commands.insert_one({
-                        **command,
-                        "status": queued.get("status", "queued"),
-                        "queue_id": queued.get("queue_id"),
-                        "decision_id": queued.get("decision_id"),
-                    })
+                    queued_result = await dispatch.queue_gated_agent_command(
+                        action_type="response_execution",
+                        actor=f"SOAR:{playbook_id}",
+                        agent_id=host_id,
+                        command_doc=command,
+                        impact_level="critical" if "isolate" in action["action"] else "high",
+                        entity_refs=[host_id, command_id, playbook_id, execution_id],
+                        requires_triune=True,
+                    )
+                    queued = queued_result.get("queued", {})
                     actions_created.append(command_id)
                 except Exception as e:
                     logger.exception("Failed to enqueue SOAR action %s: %s", action.get("action"), e)

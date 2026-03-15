@@ -80,6 +80,7 @@ class OutboundGateService:
             "impact_level": normalized_impact,
             "payload": payload,
             "status": "pending",
+            "execution_status": "awaiting_decision",
             "created_at": now,
             "updated_at": now,
         }
@@ -91,7 +92,9 @@ class OutboundGateService:
             "action_type": normalized_action,
             "subject_id": subject_id,
             "actor": actor,
+            "source": "outbound_gate",
             "status": "pending",
+            "execution_status": "awaiting_decision",
             "created_at": now,
             "updated_at": now,
             "notes": f"Queued for triune approval: {normalized_action}",

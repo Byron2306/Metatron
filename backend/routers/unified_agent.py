@@ -21,7 +21,7 @@ import socket
 import ipaddress
 
 # Outbound gating: ensure potentially impactful agent commands are queued for triune approval
-from backend.services.outbound_gate import OutboundGateService
+from backend.services.governed_dispatch import GovernedDispatchService
 
 
 class EDMHitTelemetryModel(BaseModel):
@@ -995,36 +995,31 @@ async def _dispatch_agent_command(
         "issued_by": issued_by,
     }
 
-    gate = OutboundGateService(db)
     action_type = "cross_sector_hardening" if command_type in {"remediate_compliance", "remove_persistence"} else "agent_command"
-    queued = await gate.gate_action(
+    dispatch = GovernedDispatchService(db)
+    queued_result = await dispatch.queue_gated_agent_command(
         action_type=action_type,
         actor=issued_by,
-        payload=command_data,
+        agent_id=agent_id,
+        command_doc={
+            **command_data,
+            "state_version": 1,
+            "state_transition_log": [
+                {
+                    "from_status": None,
+                    "to_status": "gated_pending_approval",
+                    "actor": issued_by,
+                    "reason": "queued for triune approval",
+                    "timestamp": command_data["timestamp"],
+                    "metadata": {"delivery_mode": "triune_queue"},
+                }
+            ],
+        },
         impact_level="high",
-        subject_id=agent_id,
         entity_refs=[agent_id, command_id],
         requires_triune=True,
     )
-
-    await db.agent_commands.insert_one({
-        **command_data,
-        "agent_id": agent_id,
-        "status": "gated_pending_approval",
-        "queue_id": queued.get("queue_id"),
-        "decision_id": queued.get("decision_id"),
-        "state_version": 1,
-        "state_transition_log": [
-            {
-                "from_status": None,
-                "to_status": "gated_pending_approval",
-                "actor": issued_by,
-                "reason": "queued for triune approval",
-                "timestamp": command_data["timestamp"],
-                "metadata": {"delivery_mode": "triune_queue"},
-            }
-        ],
-    })
+    queued = queued_result.get("queued", {})
 
     logger.info("Command %s queued for triune approval for %s", command_type, agent_id)
     return {

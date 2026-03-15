@@ -11,11 +11,8 @@ import json
 import asyncio
 
 from .dependencies import get_db
-from backend.services.outbound_gate import OutboundGateService
-try:
-    from services.world_events import emit_world_event
-except Exception:
-    from backend.services.world_events import emit_world_event
+from backend.services.governed_dispatch import GovernedDispatchService
+from backend.services.governance_authority import GovernanceDecisionAuthority
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -805,27 +802,21 @@ async def create_command(
         "result": None
     }
     
-    gate = OutboundGateService(db)
+    dispatch = GovernedDispatchService(db)
     action_type = "cross_sector_hardening" if request.command_type in {"remediate_compliance", "remove_persistence"} else "agent_command"
-    gated = await gate.gate_action(
+    queued = await dispatch.queue_gated_agent_command(
         action_type=action_type,
         actor=current_user.get("email", current_user.get("id", "unknown")),
-        payload=command,
+        agent_id=request.agent_id,
+        command_doc=command,
         impact_level="critical" if command["risk_level"] in {"high", "critical"} else "high",
-        subject_id=request.agent_id,
-        entity_refs=[command_id],
+        entity_refs=[request.agent_id, command_id],
         requires_triune=True,
     )
-
-    command["status"] = "gated_pending_approval"
-    command["gate"] = {
-        "queue_id": gated.get("queue_id"),
-        "decision_id": gated.get("decision_id"),
-        "action_id": gated.get("action_id"),
-    }
+    gated = queued.get("queued", {})
+    command = queued.get("command", command)
 
     pending_commands[command_id] = command.copy()
-    await db.agent_commands.insert_one(command)
     await emit_world_event(
         db,
         event_type="agent_command_created",
@@ -895,20 +886,44 @@ async def approve_command(
         raise HTTPException(status_code=409, detail="Command approval conflict; state changed concurrently")
 
     post_approval_version = current_version + 1
+
+    decision_id = command.get("decision_id") or (command.get("gate") or {}).get("decision_id")
+    if decision_id:
+        actor = approved_by or "unknown"
+        authority = GovernanceDecisionAuthority(db)
+        if approval.approved:
+            await authority.approve_decision(
+                decision_id=decision_id,
+                actor=actor,
+                notes=approval.notes,
+                execution_status="executed",
+                source="agent_commands_manual_approval",
+            )
+        else:
+            await authority.deny_decision(
+                decision_id=decision_id,
+                actor=actor,
+                reason=approval.notes,
+                source="agent_commands_manual_approval",
+            )
+        await db.triune_decisions.update_one(
+            {"decision_id": decision_id},
+            {"$set": {"manual_override": True, "manual_override_actor": actor}},
+        )
     
     # If approved, queue for agent pickup or send via WebSocket if connected
     if approval.approved:
         agent_id = command["agent_id"]
         
-        # Add to command queue for agent to poll
-        await db.command_queue.insert_one({
-            "command_id": command_id,
-            "agent_id": agent_id,
-            "command_type": command["command_type"],
-            "parameters": command["parameters"],
-            "status": "pending",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
+        dispatch = GovernedDispatchService(db)
+        await dispatch.enqueue_command_delivery(
+            command_id=command_id,
+            agent_id=agent_id,
+            command_type=command["command_type"],
+            parameters=command["parameters"],
+            actor=current_user.get("email", current_user.get("id", "unknown")) or "unknown",
+            metadata={"source": "agent_commands_approval"},
+        )
         
         # Try to send via WebSocket if agent is connected
         if agent_id in connected_agents:

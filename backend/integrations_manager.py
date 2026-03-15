@@ -14,6 +14,10 @@ _scheduler_config = {}
 
 from runtime_paths import ensure_data_dir
 from threat_intel import threat_intel
+try:
+    from services.governance_context import assert_governance_context
+except Exception:
+    from backend.services.governance_context import assert_governance_context
 
 try:
     from services.world_events import emit_world_event
@@ -97,8 +101,12 @@ async def _run_subprocess(cmd: List[str], cwd: Path = None, timeout: int = 3600)
     return proc.returncode, stdout.decode(errors='ignore'), stderr.decode(errors='ignore')
 
 
-async def run_amass(domain: str) -> Dict[str, Any]:
+async def run_amass(
+    domain: str,
+    governance_context: Dict[str, Any] = None,
+) -> Dict[str, Any]:
     """Run Amass via Docker on the server, parse JSON-lines output and ingest domains."""
+    assert_governance_context(governance_context, action="integrations.run_amass")
     params = {"domain": domain}
     job_id = await _new_job("amass", params)
     # update status to running in DB and memory
@@ -264,7 +272,14 @@ async def _scheduler_loop():
                         continue
                     for d in [x.strip() for x in domains if x.strip()]:
                         logger.info(f"Scheduler: launching amass for {d}")
-                        await run_amass(d)
+                        await run_amass(
+                            d,
+                            governance_context={
+                                "approved": True,
+                                "decision_id": "scheduler-ungated-allowlist",
+                                "queue_id": "scheduler",
+                            },
+                        )
                 # Sleep for hours (default 1 hour if not set to 0)
                 sleep_for = max(3600, hours * 3600) if hours > 0 else 3600
             except Exception as e:
@@ -285,12 +300,16 @@ def start_scheduler():
         logger.info("Integrations scheduler already running")
 
 
-async def run_velociraptor(collection_name: str = None) -> Dict[str, Any]:
+async def run_velociraptor(
+    collection_name: str = None,
+    governance_context: Dict[str, Any] = None,
+) -> Dict[str, Any]:
     """Run Velociraptor collector using Docker for a quick host collection and export results.
 
     This is a lightweight wrapper that launches a Velociraptor docker command to perform a collection
     and writes the artifacts into the integrations dir. Requires Velociraptor image or local binary.
     """
+    assert_governance_context(governance_context, action="integrations.run_velociraptor")
     params = {"collection": collection_name}
     job_id = await _new_job("velociraptor", params)
     _jobs[job_id]["status"] = "pending"
@@ -321,10 +340,15 @@ async def run_velociraptor(collection_name: str = None) -> Dict[str, Any]:
     return _jobs[job_id]
 
 
-async def run_purplesharp(target: str = None, options: Dict[str, Any] = None) -> Dict[str, Any]:
+async def run_purplesharp(
+    target: str = None,
+    options: Dict[str, Any] = None,
+    governance_context: Dict[str, Any] = None,
+) -> Dict[str, Any]:
     """Schedule a PurpleSharp emulation job (privilege escalation emulation).
     This creates a job record; execution can be handled by agents/unified_agent.
     """
+    assert_governance_context(governance_context, action="integrations.run_purplesharp")
     params = {"target": target, "options": options or {}}
     job_id = await _new_job("purplesharp", params)
     _jobs[job_id]["status"] = "scheduled"

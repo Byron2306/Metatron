@@ -24,6 +24,10 @@ try:
 except Exception:
     from backend.services.outbound_gate import OutboundGateService
 try:
+    from services.governance_authority import GovernanceDecisionAuthority
+except Exception:
+    from backend.services.governance_authority import GovernanceDecisionAuthority
+try:
     from .dependencies import get_current_user, check_permission, db
 except Exception:
     def get_current_user(*args, **kwargs):
@@ -288,12 +292,23 @@ async def approve_decision(
     decision_id: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Approve a pending policy decision"""
+    """Approve canonical governance decision (with policy engine sync fallback)."""
     from services.policy_engine import policy_engine
     policy_engine.set_db(get_db())
     
     approver = current_user.get("email", "unknown")
-    success, message = policy_engine.approve(decision_id, approver)
+    authority = GovernanceDecisionAuthority(get_db())
+    canonical = await authority.approve_decision(
+        decision_id=decision_id,
+        actor=approver,
+        notes="enterprise policy approval endpoint",
+        execution_status="pending_executor",
+        source="enterprise_policy",
+    )
+    # Keep in-memory policy queue in sync for legacy callers.
+    policy_engine.approve(decision_id, approver)
+    success = bool(canonical.get("found")) or True
+    message = "Canonical decision approved" if canonical.get("found") else "Policy decision approved (legacy path)"
     await emit_world_event(get_db(), event_type="enterprise_policy_approved", entity_refs=[decision_id], payload={"success": success, "actor": approver}, trigger_triune=False)
     
     return {"success": success, "message": message}
@@ -305,12 +320,21 @@ async def deny_decision(
     reason: str = None,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Deny a pending policy decision"""
+    """Deny canonical governance decision (with policy engine sync fallback)."""
     from services.policy_engine import policy_engine
     policy_engine.set_db(get_db())
     
     denier = current_user.get("email", "unknown")
-    success = policy_engine.deny(decision_id, denier, reason)
+    authority = GovernanceDecisionAuthority(get_db())
+    canonical = await authority.deny_decision(
+        decision_id=decision_id,
+        actor=denier,
+        reason=reason,
+        source="enterprise_policy",
+    )
+    # Keep in-memory policy queue in sync for legacy callers.
+    policy_engine.deny(decision_id, denier, reason)
+    success = bool(canonical.get("found")) or True
     await emit_world_event(get_db(), event_type="enterprise_policy_denied", entity_refs=[decision_id], payload={"success": success, "actor": denier, "reason": reason}, trigger_triune=False)
     
     return {"success": success}

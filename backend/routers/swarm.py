@@ -3,14 +3,14 @@ Swarm Management Router
 =======================
 Manages the agent swarm - discovery, deployment, telemetry.
 """
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request, Header
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
 import os
 import uuid
 
-from .dependencies import get_db
+from .dependencies import get_db, require_machine_token
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -30,6 +30,7 @@ except Exception:
 
 import logging
 from backend.services.outbound_gate import OutboundGateService
+from backend.services.governed_dispatch import GovernedDispatchService
 
 logger = logging.getLogger(__name__)
 
@@ -40,20 +41,11 @@ router = APIRouter(prefix="/swarm", tags=["Swarm Management"])
 _BAT_DEFAULT_SERVER_URL = "http://165.22.41.184:8001"
 
 SWARM_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
-SWARM_AGENT_TOKEN = (os.environ.get("SWARM_AGENT_TOKEN") or os.environ.get("INTEGRATION_API_KEY") or "").strip()
-
-
-async def verify_swarm_agent_token(
-    x_agent_token: Optional[str] = Header(default=None),
-    x_internal_token: Optional[str] = Header(default=None),
-):
-    """Validate machine token for scanner/agent/browser polling endpoints."""
-    if not SWARM_AGENT_TOKEN:
-        raise HTTPException(status_code=503, detail="SWARM_AGENT_TOKEN is not configured")
-    token = (x_agent_token or x_internal_token or "").strip()
-    if token != SWARM_AGENT_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid swarm agent token")
-    return {"auth": "ok"}
+verify_swarm_agent_token = require_machine_token(
+    env_keys=["SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY"],
+    header_names=["x-agent-token", "x-internal-token"],
+    subject="swarm agent",
+)
 
 
 # =============================================================================
@@ -211,41 +203,38 @@ async def send_command_to_agent(
         "type": request.type,
         "params": request.params,
         "priority": request.priority,
-        "status": "pending",
+        "status": "gated_pending_approval",
         "state_version": 1,
         "state_transition_log": [
             {
                 "from_status": None,
-                "to_status": "pending",
+                "to_status": "gated_pending_approval",
                 "actor": current_user.get("email", "system"),
-                "reason": "command queued",
+                "reason": "command queued for triune approval",
                 "timestamp": now,
             }
         ],
         "created_at": now,
         "created_by": current_user.get("email", "system")
     }
-    
-    gate = OutboundGateService(get_db())
-    gated = await gate.gate_action(
+    dispatch = GovernedDispatchService(get_db())
+    queued = await dispatch.queue_gated_agent_command(
         action_type="swarm_command",
         actor=current_user.get("email", "system"),
-        payload=command_doc,
+        agent_id=agent_id,
+        command_doc=command_doc,
         impact_level="critical" if request.priority in {"high", "critical"} else "high",
-        subject_id=agent_id,
-        entity_refs=[command_doc["command_id"]],
+        entity_refs=[agent_id, command_doc["command_id"]],
         requires_triune=True,
+        event_type="swarm_agent_command_gated",
+        event_payload={
+            "command_type": request.type,
+            "actor": current_user.get("email", "system"),
+        },
+        event_entity_refs=[agent_id, command_doc["command_id"]],
+        event_trigger_triune=True,
     )
-
-    command_doc["status"] = "gated_pending_approval"
-    command_doc["gate"] = {
-        "queue_id": gated.get("queue_id"),
-        "decision_id": gated.get("decision_id"),
-        "action_id": gated.get("action_id"),
-    }
-
-    await db.agent_commands.insert_one(command_doc)
-    await emit_world_event(get_db(), event_type="swarm_agent_command_gated", entity_refs=[agent_id, command_doc["command_id"]], payload={"command_type": request.type, "actor": current_user.get("email", "system"), "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
+    gated = queued.get("queued", {})
     logger.info(f"Command gated for agent {agent_id}: {request.type}")
     await emit_world_event(get_db(), event_type="swarm_agent_command_queued", entity_refs=[agent_id, command_doc["command_id"]], payload={"command_type": request.type, "actor": current_user.get("email", "system")}, trigger_triune=False)
     logger.info(f"Command queued for agent {agent_id}: {request.type}")
@@ -404,23 +393,17 @@ async def respond_to_threat(
         "threat_id": threat_id,
     }
 
-    gate = OutboundGateService(get_db())
-    gated = await gate.gate_action(
+    dispatch = GovernedDispatchService(get_db())
+    queued = await dispatch.queue_gated_agent_command(
         action_type="response_execution",
         actor=current_user.get("email", "system"),
-        payload=command_doc,
+        agent_id=target_agent,
+        command_doc=command_doc,
         impact_level="critical",
-        subject_id=target_agent,
         entity_refs=[target_agent, command_doc["command_id"], threat_id],
         requires_triune=True,
     )
-    command_doc["gate"] = {
-        "queue_id": gated.get("queue_id"),
-        "decision_id": gated.get("decision_id"),
-        "action_id": gated.get("action_id"),
-    }
-
-    await db.agent_commands.insert_one(command_doc)
+    gated = queued.get("queued", {})
 
     await db.threat_responses.insert_one({
         "threat_id": threat_id,
@@ -1409,22 +1392,17 @@ async def _queue_auto_kill_command(
         "batch": bool(batch),
     }
 
-    gate = OutboundGateService(get_db())
-    gated = await gate.gate_action(
+    dispatch = GovernedDispatchService(get_db())
+    queued = await dispatch.queue_gated_agent_command(
         action_type="response_execution",
         actor=current_user.get("email", "system"),
-        payload=command_doc,
+        agent_id=agent_id,
+        command_doc=command_doc,
         impact_level="critical",
-        subject_id=agent_id,
         entity_refs=[agent_id, command_id],
         requires_triune=True,
     )
-    command_doc["gate"] = {
-        "queue_id": gated.get("queue_id"),
-        "decision_id": gated.get("decision_id"),
-        "action_id": gated.get("action_id"),
-    }
-    await db.agent_commands.insert_one(command_doc)
+    gated = queued.get("queued", {})
 
     await emit_world_event(
         get_db(),
@@ -2194,7 +2172,15 @@ async def initiate_usb_scan(
         "created_at": now
     }
     
-    await db.command_queue.insert_one(command_doc)
+    dispatch = GovernedDispatchService(get_db())
+    await dispatch.enqueue_command_delivery(
+        command_id=command_doc["command_id"],
+        agent_id=request.host_id,
+        command_type=command_doc["command_type"],
+        parameters=command_doc["parameters"],
+        actor=current_user.get("email", "system"),
+        metadata={"source": "usb_scan"},
+    )
     
     return {"status": "queued", "scan_id": scan_id}
 

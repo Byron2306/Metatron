@@ -1,0 +1,62 @@
+# Triune Governance Integration Matrix
+
+This matrix maps the end-to-end governance chain and the concrete backend integration hooks.
+
+## Canonical chain
+
+`Intent -> World Event -> Triune Assessment -> Policy Decision -> Outbound Gate Decision -> Approval -> Executor Release -> PEP Enforcement (token/policy/trust) -> Execution -> Audit + World Feedback`
+
+## System matrix
+
+| Layer | Canonical owner | Primary files/functions | Current state | Phase |
+|---|---|---|---|---|
+| Intent intake (API/WS/tasks) | Routers + workers | `backend/routers/*`, `backend/tasks/*`, `backend/websocket_service.py` | Mixed auth + mixed direct execution patterns | P2/P3 |
+| World event persistence + trigger policy | `world_events` | `backend/services/world_events.py:emit_world_event` | Implemented event classes + trigger policy | Stable |
+| Triune reasoning | `triune_orchestrator` | `backend/services/triune_orchestrator.py:handle_world_change` | Active; Metatron belief + Michael/Loki used for planning | Stable |
+| Policy decision point (PDP) | `policy_engine` | `backend/services/policy_engine.py:evaluate/approve/deny` | Previously in-memory approval authority | **P1 active** |
+| Canonical decision authority | `governance_authority` | `backend/services/governance_authority.py` | New canonical decision transition service | **P1 active** |
+| Outbound gate queue | `outbound_gate` | `backend/services/outbound_gate.py:gate_action` | Central queue + decision docs for high-impact actions | Stable |
+| Approval control plane | `governance router` + enterprise policy APIs | `backend/routers/governance.py`, `backend/routers/enterprise.py` | Was split updates in multiple routers | **P1 active** |
+| Approved decision executor | `governance_executor` | `backend/services/governance_executor.py:process_approved_decisions` | Releases approved queue-backed decisions | P1 hardening |
+| Command dispatch primitives | `governed_dispatch` | `backend/services/governed_dispatch.py` | Centralized queue writes | P2 hardening |
+| Capability plane | `token_broker` | `backend/services/token_broker.py` | Exists but not fully bound to all PEP paths | P3 |
+| Tool/MCP enforcement points (PEP) | `tool_gateway` + `mcp_server` | `backend/services/tool_gateway.py:execute`, `backend/services/mcp_server.py:_handle_tool_request` | Partial runtime enforcement | P3 |
+| Audit + feedback | telemetry + world events | `backend/services/telemetry_chain.py`, `backend/services/world_events.py` | Available, not uniformly linked to decision/token IDs | P4 |
+
+## Phase plan
+
+### Phase 1 — Authority unification (in progress)
+
+Goal: one canonical decision state model across triune decisions, policy approvals, and manual approval paths.
+
+| Task | Hook | Status |
+|---|---|---|
+| Add canonical authority transition service | `backend/services/governance_authority.py` | Done |
+| Route governance API approve/deny through canonical service | `backend/routers/governance.py` | Done |
+| Route enterprise policy approve/deny through canonical service (with policy sync) | `backend/routers/enterprise.py` | Done |
+| Stop manual approval from creating non-terminal custom executor status | `backend/routers/agent_commands.py` | Done |
+| Persist policy decisions in DB and mirror approval-required decisions into canonical triune decisions | `backend/services/policy_engine.py` | Done |
+| Restrict executor to queue-backed decisions only | `backend/services/governance_executor.py` | Done |
+
+### Phase 2 — Chokepoint closure and dispatch consistency
+
+Goal: remove direct/legacy release paths and enforce queue release through canonical executor.
+
+- Enforce gating before any `enqueue_command_delivery` call site.
+- Normalize command status model across swarm/unified/agent command consumers.
+- Close remaining unauthenticated ingress paths (WS and ingest endpoints).
+
+### Phase 3 — Runtime enforcement convergence (PEP hardening)
+
+Goal: require approved decision context + token + policy constraints at execution time.
+
+- `tool_gateway.execute`: mandatory token validation + decision context checks.
+- `mcp_server._handle_tool_request`: remove caller-trusted bypass flag semantics; verify server-side decision context.
+- Bind token issuance/revocation to approved decisions only.
+
+### Phase 4 — Audit closure
+
+Goal: every execution is cryptographically/audit-linked to policy + decision + token.
+
+- Persist decision-policy-token-execution linkage.
+- Emit mandatory execution completion events for recompute feedback.

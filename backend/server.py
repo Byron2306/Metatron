@@ -162,6 +162,7 @@ from routers.osquery import router as osquery_router
 from routers.atomic_validation import router as atomic_validation_router
 from routers.mitre_attack import router as mitre_attack_router
 from routers.identity import router as identity_router
+from routers.governance import router as governance_router
 
 # Import Browser Extension router
 from routers.extension import router as extension_router
@@ -315,6 +316,7 @@ from routers.deception import router as deception_engine_router
 app.include_router(deception_engine_router, prefix="/api")  # Now /api/deception
 app.include_router(deception_engine_router, prefix="/api/v1")  # Frontend compatibility: /api/v1/deception
 app.include_router(identity_router)  # Already has /api/v1/identity prefix
+app.include_router(governance_router, prefix="/api")
 
 # Initialize deception engine and integrate with existing systems
 from deception_engine import deception_engine, integrate_with_honey_tokens, integrate_with_ransomware_protection
@@ -533,6 +535,14 @@ async def startup():
     except Exception as e:
         logger.warning(f"Failed to start integrations scheduler: {e}")
 
+    # Start governance executor loop (approved decision -> execution queue)
+    try:
+        from services.governance_executor import start_governance_executor
+        start_governance_executor(db)
+        logger.info("Governance executor triggered at startup")
+    except Exception as e:
+        logger.warning(f"Failed to start governance executor: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -562,6 +572,14 @@ async def shutdown():
         logger.info("Agent Deployment Service stopped")
     except Exception as e:
         logger.error(f"Error stopping Deployment Service: {e}")
+
+    # Stop governance executor loop
+    try:
+        from services.governance_executor import stop_governance_executor
+        await stop_governance_executor()
+        logger.info("Governance executor stopped")
+    except Exception as e:
+        logger.error(f"Error stopping governance executor: {e}")
     
     client.close()
 
