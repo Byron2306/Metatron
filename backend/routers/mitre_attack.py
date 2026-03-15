@@ -73,6 +73,16 @@ TECHNIQUE_TO_TACTIC = {
     "T1095": "TA0011",
     "T1571": "TA0011",
     "T1568": "TA0011",
+    "T1190": "TA0001",
+    "T1133": "TA0001",
+    "T1204": "TA0002",
+    "T1486": "TA0040",
+    "T1489": "TA0040",
+    "T1566": "TA0001",
+    "T1566.001": "TA0001",
+    "T1566.002": "TA0001",
+    "T1570": "TA0008",
+    "T1105": "TA0011",
 }
 
 PRIORITY_GAPS = [
@@ -376,6 +386,106 @@ async def _collect_celery_task_attack_metadata(techniques: Dict[str, Dict], db: 
         techniques[technique]["sources"].update(source_map.get(technique, set()))
 
 
+async def _collect_threat_incident_evidence(techniques: Dict[str, Dict], db: Any):
+    """Promote ATT&CK coverage from operational threat/incident records."""
+    if db is None:
+        return
+
+    threat_type_map: Dict[str, List[str]] = {
+        "ai_agent": ["T1190", "T1059.001", "T1071"],
+        "ai_autonomous": ["T1190", "T1059.001", "T1071"],
+        "botnet": ["T1071", "T1095", "T1041"],
+        "malware": ["T1204", "T1059", "T1105"],
+        "ransomware": ["T1486", "T1489", "T1485"],
+        "phishing": ["T1566", "T1566.001", "T1566.002"],
+        "intrusion": ["T1190", "T1133"],
+        "ids_alert": ["T1046", "T1071"],
+        "credential_theft": ["T1003.001", "T1555"],
+        "lateral_movement": ["T1021", "T1570"],
+        "exfiltration": ["T1041", "T1048", "T1567.002"],
+        "persistence": ["T1547.001", "T1053"],
+        "privilege_escalation": ["T1068", "T1548"],
+        "c2_activity": ["T1071", "T1095"],
+    }
+    keyword_map: Dict[str, List[str]] = {
+        "phish": ["T1566"],
+        "ransom": ["T1486"],
+        "credential": ["T1003.001"],
+        "lateral": ["T1021"],
+        "exfil": ["T1041"],
+        "command and control": ["T1071"],
+        "c2": ["T1071"],
+        "powershell": ["T1059.001"],
+        "botnet": ["T1095"],
+    }
+
+    try:
+        threat_docs = await db.threats.find({}, {"_id": 0}).to_list(600)
+    except Exception:
+        threat_docs = []
+
+    try:
+        alert_docs = await db.alerts.find({}, {"_id": 0, "threat_id": 1}).to_list(1200)
+    except Exception:
+        alert_docs = []
+
+    alert_counts: Dict[str, int] = {}
+    for alert in alert_docs:
+        threat_id = str(alert.get("threat_id") or "").strip()
+        if threat_id:
+            alert_counts[threat_id] = alert_counts.get(threat_id, 0) + 1
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+    for threat in threat_docs:
+        threat_id = str(threat.get("id") or "").strip()
+        threat_type = str(threat.get("type") or "").strip().lower()
+        severity = str(threat.get("severity") or "").strip().lower()
+        status = str(threat.get("status") or "").strip().lower()
+
+        techniques_for_threat: Set[str] = set()
+        techniques_for_threat.update(_normalize_technique(t) for t in threat_type_map.get(threat_type, []))
+
+        threat_text = " ".join(
+            [
+                str(threat.get("name") or ""),
+                str(threat.get("description") or ""),
+                " ".join([str(v) for v in (threat.get("indicators") or [])]),
+            ]
+        ).lower()
+        for keyword, tlist in keyword_map.items():
+            if keyword in threat_text:
+                techniques_for_threat.update(_normalize_technique(t) for t in tlist)
+
+        if not techniques_for_threat:
+            continue
+
+        alert_count = alert_counts.get(threat_id, 0)
+        score = 3
+        if alert_count >= 1 or severity in {"high", "critical"}:
+            score = 4
+        if status in {"contained", "resolved", "blocked"}:
+            score = 4
+
+        for technique in techniques_for_threat:
+            if not technique:
+                continue
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("threat_incident_evidence")
+            if alert_count > 0:
+                source_map[technique].add("incident_alert_corroboration")
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    for technique, seen_count in counts.items():
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        score = max_score.get(technique, 3)
+        if seen_count >= 3:
+            score = max(score, 4)
+        techniques[technique]["score"] = max(techniques[technique]["score"], score)
+        techniques[technique]["sources"].update(source_map.get(technique, set()))
+
+
 async def _collect_supply_chain(techniques: Dict[str, Dict], db: Any):
     """Collect supply-chain ATT&CK depth for T1195/T1195.002/T1553.006."""
     # Baseline: policy controls configured in runtime environment.
@@ -558,6 +668,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     await _collect_audit_and_world_event_evidence(techniques, db)
     # Technique update pass #4: Celery task ATT&CK metadata envelope evidence.
     await _collect_celery_task_attack_metadata(techniques, db)
+    # Technique update pass #5: operational threat incident evidence.
+    await _collect_threat_incident_evidence(techniques, db)
     # Technique update pass #1: supply-chain compromise depth (T1195 family)
     await _collect_supply_chain(techniques, db)
     # Technique update pass #2: secure-boot and firmware integrity techniques
