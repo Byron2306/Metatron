@@ -88,6 +88,27 @@ TECHNIQUE_TO_TACTIC = {
     "T1071.004": "TA0011",
     "T1490": "TA0040",
     "T1562.001": "TA0005",
+    "T1003.006": "TA0006",
+    "T1040": "TA0006",
+    "T1069.002": "TA0007",
+    "T1078.002": "TA0001",
+    "T1087.002": "TA0007",
+    "T1110.003": "TA0006",
+    "T1134.005": "TA0004",
+    "T1187": "TA0001",
+    "T1207": "TA0005",
+    "T1222.001": "TA0005",
+    "T1484.001": "TA0004",
+    "T1550.002": "TA0008",
+    "T1550.003": "TA0008",
+    "T1555.003": "TA0006",
+    "T1555.004": "TA0006",
+    "T1556.001": "TA0006",
+    "T1556.006": "TA0006",
+    "T1557.001": "TA0006",
+    "T1558": "TA0006",
+    "T1558.001": "TA0006",
+    "T1558.004": "TA0006",
 }
 
 PRIORITY_GAPS = [
@@ -359,6 +380,52 @@ def _extract_semantic_attack_techniques(value: Any) -> Set[str]:
                 if normalized:
                     found.add(normalized)
     return found
+
+
+@lru_cache(maxsize=1)
+def _identity_detector_catalog() -> List[str]:
+    """Extract ATT&CK techniques declared in identity protection detections."""
+    identity_file = _repo_root() / "backend" / "identity_protection.py"
+    if not identity_file.exists():
+        return []
+    try:
+        text = identity_file.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    block_re = re.compile(r"mitre_techniques\s*=\s*\[(.*?)\]", re.IGNORECASE | re.DOTALL)
+    techniques: Set[str] = set()
+    for block in block_re.findall(text):
+        techniques.update(_extract_attack_techniques(block))
+    return sorted(techniques)
+
+
+def _collect_identity_protection_catalog(techniques: Dict[str, Dict]):
+    """Collect ATT&CK depth from identity protection detector coverage."""
+    for technique in _identity_detector_catalog():
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        techniques[technique]["score"] = max(techniques[technique]["score"], 3)
+        techniques[technique]["sources"].add("identity_detector_catalog")
+
+    # Runtime detections from identity engine (if any) are promoted to score 4.
+    try:
+        try:
+            from identity_protection import identity_protection_engine
+        except Exception:
+            from backend.identity_protection import identity_protection_engine
+        coverage = identity_protection_engine.get_mitre_coverage()
+    except Exception:
+        coverage = {}
+
+    for row in (coverage.get("techniques") or []):
+        technique = _normalize_technique(str(row.get("technique_id") or ""))
+        if not technique:
+            continue
+        count = int(row.get("detection_count") or 0)
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        if count > 0:
+            techniques[technique]["score"] = max(techniques[technique]["score"], 4)
+            techniques[technique]["sources"].add("identity_runtime_detected")
 
 
 async def _collect_audit_and_world_event_evidence(techniques: Dict[str, Dict], db: Any):
@@ -830,6 +897,7 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_zeek(techniques)
     _collect_atomic(techniques)
     _collect_threat_hunting_ruleset(techniques)
+    _collect_identity_protection_catalog(techniques)
     # include indicators ingested via integrations (Amass, Velociraptor, etc.)
     _collect_threat_intel(techniques)
     # Technique update pass #3: evidence from canonical audit/event telemetry.
