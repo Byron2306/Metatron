@@ -170,7 +170,13 @@ def _parent_technique(technique: str) -> str:
 
 
 def _technique_tactic(technique: str, implemented_meta: Dict[str, Dict] = None) -> str:
-    mapped = TECHNIQUE_TO_TACTIC.get(technique) or TECHNIQUE_TO_TACTIC.get(_parent_technique(technique))
+    hunting_map = _load_threat_hunting_tactic_map()
+    mapped = (
+        TECHNIQUE_TO_TACTIC.get(technique)
+        or TECHNIQUE_TO_TACTIC.get(_parent_technique(technique))
+        or hunting_map.get(technique)
+        or hunting_map.get(_parent_technique(technique))
+    )
     if mapped:
         return mapped
     if implemented_meta:
@@ -178,6 +184,27 @@ def _technique_tactic(technique: str, implemented_meta: Dict[str, Dict] = None) 
         if len(hints) == 1:
             return next(iter(hints))
     return "unknown"
+
+
+@lru_cache(maxsize=1)
+def _load_threat_hunting_tactic_map() -> Dict[str, str]:
+    """Build technique->tactic map from threat hunting ruleset."""
+    try:
+        try:
+            from services.threat_hunting import threat_hunting_engine
+        except Exception:
+            from backend.services.threat_hunting import threat_hunting_engine
+    except Exception:
+        return {}
+
+    mapped: Dict[str, str] = {}
+    rules = getattr(threat_hunting_engine, "rules", {}) or {}
+    for rule in rules.values():
+        technique = _normalize_technique(getattr(rule, "mitre_technique", ""))
+        tactic = _normalize_technique(getattr(rule, "mitre_tactic", ""))
+        if technique and tactic.startswith("TA"):
+            mapped[technique] = tactic
+    return mapped
 
 
 def _collect_sigma(techniques: Dict[str, Dict]):
@@ -434,6 +461,41 @@ async def _collect_semantic_security_collections(techniques: Dict[str, Dict], db
             score = max(score, 4)
         techniques[technique]["score"] = max(techniques[technique]["score"], score)
         techniques[technique]["sources"].update(source_map.get(technique, set()))
+
+
+def _collect_threat_hunting_ruleset(techniques: Dict[str, Dict]):
+    """Collect ATT&CK depth from active threat hunting rules and live matches."""
+    try:
+        try:
+            from services.threat_hunting import threat_hunting_engine
+        except Exception:
+            from backend.services.threat_hunting import threat_hunting_engine
+    except Exception:
+        return
+
+    rules = getattr(threat_hunting_engine, "rules", {}) or {}
+    for rule in rules.values():
+        if not bool(getattr(rule, "enabled", True)):
+            continue
+        technique = _normalize_technique(getattr(rule, "mitre_technique", ""))
+        if not technique:
+            continue
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        techniques[technique]["score"] = max(techniques[technique]["score"], 3)
+        techniques[technique]["sources"].add("threat_hunting_ruleset")
+        severity = str(getattr(rule, "severity", "")).lower()
+        if severity in {"critical", "high"}:
+            techniques[technique]["score"] = max(techniques[technique]["score"], 4)
+            techniques[technique]["sources"].add("threat_hunting_high_severity_rule")
+
+    matches = getattr(threat_hunting_engine, "matches", []) or []
+    for match in matches:
+        technique = _normalize_technique(getattr(match, "mitre_technique", ""))
+        if not technique:
+            continue
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        techniques[technique]["score"] = max(techniques[technique]["score"], 4)
+        techniques[technique]["sources"].add("threat_hunting_live_match")
 
 
 async def _collect_celery_task_attack_metadata(techniques: Dict[str, Dict], db: Any):
@@ -767,6 +829,7 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_osquery(techniques)
     _collect_zeek(techniques)
     _collect_atomic(techniques)
+    _collect_threat_hunting_ruleset(techniques)
     # include indicators ingested via integrations (Amass, Velociraptor, etc.)
     _collect_threat_intel(techniques)
     # Technique update pass #3: evidence from canonical audit/event telemetry.
