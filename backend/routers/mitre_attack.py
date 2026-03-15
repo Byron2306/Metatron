@@ -254,6 +254,73 @@ def _collect_threat_intel(techniques: Dict[str, Dict]):
             techniques[tnorm]['score'] = max(techniques[tnorm]['score'], 3)
 
 
+def _extract_attack_techniques(value: Any) -> Set[str]:
+    """Recursively extract ATT&CK technique IDs from arbitrary payloads."""
+    found: Set[str] = set()
+    if value is None:
+        return found
+    if isinstance(value, str):
+        for match in ATTACK_TECHNIQUE_RE.finditer(value):
+            normalized = _normalize_technique(match.group(0))
+            if normalized:
+                found.add(normalized)
+        return found
+    if isinstance(value, dict):
+        for inner in value.values():
+            found.update(_extract_attack_techniques(inner))
+        return found
+    if isinstance(value, list):
+        for inner in value:
+            found.update(_extract_attack_techniques(inner))
+        return found
+    return found
+
+
+async def _collect_audit_and_world_event_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from telemetry/audit/event stores."""
+    if db is None:
+        return
+
+    collection_sources = [
+        ("world_events", "world_event_evidence"),
+        ("audit_logs", "audit_log_evidence"),
+        ("alerts", "alerts_evidence"),
+        ("unified_alerts", "unified_alerts_evidence"),
+        ("events_raw", "events_raw_evidence"),
+        ("hunting_matches", "hunting_match_evidence"),
+    ]
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    for collection_name, source_tag in collection_sources:
+        col = getattr(db, collection_name, None)
+        if col is None:
+            continue
+        try:
+            cursor = col.find({}, {"_id": 0})
+            try:
+                cursor = cursor.sort("timestamp", -1)
+            except Exception:
+                pass
+            docs = await cursor.to_list(length=500)
+        except Exception:
+            docs = []
+        for doc in docs:
+            for technique in _extract_attack_techniques(doc):
+                counts[technique] = counts.get(technique, 0) + 1
+                source_map.setdefault(technique, set()).add(source_tag)
+
+    for technique, seen_count in counts.items():
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        # Telemetry evidence means this technique is operationally observed.
+        score = 3
+        # Multiple sightings/sources promote confidence.
+        if seen_count >= 3 or len(source_map.get(technique, set())) >= 2:
+            score = 4
+        techniques[technique]["score"] = max(techniques[technique]["score"], score)
+        techniques[technique]["sources"].update(source_map.get(technique, set()))
+
+
 async def _collect_supply_chain(techniques: Dict[str, Dict], db: Any):
     """Collect supply-chain ATT&CK depth for T1195/T1195.002/T1553.006."""
     # Baseline: policy controls configured in runtime environment.
@@ -407,6 +474,20 @@ def _score_distribution(techniques: Dict[str, Dict]) -> Dict[str, int]:
     return buckets
 
 
+def _enterprise_parent_count(techniques: List[Dict[str, Any]], *, min_score: int = 0, require_operational: bool = False) -> int:
+    """Count unique parent techniques for Enterprise denominator accuracy."""
+    seen: Set[str] = set()
+    for row in techniques:
+        if int(row.get("score", 0)) < min_score:
+            continue
+        if require_operational and not bool(row.get("operational_evidence", False)):
+            continue
+        parent = _parent_technique(str(row.get("technique", "")))
+        if parent:
+            seen.add(parent)
+    return len(seen)
+
+
 @router.get("/coverage")
 async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     techniques: Dict[str, Dict] = {}
@@ -418,6 +499,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_atomic(techniques)
     # include indicators ingested via integrations (Amass, Velociraptor, etc.)
     _collect_threat_intel(techniques)
+    # Technique update pass #3: evidence from canonical audit/event telemetry.
+    await _collect_audit_and_world_event_evidence(techniques, db)
     # Technique update pass #1: supply-chain compromise depth (T1195 family)
     await _collect_supply_chain(techniques, db)
     # Technique update pass #2: secure-boot and firmware integrity techniques
@@ -434,6 +517,7 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
                 "tactic": _technique_tactic(technique, implemented_meta),
                 "score": int(meta["score"]),
                 "sources": sorted(list(meta["sources"])),
+                "operational_evidence": any(src != "code_sweep" for src in meta["sources"]),
                 "implemented": technique in implemented_meta,
                 "implemented_evidence_count": len(impl.get('evidence_files', set())),
             }
@@ -453,8 +537,13 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
         })
 
     covered_gte3 = len([t for t in ordered if t["score"] >= 3])
+    covered_gte2 = len([t for t in ordered if t["score"] >= 2])
+    covered_gte4 = len([t for t in ordered if t["score"] >= 4])
     implemented_count = len(implemented_meta)
+    operational_observed = len([t for t in ordered if t["operational_evidence"]])
+    operational_covered_gte3 = len([t for t in ordered if t["score"] >= 3 and t["operational_evidence"]])
     implemented_covered_gte3 = len([t for t in ordered if t["score"] >= 3 and t["technique"] in implemented_meta])
+    implemented_covered_gte2 = len([t for t in ordered if t["score"] >= 2 and t["technique"] in implemented_meta])
     implemented_tactics = {
         _technique_tactic(t, implemented_meta)
         for t in implemented_meta.keys()
@@ -462,9 +551,17 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     }
 
     checked_at = datetime.now(timezone.utc).isoformat()
-    coverage_percent = round((covered_gte3 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
+    enterprise_covered_parents_gte3 = _enterprise_parent_count(ordered, min_score=3)
+    enterprise_covered_parents_gte2 = _enterprise_parent_count(ordered, min_score=2)
+    enterprise_operational_parents = _enterprise_parent_count(ordered, min_score=0, require_operational=True)
+    coverage_percent = round((enterprise_covered_parents_gte3 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
+    coverage_percent_gte2 = round((enterprise_covered_parents_gte2 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
+    operational_coverage_percent = round((enterprise_operational_parents / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
     implemented_coverage_percent = round((implemented_covered_gte3 / implemented_count) * 100, 2) if implemented_count else 0.0
+    implemented_coverage_percent_gte2 = round((implemented_covered_gte2 / implemented_count) * 100, 2) if implemented_count else 0.0
     roadmap_coverage_percent = round((covered_gte3 / ROADMAP_TARGET_TECHNIQUE_TOTAL) * 100, 2)
+    roadmap_coverage_percent_gte2 = round((covered_gte2 / ROADMAP_TARGET_TECHNIQUE_TOTAL) * 100, 2)
+    roadmap_referenced_percent = round((implemented_count / ROADMAP_TARGET_TECHNIQUE_TOTAL) * 100, 2)
     await emit_world_event(
         db,
         event_type="mitre_coverage_calculated",
@@ -472,13 +569,24 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
         payload={
             "actor": current_user.get("id"),
             "observed_techniques": len(ordered),
+            "covered_score_gte2": covered_gte2,
             "covered_score_gte3": covered_gte3,
+            "covered_score_gte4": covered_gte4,
+            "operational_observed_techniques": operational_observed,
+            "operational_covered_score_gte3": operational_covered_gte3,
+            "enterprise_covered_parent_techniques_gte3": enterprise_covered_parents_gte3,
             "coverage_percent_gte3": coverage_percent,
+            "coverage_percent_gte2": coverage_percent_gte2,
+            "operational_coverage_percent": operational_coverage_percent,
             "implemented_techniques": implemented_count,
+            "implemented_covered_score_gte2": implemented_covered_gte2,
             "implemented_covered_score_gte3": implemented_covered_gte3,
             "implemented_coverage_percent_gte3": implemented_coverage_percent,
+            "implemented_coverage_percent_gte2": implemented_coverage_percent_gte2,
             "roadmap_target_techniques": ROADMAP_TARGET_TECHNIQUE_TOTAL,
+            "roadmap_coverage_percent_gte2": roadmap_coverage_percent_gte2,
             "roadmap_coverage_percent_gte3": roadmap_coverage_percent,
+            "roadmap_referenced_percent": roadmap_referenced_percent,
         },
         trigger_triune=False,
     )
@@ -487,11 +595,24 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
         "enterprise_total_techniques": ENTERPRISE_TECHNIQUE_TOTAL,
         "roadmap_target_techniques": ROADMAP_TARGET_TECHNIQUE_TOTAL,
         "observed_techniques": len(ordered),
+        "covered_score_gte2": covered_gte2,
         "implemented_techniques": implemented_count,
+        "operational_observed_techniques": operational_observed,
+        "operational_covered_score_gte3": operational_covered_gte3,
         "implemented_tactics": len(implemented_tactics),
+        "enterprise_covered_parent_techniques_gte2": enterprise_covered_parents_gte2,
+        "enterprise_covered_parent_techniques_gte3": enterprise_covered_parents_gte3,
+        "enterprise_operational_parent_techniques": enterprise_operational_parents,
+        "covered_score_gte4": covered_gte4,
         "covered_score_gte3": covered_gte3,
+        "coverage_percent_gte2": coverage_percent_gte2,
         "coverage_percent_gte3": coverage_percent,
+        "operational_coverage_percent": operational_coverage_percent,
+        "roadmap_coverage_percent_gte2": roadmap_coverage_percent_gte2,
         "roadmap_coverage_percent_gte3": roadmap_coverage_percent,
+        "roadmap_referenced_percent": roadmap_referenced_percent,
+        "implemented_covered_score_gte2": implemented_covered_gte2,
+        "implemented_coverage_percent_gte2": implemented_coverage_percent_gte2,
         "implemented_covered_score_gte3": implemented_covered_gte3,
         "implemented_coverage_percent_gte3": implemented_coverage_percent,
         "score_distribution": score_dist,
