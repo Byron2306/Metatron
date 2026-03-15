@@ -226,6 +226,10 @@ TRUSTED_NETWORKS = [
     "::1/128",          # IPv6 localhost
     "fe80::/10",        # IPv6 link-local
 ]
+ALLOW_TRUSTED_NETWORK_FALLBACK = os.environ.get(
+    "UNIFIED_AGENT_ALLOW_TRUSTED_NETWORK_AUTH",
+    "false",
+).strip().lower() in {"1", "true", "yes", "on"}
 
 # Server's own IPs - populated at startup
 SERVER_IPS: set = set()
@@ -336,8 +340,8 @@ async def verify_agent_auth(
             raise HTTPException(status_code=404, detail="Agent not registered")
         raise HTTPException(status_code=401, detail="Invalid agent token")
     
-    # Allow from trusted networks for backwards compatibility (with warning)
-    if is_trusted_network:
+    # Optional compatibility fallback (disabled by default).
+    if is_trusted_network and ALLOW_TRUSTED_NETWORK_FALLBACK:
         logger.warning(f"Agent request from {client_ip} without auth - allowed from trusted network")
         return {"type": "trusted_network", "ip": client_ip, "trusted": True}
     
@@ -492,6 +496,15 @@ class ToolingCommandModel(BaseModel):
     """Payload for explicit endpoint tooling commands (Trivy/Falco/Suricata/Volatility)."""
     parameters: Dict[str, Any] = {}
     priority: str = "normal"
+
+
+class RemediationProposalModel(BaseModel):
+    """Agent-submitted remediation proposal for governance gating."""
+    action: str
+    parameters: Dict[str, Any] = {}
+    priority: str = "critical"
+    reason: Optional[str] = None
+    threat: Optional[Dict[str, Any]] = None
 
 
 class EDMDatasetCommandModel(BaseModel):
@@ -991,6 +1004,12 @@ _TOOLING_COMMAND_MAP: Dict[str, str] = {
     "suricata": "suricata_status",
     "volatility": "volatility_status",
 }
+_REMEDIATION_ACTION_COMMAND_MAP: Dict[str, str] = {
+    "kill_process": "kill_process",
+    "block_ip": "block_ip",
+    "block_connection": "block_ip",
+    "quarantine_file": "quarantine_file",
+}
 
 
 @router.post("/agents/{agent_id}/commands/tooling/{tool_name}")
@@ -1076,6 +1095,91 @@ async def _dispatch_agent_command(
         "queue_id": queued.get("queue_id"),
         "decision_id": queued.get("decision_id"),
         "message": "Command queued for triune approval; execution awaits outbound gate decision",
+    }
+
+
+@router.post("/agents/{agent_id}/remediation/propose")
+async def propose_agent_remediation(
+    agent_id: str,
+    proposal: RemediationProposalModel,
+    request: Request,
+    auth: Dict = Depends(verify_agent_auth),
+):
+    """
+    Allow endpoint agents to submit high-impact remediation proposals into
+    governed dispatch instead of executing local actions immediately.
+    """
+    if auth.get("agent_id") and auth["agent_id"] != agent_id:
+        raise HTTPException(status_code=403, detail="Agent ID mismatch")
+
+    action = (proposal.action or "").strip().lower()
+    command_type = _REMEDIATION_ACTION_COMMAND_MAP.get(action)
+    if not command_type:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported remediation action '{proposal.action}'. Supported: {sorted(_REMEDIATION_ACTION_COMMAND_MAP.keys())}",
+        )
+
+    agent = await db.unified_agents.find_one({"agent_id": agent_id}, {"_id": 0, "agent_id": 1})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    parameters = dict(proposal.parameters or {})
+    threat = proposal.threat or {}
+    evidence = threat.get("evidence") or {}
+    if command_type == "kill_process":
+        if not parameters.get("pid") and evidence.get("pid"):
+            parameters["pid"] = evidence.get("pid")
+        if not parameters.get("name") and (evidence.get("name") or threat.get("process_name")):
+            parameters["name"] = evidence.get("name") or threat.get("process_name")
+    elif command_type == "block_ip":
+        if not parameters.get("ip"):
+            remote = evidence.get("remote") or evidence.get("remote_ip")
+            if isinstance(remote, str) and remote:
+                parameters["ip"] = remote.split(":")[0]
+    elif command_type == "quarantine_file":
+        if not parameters.get("filepath"):
+            parameters["filepath"] = evidence.get("path") or evidence.get("filepath")
+
+    if proposal.reason:
+        parameters.setdefault("reason", proposal.reason)
+    if threat:
+        parameters.setdefault(
+            "threat_context",
+            {
+                "threat_id": threat.get("threat_id"),
+                "severity": threat.get("severity"),
+                "title": threat.get("title"),
+                "source": threat.get("source"),
+            },
+        )
+
+    dispatch_result = await _dispatch_agent_command(
+        agent_id=agent_id,
+        command_type=command_type,
+        parameters=parameters,
+        priority=proposal.priority,
+        issued_by=f"agent:{agent_id}",
+    )
+
+    await emit_world_event(
+        get_db(),
+        event_type="unified_agent_remediation_proposed",
+        entity_refs=[agent_id, dispatch_result.get("command_id"), dispatch_result.get("queue_id"), dispatch_result.get("decision_id")],
+        payload={
+            "action": action,
+            "command_type": command_type,
+            "proposal_reason": proposal.reason,
+            "auth_type": auth.get("type"),
+        },
+        trigger_triune=True,
+    )
+
+    return {
+        **dispatch_result,
+        "status": "queued_for_triune_approval",
+        "remediation_action": action,
+        "command_type": command_type,
     }
 
 

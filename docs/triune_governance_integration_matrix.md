@@ -108,3 +108,4 @@ Goal: ensure Metatron/Michael/Loki consume a unified cognitive signal plane rath
 - Michael now augments candidate actions from cognitive recommendations and exposes `cognitive_action_alignment`.
 - Loki now adds cognition-derived dissent (`cognitive_dissent`) including strategy challenge, AATR match hypotheses, and uncertainty expansion.
 - Detailed capability summary published in `docs/triune_cognition_feature_summary.md`.
+- Unified endpoint agent now submits local auto-remediation proposals to backend governed dispatch (`/api/unified/agents/{agent_id}/remediation/propose`) instead of relying on deprecated direct triune approval endpoint semantics.

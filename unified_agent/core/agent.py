@@ -470,6 +470,10 @@ class AgentConfig:
     # Authentication
     enrollment_key: str = ""  # For initial registration
     auth_token: str = ""       # Received after registration
+    integration_api_key: str = field(default_factory=lambda: os.environ.get("INTEGRATION_API_KEY", ""))
+    cli_ingest_token: str = field(default_factory=lambda: os.environ.get("CLI_INGEST_TOKEN", ""))
+    identity_ingest_token: str = field(default_factory=lambda: os.environ.get("IDENTITY_INGEST_TOKEN", ""))
+    api_bearer_token: str = field(default_factory=lambda: os.environ.get("AGENT_API_BEARER_TOKEN", ""))
     
     # Whitelisted IPs (server + known-friendly)
     server_ips: List[str] = field(default_factory=list)
@@ -514,6 +518,7 @@ class AgentConfig:
 
     # Triune decision hooks
     require_triune_approval: bool = True  # Gate remediation actions via triune/backend approval
+    allow_local_post_triune_approval: bool = False  # Prefer backend-governed command release over immediate local execution
     triune_rank_before_handle: bool = True  # Rank threats by triune heuristic before handling
     triune_preflight_gate: bool = True  # Allow local triune-style suppression before remediation
     triune_hypothesis_enabled: bool = True  # Attach hypothesis metadata to handled threats
@@ -7883,29 +7888,83 @@ class RemediationEngine:
             'csrss.exe', 'lsass.exe', 'init', 'kernel_task', 'launchd'
         }
     
-    def _request_triune_approval(self, threat: Threat, timeout: float = 5.0) -> bool:
-        """Ask the triune/backend for approval before taking remediation.
+    def _governance_headers(self) -> Dict[str, str]:
+        headers: Dict[str, str] = {}
+        if getattr(self.config, "auth_token", ""):
+            headers["X-Agent-Id"] = self.config.agent_id
+            headers["X-Agent-Token"] = self.config.auth_token
+        elif getattr(self.config, "enrollment_key", ""):
+            headers["X-Enrollment-Key"] = self.config.enrollment_key
+        if getattr(self.config, "integration_api_key", ""):
+            headers.setdefault("X-Internal-Token", self.config.integration_api_key)
+        return headers
 
-        Returns True if approved, False otherwise or on error.
+    def _request_triune_approval(
+        self,
+        threat: Threat,
+        action: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        timeout: float = 8.0,
+    ) -> Dict[str, Any]:
+        """
+        Submit remediation proposal to backend governed dispatch.
+
+        Returns dict:
+          {
+            "accepted": bool,
+            "queued": bool,
+            "approved": bool,
+            "response": dict,
+            "error": str
+          }
         """
         if not REQUESTS_AVAILABLE:
-            logger.debug("requests not available; cannot ask triune for approval")
-            return False
+            return {"accepted": False, "queued": False, "approved": False, "error": "requests_unavailable"}
 
-        triune_url = (self.config.server_url or "http://localhost:8001").rstrip('/')
-        endpoint = f"{triune_url}/api/triune/approve_action"
+        base_url = (self.config.server_url or "http://localhost:8001").rstrip("/")
+        endpoint = f"{base_url}/api/unified/agents/{self.config.agent_id}/remediation/propose"
         payload = {
-            'threat': threat.to_dict(),
-            'agent_id': self.config.agent_id,
+            "action": action or threat.remediation_action,
+            "parameters": params or threat.remediation_params or {},
+            "priority": "critical",
+            "reason": threat.kill_reason or "agent_auto_remediation",
+            "threat": threat.to_dict() if hasattr(threat, "to_dict") else {},
         }
         try:
-            r = requests.post(endpoint, json=payload, timeout=timeout)
-            if r.status_code == 200:
-                data = r.json()
-                return bool(data.get('approved', False))
+            response = requests.post(
+                endpoint,
+                headers=self._governance_headers(),
+                json=payload,
+                timeout=timeout,
+            )
+            data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+            if response.status_code >= 400:
+                return {
+                    "accepted": False,
+                    "queued": False,
+                    "approved": False,
+                    "response": data,
+                    "error": f"http_{response.status_code}",
+                }
+
+            status = str(data.get("status") or "").lower().strip()
+            queued = status in {"queued_for_approval", "queued_for_triune_approval", "queued", "pending"}
+            approved = status in {"approved", "released_to_execution"}
+            return {
+                "accepted": bool(queued or approved),
+                "queued": bool(queued),
+                "approved": bool(approved),
+                "response": data,
+                "error": "",
+            }
         except Exception as e:
-            logger.debug(f"Triune approval request failed: {e}")
-        return False
+            return {
+                "accepted": False,
+                "queued": False,
+                "approved": False,
+                "response": {},
+                "error": str(e),
+            }
 
     def execute(self, threat: Threat) -> Tuple[bool, str]:
         """Execute remediation action (gated when configured)."""
@@ -7914,10 +7973,19 @@ class RemediationEngine:
 
         # If configured to require triune approval, request it first
         if getattr(self.config, 'require_triune_approval', True):
-            approved = self._request_triune_approval(threat)
-            if not approved:
-                logger.info(f"Remediation action '{action}' blocked by triune (not approved)")
-                return False, "Action not approved by triune"
+            approval = self._request_triune_approval(threat, action=action, params=params)
+            if not approval.get("accepted"):
+                logger.info(f"Remediation action '{action}' blocked by governance ({approval.get('error')})")
+                return False, "governance_rejected_or_unreachable"
+
+            if approval.get("queued", False):
+                queue_id = (approval.get("response") or {}).get("queue_id")
+                decision_id = (approval.get("response") or {}).get("decision_id")
+                return False, f"queued_for_triune_approval:{queue_id or 'unknown'}:{decision_id or 'unknown'}"
+
+            # Prefer command release from governance executor rather than immediate local action.
+            if not getattr(self.config, "allow_local_post_triune_approval", False):
+                return False, "approved_via_governance_executor"
 
         try:
             if action == "kill_process":
@@ -7932,6 +8000,18 @@ class RemediationEngine:
                 return False, f"Unknown action: {action}"
         except Exception as e:
             return False, str(e)
+
+    def kill_process(self, pid: int, process_name: str = "unknown") -> bool:
+        ok, _ = self._kill_process({"pid": pid, "process_name": process_name})
+        return bool(ok)
+
+    def block_ip(self, ip: str) -> bool:
+        ok, _ = self._block_ip({"ip": ip})
+        return bool(ok)
+
+    def quarantine_file(self, filepath: Any) -> bool:
+        ok, _ = self._quarantine_file({"filepath": str(filepath)})
+        return bool(ok)
     
     def _kill_process(self, params: Dict) -> Tuple[bool, str]:
         """Kill a malicious process"""
@@ -12127,6 +12207,28 @@ class CLITelemetryMonitor(MonitorModule):
             'command': command[:500],
         }
 
+    def _get_ingest_headers(self, purpose: str) -> Dict[str, str]:
+        """Build ingestion headers for backend machine-token routes."""
+        headers: Dict[str, str] = {}
+        bearer = str(getattr(self.config, "api_bearer_token", "") or "").strip()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+
+        internal = str(getattr(self.config, "integration_api_key", "") or "").strip()
+        if internal:
+            headers["X-Internal-Token"] = internal
+
+        if purpose == "identity":
+            identity_token = str(getattr(self.config, "identity_ingest_token", "") or "").strip()
+            if identity_token:
+                headers["X-Identity-Token"] = identity_token
+        elif purpose == "cli":
+            cli_token = str(getattr(self.config, "cli_ingest_token", "") or "").strip()
+            if cli_token:
+                headers["X-CLI-Token"] = cli_token
+
+        return headers
+
     def _send_identity_provider_event(self, provider: str, event_payload: Dict[str, Any]):
         if not REQUESTS_AVAILABLE:
             return
@@ -12138,9 +12240,15 @@ class CLITelemetryMonitor(MonitorModule):
         else:
             endpoint = '/api/v1/identity/events/entra'
 
+        headers = self._get_ingest_headers("identity")
+        if not headers:
+            logger.debug("Skipping identity signal export: no identity/machine auth configured")
+            return
+
         try:
             requests.post(
                 f"{self.backend_url}{endpoint}",
+                headers=headers,
                 json={'events': [event_payload]},
                 timeout=5,
             )
@@ -12167,6 +12275,10 @@ class CLITelemetryMonitor(MonitorModule):
     def _send_cli_event(self, event_data: Dict[str, Any]):
         """Send CLI command event to backend CCE pipeline"""
         try:
+            headers = self._get_ingest_headers("cli")
+            if not headers:
+                logger.debug("Skipping CLI event export: no CLI/machine auth configured")
+                return
             payload = {
                 'host_id': event_data.get('host_id', self.config.agent_id),
                 'session_id': f"agent-{self.config.agent_id}",
@@ -12181,6 +12293,7 @@ class CLITelemetryMonitor(MonitorModule):
             
             response = requests.post(
                 f"{self.backend_url}/api/cli/event",
+                headers=headers,
                 json=payload,
                 timeout=5
             )
@@ -14912,6 +15025,20 @@ class UnifiedAgent:
         elif self.config.enrollment_key:
             return {'X-Enrollment-Key': self.config.enrollment_key}
         return {}
+
+    def _get_side_channel_headers(self) -> Dict[str, str]:
+        """
+        Headers for non-unified side-channel APIs (AI/VNS/ingest).
+        Prefers bearer auth, with optional internal machine token support.
+        """
+        headers: Dict[str, str] = {}
+        bearer = str(getattr(self.config, "api_bearer_token", "") or "").strip()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        internal = str(getattr(self.config, "integration_api_key", "") or "").strip()
+        if internal:
+            headers["X-Internal-Token"] = internal
+        return headers
     
     def _get_primary_ip(self) -> str:
         """Get primary IP address"""
@@ -15047,6 +15174,7 @@ class UnifiedAgent:
             
             # Execute remediation
             success, msg = self.remediation.execute(threat)
+            queued_for_triune = isinstance(msg, str) and msg.startswith("queued_for_triune_approval")
             
             if success:
                 self.stats["threats_auto_killed"] += 1
@@ -15056,11 +15184,27 @@ class UnifiedAgent:
                 
                 # Log to SIEM
                 self.siem.log_threat(threat, "auto_killed")
+            elif queued_for_triune:
+                threat.status = "queued_for_triune_approval"
+                threat.user_approved = False
+                threat.evidence = dict(threat.evidence or {})
+                threat.evidence["governance_queue_status"] = msg
+                logger.warning(f"AUTO-KILL QUEUED FOR TRIUNE: {threat.title} | Reason: {kill_reason} | {msg}")
+                self._log_event("auto_remediation_queued", {
+                    "threat_id": threat.threat_id,
+                    "title": threat.title,
+                    "reason": kill_reason,
+                    "queue_status": msg,
+                })
+                self.siem.log_threat(threat, "queued_for_triune_approval")
             else:
                 logger.error(f"AUTO-KILL FAILED: {threat.title} - {msg}")
             
             # Trigger alarm
-            self._trigger_alarm(threat, f"AUTO_KILL:{kill_reason}")
+            if queued_for_triune:
+                self._trigger_alarm(threat, f"AUTO_KILL_QUEUED:{kill_reason}")
+            else:
+                self._trigger_alarm(threat, f"AUTO_KILL:{kill_reason}")
         else:
             # Log to SIEM
             self.siem.log_threat(threat, "detected")
@@ -15106,8 +15250,13 @@ class UnifiedAgent:
             return
         
         try:
+            headers = self._get_side_channel_headers()
+            if not headers:
+                logger.debug("Skipping AI analysis request: no side-channel auth configured")
+                return
             response = requests.post(
                 f"{self.config.server_url}/api/advanced/ai/analyze",
+                headers=headers if headers else None,
                 json={
                     "title": threat.title,
                     "description": threat.description,
@@ -15135,9 +15284,14 @@ class UnifiedAgent:
                 evidence = threat.evidence
                 local = evidence.get('local', ':0')
                 remote = evidence.get('remote', ':0')
+                headers = self._get_side_channel_headers()
+                if not headers:
+                    logger.debug("Skipping VNS sync: no side-channel auth configured")
+                    return
                 
                 requests.post(
                     f"{self.config.server_url}/api/advanced/vns/flow",
+                    headers=headers if headers else None,
                     json={
                         "src_ip": local.split(':')[0] if ':' in local else '0.0.0.0',
                         "src_port": int(local.split(':')[-1]) if ':' in local else 0,
