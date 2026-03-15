@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
+from collections import deque
 import os
+import json
 import re
 from typing import Any, Dict, List, Set
 
@@ -134,7 +136,16 @@ TECHNIQUE_TO_TACTIC = {
     "T1021.003": "TA0008",
     "T1021.006": "TA0008",
     "T1611": "TA0004",
+    "T1610": "TA0002",
     "T1578": "TA0040",
+    "T1565": "TA0040",
+    "T1565.001": "TA0040",
+    "T1203": "TA0002",
+    "T1485": "TA0040",
+    "T1552": "TA0006",
+    "T1595.002": "TA0043",
+    "T1592.002": "TA0043",
+    "T1573": "TA0011",
 }
 
 PRIORITY_GAPS = [
@@ -242,9 +253,103 @@ PURPLESHARP_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
     "powershell": ["T1059.001"],
 }
 
+SIEM_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "c2": ["T1071", "T1095"],
+    "command and control": ["T1071", "T1095"],
+    "beacon": ["T1071", "T1095"],
+    "exfil": ["T1041", "T1048"],
+    "dns tunnel": ["T1071.004"],
+    "scan": ["T1046", "T1595.001"],
+    "brute force": ["T1110.003"],
+    "credential": ["T1003.001", "T1555"],
+    "malware": ["T1204", "T1105"],
+}
+
+EDR_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "malfind": ["T1055"],
+    "injected": ["T1055"],
+    "lsass": ["T1003.001"],
+    "credential": ["T1003.001", "T1555"],
+    "rootkit": ["T1014"],
+    "deleted": ["T1070", "T1565.001"],
+    "modified": ["T1565.001"],
+    "permission": ["T1222.001"],
+    "usb": ["T1091"],
+    "process": ["T1057"],
+}
+
+YARA_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "mimikatz": ["T1003.001", "T1555"],
+    "powershell": ["T1059.001"],
+    "ransom": ["T1486", "T1490"],
+    "webshell": ["T1505.003"],
+    "credential": ["T1003.001", "T1555"],
+    "malware": ["T1204", "T1105"],
+    "inject": ["T1055"],
+}
+
+SURICATA_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "scan": ["T1046", "T1595.001"],
+    "portscan": ["T1046", "T1595.001"],
+    "dns": ["T1071.004"],
+    "http": ["T1071.001"],
+    "tls": ["T1573"],
+    "c2": ["T1071", "T1095"],
+    "command and control": ["T1071", "T1095"],
+    "beacon": ["T1071", "T1095"],
+    "exploit": ["T1190", "T1203"],
+    "rce": ["T1190", "T1203"],
+    "exfil": ["T1041", "T1048"],
+}
+
+FALCO_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "privileged": ["T1611"],
+    "container escape": ["T1611"],
+    "escape": ["T1611"],
+    "ptrace": ["T1055"],
+    "shell": ["T1059"],
+    "sensitive mount": ["T1611"],
+    "credential": ["T1552.001", "T1555"],
+    "crypto-miner": ["T1496"],
+    "k8s": ["T1610"],
+}
+
+TRIVY_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "rce": ["T1190", "T1203"],
+    "remote code execution": ["T1190", "T1203"],
+    "privilege escalation": ["T1068"],
+    "credential": ["T1552.001", "T1552.005"],
+    "secret": ["T1552.001", "T1552.005"],
+    "deserialization": ["T1190"],
+    "injection": ["T1190"],
+}
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+@lru_cache(maxsize=1)
+def _compose_text() -> str:
+    root = _repo_root()
+    chunks: List[str] = []
+    for rel in ["docker-compose.yml", "docker-compose.prod.yml"]:
+        path = root / rel
+        if not path.exists():
+            continue
+        try:
+            chunks.append(path.read_text(encoding="utf-8", errors="ignore"))
+        except Exception:
+            continue
+    return "\n".join(chunks)
+
+
+def _stack_service_declared(service_name: str) -> bool:
+    text = _compose_text()
+    if not text:
+        return False
+    pattern = rf"(?im)^\s*{re.escape(service_name)}\s*:"
+    return re.search(pattern, text) is not None
 
 
 def _scan_python_files_for_attack_ids(base_dirs: List[Path]) -> Dict[str, Dict]:
@@ -624,6 +729,49 @@ def _extract_ports(value: Any) -> List[int]:
                 if parsed > 0:
                     ports.append(parsed)
     return ports
+
+
+def _tail_lines(path: Path, limit: int = 500) -> List[str]:
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as fh:
+            return list(deque(fh, maxlen=max(1, limit)))
+    except Exception:
+        return []
+
+
+def _mark_technique(
+    techniques: Dict[str, Dict],
+    technique: str,
+    *,
+    score: int,
+    source: str,
+) -> None:
+    normalized = _normalize_technique(technique)
+    if not normalized:
+        return
+    techniques.setdefault(normalized, {"score": 0, "sources": set()})
+    techniques[normalized]["score"] = max(int(techniques[normalized]["score"]), int(score))
+    techniques[normalized]["sources"].add(source)
+
+
+def _merge_collector_scores(
+    techniques: Dict[str, Dict],
+    *,
+    counts: Dict[str, int],
+    source_map: Dict[str, Set[str]],
+    max_score: Dict[str, int],
+    promote_count: int = 3,
+    promote_sources: int = 2,
+) -> None:
+    for technique, seen_count in counts.items():
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        score = max_score.get(technique, 3)
+        if seen_count >= promote_count or len(source_map.get(technique, set())) >= promote_sources:
+            score = max(score, 4)
+        techniques[technique]["score"] = max(techniques[technique]["score"], score)
+        techniques[technique]["sources"].update(source_map.get(technique, set()))
 
 
 def _extract_semantic_attack_techniques(value: Any) -> Set[str]:
@@ -1487,6 +1635,484 @@ async def _collect_purplesharp_execution_evidence(techniques: Dict[str, Dict], d
         techniques[technique]["sources"].update(source_map.get(technique, set()))
 
 
+async def _collect_siem_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from SIEM integration state and SIEM event telemetry."""
+    siem_enabled = False
+    siem_type = "unknown"
+    try:
+        try:
+            from services.siem import siem_service
+        except Exception:
+            from backend.services.siem import siem_service
+        status = siem_service.get_status() if hasattr(siem_service, "get_status") else {}
+        siem_enabled = bool((status or {}).get("enabled"))
+        siem_type = str((status or {}).get("type") or "unknown").lower()
+    except Exception:
+        status = {}
+
+    stack_siem_declared = _stack_service_declared("elasticsearch") or _stack_service_declared("kibana")
+    if siem_enabled or stack_siem_declared:
+        baseline_source = f"siem_configured_{siem_type}" if siem_enabled else "siem_stack_declared"
+        baseline_score = 3 if siem_enabled else 2
+        for technique in ["T1071", "T1041", "T1046"]:
+            _mark_technique(techniques, technique, score=baseline_score, source=baseline_source)
+
+    if db is None:
+        return
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+    try:
+        docs = await db.world_events.find(
+            {"event_type": {"$regex": r"^siem_", "$options": "i"}},
+            {"_id": 0, "event_type": 1, "payload": 1, "timestamp": 1},
+        ).to_list(length=800)
+    except Exception:
+        docs = []
+
+    for doc in docs:
+        payload = doc.get("payload") or {}
+        local = _extract_attack_techniques(doc)
+        local.update(_extract_semantic_attack_techniques(doc))
+        local.update(_extract_keyword_techniques(doc, SIEM_KEYWORD_TECHNIQUES))
+        if not local:
+            # A SIEM log event still implies operational telemetry transport.
+            local = {"T1071", "T1041"}
+
+        severity = str(payload.get("severity") or payload.get("level") or "").lower()
+        immediate = bool(payload.get("immediate"))
+        score = 4 if severity in {"critical", "high", "error"} or immediate else 3
+
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("siem_world_event")
+            if severity:
+                source_map[technique].add(f"siem_severity_{severity}")
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_edr_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from EDR/FIM/memory telemetry and EDR world events."""
+    try:
+        try:
+            from edr_service import edr_manager
+        except Exception:
+            from backend.edr_service import edr_manager
+        edr_status = edr_manager.get_status() if hasattr(edr_manager, "get_status") else {}
+    except Exception:
+        edr_status = {}
+
+    fim_status = (edr_status or {}).get("fim") or {}
+    if bool(fim_status.get("enabled")):
+        _mark_technique(techniques, "T1070", score=3, source="edr_fim_capability")
+        _mark_technique(techniques, "T1565.001", score=3, source="edr_fim_capability")
+    mem_status = (edr_status or {}).get("memory_forensics") or {}
+    if bool(mem_status.get("volatility_installed")):
+        _mark_technique(techniques, "T1055", score=3, source="edr_memory_capability")
+        _mark_technique(techniques, "T1003.001", score=3, source="edr_memory_capability")
+        _mark_technique(techniques, "T1014", score=3, source="edr_memory_capability")
+    usb_status = (edr_status or {}).get("usb_control") or {}
+    if bool(usb_status.get("enabled")):
+        _mark_technique(techniques, "T1091", score=3, source="edr_usb_capability")
+
+    if db is None:
+        return
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    try:
+        fim_docs = await db.fim_events.find({}, {"_id": 0}).to_list(length=1500)
+    except Exception:
+        fim_docs = []
+    for event in fim_docs:
+        local = _extract_attack_techniques(event)
+        local.update(_extract_keyword_techniques(event, EDR_KEYWORD_TECHNIQUES))
+        local.update(_extract_semantic_attack_techniques(event))
+        event_type = str(event.get("event_type") or "").lower()
+        if event_type == "deleted":
+            local.update({"T1070", "T1565.001"})
+        elif event_type == "modified":
+            local.update({"T1565.001"})
+        elif event_type == "permission_change":
+            local.update({"T1222.001"})
+        if not local:
+            continue
+        severity = str(event.get("severity") or "").lower()
+        score = 4 if severity in {"critical", "high"} else 3
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("edr_fim_events")
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    try:
+        mem_docs = await db.memory_analyses.find({}, {"_id": 0}).to_list(length=800)
+    except Exception:
+        mem_docs = []
+    for analysis in mem_docs:
+        local = _extract_attack_techniques(analysis)
+        local.update(_extract_keyword_techniques(analysis, EDR_KEYWORD_TECHNIQUES))
+        local.update(_extract_semantic_attack_techniques(analysis))
+        findings = analysis.get("findings") or []
+        if findings and not local:
+            local.update({"T1055", "T1003.001"})
+        if not local:
+            continue
+        status = str(analysis.get("status") or "").lower()
+        score = 4 if status in {"completed", "success"} and len(findings) > 0 else 3
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("edr_memory_analyses")
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    try:
+        edr_events = await db.world_events.find(
+            {"event_type": {"$regex": r"^edr_", "$options": "i"}},
+            {"_id": 0, "event_type": 1, "payload": 1},
+        ).to_list(length=800)
+    except Exception:
+        edr_events = []
+    for event in edr_events:
+        local = _extract_attack_techniques(event)
+        local.update(_extract_keyword_techniques(event, EDR_KEYWORD_TECHNIQUES))
+        local.update(_extract_semantic_attack_techniques(event))
+        event_type = str(event.get("event_type") or "").lower()
+        if "fim" in event_type and not local:
+            local.update({"T1070", "T1565.001"})
+        elif "memory" in event_type and not local:
+            local.update({"T1055", "T1003.001"})
+        elif "usb" in event_type and not local:
+            local.update({"T1091"})
+        if not local:
+            continue
+        score = 4 if event_type.endswith("completed") or event_type.endswith("analyzed") else 3
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("edr_world_event")
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_yara_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from YARA rule catalog and YARA detections."""
+    rule_dirs = [
+        Path("/app/yara_rules"),
+        Path("/etc/yara/rules"),
+        Path("/var/lib/seraph-ai/yara_rules"),
+    ]
+    extra_rule_dir = str(os.environ.get("YARA_RULES_DIR") or "").strip()
+    if extra_rule_dir:
+        rule_dirs.append(Path(extra_rule_dir))
+    rule_count = 0
+    for directory in rule_dirs:
+        try:
+            if directory.exists():
+                rule_count += sum(1 for _ in directory.glob("**/*.yar"))
+                rule_count += sum(1 for _ in directory.glob("**/*.yara"))
+        except Exception:
+            continue
+    requirements_has_yara = False
+    try:
+        requirements_path = _repo_root() / "backend" / "requirements.txt"
+        if requirements_path.exists():
+            requirements_has_yara = "yara-python" in requirements_path.read_text(encoding="utf-8", errors="ignore").lower()
+    except Exception:
+        requirements_has_yara = False
+    if rule_count > 0:
+        baseline_score = 3 if rule_count >= 20 else 2
+        for technique in ["T1204", "T1105", "T1059"]:
+            _mark_technique(techniques, technique, score=baseline_score, source="yara_rule_catalog")
+    elif requirements_has_yara:
+        for technique in ["T1204", "T1105"]:
+            _mark_technique(techniques, technique, score=2, source="yara_engine_declared")
+
+    if db is None:
+        return
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    try:
+        yara_events = await db.world_events.find(
+            {"event_type": {"$regex": "yara", "$options": "i"}},
+            {"_id": 0, "event_type": 1, "payload": 1},
+        ).to_list(length=800)
+    except Exception:
+        yara_events = []
+    for event in yara_events:
+        local = _extract_attack_techniques(event)
+        local.update(_extract_keyword_techniques(event, YARA_KEYWORD_TECHNIQUES))
+        local.update(_extract_semantic_attack_techniques(event))
+        if not local:
+            local.update({"T1204", "T1105"})
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("yara_world_event")
+            max_score[technique] = max(max_score.get(technique, 0), 4)
+
+    try:
+        scan_docs = await db.agent_scan_results.find(
+            {"scan_type": {"$regex": "yara", "$options": "i"}},
+            {"_id": 0},
+        ).to_list(length=800)
+    except Exception:
+        scan_docs = []
+    for scan in scan_docs:
+        local = _extract_attack_techniques(scan)
+        local.update(_extract_keyword_techniques(scan, YARA_KEYWORD_TECHNIQUES))
+        local.update(_extract_semantic_attack_techniques(scan))
+        results = scan.get("results") or {}
+        match_count = _safe_int(results.get("match_count")) + len(results.get("matches") or [])
+        if match_count > 0 and not local:
+            local.update({"T1204", "T1105"})
+        if not local:
+            continue
+        score = 4 if match_count > 0 else 3
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("yara_agent_scan")
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    try:
+        threat_docs = await db.threats.find({}, {"_id": 0, "description": 1, "indicators": 1}).to_list(length=600)
+    except Exception:
+        threat_docs = []
+    for threat in threat_docs:
+        text_blob = " ".join([str(threat.get("description") or ""), " ".join([str(x) for x in (threat.get("indicators") or [])])])
+        if "yara" not in text_blob.lower():
+            continue
+        local = _extract_keyword_techniques(text_blob, YARA_KEYWORD_TECHNIQUES) | {"T1204", "T1105"}
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("yara_threat_artifact")
+            max_score[technique] = max(max_score.get(technique, 0), 4)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_container_tooling_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence for Trivy/Falco/Suricata/container runtime telemetry."""
+    trivy_enabled = str(os.environ.get("TRIVY_ENABLED", "true")).lower() in {"1", "true", "yes", "on"}
+    falco_enabled = str(os.environ.get("FALCO_ENABLED", "true")).lower() in {"1", "true", "yes", "on"}
+    suricata_paths_present = Path("/var/log/suricata/eve.json").exists() or Path("/var/log/suricata/stats.log").exists()
+    trivy_declared = _stack_service_declared("trivy")
+    falco_declared = _stack_service_declared("falco")
+    suricata_declared = _stack_service_declared("suricata")
+    if trivy_enabled:
+        _mark_technique(techniques, "T1195.002", score=2, source="trivy_configured")
+        _mark_technique(techniques, "T1190", score=2, source="trivy_configured")
+    elif trivy_declared:
+        _mark_technique(techniques, "T1195.002", score=2, source="trivy_stack_declared")
+    if falco_enabled:
+        _mark_technique(techniques, "T1611", score=3, source="falco_configured")
+        _mark_technique(techniques, "T1055", score=3, source="falco_configured")
+    elif falco_declared:
+        _mark_technique(techniques, "T1611", score=2, source="falco_stack_declared")
+    if suricata_paths_present:
+        _mark_technique(techniques, "T1046", score=3, source="suricata_configured")
+        _mark_technique(techniques, "T1071", score=3, source="suricata_configured")
+    elif suricata_declared:
+        _mark_technique(techniques, "T1046", score=2, source="suricata_stack_declared")
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    # Suricata eve.json operational alerts
+    eve_path = Path("/var/log/suricata/eve.json")
+    for line in _tail_lines(eve_path, limit=700):
+        try:
+            evt = json.loads(line.strip())
+        except Exception:
+            continue
+        if str(evt.get("event_type") or "").lower() != "alert":
+            continue
+        local = _extract_attack_techniques(evt)
+        local.update(_extract_keyword_techniques(evt, SURICATA_KEYWORD_TECHNIQUES))
+        local.update(_extract_semantic_attack_techniques(evt))
+        if not local:
+            local = {"T1071", "T1046"}
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("suricata_eve_alert")
+            max_score[technique] = max(max_score.get(technique, 0), 4)
+
+    # Falco file-based alerts.
+    falco_file = Path("/var/log/falco/falco_alerts.json")
+    for line in _tail_lines(falco_file, limit=700):
+        try:
+            evt = json.loads(line.strip())
+        except Exception:
+            continue
+        local = _extract_attack_techniques(evt)
+        local.update(_extract_keyword_techniques(evt, FALCO_KEYWORD_TECHNIQUES))
+        local.update(_extract_semantic_attack_techniques(evt))
+        if not local:
+            local = {"T1611", "T1059"}
+        priority = str(evt.get("priority") or "").lower()
+        score = 4 if priority in {"critical", "error", "warning"} else 3
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).add("falco_alert_file")
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    # Falco in-memory/runtime alerts from container manager.
+    try:
+        try:
+            from container_security import container_security
+        except Exception:
+            from backend.container_security import container_security
+    except Exception:
+        container_security = None
+
+    if container_security is not None:
+        try:
+            alerts = container_security.falco.get_alerts(limit=600) if hasattr(container_security, "falco") else []
+        except Exception:
+            alerts = []
+        for alert in alerts:
+            if not isinstance(alert, dict):
+                continue
+            local = _extract_attack_techniques(alert)
+            local.update(_extract_keyword_techniques(alert, FALCO_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(alert))
+            if not local:
+                local = {"T1611", "T1059"}
+            severity = str(alert.get("priority") or "").lower()
+            score = 4 if severity in {"critical", "error", "warning"} else 3
+            for technique in local:
+                counts[technique] = counts.get(technique, 0) + 1
+                source_map.setdefault(technique, set()).add("falco_runtime_alert")
+                max_score[technique] = max(max_score.get(technique, 0), score)
+
+        try:
+            attempts = container_security.falco.get_escape_attempts(limit=200) if hasattr(container_security, "falco") else []
+        except Exception:
+            attempts = []
+        for attempt in attempts:
+            local = _extract_attack_techniques(attempt) | {"T1611"}
+            for technique in local:
+                counts[technique] = counts.get(technique, 0) + 1
+                source_map.setdefault(technique, set()).add("falco_escape_attempt")
+                max_score[technique] = max(max_score.get(technique, 0), 4)
+
+    if db is not None:
+        # Trivy/container vulnerability scans
+        try:
+            scans = await db.container_scans.find({}, {"_id": 0}).to_list(length=1000)
+        except Exception:
+            scans = []
+        for scan in scans:
+            local = _extract_attack_techniques(scan)
+            local.update(_extract_keyword_techniques(scan, TRIVY_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(scan))
+            critical = _safe_int(scan.get("critical_count"))
+            high = _safe_int(scan.get("high_count"))
+            total = _safe_int(scan.get("total_vulnerabilities"))
+            if (critical > 0 or high > 0) and not local:
+                local.update({"T1190", "T1068"})
+            if not local:
+                continue
+            score = 4 if critical > 0 or high > 3 else 3
+            if total <= 0:
+                score = 3
+            for technique in local:
+                counts[technique] = counts.get(technique, 0) + 1
+                source_map.setdefault(technique, set()).add("trivy_scan_evidence")
+                max_score[technique] = max(max_score.get(technique, 0), score)
+
+        # Alerts collection can include Falco callback and Suricata-derived alerts.
+        try:
+            alerts = await db.alerts.find({}, {"_id": 0, "title": 1, "message": 1, "severity": 1, "type": 1}).to_list(length=1200)
+        except Exception:
+            alerts = []
+        for alert in alerts:
+            text = " ".join([str(alert.get("title") or ""), str(alert.get("message") or ""), str(alert.get("type") or "")]).lower()
+            if not any(token in text for token in ["falco", "suricata", "sid:", "container", "runtime", "trivy"]):
+                continue
+            local = _extract_keyword_techniques(alert, SURICATA_KEYWORD_TECHNIQUES)
+            local.update(_extract_keyword_techniques(alert, FALCO_KEYWORD_TECHNIQUES))
+            local.update(_extract_keyword_techniques(alert, TRIVY_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(alert))
+            if "falco" in text and not local:
+                local.update({"T1611", "T1059"})
+            if ("suricata" in text or "sid:" in text) and not local:
+                local.update({"T1071", "T1046"})
+            if "trivy" in text and not local:
+                local.update({"T1190"})
+            if not local:
+                continue
+            severity = str(alert.get("severity") or "").lower()
+            score = 4 if severity in {"critical", "high", "error"} else 3
+            source = "container_alert_tooling"
+            if "falco" in text:
+                source = "falco_alert_collection"
+            elif "suricata" in text or "sid:" in text:
+                source = "suricata_alert_collection"
+            elif "trivy" in text:
+                source = "trivy_alert_collection"
+            for technique in local:
+                counts[technique] = counts.get(technique, 0) + 1
+                source_map.setdefault(technique, set()).add(source)
+                max_score[technique] = max(max_score.get(technique, 0), score)
+
+        # Additional container security benchmark records.
+        try:
+            cis_docs = await db.cis_benchmarks.find({}, {"_id": 0}).to_list(length=500)
+        except Exception:
+            cis_docs = []
+        for doc in cis_docs:
+            local = _extract_attack_techniques(doc)
+            local.update(_extract_keyword_techniques(doc, FALCO_KEYWORD_TECHNIQUES))
+            local.update(_extract_keyword_techniques(doc, TRIVY_KEYWORD_TECHNIQUES))
+            status = str(doc.get("status") or "").upper()
+            if status in {"FAIL", "WARN"} and not local:
+                local.update({"T1611", "T1190"})
+            if not local:
+                continue
+            score = 4 if status == "FAIL" else 3
+            for technique in local:
+                counts[technique] = counts.get(technique, 0) + 1
+                source_map.setdefault(technique, set()).add("container_cis_benchmark")
+                max_score[technique] = max(max_score.get(technique, 0), score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
 async def _collect_supply_chain(techniques: Dict[str, Dict], db: Any):
     """Collect supply-chain ATT&CK depth for T1195/T1195.002/T1553.006."""
     # Baseline: policy controls configured in runtime environment.
@@ -1667,6 +2293,10 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_identity_protection_catalog(techniques)
     # include indicators ingested via integrations (Amass, Velociraptor, etc.)
     _collect_threat_intel(techniques)
+    await _collect_siem_evidence(techniques, db)
+    await _collect_edr_evidence(techniques, db)
+    await _collect_yara_evidence(techniques, db)
+    await _collect_container_tooling_evidence(techniques, db)
     await _collect_cspm_findings_history(techniques, db)
     await _collect_unified_monitor_telemetry_evidence(techniques, db)
     await _collect_soar_execution_evidence(techniques, db)
