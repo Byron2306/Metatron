@@ -74,6 +74,8 @@ Goal: require approved decision context + token + policy constraints at executio
 - High-impact MCP execution now enforces capability token validation (`token_id` + `principal_identity` + `action/target`) before handler execution.
 - Execution handlers receive normalized governance/token metadata so downstream PEPs can enforce without trusting caller payload shape.
 - `tool_gateway.execute` now enforces approved governance context + capability token validation for approval-required tools (and supports optional environment-wide strict rollout toggles).
+- `governance_executor` now executes approved token operations (`issue_token`, `revoke_token`, `revoke_principal_tokens`) under canonical governance context instead of leaving them as non-executable gated intents.
+- `token_broker` now requires approved governance context for token admin mutations by default, and records decision/queue-linked admin audit entries for issuance/revocation actions.
 
 ### Phase 4 — Audit closure
 

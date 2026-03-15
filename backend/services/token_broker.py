@@ -49,6 +49,8 @@ class CapabilityToken:
     issued_at: str
     issuer: str
     nonce: str
+    governance_decision_id: Optional[str] = None
+    governance_queue_id: Optional[str] = None
 
 
 @dataclass
@@ -114,8 +116,65 @@ class TokenBroker:
         
         # Access audit log
         self.access_log: List[Dict] = []
+        self.token_admin_audit_log: List[Dict] = []
         
         logger.info("Token Broker / Secrets Vault initialized")
+
+    @staticmethod
+    def _governance_required_for_admin_actions() -> bool:
+        allow_ungoverned = str(os.environ.get("TOKEN_BROKER_ALLOW_UNGOVERNED_ADMIN_ACTIONS", "false")).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        return not allow_ungoverned
+
+    def _assert_approved_governance_context(
+        self,
+        governance_context: Optional[Dict[str, Any]],
+        *,
+        operation: str,
+    ) -> Dict[str, Any]:
+        if not self._governance_required_for_admin_actions():
+            return {}
+        context = governance_context or {}
+        if not context.get("approved"):
+            raise PermissionError(f"Approved governance context required for token broker operation '{operation}'")
+        decision_id = context.get("decision_id")
+        queue_id = context.get("queue_id")
+        if not decision_id and not queue_id:
+            raise PermissionError(
+                f"Governance context for token broker operation '{operation}' must include decision_id or queue_id"
+            )
+        return {
+            "decision_id": decision_id,
+            "queue_id": queue_id,
+            "action_type": context.get("action_type"),
+        }
+
+    def _audit_token_admin_action(
+        self,
+        *,
+        operation: str,
+        actor: str,
+        token_id: Optional[str],
+        principal: Optional[str],
+        governance_context: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.token_admin_audit_log.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "operation": operation,
+                "actor": actor,
+                "token_id": token_id,
+                "principal": principal,
+                "decision_id": governance_context.get("decision_id"),
+                "queue_id": governance_context.get("queue_id"),
+                "metadata": metadata or {},
+            }
+        )
     
     def _encrypt(self, plaintext: str) -> str:
         """Simple encryption (in production, use proper crypto)"""
@@ -254,7 +313,9 @@ class TokenBroker:
     def issue_token(self, principal: str, principal_identity: str,
                     action: str, targets: List[str],
                     tool_id: str = None, ttl_seconds: int = 300,
-                    max_uses: int = 1, constraints: Dict = None) -> CapabilityToken:
+                    max_uses: int = 1, constraints: Dict = None,
+                    governance_context: Optional[Dict[str, Any]] = None,
+                    issued_by: str = "unknown") -> CapabilityToken:
         """
         Issue a scoped capability token.
         
@@ -272,6 +333,10 @@ class TokenBroker:
             CapabilityToken
         """
         import uuid
+        governance = self._assert_approved_governance_context(
+            governance_context,
+            operation="issue_token",
+        )
         
         token_id = f"tok-{uuid.uuid4().hex[:16]}"
         nonce = secrets.token_hex(8)
@@ -290,6 +355,12 @@ class TokenBroker:
         
         signature = self._sign_token(token_data)
         
+        merged_constraints = dict(constraints or {})
+        if governance.get("decision_id"):
+            merged_constraints.setdefault("governance_decision_id", governance.get("decision_id"))
+        if governance.get("queue_id"):
+            merged_constraints.setdefault("governance_queue_id", governance.get("queue_id"))
+
         token = CapabilityToken(
             token_id=token_id,
             token_type="capability",
@@ -302,16 +373,34 @@ class TokenBroker:
             expires_at=expires.isoformat(),
             max_uses=max_uses,
             uses_remaining=max_uses,
-            constraints=constraints or {},
+            constraints=merged_constraints,
             signature=signature,
             issued_at=now.isoformat(),
             issuer="token_broker",
-            nonce=nonce
+            nonce=nonce,
+            governance_decision_id=governance.get("decision_id"),
+            governance_queue_id=governance.get("queue_id"),
         )
         
         self.active_tokens[token_id] = token
+        self._audit_token_admin_action(
+            operation="issue_token",
+            actor=issued_by,
+            token_id=token_id,
+            principal=principal,
+            governance_context=governance,
+            metadata={"action": action, "targets": targets, "tool_id": tool_id, "ttl_seconds": ttl_seconds},
+        )
         
-        logger.info(f"TOKEN: Issued {token_id} for {principal} | Action: {action} | TTL: {ttl_seconds}s")
+        logger.info(
+            "TOKEN: Issued %s for %s | Action: %s | TTL: %ss | decision=%s queue=%s",
+            token_id,
+            principal,
+            action,
+            ttl_seconds,
+            governance.get("decision_id"),
+            governance.get("queue_id"),
+        )
         
         return token
     
@@ -373,19 +462,55 @@ class TokenBroker:
         
         return True, "Token valid"
     
-    def revoke_token(self, token_id: str) -> bool:
+    def revoke_token(
+        self,
+        token_id: str,
+        *,
+        governance_context: Optional[Dict[str, Any]] = None,
+        revoked_by: str = "unknown",
+    ) -> bool:
         """Revoke a token"""
+        governance = self._assert_approved_governance_context(
+            governance_context,
+            operation="revoke_token",
+        )
+        principal = None
+        if token_id in self.active_tokens:
+            principal = self.active_tokens[token_id].principal
         if token_id in self.active_tokens:
             del self.active_tokens[token_id]
         
         self.revoked_tokens.add(token_id)
+        self._audit_token_admin_action(
+            operation="revoke_token",
+            actor=revoked_by,
+            token_id=token_id,
+            principal=principal,
+            governance_context=governance,
+            metadata={},
+        )
         
-        logger.info(f"TOKEN: Revoked {token_id}")
+        logger.info(
+            "TOKEN: Revoked %s | decision=%s queue=%s",
+            token_id,
+            governance.get("decision_id"),
+            governance.get("queue_id"),
+        )
         
         return True
     
-    def revoke_tokens_for_principal(self, principal: str) -> int:
+    def revoke_tokens_for_principal(
+        self,
+        principal: str,
+        *,
+        governance_context: Optional[Dict[str, Any]] = None,
+        revoked_by: str = "unknown",
+    ) -> int:
         """Revoke all tokens for a principal (e.g., on trust degradation)"""
+        governance = self._assert_approved_governance_context(
+            governance_context,
+            operation="revoke_tokens_for_principal",
+        )
         count = 0
         
         tokens_to_revoke = [
@@ -394,10 +519,28 @@ class TokenBroker:
         ]
         
         for token_id in tokens_to_revoke:
-            self.revoke_token(token_id)
+            self.revoke_token(
+                token_id,
+                governance_context=governance_context,
+                revoked_by=revoked_by,
+            )
             count += 1
         
-        logger.warning(f"TOKEN: Revoked {count} tokens for principal {principal}")
+        self._audit_token_admin_action(
+            operation="revoke_tokens_for_principal",
+            actor=revoked_by,
+            token_id=None,
+            principal=principal,
+            governance_context=governance,
+            metadata={"count": count},
+        )
+        logger.warning(
+            "TOKEN: Revoked %s tokens for principal %s | decision=%s queue=%s",
+            count,
+            principal,
+            governance.get("decision_id"),
+            governance.get("queue_id"),
+        )
         
         return count
     
@@ -422,7 +565,8 @@ class TokenBroker:
             "active_tokens": len(self.active_tokens),
             "revoked_tokens": len(self.revoked_tokens),
             "stored_secrets": len(self.secrets),
-            "access_log_size": len(self.access_log)
+            "access_log_size": len(self.access_log),
+            "token_admin_audit_log_size": len(self.token_admin_audit_log),
         }
 
 
