@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
-from routers.dependencies import get_db
+from routers.dependencies import get_db, require_machine_token
 from services.world_model import WorldEntity, WorldEdge, WorldModelService
 from services.world_events import emit_world_event
 from typing import Dict, Any
 
 router = APIRouter(prefix="/ingest", tags=["World Ingest"])
+verify_world_ingest_token = require_machine_token(
+    env_keys=["WORLD_INGEST_TOKEN", "INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-world-ingest-token", "x-internal-token", "x-agent-token"],
+    subject="world ingest",
+)
 
 
 def _entity_from_payload(payload: Dict[str, Any]) -> WorldEntity:
@@ -21,7 +26,7 @@ def _edge_from_payload(payload: Dict[str, Any]) -> WorldEdge:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/entity")
-async def ingest_entity(payload: Dict[str, Any], db=Depends(get_db)):
+async def ingest_entity(payload: Dict[str, Any], auth: Dict[str, Any] = Depends(verify_world_ingest_token), db=Depends(get_db)):
     """Generic entity ingestion endpoint.  Body should match WorldEntity model."""
     wm = WorldModelService(db)
     entity = _entity_from_payload(payload)
@@ -33,7 +38,7 @@ async def ingest_entity(payload: Dict[str, Any], db=Depends(get_db)):
     return {"status": "ok", "id": entity.id, "triune": triune.get("triune")}
 
 @router.post("/edge")
-async def ingest_edge(payload: Dict[str, Any], db=Depends(get_db)):
+async def ingest_edge(payload: Dict[str, Any], auth: Dict[str, Any] = Depends(verify_world_ingest_token), db=Depends(get_db)):
     """Create relationship between two entities."""
     wm = WorldModelService(db)
     edge = _edge_from_payload(payload)
@@ -42,7 +47,7 @@ async def ingest_edge(payload: Dict[str, Any], db=Depends(get_db)):
     return {"status": "ok", "triune": triune.get("triune")}
 
 @router.post("/detection")
-async def ingest_detection(payload: Dict[str, Any], db=Depends(get_db)):
+async def ingest_detection(payload: Dict[str, Any], auth: Dict[str, Any] = Depends(verify_world_ingest_token), db=Depends(get_db)):
     """Ingest a detection hit and update entity attributes accordingly."""
     wm = WorldModelService(db)
     eid = payload.get("entity_id")
@@ -56,7 +61,7 @@ async def ingest_detection(payload: Dict[str, Any], db=Depends(get_db)):
     return {"status": "ok", "triune": triune.get("triune")}
 
 @router.post("/alert")
-async def ingest_alert(payload: Dict[str, Any], db=Depends(get_db)):
+async def ingest_alert(payload: Dict[str, Any], auth: Dict[str, Any] = Depends(verify_world_ingest_token), db=Depends(get_db)):
     """Ingest an alert and create/update the corresponding entity."""
     wm = WorldModelService(db)
     eid = payload.get("entity_id") or payload.get("id")
@@ -71,7 +76,7 @@ async def ingest_alert(payload: Dict[str, Any], db=Depends(get_db)):
     return {"status": "ok", "triune": triune.get("triune")}
 
 @router.post("/policy-violation")
-async def ingest_policy_violation(payload: Dict[str, Any], db=Depends(get_db)):
+async def ingest_policy_violation(payload: Dict[str, Any], auth: Dict[str, Any] = Depends(verify_world_ingest_token), db=Depends(get_db)):
     wm = WorldModelService(db)
     eid = payload.get("entity_id")
     if not eid:
@@ -83,7 +88,7 @@ async def ingest_policy_violation(payload: Dict[str, Any], db=Depends(get_db)):
     return {"status": "ok", "triune": triune.get("triune")}
 
 @router.post("/token-event")
-async def ingest_token_event(payload: Dict[str, Any], db=Depends(get_db)):
+async def ingest_token_event(payload: Dict[str, Any], auth: Dict[str, Any] = Depends(verify_world_ingest_token), db=Depends(get_db)):
     wm = WorldModelService(db)
     eid = payload.get("token_id")
     if not eid:

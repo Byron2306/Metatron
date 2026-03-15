@@ -49,6 +49,7 @@ elif not INTEGRATION_API_KEY:
 
 # Initialize database for routers
 from routers.dependencies import set_database
+from routers.dependencies import verify_websocket_machine_token
 set_database(db)
 
 # Initialize services with database
@@ -346,6 +347,12 @@ async def websocket_threats(websocket: WebSocket):
 @app.websocket("/ws/agent/{agent_id}")
 async def websocket_agent(websocket: WebSocket, agent_id: str):
     """WebSocket endpoint for agent real-time communication"""
+    verify_websocket_machine_token(
+        websocket,
+        env_keys=["SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY", "SERVER_AGENT_WS_TOKEN"],
+        header_names=["x-agent-token", "x-internal-token"],
+        subject="server agent websocket",
+    )
     await realtime_ws.connect(websocket, agent_id)
     try:
         while True:

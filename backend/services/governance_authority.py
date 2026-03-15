@@ -78,14 +78,17 @@ class GovernanceDecisionAuthority:
         )
 
         if emit_world_event is not None:
-            await emit_world_event(
-                self.db,
-                event_type="governance_decision_approved",
-                entity_refs=[decision_id, related_queue_id],
-                payload={"actor": actor, "notes": notes, "source": source},
-                trigger_triune=False,
-                source=source,
-            )
+            try:
+                await emit_world_event(
+                    self.db,
+                    event_type="governance_decision_approved",
+                    entity_refs=[decision_id, related_queue_id],
+                    payload={"actor": actor, "notes": notes, "source": source},
+                    trigger_triune=False,
+                    source=source,
+                )
+            except Exception:
+                pass
 
         return {
             "found": True,
@@ -149,14 +152,17 @@ class GovernanceDecisionAuthority:
         )
 
         if emit_world_event is not None:
-            await emit_world_event(
-                self.db,
-                event_type="governance_decision_denied",
-                entity_refs=[decision_id, related_queue_id],
-                payload={"actor": actor, "reason": reason, "source": source},
-                trigger_triune=False,
-                source=source,
-            )
+            try:
+                await emit_world_event(
+                    self.db,
+                    event_type="governance_decision_denied",
+                    entity_refs=[decision_id, related_queue_id],
+                    payload={"actor": actor, "reason": reason, "source": source},
+                    trigger_triune=False,
+                    source=source,
+                )
+            except Exception:
+                pass
 
         return {
             "found": True,

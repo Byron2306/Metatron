@@ -43,7 +43,7 @@ try:
 except Exception:
     from backend.services.world_events import emit_world_event
 try:
-    from .dependencies import get_current_user, check_permission, db
+    from .dependencies import get_current_user, check_permission, db, verify_websocket_machine_token
 except Exception:
     def get_current_user(*args, **kwargs):
         return None
@@ -54,6 +54,9 @@ except Exception:
         return _checker
 
     db = None
+
+    def verify_websocket_machine_token(*args, **kwargs):
+        return {"auth": "ok"}
 
 logger = logging.getLogger('seraph.unified_agent')
 
@@ -2335,10 +2338,12 @@ async def get_agent_commands(
     queued = agent_ws_manager.get_queued_commands(agent_id)
     
     # Also check database for queued commands
-    db_commands = await db.agent_commands.find({
-        "agent_id": agent_id,
-        "status": "queued"
-    }).sort("timestamp", 1).limit(10).to_list(length=10)
+    db_commands = await db.agent_commands.find(
+        {
+            "agent_id": agent_id,
+            "status": {"$in": ["pending", "queued"]},
+        }
+    ).sort("created_at", 1).limit(10).to_list(length=10)
     
     # Mark as delivered
     if db_commands:
@@ -2346,7 +2351,7 @@ async def get_agent_commands(
         await db.agent_commands.update_many(
             {
                 "command_id": {"$in": command_ids},
-                "status": "queued",
+                "status": {"$in": ["pending", "queued"]},
             },
             {
                 "$set": {
@@ -2357,7 +2362,7 @@ async def get_agent_commands(
                 "$inc": {"state_version": 1},
                 "$push": {
                     "state_transition_log": {
-                        "from_status": "queued",
+                        "from_status": ["pending", "queued"],
                         "to_status": "delivered",
                         "actor": f"agent:{agent_id}",
                         "reason": "agent polled commands",
@@ -2373,7 +2378,7 @@ async def get_agent_commands(
         "command_type": c["command_type"],
         "parameters": c.get("parameters", {}),
         "priority": c.get("priority", "normal"),
-        "timestamp": c["timestamp"]
+        "timestamp": c.get("timestamp") or c.get("created_at") or datetime.now(timezone.utc).isoformat()
     } for c in db_commands]
     
     return {"commands": all_commands, "count": len(all_commands)}
@@ -2737,6 +2742,12 @@ async def get_unified_stats(current_user: dict = Depends(get_current_user)):
 @router.websocket("/ws/agent/{agent_id}")
 async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
     """WebSocket endpoint for real-time agent communication"""
+    verify_websocket_machine_token(
+        websocket,
+        env_keys=["UNIFIED_AGENT_WS_TOKEN", "SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY"],
+        header_names=["x-agent-token", "x-internal-token"],
+        subject="unified agent websocket",
+    )
     
     await agent_ws_manager.connect(agent_id, websocket)
     

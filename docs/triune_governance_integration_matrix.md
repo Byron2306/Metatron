@@ -46,6 +46,15 @@ Goal: remove direct/legacy release paths and enforce queue release through canon
 - Normalize command status model across swarm/unified/agent command consumers.
 - Close remaining unauthenticated ingress paths (WS and ingest endpoints).
 
+#### Early Phase 2 progress
+
+- `agent_commands` manual approvals now route through canonical authority + governance executor release flow.
+- Command polling semantics aligned to `pending -> delivered -> completed/failed` (with legacy status compatibility).
+- Added machine-token enforcement on:
+  - agent websocket endpoints (`server.py`, `routers/agent_commands.py`, `routers/unified_agent.py`)
+  - high-risk ingest endpoints (`routers/swarm.py` CLI + USB result ingestion)
+  - world-model ingestion endpoints (`routers/world_ingest.py`, `routers/loki.py`)
+
 ### Phase 3 — Runtime enforcement convergence (PEP hardening)
 
 Goal: require approved decision context + token + policy constraints at execution time.

@@ -1816,7 +1816,10 @@ async def get_swarm_overview(current_user: dict = Depends(get_current_user)):
 # =============================================================================
 
 @router.post("/cli/event")
-async def ingest_cli_event(request: CLIEventRequest):
+async def ingest_cli_event(
+    request: CLIEventRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """
     Ingest a CLI event and process through AATL for AI threat detection.
     This is the primary endpoint for CLI monitoring integration.
@@ -1877,7 +1880,10 @@ async def ingest_cli_event(request: CLIEventRequest):
 
 
 @router.post("/cli/batch")
-async def ingest_cli_batch(events: List[CLIEventRequest]):
+async def ingest_cli_batch(
+    events: List[CLIEventRequest],
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Ingest multiple CLI events in batch"""
     from services.aatl import get_aatl_engine
     
@@ -2204,7 +2210,8 @@ async def list_usb_scans(
 @router.post("/usb/scan/{scan_id}/results")
 async def submit_usb_scan_results(
     scan_id: str,
-    results: Dict[str, Any]
+    results: Dict[str, Any],
+    auth: dict = Depends(verify_swarm_agent_token),
 ):
     """Agent submits USB scan results"""
     now = datetime.now(timezone.utc).isoformat()
