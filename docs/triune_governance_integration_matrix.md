@@ -93,5 +93,7 @@ Goal: every execution is cryptographically/audit-linked to policy + decision + t
 - Report/export pathways now emit canonical world events and tamper-audit records in key routers (`reports`, `timeline`, `cspm`).
 - Vector-memory and VNS write-path endpoints in `advanced` now emit canonical world events and tamper-audit records to reduce telemetry blind spots.
 - EDR telemetry collection now emits canonical `edr_telemetry_collected` world events and matching tamper-audit records.
+- Swarm and unified-agent telemetry ingestion paths now emit canonical world events and write tamper-evident audit entries, closing remaining direct-ingest telemetry blind spots.
 - Triune beacon cascade no longer bypasses canonical event helper; direct `world_events.insert_one` was replaced with `emit_world_event`.
 - Governance executor now includes concrete domain-operation handlers for additional high-impact action types (`response_*`, `quarantine_*`, `vpn_*`, `quarantine_agent`).
+- Quantum cryptography now includes end-to-end API support for Dilithium signing + verification + stored-signature verification + SHA3 hashing, all with canonical world-event and tamper-audit linkage.

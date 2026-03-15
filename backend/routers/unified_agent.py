@@ -43,6 +43,10 @@ try:
 except Exception:
     from backend.services.world_events import emit_world_event
 try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
+try:
     from .dependencies import get_current_user, check_permission, db, verify_websocket_machine_token
 except Exception:
     def get_current_user(*args, **kwargs):
@@ -62,6 +66,30 @@ logger = logging.getLogger('seraph.unified_agent')
 
 router = APIRouter(prefix="/unified", tags=["Unified Agent"])
 ALERT_STATUSES = {"unacknowledged", "acknowledged"}
+
+
+def _record_unified_audit(
+    *,
+    principal: str,
+    action: str,
+    targets: List[str],
+    result: str,
+    result_details: Optional[str] = None,
+    constraints: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            constraints=constraints or {},
+            result=result,
+            result_details=result_details,
+        )
+    except Exception:
+        logger.exception("Failed to record unified audit action: %s", action)
 
 
 def _alert_transition_entry(
@@ -745,6 +773,23 @@ async def agent_heartbeat(
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "telemetry": heartbeat.telemetry
         })
+        await emit_world_event(
+            get_db(),
+            event_type="unified_agent_telemetry_ingested",
+            entity_refs=[agent_id],
+            payload={
+                "source": "heartbeat",
+                "telemetry_keys": len(heartbeat.telemetry.keys()) if isinstance(heartbeat.telemetry, dict) else None,
+            },
+            trigger_triune=False,
+        )
+        _record_unified_audit(
+            principal=f"agent:{agent_id}",
+            action="unified_agent_telemetry_ingest",
+            targets=[agent_id],
+            result="success",
+            constraints={"source": "heartbeat"},
+        )
         
         # Run threat hunting on telemetry
         await _hunt_telemetry(heartbeat.telemetry)
@@ -2805,6 +2850,23 @@ async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "telemetry": telemetry
                 })
+                await emit_world_event(
+                    get_db(),
+                    event_type="unified_agent_telemetry_ingested",
+                    entity_refs=[agent_id],
+                    payload={
+                        "source": "websocket",
+                        "telemetry_keys": len(telemetry.keys()) if isinstance(telemetry, dict) else None,
+                    },
+                    trigger_triune=False,
+                )
+                _record_unified_audit(
+                    principal=f"agent:{agent_id}",
+                    action="unified_agent_telemetry_ingest",
+                    targets=[agent_id],
+                    result="success",
+                    constraints={"source": "websocket"},
+                )
                 # Run threat hunting
                 await _hunt_telemetry(telemetry)
             

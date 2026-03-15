@@ -257,6 +257,26 @@ class AIQueryRequest(BaseModel):
     context: Optional[Dict[str, Any]] = None
 
 
+class QuantumSignRequest(BaseModel):
+    key_id: str
+    data: str
+
+
+class QuantumVerifyRequest(BaseModel):
+    public_key: str
+    data: str
+    signature: str
+
+
+class QuantumVerifyStoredRequest(BaseModel):
+    signature_id: str
+    data: str
+
+
+class QuantumHashRequest(BaseModel):
+    data: str
+
+
 # =============================================================================
 # MCP SERVER ENDPOINTS
 # =============================================================================
@@ -801,6 +821,13 @@ async def generate_kyber_keypair(
     
     keypair = quantum_security.generate_kyber_keypair(key_id, security_level)
     actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_kyber_keypair_generated",
+        entity_refs=[keypair.key_id],
+        payload={"actor": actor, "security_level": security_level, "algorithm": keypair.algorithm},
+        trigger_triune=False,
+    )
     _record_advanced_audit(
         principal=f"operator:{actor}",
         action="advanced_quantum_generate_kyber",
@@ -829,6 +856,13 @@ async def generate_dilithium_keypair(
     
     keypair = quantum_security.generate_dilithium_keypair(key_id, security_level)
     actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_dilithium_keypair_generated",
+        entity_refs=[keypair.key_id],
+        payload={"actor": actor, "security_level": security_level, "algorithm": keypair.algorithm},
+        trigger_triune=False,
+    )
     _record_advanced_audit(
         principal=f"operator:{actor}",
         action="advanced_quantum_generate_dilithium",
@@ -860,6 +894,13 @@ async def quantum_hybrid_encrypt(
         recipient_public_key
     )
     actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_hybrid_encryption_performed",
+        entity_refs=["quantum_encryption"],
+        payload={"actor": actor, "ciphertext_len": len(encrypted.get("ciphertext", ""))},
+        trigger_triune=False,
+    )
     _record_advanced_audit(
         principal=f"operator:{actor}",
         action="advanced_quantum_encrypt",
@@ -885,6 +926,13 @@ async def quantum_hybrid_decrypt(
     
     if plaintext is None:
         actor = current_user.get("email", current_user.get("id", "unknown"))
+        await emit_world_event(
+            get_db(),
+            event_type="advanced_quantum_hybrid_decryption_failed",
+            entity_refs=[key_id],
+            payload={"actor": actor},
+            trigger_triune=True,
+        )
         _record_advanced_audit(
             principal=f"operator:{actor}",
             action="advanced_quantum_decrypt",
@@ -894,6 +942,13 @@ async def quantum_hybrid_decrypt(
         )
         raise HTTPException(status_code=400, detail="Decryption failed")
     actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_hybrid_decryption_performed",
+        entity_refs=[key_id],
+        payload={"actor": actor, "plaintext_len": len(plaintext)},
+        trigger_triune=False,
+    )
     _record_advanced_audit(
         principal=f"operator:{actor}",
         action="advanced_quantum_decrypt",
@@ -902,6 +957,145 @@ async def quantum_hybrid_decrypt(
         constraints={"plaintext_len": len(plaintext)},
     )
     return {"plaintext": plaintext.decode()}
+
+
+@router.post("/quantum/sign")
+async def quantum_sign(
+    request: QuantumSignRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Create a Dilithium signature for application payloads."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+
+    signature = quantum_security.dilithium_sign(request.key_id, request.data.encode())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    if signature is None:
+        await emit_world_event(
+            get_db(),
+            event_type="advanced_quantum_signature_creation_failed",
+            entity_refs=[request.key_id],
+            payload={"actor": actor},
+            trigger_triune=True,
+        )
+        _record_advanced_audit(
+            principal=f"operator:{actor}",
+            action="advanced_quantum_sign",
+            targets=[request.key_id],
+            result="failed",
+            result_details="invalid_or_missing_dilithium_key",
+        )
+        raise HTTPException(status_code=404, detail="Dilithium key not found")
+
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_signature_created",
+        entity_refs=[signature.signature_id, signature.signer_key_id],
+        payload={"actor": actor, "algorithm": signature.algorithm},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_sign",
+        targets=[signature.signature_id, signature.signer_key_id],
+        result="success",
+        constraints={"algorithm": signature.algorithm},
+    )
+    return {
+        "signature_id": signature.signature_id,
+        "algorithm": signature.algorithm,
+        "data_hash": signature.data_hash,
+        "signature": signature.signature,
+        "signer_key_id": signature.signer_key_id,
+        "timestamp": signature.timestamp,
+    }
+
+
+@router.post("/quantum/verify")
+async def quantum_verify(
+    request: QuantumVerifyRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Verify a Dilithium signature using a provided public key."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+
+    valid = quantum_security.dilithium_verify(
+        public_key=request.public_key,
+        data=request.data.encode(),
+        signature=request.signature,
+    )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_signature_verified",
+        entity_refs=[],
+        payload={"actor": actor, "valid": valid},
+        trigger_triune=not valid,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_verify",
+        targets=["signature_verification"],
+        result="success" if valid else "failed",
+        constraints={"valid": bool(valid)},
+    )
+    return {"valid": bool(valid)}
+
+
+@router.post("/quantum/verify/stored")
+async def quantum_verify_stored(
+    request: QuantumVerifyStoredRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Verify a previously generated signature by signature_id."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+
+    valid = quantum_security.verify_stored_signature(request.signature_id, request.data.encode())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_stored_signature_verified",
+        entity_refs=[request.signature_id],
+        payload={"actor": actor, "valid": valid},
+        trigger_triune=not valid,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_verify_stored",
+        targets=[request.signature_id],
+        result="success" if valid else "failed",
+        constraints={"valid": bool(valid)},
+    )
+    return {"signature_id": request.signature_id, "valid": bool(valid)}
+
+
+@router.post("/quantum/hash")
+async def quantum_hash(
+    request: QuantumHashRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Compute a SHA3-256 quantum-safe hash."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+
+    digest = quantum_security.quantum_hash(request.data.encode())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_hash_computed",
+        entity_refs=[],
+        payload={"actor": actor},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_hash",
+        targets=["quantum_hash"],
+        result="success",
+    )
+    return {"algorithm": "SHA3-256", "digest": digest}
 
 
 @router.get("/quantum/keypairs")
@@ -913,6 +1107,18 @@ async def list_quantum_keypairs(
     from services.quantum_security import quantum_security
     quantum_security.set_db(get_db())
     return {"keypairs": quantum_security.get_keypairs(algorithm)}
+
+
+@router.get("/quantum/signatures")
+async def list_quantum_signatures(
+    signer_key_id: str = None,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """List generated signature metadata."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+    return {"signatures": quantum_security.get_signatures(signer_key_id=signer_key_id, limit=limit)}
 
 
 @router.get("/quantum/status")

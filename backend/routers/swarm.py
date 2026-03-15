@@ -16,6 +16,10 @@ try:
 except Exception:
     from backend.services.world_events import emit_world_event
 try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
+try:
     from .dependencies import get_current_user, check_permission, db
 except Exception:
     def get_current_user(*args, **kwargs):
@@ -46,6 +50,30 @@ verify_swarm_agent_token = require_machine_token(
     header_names=["x-agent-token", "x-internal-token"],
     subject="swarm agent",
 )
+
+
+def _record_swarm_audit(
+    *,
+    principal: str,
+    action: str,
+    targets: List[str],
+    result: str,
+    result_details: Optional[str] = None,
+    constraints: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            constraints=constraints or {},
+            result=result,
+            result_details=result_details,
+        )
+    except Exception:
+        logger.exception("Failed to record swarm audit action: %s", action)
 
 
 # =============================================================================
@@ -1220,9 +1248,14 @@ async def ingest_telemetry(
     now = datetime.now(timezone.utc).isoformat()
     aatl_assessments = []
     agents_updated = 0
+    high_or_critical_events = 0
+    event_agent_refs = set()
     
     for event in events:
         event["ingested_at"] = now
+        event_agent_id = event.get("agent_id") or event.get("host_id")
+        if event_agent_id:
+            event_agent_refs.add(str(event_agent_id))
         
         # Handle agent heartbeat - register/update agent
         event_type = event.get("event_type", "")
@@ -1280,6 +1313,7 @@ async def ingest_telemetry(
         
         # Create alert for high severity events
         if severity in ("critical", "high"):
+            high_or_critical_events += 1
             await db.alerts.insert_one({
                 "type": "telemetry",
                 "severity": severity,
@@ -1291,6 +1325,31 @@ async def ingest_telemetry(
                 "status": "open"
             })
     
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_telemetry_ingested",
+        entity_refs=list(event_agent_refs)[:25],
+        payload={
+            "ingested": len(events),
+            "aatl_assessments": len(aatl_assessments),
+            "agents_updated": agents_updated,
+            "high_or_critical_events": high_or_critical_events,
+            "auth_subject": auth.get("subject", "swarm agent"),
+        },
+        trigger_triune=high_or_critical_events > 0,
+    )
+    _record_swarm_audit(
+        principal=f"machine:{auth.get('subject', 'swarm agent')}",
+        action="swarm_telemetry_ingest",
+        targets=list(event_agent_refs)[:10] or ["swarm_telemetry"],
+        result="success",
+        constraints={
+            "ingested": len(events),
+            "aatl_assessments": len(aatl_assessments),
+            "high_or_critical_events": high_or_critical_events,
+        },
+    )
+
     logger.info(f"Ingested {len(events)} telemetry events, {len(aatl_assessments)} AATL assessments")
     
     return {
@@ -1341,6 +1400,31 @@ async def receive_critical_alert(
         "timestamp": now,
         "status": "open"
     })
+
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_critical_alert_received",
+        entity_refs=[
+            ref
+            for ref in [alert.get("agent_id"), alert.get("host_id"), alert.get("threat_id")]
+            if ref
+        ],
+        payload={
+            "alert_type": alert.get("alert_type", "UNKNOWN"),
+            "severity": alert.get("severity", "critical"),
+        },
+        trigger_triune=True,
+    )
+    _record_swarm_audit(
+        principal=f"machine:{auth.get('subject', 'swarm agent')}",
+        action="swarm_critical_alert_received",
+        targets=[str(alert.get("agent_id") or "unknown"), str(alert.get("threat_id") or "unknown")],
+        result="success",
+        constraints={
+            "alert_type": alert.get("alert_type", "UNKNOWN"),
+            "severity": alert.get("severity", "critical"),
+        },
+    )
     
     logger.warning(f"🚨 CRITICAL ALERT from {alert.get('host_id')}: {alert.get('alert_type')} - {alert.get('threat_title')}")
     
