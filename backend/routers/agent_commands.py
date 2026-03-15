@@ -20,12 +20,31 @@ try:
 except Exception:
     from backend.services.world_events import emit_world_event
 try:
-    from .dependencies import get_current_user, check_permission, logger, verify_websocket_machine_token
+    from .dependencies import (
+        get_current_user,
+        get_optional_current_user,
+        check_permission,
+        has_permission,
+        optional_machine_token,
+        logger,
+        verify_websocket_machine_token,
+    )
 except Exception:
     def get_current_user(*args, **kwargs):
         return None
 
     def check_permission(required_permission: str):
+        async def _checker(*a, **k):
+            return None
+        return _checker
+
+    async def get_optional_current_user(*args, **kwargs):
+        return None
+
+    def has_permission(_user: Optional[dict], _required_permission: str) -> bool:
+        return False
+
+    def optional_machine_token(*args, **kwargs):
         async def _checker(*a, **k):
             return None
         return _checker
@@ -37,6 +56,11 @@ except Exception:
         return {"auth": "ok"}
 
 router = APIRouter(prefix="/agent-commands", tags=["Agent Commands"])
+verify_agent_result_machine_token = optional_machine_token(
+    env_keys=["AGENT_COMMANDS_TOKEN", "SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY"],
+    header_names=["x-agent-token", "x-internal-token"],
+    subject="agent command reporter",
+)
 
 COMMAND_TERMINAL_STATUSES = {"completed", "failed", "rejected"}
 CONNECTION_STATUSES = {"connected", "disconnected"}
@@ -696,7 +720,7 @@ async def get_command_types(current_user: dict = Depends(get_current_user)):
 @router.post("/recommend")
 async def recommend_commands(
     request: AICommandRecommendationRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Recommend commands using Ollama-assisted reasoning with safe fallbacks."""
     from services.ai_reasoning import ai_reasoning
@@ -994,15 +1018,25 @@ async def get_command_history(
 async def report_command_result(
     command_id: str,
     result: Dict[str, Any],
-    current_user: dict = Depends(get_current_user)
+    machine_auth: Optional[dict] = Depends(verify_agent_result_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Agent reports command execution result"""
     db = get_db()
+    actor = None
+    if current_user is not None and has_permission(current_user, "write"):
+        actor = current_user.get("email", current_user.get("id")) or "unknown"
+    elif machine_auth is not None:
+        actor = "agent:machine-token"
+    else:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        raise HTTPException(status_code=403, detail="Permission denied. Required: write or machine token")
 
     command = await _ensure_command_state_fields(
         db,
         command_id=command_id,
-        actor=current_user.get("email", current_user.get("id")) or "unknown",
+        actor=actor,
         reason="bootstrap legacy command durability fields",
     )
     if not command:
@@ -1019,7 +1053,7 @@ async def report_command_result(
         command_id=command_id,
         expected_statuses=["approved", "queued_for_pickup", "pending", "delivered", "sent_to_agent", "deploying", "running", "in_progress"],
         next_status=next_status,
-        actor=current_user.get("email", current_user.get("id")) or "agent:reported-result",
+        actor=actor or "agent:reported-result",
         reason="command result reported",
         expected_state_version=current_version,
         extra_updates={

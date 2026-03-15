@@ -2546,7 +2546,10 @@ async def get_deployment(
 # ============================================================
 
 @router.post("/alerts")
-async def create_alert(alert: AlertModel):
+async def create_alert(
+    alert: AlertModel,
+    auth: Dict = Depends(verify_agent_auth),
+):
     """Create an alert from an agent"""
     
     alert_id = secrets.token_hex(8)

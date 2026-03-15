@@ -14,7 +14,7 @@ from identity_protection import get_identity_protection_engine
 
 from .dependencies import get_db
 try:
-    from .dependencies import get_current_user, check_permission
+    from .dependencies import get_current_user, check_permission, require_machine_token
 except Exception:
     def get_current_user(*args, **kwargs):
         return {"id": "system", "email": "system@local", "role": "admin"}
@@ -22,6 +22,11 @@ except Exception:
     def check_permission(required_permission: str):
         async def _checker(*a, **k):
             return {"id": "system", "email": "system@local", "role": "admin"}
+        return _checker
+
+    def require_machine_token(*args, **kwargs):
+        async def _checker(*a, **k):
+            return {"auth": "ok", "subject": "identity ingest"}
         return _checker
 try:
     from services.world_events import emit_world_event
@@ -172,6 +177,11 @@ async def _transition_incident_status(
     return bool(getattr(result, "modified_count", 0))
 
 router = APIRouter(prefix="/api/v1/identity", tags=["Identity Protection"])
+verify_identity_ingest_token = require_machine_token(
+    env_keys=["IDENTITY_INGEST_TOKEN", "INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-identity-token", "x-internal-token", "x-agent-token"],
+    subject="identity ingest",
+)
 
 
 class IdentityScanRequest(BaseModel):
@@ -1130,7 +1140,10 @@ async def get_identity_alerts(limit: int = Query(100, ge=1, le=500)) -> Dict[str
 
 
 @router.post("/scan")
-async def run_identity_scan(request: Optional[IdentityScanRequest] = None) -> Dict[str, Any]:
+async def run_identity_scan(
+    request: Optional[IdentityScanRequest] = None,
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     # The identity engine is event-driven; this endpoint returns a compatible scan trigger response.
     _ = request
     engine = get_identity_protection_engine()
@@ -1148,7 +1161,10 @@ async def run_identity_scan(request: Optional[IdentityScanRequest] = None) -> Di
 
 
 @router.post("/events/entra")
-async def ingest_entra_events(request: IdentityProviderEventIngestRequest) -> Dict[str, Any]:
+async def ingest_entra_events(
+    request: IdentityProviderEventIngestRequest,
+    auth: dict = Depends(verify_identity_ingest_token),
+) -> Dict[str, Any]:
     normalized_events = [_normalize_identity_provider_event("entra", event) for event in request.events]
     await _persist_identity_provider_events(normalized_events)
     await emit_world_event(get_db(), event_type="identity_provider_events_ingested", entity_refs=["entra"], payload={"provider": "entra", "ingested": len(normalized_events)}, trigger_triune=False)
@@ -1161,7 +1177,10 @@ async def ingest_entra_events(request: IdentityProviderEventIngestRequest) -> Di
 
 
 @router.post("/events/okta")
-async def ingest_okta_events(request: IdentityProviderEventIngestRequest) -> Dict[str, Any]:
+async def ingest_okta_events(
+    request: IdentityProviderEventIngestRequest,
+    auth: dict = Depends(verify_identity_ingest_token),
+) -> Dict[str, Any]:
     normalized_events = [_normalize_identity_provider_event("okta", event) for event in request.events]
     await _persist_identity_provider_events(normalized_events)
     await emit_world_event(get_db(), event_type="identity_provider_events_ingested", entity_refs=["okta"], payload={"provider": "okta", "ingested": len(normalized_events)}, trigger_triune=False)
@@ -1174,7 +1193,10 @@ async def ingest_okta_events(request: IdentityProviderEventIngestRequest) -> Dic
 
 
 @router.post("/events/m365-oauth-consents")
-async def ingest_m365_oauth_consents(request: IdentityProviderEventIngestRequest) -> Dict[str, Any]:
+async def ingest_m365_oauth_consents(
+    request: IdentityProviderEventIngestRequest,
+    auth: dict = Depends(verify_identity_ingest_token),
+) -> Dict[str, Any]:
     normalized_events = [_normalize_identity_provider_event("m365", event) for event in request.events]
     for event in normalized_events:
         raw = event.get("raw") or {}

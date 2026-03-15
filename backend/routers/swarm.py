@@ -831,7 +831,10 @@ async def get_vpn_server_config():
 
 
 @router.post("/vpn/register-agent")
-async def register_vpn_agent(request: VPNConfigRequest):
+async def register_vpn_agent(
+    request: VPNConfigRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """
     Register an agent for VPN access.
     Agent provides its public key, server assigns an IP.

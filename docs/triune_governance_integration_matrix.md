@@ -54,6 +54,8 @@ Goal: remove direct/legacy release paths and enforce queue release through canon
   - agent websocket endpoints (`server.py`, `routers/agent_commands.py`, `routers/unified_agent.py`)
   - high-risk ingest endpoints (`routers/swarm.py` CLI + USB result ingestion)
   - world-model ingestion endpoints (`routers/world_ingest.py`, `routers/loki.py`)
+- Added dual-auth (machine token or write-permission user) for CLI event ingestion (`routers/cli_events.py`) and command-result reporting (`routers/agent_commands.py`).
+- Added identity ingest machine-token boundary for provider event ingestion (`routers/identity.py`).
 
 ### Phase 3 — Runtime enforcement convergence (PEP hardening)
 
