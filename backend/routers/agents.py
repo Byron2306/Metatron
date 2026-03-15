@@ -16,6 +16,10 @@ from .dependencies import (
     AgentEvent, AgentInfo, get_current_user, get_db, logger, check_permission
 )
 from .honeypots import ws_manager
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/agent", tags=["Agents"])
 
@@ -81,6 +85,13 @@ async def receive_agent_event(event: AgentEvent):
             {"$set": agent_doc, "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()}},
             upsert=True
         )
+        await emit_world_event(
+            db,
+            event_type="agent_heartbeat_received",
+        trigger_triune=False,
+            entity_refs=[event.agent_id],
+            payload={"agent_name": event.agent_name, "timestamp": event.timestamp},
+        )
         
         # Broadcast to WebSocket
         await ws_manager.broadcast({
@@ -106,6 +117,8 @@ async def receive_agent_event(event: AgentEvent):
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.alerts.insert_one(alert_doc)
+        await emit_world_event(db, event_type="agent_alert_ingested",
+        trigger_triune=False, entity_refs=[event.agent_id, alert_doc["id"]], payload=alert_doc)
         
         # Broadcast to WebSocket
         await ws_manager.broadcast({
@@ -141,6 +154,8 @@ async def receive_agent_event(event: AgentEvent):
             "source_agent": event.agent_name
         }
         await db.threats.insert_one(threat_doc)
+        await emit_world_event(db, event_type="agent_suricata_threat_ingested",
+        trigger_triune=False, entity_refs=[event.agent_id, threat_doc["id"]], payload=threat_doc)
         
         # Broadcast
         await ws_manager.broadcast({
@@ -165,6 +180,8 @@ async def receive_agent_event(event: AgentEvent):
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.alerts.insert_one(alert_doc)
+        await emit_world_event(db, event_type="agent_falco_alert_ingested",
+        trigger_triune=False, entity_refs=[event.agent_id, alert_doc["id"]], payload=alert_doc)
         
         await ws_manager.broadcast({
             "type": "new_alert",
@@ -193,6 +210,8 @@ async def receive_agent_event(event: AgentEvent):
             "source_agent": event.agent_name
         }
         await db.threats.insert_one(threat_doc)
+        await emit_world_event(db, event_type="agent_yara_threat_ingested",
+        trigger_triune=False, entity_refs=[event.agent_id, threat_doc["id"]], payload=threat_doc)
         
         await ws_manager.broadcast({
             "type": "new_threat",
@@ -220,6 +239,8 @@ async def receive_agent_event(event: AgentEvent):
                 {"$set": {**host, "last_seen": datetime.now(timezone.utc).isoformat(), "discovered_by": event.agent_name}},
                 upsert=True
             )
+        await emit_world_event(db, event_type="agent_network_scan_ingested",
+        trigger_triune=False, entity_refs=[event.agent_id, scan_doc["id"]], payload={"host_count": len(event.data.get("hosts", []))})
         
         return {"status": "ok", "scan_id": scan_doc["id"]}
     

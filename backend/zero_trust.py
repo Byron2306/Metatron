@@ -28,6 +28,15 @@ import logging
 import json
 import re
 from collections import defaultdict
+import asyncio
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -622,10 +631,31 @@ class ZeroTrustEngine:
         # Initialize managers
         self.session_manager = SessionManager()
         self.jit_manager = JITAccessManager()
+        self.db = None
         
         self._init_default_policies()
         self._init_conditional_rules()
         logger.info("ZeroTrustEngine initialized with enterprise features")
+
+    def set_db(self, db):
+        self.db = db
+
+    def _emit_zero_trust_event(self, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict[str, Any]] = None):
+        if emit_world_event is None or self.db is None:
+            return
+        try:
+            asyncio.run(
+                emit_world_event(
+                    self.db,
+                    event_type=event_type,
+                    entity_refs=entity_refs or [],
+                    payload=payload or {},
+                    trigger_triune=False,
+                    source="backend.zero_trust",
+                )
+            )
+        except Exception:
+            pass
     
     def _init_conditional_rules(self):
         """Initialize default conditional access rules"""
@@ -920,7 +950,7 @@ class ZeroTrustEngine:
         if len(self.access_logs) > 1000:
             self.access_logs = self.access_logs[-1000:]
         
-        return {
+        result = {
             "decision": decision.value,
             "trust_score": trust_score,
             "trust_level": trust_level.value,
@@ -929,6 +959,17 @@ class ZeroTrustEngine:
             "challenge_reason": challenge_reason,
             "log_id": access_log.id
         }
+        self._emit_zero_trust_event(
+            "zero_trust_access_evaluated",
+            [user_context.get("user_id", "unknown"), device_id, resource],
+            {
+                "decision": decision.value,
+                "trust_score": trust_score,
+                "trust_level": trust_level.value,
+                "policy_id": matching_policy.id if matching_policy else None,
+            },
+        )
+        return result
     
     def _matches_pattern(self, resource: str, pattern: str) -> bool:
         """Check if resource matches pattern (simple wildcard matching)"""
@@ -1049,6 +1090,15 @@ class ZeroTrustEngine:
         result = asdict(policy)
         result["required_trust_level"] = policy.required_trust_level.value
         result["allowed_device_types"] = [d.value for d in policy.allowed_device_types]
+        self._emit_zero_trust_event(
+            "zero_trust_policy_created",
+            [policy_id],
+            {
+                "name": policy.name,
+                "resource_pattern": policy.resource_pattern,
+                "required_trust_level": policy.required_trust_level.value,
+            },
+        )
         return result
     
     def get_access_logs(self, limit: int = 50) -> List[Dict]:
@@ -1178,6 +1228,11 @@ class ZeroTrustEngine:
         if len(self.user_locations[user_id]) > 10:
             self.user_locations[user_id] = self.user_locations[user_id][-10:]
         
+        self._emit_zero_trust_event(
+            "zero_trust_geo_risk_assessed",
+            [user_id, ip_address],
+            {"risk_score": assessment.risk_score, "country_code": assessment.country_code},
+        )
         return assessment
     
     # =========================================================================
@@ -1440,6 +1495,11 @@ class ZeroTrustEngine:
         geo_risk = self.assess_geo_risk(user_id, ip_address)
         
         if geo_risk.risk_score > 70:
+            self._emit_zero_trust_event(
+                "zero_trust_session_create_denied",
+                [user_id, device_id, ip_address],
+                {"reason": "high_geo_risk", "risk_score": geo_risk.risk_score},
+            )
             return {
                 "success": False,
                 "error": "High geographic risk detected",
@@ -1460,13 +1520,19 @@ class ZeroTrustEngine:
             device_fingerprint=device_fingerprint
         )
         
-        return {
+        result = {
             "success": True,
             "session_id": session.session_id,
             "expires_at": session.expires_at,
             "trust_score": session.trust_score_at_creation,
             "mfa_verified": session.mfa_verified
         }
+        self._emit_zero_trust_event(
+            "zero_trust_session_created",
+            [user_id, device_id, session.session_id],
+            {"trust_score": session.trust_score_at_creation, "mfa_verified": session.mfa_verified},
+        )
+        return result
     
     def validate_session(
         self,

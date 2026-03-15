@@ -26,6 +26,14 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 import re
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -150,6 +158,20 @@ class NetworkDiscoveryService:
         self._scan_lock = asyncio.Lock()
         
         logger.info(f"NetworkDiscoveryService initialized (interval: {scan_interval_s}s)")
+
+    async def _emit_discovery_event(self, event_type: str, entity_refs: List[str], payload: Dict, trigger_triune: bool = False):
+        if emit_world_event is None or self.db is None:
+            return
+        try:
+            await emit_world_event(
+                self.db,
+                event_type=event_type,
+                entity_refs=entity_refs,
+                payload=payload,
+                trigger_triune=trigger_triune,
+            )
+        except Exception:
+            pass
     
     async def start(self):
         """Start the discovery service"""
@@ -159,6 +181,12 @@ class NetworkDiscoveryService:
         self.running = True
         self.task = asyncio.create_task(self._discovery_loop())
         logger.info("Network Discovery Service started")
+        await self._emit_discovery_event(
+            "network_discovery_started",
+            [],
+            {"scan_interval_s": self.scan_interval_s},
+            trigger_triune=False,
+        )
     
     async def stop(self):
         """Stop the discovery service"""
@@ -170,6 +198,7 @@ class NetworkDiscoveryService:
             except asyncio.CancelledError:
                 pass
         logger.info("Network Discovery Service stopped")
+        await self._emit_discovery_event("network_discovery_stopped", [], {"running": False}, trigger_triune=False)
     
     async def _discovery_loop(self):
         """Main discovery loop"""
@@ -214,6 +243,15 @@ class NetworkDiscoveryService:
                 await self._store_device(device)
             
             logger.info(f"Network scan complete: {len(unique_devices)} devices found")
+            await self._emit_discovery_event(
+                "network_discovery_scan_completed",
+                [],
+                {
+                    "devices_found": len(unique_devices),
+                    "interfaces_scanned": len(interfaces),
+                },
+                trigger_triune=len(unique_devices) > 0,
+            )
             return list(unique_devices.values())
     
     def _get_network_interfaces(self) -> List[Dict]:
@@ -625,6 +663,12 @@ class NetworkDiscoveryService:
             {"ip_address": ip},
             {"$set": update}
         )
+        await self._emit_discovery_event(
+            "network_device_status_updated",
+            [ip],
+            {"status": status.value, "fields": sorted(list(kwargs.keys()))},
+            trigger_triune=status in {DeploymentStatus.FAILED, DeploymentStatus.REJECTED},
+        )
     
     async def trigger_manual_scan(self, network: Optional[str] = None) -> List[Dict]:
         """Trigger a manual network scan"""
@@ -634,9 +678,21 @@ class NetworkDiscoveryService:
                 await self._enrich_device(device)
                 self.discovered_devices[device.ip_address] = device
                 await self._store_device(device)
+            await self._emit_discovery_event(
+                "network_discovery_manual_scan_completed",
+                [],
+                {"network": network, "devices_found": len(devices)},
+                trigger_triune=False,
+            )
             return [d.to_dict() for d in devices]
         else:
             devices = await self.run_full_scan()
+            await self._emit_discovery_event(
+                "network_discovery_manual_scan_completed",
+                [],
+                {"network": None, "devices_found": len(devices)},
+                trigger_triune=False,
+            )
             return [d.to_dict() for d in devices]
 
 

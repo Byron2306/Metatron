@@ -1,5 +1,8 @@
 import os
 from celery import Celery
+from celery.signals import task_prerun, task_postrun, task_failure
+import asyncio
+import threading
 
 # Celery configuration
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
@@ -30,3 +33,58 @@ try:
 except Exception:
     # Best-effort import; tasks module may not be present during some operations
     pass
+
+
+def _emit_celery_world_event(event_type: str, payload: dict, trigger_triune: bool = False):
+    try:
+        from backend.server import db
+        from services.world_events import emit_world_event
+    except Exception:
+        return
+
+    if db is None:
+        return
+
+    coro = emit_world_event(
+        db,
+        event_type=event_type,
+        entity_refs=[str(payload.get("task_name") or "unknown")],
+        payload=payload,
+        trigger_triune=trigger_triune,
+        source="celery_app",
+    )
+
+    def _runner():
+        try:
+            asyncio.run(coro)
+        except Exception:
+            pass
+
+    threading.Thread(target=_runner, daemon=True).start()
+
+
+@task_prerun.connect
+def _on_task_prerun(task_id=None, task=None, args=None, kwargs=None, **extras):
+    _emit_celery_world_event(
+        "celery_task_started",
+        {"task_id": task_id, "task_name": getattr(task, "name", "unknown")},
+        trigger_triune=False,
+    )
+
+
+@task_postrun.connect
+def _on_task_postrun(task_id=None, task=None, state=None, retval=None, **extras):
+    _emit_celery_world_event(
+        "celery_task_completed",
+        {"task_id": task_id, "task_name": getattr(task, "name", "unknown"), "state": state},
+        trigger_triune=str(state).upper() in {"FAILURE", "RETRY"},
+    )
+
+
+@task_failure.connect
+def _on_task_failure(task_id=None, exception=None, sender=None, **extras):
+    _emit_celery_world_event(
+        "celery_task_failed",
+        {"task_id": task_id, "task_name": getattr(sender, "name", "unknown"), "error": str(exception)[:500]},
+        trigger_triune=True,
+    )

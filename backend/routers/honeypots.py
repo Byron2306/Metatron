@@ -44,6 +44,7 @@ async def create_honeypot_alert(req: HoneypotAlert, user: dict = Depends(check_p
         'metadata': {'honeypot_id': alert_id}
     }
     await db.alerts.insert_one(alert_doc)
+    await emit_world_event(get_db(), event_type="honeypot_alert_created", entity_refs=[alert_id], payload={"source": req.source, "severity": req.severity, "actor": user.get("id")}, trigger_triune=False)
 
     return {'honeypot_id': alert_id, 'alert_id': alert_doc['id'], 'status': 'created'}
 
@@ -69,6 +70,10 @@ from .dependencies import (
     HoneypotCreate, HoneypotResponse, HoneypotInteraction,
     get_current_user, get_db, check_permission
 )
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/honeypots", tags=["Honeypots"])
 
@@ -127,6 +132,7 @@ async def create_honeypot(honeypot_data: HoneypotCreate, current_user: dict = De
         "created_by": current_user["id"]
     }
     await db.honeypots.insert_one(honeypot_doc)
+    await emit_world_event(get_db(), event_type="honeypot_created", entity_refs=[honeypot_id], payload={"name": honeypot_data.name, "type": honeypot_data.type, "actor": current_user.get("id")}, trigger_triune=False)
     return HoneypotResponse(**honeypot_doc)
 
 @router.get("", response_model=List[HoneypotResponse])
@@ -229,6 +235,7 @@ async def record_honeypot_interaction(honeypot_id: str, source_ip: str, action: 
             "threat_level": "high"
         })
     
+    await emit_world_event(get_db(), event_type="honeypot_interaction_recorded", entity_refs=[honeypot_id, interaction_id], payload={"source_ip": source_ip, "action": action, "threat_level": threat_levels.get(action, "medium")}, trigger_triune=False)
     response = {"message": "Interaction recorded", "id": interaction_id, "threat_level": threat_levels.get(action)}
     if campaign_info:
         response["campaign_tracking"] = campaign_info
@@ -253,6 +260,7 @@ async def update_honeypot_status(honeypot_id: str, status: str, current_user: di
     result = await db.honeypots.update_one({"id": honeypot_id}, {"$set": {"status": status}})
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="Honeypot not found")
+    await emit_world_event(get_db(), event_type="honeypot_status_updated", entity_refs=[honeypot_id], payload={"status": status, "actor": current_user.get("id")}, trigger_triune=False)
     return {"message": "Status updated", "status": status}
 
 # Export ws_manager for use in other modules

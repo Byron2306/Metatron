@@ -643,6 +643,26 @@ class MLThreatPredictor:
     
     def set_database(self, db):
         self._db = db
+
+    async def _emit_event(
+        self,
+        event_type: str,
+        entity_refs: Optional[List[str]] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        trigger_triune: bool = False,
+    ) -> None:
+        if self._db is None or emit_world_event is None:
+            return
+        try:
+            await emit_world_event(
+                self._db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=trigger_triune,
+            )
+        except Exception:
+            logger.debug("ml threat world event emission failed", exc_info=True)
     
     def _initialize_models(self):
         """Initialize models with synthetic training data"""
@@ -874,7 +894,13 @@ class MLThreatPredictor:
         # Store in database
         if self._db is not None:
             await self._db.ml_predictions.insert_one(asdict(prediction))
-        
+        await self._emit_event(
+            "ml_threat_prediction_generated_service",
+            entity_refs=[prediction.prediction_id, prediction.entity_id],
+            payload={"entity_type": prediction.entity_type, "risk_level": prediction.risk_level.value, "threat_score": prediction.threat_score},
+            trigger_triune=prediction.threat_score >= 80,
+        )
+
         return prediction
 
     async def predict_from_snapshot(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -1036,7 +1062,13 @@ class MLThreatPredictor:
         
         if self._db is not None:
             await self._db.ml_predictions.insert_one(asdict(prediction))
-        
+        await self._emit_event(
+            "ml_threat_prediction_generated_service",
+            entity_refs=[prediction.prediction_id, prediction.entity_id],
+            payload={"entity_type": prediction.entity_type, "risk_level": prediction.risk_level.value, "threat_score": prediction.threat_score},
+            trigger_triune=prediction.threat_score >= 80,
+        )
+
         return prediction
     
     async def predict_file_threat(self, file_data: Dict) -> ThreatPrediction:
@@ -1102,7 +1134,13 @@ class MLThreatPredictor:
         
         if self._db is not None:
             await self._db.ml_predictions.insert_one(asdict(prediction))
-        
+        await self._emit_event(
+            "ml_threat_prediction_generated_service",
+            entity_refs=[prediction.prediction_id, prediction.entity_id],
+            payload={"entity_type": prediction.entity_type, "risk_level": prediction.risk_level.value, "threat_score": prediction.threat_score},
+            trigger_triune=prediction.threat_score >= 80,
+        )
+
         return prediction
     
     async def predict_user_threat(self, user_data: Dict) -> ThreatPrediction:
@@ -1185,7 +1223,13 @@ class MLThreatPredictor:
         
         if self._db is not None:
             await self._db.ml_predictions.insert_one(asdict(prediction))
-        
+        await self._emit_event(
+            "ml_threat_prediction_generated_service",
+            entity_refs=[prediction.prediction_id, prediction.entity_id],
+            payload={"entity_type": prediction.entity_type, "risk_level": prediction.risk_level.value, "threat_score": prediction.threat_score},
+            trigger_triune=prediction.threat_score >= 80,
+        )
+
         return prediction
     
     def get_prediction(self, prediction_id: str) -> Optional[Dict]:

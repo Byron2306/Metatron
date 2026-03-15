@@ -23,6 +23,33 @@ except Exception:
 
 import requests
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
+
+def _emit_task_event(db, event_type: str, entity_refs=None, payload=None):
+    if emit_world_event is None or db is None:
+        return
+    import asyncio
+    try:
+        asyncio.run(
+            emit_world_event(
+                db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=False,
+                source="task.integrations",
+            )
+        )
+    except Exception:
+        pass
+
 # Endpoint config for central ingestion API
 API_URL = os.environ.get('API_URL', 'http://localhost:8001').rstrip('/')
 INGEST_ENDPOINT = f"{API_URL}/api/integrations/ingest/direct"
@@ -33,6 +60,13 @@ INTERNAL_TOKEN = os.environ.get('INTEGRATION_API_KEY', '')
 def run_velociraptor_task(self, job_id: str, collection_name: str = None):
     """Celery task to run Velociraptor collection and POST extracted indicators to central ingestion API."""
     # mark running via API / DB update handled by integrations_manager earlier
+    db_for_events = None
+    try:
+        from backend.server import db as _db
+        db_for_events = _db
+    except Exception:
+        db_for_events = None
+    _emit_task_event(db_for_events, "integrations_velociraptor_task_started", [job_id], {"collection_name": collection_name})
 
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     integrations_dir = os.environ.get('INTEGRATIONS_DIR', '/tmp/integrations')
@@ -49,6 +83,7 @@ def run_velociraptor_task(self, job_id: str, collection_name: str = None):
     proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3600)
     if proc.returncode != 0:
         logger.error(f"Velociraptor failed: {proc.stderr}")
+        _emit_task_event(db_for_events, "integrations_velociraptor_task_failed", [job_id], {"error": proc.stderr[:500]})
         # raise to trigger retry
         raise RuntimeError(f"Velociraptor failed: {proc.stderr}")
 
@@ -84,6 +119,7 @@ def run_velociraptor_task(self, job_id: str, collection_name: str = None):
                 logger.error(f"Ingest API returned {r.status_code}: {r.text}")
         except Exception as e:
             logger.exception(f"Failed to POST indicators to ingestion API: {e}")
+            _emit_task_event(db_for_events, "integrations_velociraptor_ingest_post_failed", [job_id], {"error": str(e)[:500]})
 
     # Update job document via direct DB (best-effort) if API not used by integrations_manager
     try:
@@ -97,6 +133,12 @@ def run_velociraptor_task(self, job_id: str, collection_name: str = None):
         logger.exception('Failed to update job document in DB')
 
     logger.info(f"Velociraptor job {job_id} completed, ingested {ingested}")
+    _emit_task_event(
+        db_for_events,
+        "integrations_velociraptor_task_completed",
+        [job_id],
+        {"ingested": ingested, "artifact_count": len(artifacts), "indicator_count": len(indicators)},
+    )
 
 
 def extract_indicators_from_collection(collection_file: str):

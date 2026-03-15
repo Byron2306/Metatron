@@ -10,6 +10,16 @@ from typing import Optional, Dict, List, Any
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 import logging
+import asyncio
+import threading
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +73,37 @@ class HoneyTokenManager:
     
     def set_database(self, db):
         self.db = db
+
+    def set_db(self, db):
+        """Compatibility alias for services expecting set_db."""
+        self.db = db
+
+    def _emit_honey_token_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = True):
+        if emit_world_event is None or self.db is None:
+            return
+        coro = emit_world_event(
+            self.db,
+            event_type=event_type,
+            entity_refs=entity_refs,
+            payload=payload,
+            trigger_triune=trigger_triune,
+        )
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def _init_sample_tokens(self):
         """Create some sample honey tokens"""
@@ -259,7 +300,21 @@ class HoneyTokenManager:
             self.accesses = self.accesses[-1000:]
         
         logger.critical(f"HONEY TOKEN ACCESSED: {token.name} from {source_ip}")
-        
+        self._emit_honey_token_event(
+            event_type="deception.honey_token.accessed",
+            entity_refs=[token_id, source_ip],
+            payload={
+                "access_id": access.id,
+                "token_name": token.name,
+                "token_type": token.token_type.value,
+                "request_path": request_path,
+                "request_method": request_method,
+                "severity": access.severity,
+                "access_count": token.access_count,
+            },
+            trigger_triune=True,
+        )
+
         return access
     
     def get_accesses(self, limit: int = 50, token_id: Optional[str] = None) -> List[Dict]:

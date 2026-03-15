@@ -24,6 +24,16 @@
 
 Metatron/Seraph AI is a next-generation cybersecurity defense platform that fundamentally reimagines endpoint detection and response for the age of autonomous AI threats. While traditional EDR solutions were designed to detect human attackers operating at human speeds, Seraph is purpose-built to identify, slow, deceive, and neutralize AI-driven attacks that operate at machine pace with superhuman persistence.
 
+### Quick Validation
+
+After bringing the stack up with Docker Compose, run the included smoke test to verify core platform health:
+
+```bash
+python3 smoke_test.py
+```
+
+The smoke test checks API responsiveness, key service routes, and baseline integration readiness before deeper environment-specific validation.
+
 ### Platform Statistics
 
 | Component | Count | Description |

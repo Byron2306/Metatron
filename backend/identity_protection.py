@@ -79,6 +79,15 @@ import math
 import secrets
 import struct
 import base64
+import threading
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -3322,6 +3331,37 @@ class IdentityProtectionEngine:
         }
         
         logger.info("IdentityProtectionEngine initialized with all detectors")
+
+    def set_db(self, db):
+        """Attach optional DB context for canonical event emission."""
+        self.db = db
+
+    def _emit_identity_world_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = True):
+        if emit_world_event is None or getattr(self, "db", None) is None:
+            return
+        coro = emit_world_event(
+            self.db,
+            event_type=event_type,
+            entity_refs=entity_refs,
+            payload=payload,
+            trigger_triune=trigger_triune,
+        )
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def process_event(self, event_type: str, event_data: Dict[str, Any]) -> Optional[IdentityThreatEvent]:
         """
@@ -3411,6 +3451,23 @@ class IdentityProtectionEngine:
             f"Source: {threat.source_ip}"
         )
         
+        self._emit_identity_world_event(
+            event_type="identity.threat.detected",
+            entity_refs=[threat.target_principal, threat.source_ip],
+            payload={
+                "event_id": threat.event_id,
+                "attack_type": threat.attack_type,
+                "attack_category": threat.attack_category.value,
+                "severity": threat.severity.value,
+                "confidence": threat.confidence,
+                "source_ip": threat.source_ip,
+                "target_principal": threat.target_principal,
+                "mitre_techniques": threat.mitre_techniques,
+                "iocs": threat.iocs,
+            },
+            trigger_triune=threat.severity in {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH},
+        )
+
         # Check for auto-response
         if threat.confidence >= self.config["auto_response_threshold"]:
             self._trigger_auto_response(threat)

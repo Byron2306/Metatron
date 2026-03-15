@@ -5,6 +5,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from dataclasses import asdict
 
 from .dependencies import get_current_user, get_db
+from services.outbound_gate import OutboundGateService
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 # Import quarantine service
 from quarantine import (
@@ -46,18 +51,32 @@ async def get_entry(entry_id: str, current_user: dict = Depends(get_current_user
 
 @router.post("/{entry_id}/restore")
 async def restore_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
-    """Restore a quarantined file"""
-    # restore_file is sync, returns bool
-    result = restore_file(entry_id)
-    if not result:
-        raise HTTPException(status_code=400, detail="Restore failed - entry not found or already restored")
-    return {"success": True, "message": "File restored successfully"}
+    """Queue quarantine restore via mandatory outbound gate."""
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="quarantine_restore",
+        actor=(current_user or {}).get("id", "unknown"),
+        payload={"entry_id": entry_id},
+        impact_level="high",
+        subject_id=entry_id,
+        entity_refs=[entry_id],
+        requires_triune=True,
+    )
+    await emit_world_event(get_db(), event_type="quarantine_entry_restore_gated", entity_refs=[entry_id], payload={"actor": (current_user or {}).get("id"), "queue_id": gated.get("queue_id")}, trigger_triune=True)
+    return {"success": True, "status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "Restore queued for approval"}
 
 @router.delete("/{entry_id}")
 async def delete_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
-    """Permanently delete a quarantined file"""
-    # delete_quarantined is sync, returns bool
-    result = delete_quarantined(entry_id)
-    if not result:
-        raise HTTPException(status_code=400, detail="Delete failed - entry not found")
-    return {"success": True, "message": "File deleted successfully"}
+    """Queue quarantine delete via mandatory outbound gate."""
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="quarantine_delete",
+        actor=(current_user or {}).get("id", "unknown"),
+        payload={"entry_id": entry_id},
+        impact_level="critical",
+        subject_id=entry_id,
+        entity_refs=[entry_id],
+        requires_triune=True,
+    )
+    await emit_world_event(get_db(), event_type="quarantine_entry_delete_gated", entity_refs=[entry_id], payload={"actor": (current_user or {}).get("id"), "queue_id": gated.get("queue_id")}, trigger_triune=True)
+    return {"success": True, "status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "Delete queued for approval"}

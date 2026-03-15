@@ -11,7 +11,11 @@ import json
 
 from fastapi import APIRouter, Depends, Query
 
-from .dependencies import get_current_user
+from .dependencies import get_current_user, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/zeek", tags=["Zeek NDR"])
 
@@ -207,6 +211,7 @@ async def zeek_beaconing(
             )
 
     detections.sort(key=lambda d: d["events"], reverse=True)
+    await emit_world_event(get_db(), event_type="zeek_beaconing_analyzed", entity_refs=[], payload={"count": len(detections), "min_events": min_events, "max_jitter_seconds": max_jitter_seconds}, trigger_triune=False)
     return {
         "available": True,
         "count": len(detections),
@@ -252,6 +257,7 @@ async def zeek_dns_tunneling(
             )
 
     detections.sort(key=lambda d: (d["queries"], d["avg_query_length"]), reverse=True)
+    await emit_world_event(get_db(), event_type="zeek_dns_tunneling_analyzed", entity_refs=[], payload={"count": len(detections), "min_queries": min_queries, "min_avg_length": min_avg_length}, trigger_triune=False)
     return {
         "available": True,
         "count": len(detections),

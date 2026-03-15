@@ -15,6 +15,14 @@ _scheduler_config = {}
 from runtime_paths import ensure_data_dir
 from threat_intel import threat_intel
 
+try:
+    from services.world_events import emit_world_event
+except Exception:  # pragma: no cover
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:  # pragma: no cover
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 # Directory for temporary integration outputs
@@ -22,6 +30,29 @@ INTEGRATIONS_DIR = ensure_data_dir("integrations")
 INTEGRATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 _jobs: Dict[str, Dict[str, Any]] = {}
+
+
+def _db_collection():
+    db = get_db()
+    if db is None:
+        return None
+    return db.integrations_jobs
+
+
+async def _emit_integration_event(event_type: str, entity_refs: List[str] = None, payload: Dict[str, Any] = None, trigger_triune: bool = False):
+    db = get_db()
+    if db is None or emit_world_event is None:
+        return
+    try:
+        await emit_world_event(
+            db,
+            event_type=event_type,
+            entity_refs=entity_refs or [],
+            payload=payload or {},
+            trigger_triune=trigger_triune,
+        )
+    except Exception:
+        logger.debug("integration world event emission failed", exc_info=True)
 
 
 def _db_collection():
@@ -48,6 +79,12 @@ async def _new_job(tool: str, params: Dict[str, Any]):
         await col.insert_one(job_doc)
     # also keep in-memory copy for quick listing
     _jobs[job_id] = job_doc
+    await _emit_integration_event(
+        "integration_job_created_service",
+        entity_refs=[job_id],
+        payload={"tool": tool},
+        trigger_triune=False,
+    )
     return job_id
 
 
@@ -120,6 +157,12 @@ async def run_amass(domain: str) -> Dict[str, Any]:
 
         _jobs[job_id]["status"] = "completed"
         _jobs[job_id]["result"] = res
+        await _emit_integration_event(
+            "integration_job_completed_service",
+            entity_refs=[job_id],
+            payload={"tool": "amass", "ingested": res.get("ingested", 0) if isinstance(res, dict) else None},
+            trigger_triune=False,
+        )
         _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
         col = _db_collection()
         if col is not None:
@@ -129,6 +172,12 @@ async def run_amass(domain: str) -> Dict[str, Any]:
         logger.exception("Amass run failed")
         _jobs[job_id]["status"] = "failed"
         _jobs[job_id]["result"] = {"error": str(e)}
+        await _emit_integration_event(
+            "integration_job_failed_service",
+            entity_refs=[job_id],
+            payload={"tool": "amass", "error": str(e)},
+            trigger_triune=False,
+        )
         _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
         return _jobs[job_id]
 
@@ -346,7 +395,7 @@ async def ingest_host_logs(source: str, raw_text: str) -> Dict[str, Any]:
 
     This is a heuristic parser: extracts IPs, domains, file hashes, and common indicators.
     """
-    job_id = _new_job("host_ingest", {"source": source})
+    job_id = await _new_job("host_ingest", {"source": source})
     _jobs[job_id]["status"] = "running"
     _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
     try:

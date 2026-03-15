@@ -55,6 +55,14 @@ from collections import defaultdict, deque
 from pathlib import Path
 import uuid
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -851,7 +859,58 @@ class KernelSensorManager:
         # Initialize sensors
         self._initialize()
         
+        self.db = None
         logger.info(f"KernelSensorManager initialized on {self.platform.value}")
+
+    def set_db(self, db):
+        """Attach optional DB context for canonical event emission."""
+        self.db = db
+
+    def _emit_kernel_world_event(self, event: "KernelEvent"):
+        if emit_world_event is None or self.db is None:
+            return
+        payload = {
+            "event_id": event.event_id,
+            "event_type": event.event_type.value,
+            "timestamp": event.timestamp,
+            "pid": event.pid,
+            "ppid": event.ppid,
+            "uid": event.uid,
+            "gid": event.gid,
+            "comm": event.comm,
+            "filename": getattr(event, "filename", ""),
+            "args": getattr(event, "args", []),
+            "cwd": getattr(event, "cwd", ""),
+            "container_id": event.container_id,
+            "namespace_pid": event.namespace_pid,
+            "namespace_mnt": event.namespace_mnt,
+            "namespace_net": event.namespace_net,
+            "mitre_techniques": event.mitre_techniques,
+            "risk_score": event.risk_score,
+        }
+        coro = emit_world_event(
+            self.db,
+            event_type="kernel.sensor.high_risk_event",
+            entity_refs=[str(event.pid), event.comm],
+            payload=payload,
+            trigger_triune=event.risk_score >= 85,
+        )
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def _detect_platform(self) -> Platform:
         """Detect current platform"""
@@ -1560,6 +1619,9 @@ class KernelSensorManager:
             self.sensors[sensor_type].events_captured += 1
             self.sensors[sensor_type].last_event_at = event.timestamp
         
+        if event.risk_score >= 70:
+            self._emit_kernel_world_event(event)
+
         # Invoke handlers
         for handler in self.event_handlers.get(event.event_type, []):
             try:

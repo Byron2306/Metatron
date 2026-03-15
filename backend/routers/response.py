@@ -16,6 +16,8 @@ from threat_response import (
 )
 # Use centralized reasoning snapshot input
 from services.ai_reasoning import ai_reasoning, ReasoningContext
+from services.world_events import emit_world_event
+from services.outbound_gate import OutboundGateService
 
 router = APIRouter(prefix="/threat-response", tags=["Threat Response"])
 
@@ -48,40 +50,44 @@ async def get_blocked_ips(current_user: dict = Depends(get_current_user)):
 
 @router.post("/block-ip")
 async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_permission("write"))):
-    """Manually block an IP address"""
+    """Queue manual IP block via mandatory outbound gate."""
     try:
-        _configure_response_engine_db(get_db())
-        result = await manual_block_ip(
-            request.ip,
-            request.reason,
-            request.duration_hours,
-            current_user.get("name", "admin")
-        )
-        # ingest into world model as a containment event
-        from services.world_model import WorldModelService, WorldEntity
-        # get_db already imported at module level
         db = get_db()
-        wm = WorldModelService(db)
-        await wm.upsert_entity(WorldEntity(id=request.ip, type="agent", attributes={"blocked": True, "reason": request.reason}))
-        return result
+        _configure_response_engine_db(db)
+        gate = OutboundGateService(db)
+        gated = await gate.gate_action(
+            action_type="response_block_ip",
+            actor=current_user.get("name", "admin"),
+            payload={"ip": request.ip, "reason": request.reason, "duration_hours": request.duration_hours},
+            impact_level="critical",
+            subject_id=request.ip,
+            entity_refs=[request.ip],
+            requires_triune=True,
+        )
+        return {"status": "queued_for_triune_approval", "action": "block_ip", "ip": request.ip, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "IP block queued; execution awaits triune approval"}
     except Exception as e:
-        logger.error(f"Failed to block IP: {str(e)}")
+        logger.error(f"Failed to gate block IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/unblock-ip/{ip}")
 async def unblock_ip(ip: str, current_user: dict = Depends(check_permission("write"))):
-    """Unblock an IP address"""
+    """Queue manual IP unblock via mandatory outbound gate."""
     try:
-        _configure_response_engine_db(get_db())
-        result = await manual_unblock_ip(ip, current_user.get("name", "admin"))
-        # update world model
-        from services.world_model import WorldModelService
         db = get_db()
-        wm = WorldModelService(db)
-        await wm.entities.update_one({"id": ip}, {"$set": {"attributes.blocked": False}})
-        return result
+        _configure_response_engine_db(db)
+        gate = OutboundGateService(db)
+        gated = await gate.gate_action(
+            action_type="response_unblock_ip",
+            actor=current_user.get("name", "admin"),
+            payload={"ip": ip},
+            impact_level="high",
+            subject_id=ip,
+            entity_refs=[ip],
+            requires_triune=True,
+        )
+        return {"status": "queued_for_triune_approval", "action": "unblock_ip", "ip": ip, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "IP unblock queued; execution awaits triune approval"}
     except Exception as e:
-        logger.error(f"Failed to unblock IP: {str(e)}")
+        logger.error(f"Failed to gate unblock IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history")
@@ -109,7 +115,7 @@ async def toggle_auto_block(enabled: bool, current_user: dict = Depends(check_pe
     
     # Update in-memory config
     response_config.auto_block_enabled = enabled
-    
+    await emit_world_event(get_db(), event_type="response_auto_block_toggled", entity_refs=[], payload={"enabled": enabled, "actor": current_user.get("id")}, trigger_triune=False)
     return {"auto_block_enabled": enabled, "message": f"Auto-block {'enabled' if enabled else 'disabled'}"}
 
 @router.get("/settings")
@@ -190,7 +196,7 @@ async def update_response_settings(settings: dict, current_user: dict = Depends(
     sms_service.account_sid = update_doc["twilio_account_sid"]
     sms_service.auth_token = update_doc["twilio_auth_token"]
     sms_service.from_number = update_doc["twilio_phone_number"]
-    
+    await emit_world_event(get_db(), event_type="response_settings_updated", entity_refs=[], payload={"actor": current_user.get("id"), "auto_block_enabled": update_doc["auto_block_enabled"], "sms_alerts_enabled": update_doc["sms_alerts_enabled"]}, trigger_triune=False)
     return {"message": "Settings updated", "updated_at": update_doc["updated_at"]}
 
 @router.post("/test-sms")
@@ -199,6 +205,7 @@ async def test_sms(request: SMSTestRequest, current_user: dict = Depends(check_p
     try:
         result = await sms_service.send_alert(request.phone_number, request.message)
         if result:
+            await emit_world_event(get_db(), event_type="response_sms_tested", entity_refs=[request.phone_number], payload={"actor": current_user.get("id"), "success": True}, trigger_triune=False)
             return {"success": True, "message": "SMS sent"}
         else:
             raise HTTPException(status_code=500, detail="SMS sending failed")
@@ -233,6 +240,7 @@ async def analyze_with_openclaw(threat_data: dict, current_user: dict = Depends(
 
         # Primary analysis uses the canonical snapshot analyzer
         analysis = ai_reasoning.analyze_snapshot(ctx)
+        await emit_world_event(get_db(), event_type="response_openclaw_analysis_requested", entity_refs=[str(threat_data.get("id", "unknown"))], payload={"actor": current_user.get("id"), "threat_type": threat_data.get("type", "unknown")}, trigger_triune=False)
 
         # Optionally enrich with OpenClaw's agent analysis when enabled; do not fail if unavailable
         openclaw_result = None

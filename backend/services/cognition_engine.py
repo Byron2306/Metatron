@@ -20,6 +20,14 @@ from typing import Dict, List, Optional, Any
 from collections import defaultdict
 import statistics
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -124,6 +132,21 @@ class CognitionEngine:
         self.config = config or {}
         self.time_window_s = self.config.get("time_window_s", 30)
         self.machine_likelihood_threshold = self.config.get("machine_likelihood_high", 0.80)
+        self.trigger_triune_on_summary = bool(self.config.get("trigger_triune_on_summary", False))
+
+    async def _emit_cognition_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any]):
+        if emit_world_event is None or self.db is None:
+            return
+        try:
+            await emit_world_event(
+                self.db,
+                event_type=event_type,
+                entity_refs=entity_refs,
+                payload=payload,
+                trigger_triune=self.trigger_triune_on_summary,
+            )
+        except Exception:
+            pass
         
     async def analyze_session(
         self, 
@@ -197,6 +220,17 @@ class CognitionEngine:
             f"CCE Summary: {host_id}/{session_id} - "
             f"ML:{machine_likelihood:.2f} Burst:{burstiness:.2f} "
             f"Intents:{intents}"
+        )
+
+        await self._emit_cognition_event(
+            event_type="cognition_summary_generated",
+            entity_refs=[host_id, session_id],
+            payload={
+                "machine_likelihood": summary["machine_likelihood"],
+                "command_count": summary["command_count"],
+                "dominant_intents": summary["dominant_intents"],
+                "decoy_touched": summary["decoy_touched"],
+            },
         )
         
         return summary

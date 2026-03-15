@@ -39,6 +39,7 @@ from enum import Enum
 import hashlib
 from collections import defaultdict
 from runtime_paths import ensure_data_dir
+from services.world_events import emit_world_event
 
 logger = logging.getLogger(__name__)
 
@@ -404,7 +405,7 @@ class TrivyScanner:
         for image in images:
             result = await self.scan_image(image)
             results.append(result)
-        
+
         return results
     
     async def _get_local_images(self) -> List[str]:
@@ -1586,6 +1587,37 @@ class EnhancedContainerSecurityManager:
             cls._instance.cis_benchmark.set_database(db)
             cls._instance.k8s_security.set_database(db)
     
+
+    def _emit_container_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        db = self.__class__._db
+        if db is None:
+            return
+
+        coro = emit_world_event(
+            db,
+            event_type=event_type,
+            entity_refs=entity_refs,
+            payload=payload,
+            trigger_triune=trigger_triune,
+        )
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
+
     async def full_security_scan(self, image_name: str) -> Dict[str, Any]:
         """Run comprehensive security scan on an image"""
         results = {
@@ -1634,6 +1666,17 @@ class EnhancedContainerSecurityManager:
             results["overall_risk"] = "medium"
         else:
             results["overall_risk"] = "low"
+
+        self._emit_container_event(
+            "container_full_security_scan_completed",
+            [image_name],
+            {
+                "overall_risk": results.get("overall_risk"),
+                "critical_count": results.get("vulnerability_scan", {}).get("critical_count", 0),
+                "high_count": results.get("vulnerability_scan", {}).get("high_count", 0),
+            },
+            trigger_triune=results.get("overall_risk") in {"critical", "high"},
+        )
         
         return results
     
@@ -1691,18 +1734,42 @@ class EnhancedContainerSecurityManager:
     # manager instance.
     async def scan_image(self, image_name: str, force: bool = False) -> Dict[str, Any]:
         result = await self.scanner.scan_image(image_name, force)
-        return asdict(result)
+        out = asdict(result)
+        self._emit_container_event(
+            "container_image_scanned_service",
+            [image_name],
+            {"critical_count": out.get("critical_count", 0), "high_count": out.get("high_count", 0), "total_vulnerabilities": out.get("total_vulnerabilities", 0)},
+            trigger_triune=(out.get("critical_count", 0) > 0),
+        )
+        return out
 
     async def scan_all_images(self) -> List[Dict[str, Any]]:
         results = await self.scanner.scan_all_images()
-        return [asdict(r) for r in results]
+        out = [asdict(r) for r in results]
+        critical = sum(x.get("critical_count", 0) for x in out)
+        self._emit_container_event(
+            "container_scan_all_completed_service",
+            [],
+            {"images_scanned": len(out), "critical_count": critical, "total_vulnerabilities": sum(x.get("total_vulnerabilities", 0) for x in out)},
+            trigger_triune=critical > 0,
+        )
+        return out
 
     async def get_containers(self) -> List[Dict[str, Any]]:
         containers = await self.runtime_monitor.get_running_containers()
         return [asdict(c) for c in containers]
 
     async def check_container(self, container_id: str) -> Dict[str, Any]:
-        return await self.runtime_monitor.check_container_security(container_id)
+        findings = await self.runtime_monitor.check_container_security(container_id)
+        issues = findings.get("issues", []) if isinstance(findings, dict) else []
+        high_issues = len([i for i in issues if isinstance(i, dict) and i.get("severity") in {"high", "critical"}])
+        self._emit_container_event(
+            "container_runtime_security_checked",
+            [container_id],
+            {"risk_level": findings.get("risk_level") if isinstance(findings, dict) else "unknown", "issue_count": len(issues), "high_issue_count": high_issues},
+            trigger_triune=high_issues > 0 or (isinstance(findings, dict) and findings.get("risk_level") in {"high", "critical"}),
+        )
+        return findings
 
     def get_stats(self) -> Dict[str, Any]:
         return self.get_comprehensive_stats()

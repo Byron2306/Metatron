@@ -63,7 +63,7 @@ const MitreAttackCoveragePage = () => {
             MITRE ATT&CK Coverage
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Unified strategy depth across Sigma, Zeek, osquery/Fleet, and Atomic validation jobs
+            Full-system ATT&CK sweep across implemented detections, telemetry and validation pipelines
           </p>
         </div>
         <Button
@@ -83,17 +83,33 @@ const MitreAttackCoveragePage = () => {
           <p className="text-2xl font-bold text-white">{coverage?.enterprise_total_techniques || 0}</p>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
-          <p className="text-slate-400 text-sm">Observed Techniques</p>
-          <p className="text-2xl font-bold text-white">{coverage?.observed_techniques || 0}</p>
+          <p className="text-slate-400 text-sm">Implemented Techniques</p>
+          <p className="text-2xl font-bold text-white">{coverage?.implemented_techniques || 0}</p>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
-          <p className="text-slate-400 text-sm">Score &gt;= 3</p>
-          <p className="text-2xl font-bold text-white">{coverage?.covered_score_gte3 || 0}</p>
+          <p className="text-slate-400 text-sm">Implemented Score &gt;= 3</p>
+          <p className="text-2xl font-bold text-white">{coverage?.implemented_covered_score_gte3 || 0}</p>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
-          <p className="text-slate-400 text-sm">Coverage % (&gt;=3)</p>
-          <p className="text-2xl font-bold text-white">{coverage?.coverage_percent_gte3 || 0}%</p>
+          <p className="text-slate-400 text-sm">Implemented Coverage % (&gt;=3)</p>
+          <p className="text-2xl font-bold text-white">{coverage?.implemented_coverage_percent_gte3 || 0}%</p>
         </motion.div>
+      </div>
+
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          <p className="text-slate-400 text-sm">Observed Techniques (All Sources)</p>
+          <p className="text-xl font-semibold text-white">{coverage?.observed_techniques || 0}</p>
+        </div>
+        <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          <p className="text-slate-400 text-sm">Enterprise Coverage % (&gt;=3)</p>
+          <p className="text-xl font-semibold text-white">{coverage?.coverage_percent_gte3 || 0}%</p>
+        </div>
+        <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          <p className="text-slate-400 text-sm">Implemented Tactics</p>
+          <p className="text-xl font-semibold text-white">{coverage?.implemented_tactics || 0}</p>
+        </div>
       </div>
 
       <Card className="bg-slate-900/50 border-slate-800">
@@ -138,6 +154,9 @@ const MitreAttackCoveragePage = () => {
                     </Badge>
                   </div>
                   <p className="text-slate-400 text-xs mt-1">Tactic: {item.tactic}</p>
+                  {item.implemented && (
+                    <p className="text-emerald-400 text-xs mt-1">Implemented evidence files: {item.implemented_evidence_count}</p>
+                  )}
                   <div className="flex flex-wrap gap-2 mt-2">
                     {(item.sources || []).map((s) => (
                       <Badge key={`${item.technique}-${s}`} variant="outline" className="text-slate-300 border-slate-500/30">

@@ -22,6 +22,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+try:
+    from services.world_events import emit_world_event
+except Exception:  # pragma: no cover
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:  # pragma: no cover
+        emit_world_event = None
+
 
 class DevicePlatform(str, Enum):
     IOS = "ios"
@@ -196,8 +204,44 @@ class MobileSecurityService:
         self.app_analyses: Dict[str, AppSecurityAnalysis] = {}
         self.compliance_reports: Dict[str, ComplianceReport] = {}
         self.policies: Dict[str, Dict] = {}
+        self._db = None
         self._init_threat_intelligence()
         self._init_default_policy()
+
+    def set_db(self, db):
+        self._db = db
+
+    def _emit_event_sync(
+        self,
+        event_type: str,
+        entity_refs: Optional[List[str]] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        trigger_triune: bool = False,
+    ) -> None:
+        if self._db is None or emit_world_event is None:
+            return
+
+        async def _emit():
+            await emit_world_event(
+                self._db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=trigger_triune,
+            )
+
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            loop.create_task(_emit())
+        except RuntimeError:
+            try:
+                import asyncio
+                asyncio.run(_emit())
+            except Exception:
+                logger.debug("mobile security event emission failed", exc_info=True)
+        except Exception:
+            logger.debug("mobile security event emission failed", exc_info=True)
     
     def _init_threat_intelligence(self):
         """Initialize mobile threat intelligence"""
@@ -361,7 +405,13 @@ class MobileSecurityService:
         
         self.devices[device_id] = device
         logger.info(f"Registered mobile device: {device_id} ({platform} {model})")
-        
+        self._emit_event_sync(
+            "mobile_device_registered_service",
+            entity_refs=[device_id],
+            payload={"platform": platform_enum.value, "user_id": user_id},
+            trigger_triune=False,
+        )
+
         return device
     
     def update_device_status(
@@ -505,7 +555,13 @@ class MobileSecurityService:
             )
         
         logger.warning(f"Mobile threat detected: {title} ({severity.value}) on device {device_id}")
-        
+        self._emit_event_sync(
+            "mobile_threat_detected_service",
+            entity_refs=[device_id, threat_id],
+            payload={"category": category.value, "severity": severity.value, "title": title},
+            trigger_triune=severity in {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH},
+        )
+
         return threat
     
     def _check_app_security(self, device_id: str, app: Dict):

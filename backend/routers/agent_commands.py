@@ -11,6 +11,11 @@ import json
 import asyncio
 
 from .dependencies import get_db
+from backend.services.outbound_gate import OutboundGateService
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 try:
     from .dependencies import get_current_user, check_permission, logger
 except Exception:
@@ -796,12 +801,38 @@ async def create_command(
         "result": None
     }
     
+    gate = OutboundGateService(db)
+    action_type = "cross_sector_hardening" if request.command_type in {"remediate_compliance", "remove_persistence"} else "agent_command"
+    gated = await gate.gate_action(
+        action_type=action_type,
+        actor=current_user.get("email", current_user.get("id", "unknown")),
+        payload=command,
+        impact_level="critical" if command["risk_level"] in {"high", "critical"} else "high",
+        subject_id=request.agent_id,
+        entity_refs=[command_id],
+        requires_triune=True,
+    )
+
+    command["status"] = "gated_pending_approval"
+    command["gate"] = {
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "action_id": gated.get("action_id"),
+    }
+
     pending_commands[command_id] = command.copy()
     await db.agent_commands.insert_one(command)
-    
+    await emit_world_event(
+        db,
+        event_type="agent_command_created",
+        trigger_triune=True,
+        entity_refs=[request.agent_id, command_id],
+        payload={"command_type": request.command_type, "priority": request.priority, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")},
+    )
+
     # Remove MongoDB _id before returning
     command.pop("_id", None)
-    return {"command_id": command_id, "status": "pending_approval", "command": command}
+    return {"command_id": command_id, "status": "gated_pending_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "command": command}
 
 
 @router.get("/pending")
@@ -834,7 +865,7 @@ async def approve_command(
     if not command:
         raise HTTPException(status_code=404, detail="Command not found")
 
-    if command["status"] != "pending_approval":
+    if command["status"] not in {"pending_approval", "gated_pending_approval"}:
         raise HTTPException(status_code=400, detail=f"Command already {command['status']}")
 
     new_status = "approved" if approval.approved else "rejected"
@@ -844,7 +875,7 @@ async def approve_command(
     transitioned = await _guarded_command_transition(
         db,
         command_id=command_id,
-        expected_statuses=["pending_approval"],
+        expected_statuses=["pending_approval", "gated_pending_approval"],
         next_status=new_status,
         actor=approved_by or "unknown",
         reason="manual command approval decision",
@@ -917,6 +948,18 @@ async def approve_command(
                 reason="agent offline; queued for pickup",
                 expected_state_version=post_approval_version,
             )
+
+    await emit_world_event(
+        db,
+        event_type="agent_command_approval_decision",
+        trigger_triune=False,
+        entity_refs=[command.get("agent_id"), command_id],
+        payload={
+            "approved": bool(approval.approved),
+            "notes": approval.notes,
+            "actor": current_user.get("email", current_user.get("id")),
+        },
+    )
     
     return {"command_id": command_id, "status": new_status, "message": "Command approved and queued for agent"}
 
@@ -980,7 +1023,14 @@ async def report_command_result(
         raise HTTPException(status_code=409, detail="Command result conflict; state changed concurrently")
     
     command_results[command_id] = result
-    
+    await emit_world_event(
+        db,
+        event_type="agent_command_result_recorded",
+        trigger_triune=False,
+        entity_refs=[command.get("agent_id"), command_id],
+        payload={"success": bool(result.get("success")), "result": result},
+    )
+
     return {"status": "recorded"}
 
 

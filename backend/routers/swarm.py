@@ -11,6 +11,10 @@ import uuid
 
 from .dependencies import get_db
 try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
+try:
     from .dependencies import get_current_user, check_permission, db
 except Exception:
     def get_current_user(*args, **kwargs):
@@ -24,6 +28,7 @@ except Exception:
     db = None
 
 import logging
+from backend.services.outbound_gate import OutboundGateService
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +127,7 @@ async def register_agent(request: AgentRegistrationRequest):
     )
     
     logger.info(f"Agent registered: {request.agent_id} ({request.hostname})")
-    
+    await emit_world_event(get_db(), event_type="swarm_agent_registered", entity_refs=[request.agent_id], payload={"hostname": request.hostname, "ip_address": request.ip_address}, trigger_triune=False)
     return {
         "status": "ok",
         "message": "Agent registered successfully",
@@ -199,14 +204,33 @@ async def send_command_to_agent(
         "created_by": current_user.get("email", "system")
     }
     
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="swarm_command",
+        actor=current_user.get("email", "system"),
+        payload=command_doc,
+        impact_level="critical" if request.priority in {"high", "critical"} else "high",
+        subject_id=agent_id,
+        entity_refs=[command_doc["command_id"]],
+        requires_triune=True,
+    )
+
+    command_doc["status"] = "gated_pending_approval"
+    command_doc["gate"] = {
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "action_id": gated.get("action_id"),
+    }
+
     await db.agent_commands.insert_one(command_doc)
-    
-    logger.info(f"Command queued for agent {agent_id}: {request.type}")
-    
+    await emit_world_event(get_db(), event_type="swarm_agent_command_gated", entity_refs=[agent_id, command_doc["command_id"]], payload={"command_type": request.type, "actor": current_user.get("email", "system"), "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
+    logger.info(f"Command gated for agent {agent_id}: {request.type}")
     return {
-        "status": "ok",
+        "status": "queued_for_triune_approval",
         "command_id": command_doc["command_id"],
-        "message": f"Command {request.type} queued for agent {agent_id}",
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "message": f"Command {request.type} gated for agent {agent_id}",
         "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
@@ -295,7 +319,7 @@ async def acknowledge_command(agent_id: str, command_id: str, result: dict = Non
             status_code=409,
             detail=f"Command is already terminal (status={existing.get('status')})",
         )
-    
+    await emit_world_event(get_db(), event_type="swarm_agent_command_acknowledged", entity_refs=[agent_id, command_id], payload={"ack_status": ack_status}, trigger_triune=False)
     return {"status": "ok"}
 
 
@@ -815,6 +839,7 @@ async def list_vpn_agents(current_user: dict = Depends(get_current_user)):
 async def get_siem_status(current_user: dict = Depends(get_current_user)):
     """Get SIEM integration status"""
     from services.siem import siem_service
+    siem_service.set_db(get_db())
     return siem_service.get_status()
 
 
@@ -822,6 +847,7 @@ async def get_siem_status(current_user: dict = Depends(get_current_user)):
 async def test_siem_connection(current_user: dict = Depends(check_permission("write"))):
     """Send test event to SIEM"""
     from services.siem import siem_service
+    siem_service.set_db(get_db())
     
     if not siem_service.enabled:
         return {
@@ -2675,4 +2701,3 @@ async def deploy_unified_to_device(
         "task_id": deploy_task["task_id"],
         "os_type": device.get("os_type")
     }
-

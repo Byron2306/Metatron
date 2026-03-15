@@ -14,11 +14,21 @@ import os
 import hashlib
 import secrets
 import logging
+import asyncio
+import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 import base64
 import hmac
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +124,30 @@ class QuantumSecurityService:
         self._refresh_entropy()
         
         logger.info(f"Quantum Security Service initialized (mode: {self.mode})")
+
+    def set_db(self, db):
+        self.db = db
+
+    def _emit_quantum_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        if emit_world_event is None or getattr(self, "db", None) is None:
+            return
+        coro = emit_world_event(self.db, event_type=event_type, entity_refs=entity_refs, payload=payload, trigger_triune=trigger_triune)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def _init_liboqs(self):
         """Initialize liboqs KEM and signature objects"""
@@ -205,6 +239,7 @@ class QuantumSecurityService:
         self.key_pairs[key_id] = keypair
         
         logger.info(f"QUANTUM [liboqs]: Generated {algo_name} keypair {key_id}")
+        self._emit_quantum_event("quantum_keypair_generated", [key_id], {"algorithm": keypair.algorithm, "provider": "liboqs"}, trigger_triune=False)
         
         return keypair
     
@@ -233,6 +268,7 @@ class QuantumSecurityService:
         self.key_pairs[key_id] = keypair
         
         logger.info(f"QUANTUM [simulation]: Generated Kyber-{security_level} keypair {key_id}")
+        self._emit_quantum_event("quantum_keypair_generated", [key_id], {"algorithm": keypair.algorithm, "provider": "simulation"}, trigger_triune=False)
         
         return keypair
     
@@ -312,6 +348,7 @@ class QuantumSecurityService:
         self.key_pairs[key_id] = keypair
         
         logger.info(f"QUANTUM: Generated Dilithium-{security_level} keypair {key_id}")
+        self._emit_quantum_event("quantum_keypair_generated", [key_id], {"algorithm": keypair.algorithm, "provider": "simulation"}, trigger_triune=False)
         
         return keypair
     
@@ -342,6 +379,7 @@ class QuantumSecurityService:
         )
         
         self.signatures[sig.signature_id] = sig
+        self._emit_quantum_event("quantum_signature_created", [sig.signature_id, key_id], {"algorithm": sig.algorithm, "data_hash": sig.data_hash}, trigger_triune=False)
         
         return sig
     
@@ -361,7 +399,9 @@ class QuantumSecurityService:
             
             # In real PQ crypto, verification is different
             # This is just a simulation
-            return len(sig) == len(expected)
+            valid = len(sig) == len(expected)
+            self._emit_quantum_event("quantum_signature_verified", [], {"valid": valid}, trigger_triune=not valid)
+            return valid
         except:
             return False
     
@@ -393,13 +433,15 @@ class QuantumSecurityService:
         # Tag (simplified)
         tag = hashlib.sha3_256(aes_key + ciphertext_aes).digest()[:16]
         
-        return {
+        result = {
             "kem_ciphertext": ciphertext_kem,
             "nonce": base64.b64encode(nonce).decode(),
             "ciphertext": base64.b64encode(ciphertext_aes).decode(),
             "tag": base64.b64encode(tag).decode(),
             "algorithm": "KYBER-768+AES-256-GCM"
         }
+        self._emit_quantum_event("quantum_hybrid_encryption_performed", [], {"algorithm": result["algorithm"], "ciphertext_len": len(result["ciphertext"])}, trigger_triune=False)
+        return result
     
     def hybrid_decrypt(self, key_id: str, encrypted_data: Dict[str, str]) -> Optional[bytes]:
         """
@@ -424,6 +466,7 @@ class QuantumSecurityService:
             (aes_key * (len(ciphertext) // len(aes_key) + 1))[:len(ciphertext)]
         ))
         
+        self._emit_quantum_event("quantum_hybrid_decryption_performed", [key_id], {"success": plaintext is not None, "plaintext_len": len(plaintext) if plaintext else 0}, trigger_triune=False)
         return plaintext
     
     # =========================================================================

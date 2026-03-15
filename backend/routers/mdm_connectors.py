@@ -7,10 +7,21 @@ from pydantic import BaseModel
 from dataclasses import asdict
 import asyncio
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
 from mdm_connectors import mdm_manager, MDMPlatform, DeviceManagementAction
 
 router = APIRouter(prefix="/mdm", tags=["MDM Connectors"])
+
+
+def _bind_mdm_db():
+    try:
+        mdm_manager.set_db(get_db())
+    except Exception:
+        pass
 
 
 class AddConnectorRequest(BaseModel):
@@ -26,6 +37,7 @@ class ExecuteActionRequest(BaseModel):
 
 @router.get("/status")
 async def get_mdm_status(current_user: dict = Depends(get_current_user)):
+    _bind_mdm_db()
     """Get status of all MDM connectors"""
     return {
         "connectors": mdm_manager.get_connector_status(),
@@ -38,16 +50,17 @@ async def add_mdm_connector(
     request: AddConnectorRequest,
     current_user: dict = Depends(check_permission("admin"))
 ):
+    _bind_mdm_db()
     """Add a new MDM connector"""
     try:
         platform = MDMPlatform(request.platform.lower())
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid platform: {request.platform}")
     
-    success = mdm_manager.add_connector(request.name, platform, request.config)
+    success = await mdm_manager.add_connector(request.name, platform, request.config)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to add connector")
-    
+    await emit_world_event(get_db(), event_type="mdm_connector_added", entity_refs=[request.name, platform.value], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": f"Connector {request.name} added", "platform": platform.value}
 
 
@@ -56,10 +69,12 @@ async def remove_mdm_connector(
     name: str,
     current_user: dict = Depends(check_permission("admin"))
 ):
+    _bind_mdm_db()
     """Remove an MDM connector"""
-    success = mdm_manager.remove_connector(name)
+    success = await mdm_manager.remove_connector(name)
     if not success:
         raise HTTPException(status_code=404, detail="Connector not found")
+    await emit_world_event(get_db(), event_type="mdm_connector_removed", entity_refs=[name], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return {"message": f"Connector {name} removed"}
 
 
@@ -68,11 +83,13 @@ async def connect_mdm_connector(
     name: str,
     current_user: dict = Depends(check_permission("admin"))
 ):
+    _bind_mdm_db()
     """Connect a specific MDM connector"""
     if name not in mdm_manager.connectors:
         raise HTTPException(status_code=404, detail="Connector not found")
     
     success = await mdm_manager.connectors[name].connect()
+    await emit_world_event(get_db(), event_type="mdm_connector_connection", entity_refs=[name], payload={"connected": success, "actor": current_user.get("id")}, trigger_triune=False)
     return {"message": f"Connector {name} {'connected' if success else 'connection failed'}", "connected": success}
 
 
@@ -81,18 +98,22 @@ async def disconnect_mdm_connector(
     name: str,
     current_user: dict = Depends(check_permission("admin"))
 ):
+    _bind_mdm_db()
     """Disconnect a specific MDM connector"""
     if name not in mdm_manager.connectors:
         raise HTTPException(status_code=404, detail="Connector not found")
     
     success = await mdm_manager.connectors[name].disconnect()
+    await emit_world_event(get_db(), event_type="mdm_connector_disconnected", entity_refs=[name], payload={"success": success, "actor": current_user.get("id")}, trigger_triune=False)
     return {"message": f"Connector {name} disconnected", "success": success}
 
 
 @router.post("/connect-all")
 async def connect_all_mdm(current_user: dict = Depends(check_permission("admin"))):
+    _bind_mdm_db()
     """Connect all configured MDM connectors"""
     results = await mdm_manager.connect_all()
+    await emit_world_event(get_db(), event_type="mdm_connect_all", entity_refs=[], payload={"actor": current_user.get("id"), "results": results}, trigger_triune=False)
     return {"results": results}
 
 
@@ -116,6 +137,7 @@ async def sync_all_devices_now(current_user: dict = Depends(check_permission("wr
     """Sync devices immediately (blocking)"""
     devices = await mdm_manager.sync_all_devices()
     policies = await mdm_manager.sync_all_policies()
+    await emit_world_event(get_db(), event_type="mdm_sync_completed", entity_refs=[], payload={"actor": current_user.get("id"), "devices_synced": len(devices), "policies_synced": len(policies)}, trigger_triune=False)
     return {
         "devices_synced": len(devices),
         "policies_synced": len(policies)
@@ -134,6 +156,7 @@ async def get_mdm_device(
     device_id: str,
     current_user: dict = Depends(get_current_user)
 ):
+    _bind_mdm_db()
     """Get specific device details"""
     device = mdm_manager.all_devices.get(device_id)
     if not device:
@@ -147,6 +170,7 @@ async def execute_device_action(
     request: ExecuteActionRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
+    _bind_mdm_db()
     """Execute management action on device"""
     try:
         action = DeviceManagementAction(request.action.lower())
@@ -154,6 +178,7 @@ async def execute_device_action(
         raise HTTPException(status_code=400, detail=f"Invalid action: {request.action}")
     
     result = await mdm_manager.execute_action(device_id, action, request.params)
+    await emit_world_event(get_db(), event_type="mdm_device_action_executed", entity_refs=[device_id], payload={"action": action.value, "actor": current_user.get("id"), "success": bool(getattr(result, "success", False))}, trigger_triune=False)
     return asdict(result)
 
 
@@ -162,6 +187,7 @@ async def lock_device(
     device_id: str,
     current_user: dict = Depends(check_permission("write"))
 ):
+    _bind_mdm_db()
     """Lock a device"""
     result = await mdm_manager.execute_action(device_id, DeviceManagementAction.LOCK)
     return asdict(result)
@@ -172,6 +198,7 @@ async def wipe_device(
     device_id: str,
     current_user: dict = Depends(check_permission("admin"))
 ):
+    _bind_mdm_db()
     """Wipe a device (requires admin)"""
     result = await mdm_manager.execute_action(device_id, DeviceManagementAction.WIPE)
     return asdict(result)
@@ -182,6 +209,7 @@ async def retire_device(
     device_id: str,
     current_user: dict = Depends(check_permission("admin"))
 ):
+    _bind_mdm_db()
     """Retire a device (requires admin)"""
     result = await mdm_manager.execute_action(device_id, DeviceManagementAction.RETIRE)
     return asdict(result)
@@ -202,6 +230,7 @@ async def get_device_compliance(
     device_id: str,
     current_user: dict = Depends(get_current_user)
 ):
+    _bind_mdm_db()
     """Get device compliance details"""
     device = mdm_manager.all_devices.get(device_id)
     if not device:

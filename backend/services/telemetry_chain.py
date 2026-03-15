@@ -16,6 +16,16 @@ from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, asdict, field
 from collections import deque
 import uuid
+import asyncio
+import threading
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +131,30 @@ class TamperEvidentTelemetry:
         self.active_traces: Dict[str, Dict] = {}
         
         logger.info("Tamper-Evident Telemetry Service initialized")
+
+    def set_db(self, db):
+        self.db = db
+
+    def _emit_telemetry_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        if emit_world_event is None or getattr(self, "db", None) is None:
+            return
+        coro = emit_world_event(self.db, event_type=event_type, entity_refs=entity_refs, payload=payload, trigger_triune=trigger_triune)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def _compute_hash(self, data: Dict[str, Any]) -> str:
         """Compute SHA256 hash of data"""
@@ -296,6 +330,12 @@ class TamperEvidentTelemetry:
         # Append to chain
         self.event_chain.append(event)
         self.current_event_hash = event_hash
+        self._emit_telemetry_event(
+            event_type="telemetry_event_ingested",
+            entity_refs=[event.event_id, event.agent_id or "server"],
+            payload={"event_type": event.event_type, "severity": event.severity, "trace_id": event.trace_id},
+            trigger_triune=event.severity in {"critical", "high"},
+        )
         
         return event
     
@@ -353,6 +393,12 @@ class TamperEvidentTelemetry:
         self.current_audit_hash = record_hash
         
         logger.info(f"AUDIT: {principal} | {action} | {targets} | {result}")
+        self._emit_telemetry_event(
+            event_type="telemetry_audit_recorded",
+            entity_refs=[record.record_id, principal],
+            payload={"action": action, "result": result, "target_count": len(targets)},
+            trigger_triune=result in {"failed", "denied"},
+        )
         
         return record
     

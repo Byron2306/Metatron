@@ -24,6 +24,12 @@ from pydantic import BaseModel, Field
 import asyncio
 import logging
 
+from .dependencies import get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
+
 from ebpf_kernel_sensors import (
     get_kernel_sensor_manager,
     KernelSensorManager,
@@ -246,6 +252,7 @@ async def start_sensor(sensor_type: str, request: SensorActionRequest = SensorAc
         
         new_state = manager.sensors.get(sensor)
         
+        await emit_world_event(get_db(), event_type="kernel_sensor_started", entity_refs=[sensor_type], payload={"success": success, "status": new_state.status.value if new_state else "unknown"}, trigger_triune=False)
         return SensorActionResponse(
             success=success,
             sensor_type=sensor_type,
@@ -282,6 +289,7 @@ async def stop_sensor(sensor_type: str):
     try:
         await manager.stop_sensor(sensor)
         
+        await emit_world_event(get_db(), event_type="kernel_sensor_stopped", entity_refs=[sensor_type], payload={"success": True}, trigger_triune=False)
         return SensorActionResponse(
             success=True,
             sensor_type=sensor_type,
@@ -324,6 +332,7 @@ async def start_all_sensors():
                 "error": str(e),
             }
     
+    await emit_world_event(get_db(), event_type="kernel_sensors_start_all", entity_refs=[], payload={"results": results}, trigger_triune=False)
     return {
         "message": "Sensor start operation completed",
         "results": results,
@@ -336,9 +345,11 @@ async def stop_all_sensors():
     manager = get_kernel_sensor_manager()
     await manager.stop_all()
     
+    now = datetime.now(timezone.utc).isoformat()
+    await emit_world_event(get_db(), event_type="kernel_sensors_stop_all", entity_refs=[], payload={"timestamp": now}, trigger_triune=False)
     return {
         "message": "All sensors stopped",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now,
     }
 
 

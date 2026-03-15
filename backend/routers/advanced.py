@@ -14,7 +14,15 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    from backend.services.world_events import emit_world_event
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 
 import logging
 
@@ -227,6 +235,7 @@ class AIQueryRequest(BaseModel):
 async def list_mcp_tools(current_user: dict = Depends(get_current_user)):
     """List available MCP tools"""
     from services.mcp_server import mcp_server
+    mcp_server.set_db(get_db())
     return {"tools": mcp_server.get_tool_catalog()}
 
 
@@ -234,6 +243,7 @@ async def list_mcp_tools(current_user: dict = Depends(get_current_user)):
 async def get_mcp_tool(tool_id: str, current_user: dict = Depends(get_current_user)):
     """Get MCP tool details"""
     from services.mcp_server import mcp_server
+    mcp_server.set_db(get_db())
     
     if tool_id not in mcp_server.tools:
         raise HTTPException(status_code=404, detail="Tool not found")
@@ -259,26 +269,28 @@ async def execute_mcp_tool(
 ):
     """Execute an MCP tool"""
     from services.mcp_server import mcp_server, MCPMessageType
+    mcp_server.set_db(get_db())
     import asyncio
     
-    # Create MCP message
-    message = mcp_server.create_message(
-        message_type=MCPMessageType.TOOL_REQUEST,
-        source=f"operator:{current_user.get('email', 'unknown')}",
-        destination=request.tool_id,
-        payload={"params": request.params},
-        trace_id=request.trace_id
+    gate = OutboundGateService(get_db())
+    actor = f"operator:{current_user.get('email', 'unknown')}"
+    gated = await gate.gate_action(
+        action_type="mcp_tool_execution",
+        actor=actor,
+        payload={"tool_id": request.tool_id, "params": request.params, "trace_id": request.trace_id},
+        impact_level="critical",
+        subject_id=request.tool_id,
+        entity_refs=[request.tool_id, actor],
+        requires_triune=True,
     )
-    
-    # Execute
-    response = await mcp_server.handle_message(message)
-    
+
+    await emit_world_event(get_db(), event_type="advanced_mcp_execution_gated", entity_refs=[request.tool_id, actor], payload={"queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
+
     return {
-        "message_id": response.message_id,
-        "status": response.payload.get("status"),
-        "output": response.payload.get("output"),
-        "error": response.payload.get("error"),
-        "execution_id": response.payload.get("execution_id")
+        "status": "queued_for_triune_approval",
+        "tool_id": request.tool_id,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     }
 
 
@@ -290,6 +302,7 @@ async def get_mcp_history(
 ):
     """Get MCP execution history"""
     from services.mcp_server import mcp_server
+    mcp_server.set_db(get_db())
     return {"executions": mcp_server.get_execution_history(tool_id=tool_id, limit=limit)}
 
 
@@ -297,6 +310,7 @@ async def get_mcp_history(
 async def get_mcp_status(current_user: dict = Depends(get_current_user)):
     """Get MCP server status"""
     from services.mcp_server import mcp_server
+    mcp_server.set_db(get_db())
     return mcp_server.get_server_status()
 
 
@@ -595,6 +609,7 @@ async def generate_kyber_keypair(
 ):
     """Generate a Kyber key pair (post-quantum KEM)"""
     from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
     
     keypair = quantum_security.generate_kyber_keypair(key_id, security_level)
     
@@ -614,6 +629,7 @@ async def generate_dilithium_keypair(
 ):
     """Generate a Dilithium key pair (post-quantum signatures)"""
     from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
     
     keypair = quantum_security.generate_dilithium_keypair(key_id, security_level)
     
@@ -633,6 +649,7 @@ async def quantum_hybrid_encrypt(
 ):
     """Hybrid encrypt (Kyber + AES-GCM)"""
     from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
     
     encrypted = quantum_security.hybrid_encrypt(
         plaintext.encode(),
@@ -650,6 +667,7 @@ async def quantum_hybrid_decrypt(
 ):
     """Hybrid decrypt (Kyber + AES-GCM)"""
     from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
     
     plaintext = quantum_security.hybrid_decrypt(key_id, encrypted_data)
     
@@ -666,6 +684,7 @@ async def list_quantum_keypairs(
 ):
     """List quantum key pairs"""
     from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
     return {"keypairs": quantum_security.get_keypairs(algorithm)}
 
 
@@ -673,6 +692,7 @@ async def list_quantum_keypairs(
 async def get_quantum_status(current_user: dict = Depends(get_current_user)):
     """Get quantum security status"""
     from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
     return quantum_security.get_quantum_status()
 
 
@@ -757,6 +777,13 @@ async def configure_ollama(
 ):
     """Configure Ollama for local AI reasoning"""
     result = _safe_call_ai_sync('configure_ollama', request.base_url, request.model)
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_ollama_configured",
+        entity_refs=[],
+        payload={"base_url": request.base_url, "model": request.model, "status": result.get("status") if isinstance(result, dict) else None},
+        trigger_triune=False,
+    )
     return result
 
 
@@ -847,6 +874,13 @@ async def configure_alerts(
         slack_webhook=request.slack_webhook_url,
         email_config=request.email_config
     )
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_alert_channels_configured",
+        entity_refs=[],
+        payload={"has_slack": bool(request.slack_webhook_url), "has_email": bool(request.email_config)},
+        trigger_triune=False,
+    )
     
     return {"status": "configured", **result}
 
@@ -860,6 +894,13 @@ async def test_alert(
     from services.vns_alerts import vns_alert_service
     
     results = vns_alert_service.test_alert(request.channel)
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_alert_test_sent",
+        entity_refs=[],
+        payload={"channel": request.channel},
+        trigger_triune=False,
+    )
     return {"status": "sent", "results": results}
 
 
@@ -879,6 +920,7 @@ class SandboxSubmitRequest(BaseModel):
 async def get_sandbox_status(current_user: dict = Depends(get_current_user)):
     """Get Cuckoo sandbox status"""
     from services.cuckoo_sandbox import cuckoo_sandbox
+    cuckoo_sandbox.set_db(get_db())
     
     return cuckoo_sandbox.get_status()
 
@@ -890,6 +932,7 @@ async def submit_file_to_sandbox(
 ):
     """Submit a file for sandbox analysis"""
     from services.cuckoo_sandbox import cuckoo_sandbox
+    cuckoo_sandbox.set_db(get_db())
     import tempfile
     import base64
     
@@ -911,9 +954,24 @@ async def submit_file_to_sandbox(
         except:
             pass
         
+        await emit_world_event(
+            get_db(),
+            event_type="advanced_sandbox_file_submitted",
+            entity_refs=[],
+            payload={"file_name": file_name, "status": result.get("status") if isinstance(result, dict) else None},
+            trigger_triune=False,
+        )
         return result
     elif request.file_path:
-        return cuckoo_sandbox.submit_file(request.file_path, request.options)
+        result = cuckoo_sandbox.submit_file(request.file_path, request.options)
+        await emit_world_event(
+            get_db(),
+            event_type="advanced_sandbox_file_submitted",
+            entity_refs=[],
+            payload={"file_path": request.file_path, "status": result.get("status") if isinstance(result, dict) else None},
+            trigger_triune=False,
+        )
+        return result
     else:
         raise HTTPException(status_code=400, detail="file_path or file_base64 required")
 
@@ -925,11 +983,20 @@ async def submit_url_to_sandbox(
 ):
     """Submit a URL for sandbox analysis"""
     from services.cuckoo_sandbox import cuckoo_sandbox
+    cuckoo_sandbox.set_db(get_db())
     
     if not request.url:
         raise HTTPException(status_code=400, detail="url required")
     
-    return cuckoo_sandbox.submit_url(request.url, request.options)
+    result = cuckoo_sandbox.submit_url(request.url, request.options)
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_sandbox_url_submitted",
+        entity_refs=[],
+        payload={"url": request.url, "status": result.get("status") if isinstance(result, dict) else None},
+        trigger_triune=False,
+    )
+    return result
 
 
 @router.get("/sandbox/task/{task_id}")
@@ -939,6 +1006,7 @@ async def get_sandbox_task_status(
 ):
     """Get sandbox task status"""
     from services.cuckoo_sandbox import cuckoo_sandbox
+    cuckoo_sandbox.set_db(get_db())
     
     return cuckoo_sandbox.get_task_status(task_id)
 
@@ -950,6 +1018,6 @@ async def get_sandbox_report(
 ):
     """Get full sandbox analysis report"""
     from services.cuckoo_sandbox import cuckoo_sandbox
+    cuckoo_sandbox.set_db(get_db())
     
     return cuckoo_sandbox.get_report(task_id)
-

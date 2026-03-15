@@ -13,6 +13,16 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field, asdict
+import asyncio
+import threading
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger('seraph.threat_hunting')
 
@@ -83,6 +93,30 @@ class ThreatHuntingEngine:
         self._load_default_rules()
         
         logger.info(f"Threat Hunting Engine initialized with {len(self.rules)} rules")
+
+    def set_db(self, db):
+        self.db = db
+
+    def _emit_hunting_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        if emit_world_event is None or getattr(self, "db", None) is None:
+            return
+        coro = emit_world_event(self.db, event_type=event_type, entity_refs=entity_refs, payload=payload, trigger_triune=trigger_triune)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def _load_default_rules(self):
         """Load MITRE ATT&CK-based hunting rules"""
@@ -1131,6 +1165,12 @@ class ThreatHuntingEngine:
                 )
                 matches.append(match)
                 self.matches.append(match)
+                self._emit_hunting_event(
+                    event_type="threat_hunting_match_found",
+                    entity_refs=[rule.rule_id, rule.mitre_technique],
+                    payload={"severity": rule.severity, "source": "process", "confidence": confidence},
+                    trigger_triune=rule.severity in {"critical", "high"},
+                )
         
         return matches
     
@@ -1183,6 +1223,12 @@ class ThreatHuntingEngine:
                 )
                 matches.append(match)
                 self.matches.append(match)
+                self._emit_hunting_event(
+                    event_type="threat_hunting_match_found",
+                    entity_refs=[rule.rule_id, rule.mitre_technique],
+                    payload={"severity": rule.severity, "source": "network", "confidence": confidence},
+                    trigger_triune=rule.severity in {"critical", "high"},
+                )
         
         return matches
     
@@ -1202,6 +1248,12 @@ class ThreatHuntingEngine:
             all_matches.extend(matches)
         
         self.stats["matches_found"] += len(all_matches)
+        self._emit_hunting_event(
+            event_type="threat_hunting_run_completed",
+            entity_refs=[],
+            payload={"matches_found": len(all_matches), "hunts_executed": self.stats["hunts_executed"]},
+            trigger_triune=len(all_matches) > 0,
+        )
         
         return all_matches
     

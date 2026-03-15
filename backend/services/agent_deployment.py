@@ -22,6 +22,14 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,6 +99,27 @@ class AgentDeploymentService:
         }
         
         logger.info("Agent Deployment Service initialized")
+
+    async def _emit_deployment_event(
+        self,
+        event_type: str,
+        entity_refs: Optional[List[str]] = None,
+        payload: Optional[Dict] = None,
+        trigger_triune: bool = False,
+    ):
+        """Best-effort canonical event emission for deployment lifecycle."""
+        if emit_world_event is None or self.db is None:
+            return
+        try:
+            await emit_world_event(
+                self.db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=trigger_triune,
+            )
+        except Exception:
+            pass
 
     @staticmethod
     def _now_iso() -> str:
@@ -385,6 +414,16 @@ class AgentDeploymentService:
         
         # Add to queue
         await self.deployment_queue.put(task)
+
+        await self._emit_deployment_event(
+            event_type="agent_deployment_task_queued",
+            entity_refs=[task.task_id, device_ip],
+            payload={
+                "os_type": os_type,
+                "method": method.value,
+            },
+            trigger_triune=False,
+        )
         
         logger.info(f"Queued deployment for {device_ip} ({os_type}) via {method.value}")
         return task.task_id
@@ -483,6 +522,16 @@ class AgentDeploymentService:
                 )
                 
                 logger.info(f"Successfully {'simulated' if is_simulation else 'deployed'} agent to {task.device_ip}")
+                await self._emit_deployment_event(
+                    event_type="agent_deployment_completed",
+                    entity_refs=[task.task_id, task.device_ip],
+                    payload={
+                        "simulated": is_simulation,
+                        "method": task.method.value,
+                        "attempts": task.attempts,
+                    },
+                    trigger_triune=True,
+                )
             else:
                 raise Exception(task.error_message or "Deployment failed")
                 
@@ -509,6 +558,16 @@ class AgentDeploymentService:
                 )
                 await self.deployment_queue.put(task)
                 logger.warning(f"Deployment to {task.device_ip} failed (attempt {task.attempts}), retrying...")
+                await self._emit_deployment_event(
+                    event_type="agent_deployment_retry_queued",
+                    entity_refs=[task.task_id, task.device_ip],
+                    payload={
+                        "attempts": task.attempts,
+                        "max_attempts": task.max_attempts,
+                        "error": task.error_message,
+                    },
+                    trigger_triune=False,
+                )
             else:
                 task.status = "failed"
                 await self._transition_task_status(
@@ -528,6 +587,17 @@ class AgentDeploymentService:
                     extra_updates={"error_message": task.error_message},
                 )
                 logger.error(f"Deployment to {task.device_ip} failed: {e}")
+                await self._emit_deployment_event(
+                    event_type="agent_deployment_failed",
+                    entity_refs=[task.task_id, task.device_ip],
+                    payload={
+                        "attempts": task.attempts,
+                        "max_attempts": task.max_attempts,
+                        "error": task.error_message,
+                        "method": task.method.value,
+                    },
+                    trigger_triune=True,
+                )
     
     async def _deploy_via_ssh(self, task: DeploymentTask) -> bool:
         """Deploy agent via SSH using paramiko"""

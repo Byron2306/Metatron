@@ -33,6 +33,15 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 from dataclasses import dataclass, asdict, field
 from collections import defaultdict
 from enum import Enum
+import asyncio
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -1520,6 +1529,29 @@ class TimelineBuilder:
     _artifact_tracker = None
     _incident_correlator = None
     _report_generator = None
+
+    @classmethod
+    async def _emit_timeline_event(cls, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict[str, Any]] = None):
+        if emit_world_event is None or cls._db is None:
+            return
+        try:
+            await emit_world_event(
+                cls._db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=False,
+                source="backend.threat_timeline",
+            )
+        except Exception:
+            pass
+
+    @classmethod
+    def _emit_timeline_event_sync(cls, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict[str, Any]] = None):
+        try:
+            asyncio.run(cls._emit_timeline_event(event_type, entity_refs, payload))
+        except Exception:
+            pass
     
     @classmethod
     def initialize_enterprise_components(cls):
@@ -1577,6 +1609,7 @@ class TimelineBuilder:
         # Get the main threat
         threat = await cls._db.threats.find_one({"id": threat_id}, {"_id": 0})
         if not threat:
+            await cls._emit_timeline_event("threat_timeline_build_failed", [threat_id], {"reason": "threat_not_found"})
             return None
         
         events = []
@@ -1768,6 +1801,11 @@ class TimelineBuilder:
         # Add to correlator for multi-incident analysis
         cls._incident_correlator.add_timeline(timeline)
         
+        await cls._emit_timeline_event(
+            "threat_timeline_built",
+            [threat_id],
+            {"event_count": len(timeline.events), "full_analysis": full_analysis},
+        )
         return timeline
     
     @classmethod
@@ -2050,7 +2088,13 @@ class TimelineBuilder:
     ) -> str:
         """Generate report using enterprise report generator"""
         cls.initialize_enterprise_components()
-        return cls._report_generator.generate_report(timeline, report_type)
+        report = cls._report_generator.generate_report(timeline, report_type)
+        cls._emit_timeline_event_sync(
+            "threat_timeline_report_generated",
+            [timeline.threat_id],
+            {"report_type": report_type.value if hasattr(report_type, "value") else str(report_type)},
+        )
+        return report
     
     @classmethod
     def find_related_incidents(cls, threat_id: str) -> List[Dict]:
@@ -2107,12 +2151,18 @@ class TimelineBuilder:
     ) -> bool:
         """Append a custody action entry for an artifact."""
         cls.initialize_enterprise_components()
-        return cls._artifact_tracker.update_custody(
+        ok = cls._artifact_tracker.update_custody(
             artifact_id=artifact_id,
             action=action,
             actor=actor,
             notes=notes,
         )
+        cls._emit_timeline_event_sync(
+            "threat_timeline_artifact_custody_updated",
+            [artifact_id],
+            {"action": action, "actor": actor, "success": bool(ok)},
+        )
+        return ok
     
     @classmethod
     def add_playbook(cls, pb_id: str, playbook: PlaybookSuggestion):
