@@ -321,6 +321,61 @@ async def _collect_audit_and_world_event_evidence(techniques: Dict[str, Dict], d
         techniques[technique]["sources"].update(source_map.get(technique, set()))
 
 
+async def _collect_celery_task_attack_metadata(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from standardized Celery task metadata envelopes."""
+    if db is None:
+        return
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    source_specs = [
+        ("world_events", {"source": {"$in": ["celery_app", "task.integrations"]}}, "celery_world_event"),
+        ("integrations_jobs", {}, "celery_integration_job"),
+    ]
+
+    for collection_name, query, source_tag in source_specs:
+        col = getattr(db, collection_name, None)
+        if col is None:
+            continue
+        try:
+            docs = await col.find(query, {"_id": 0}).to_list(length=800)
+        except Exception:
+            docs = []
+
+        for doc in docs:
+            candidates = [
+                doc.get("attack_metadata"),
+                (doc.get("payload") or {}).get("attack_metadata"),
+                (doc.get("result") or {}).get("attack_metadata"),
+            ]
+            local_techniques: Set[str] = set()
+            for candidate in candidates:
+                local_techniques.update(_extract_attack_techniques(candidate))
+            if not local_techniques:
+                continue
+
+            doc_score = 3
+            status = str(doc.get("status", "")).lower()
+            event_type = str(doc.get("event_type", "")).lower()
+            if status == "completed" or event_type.endswith("completed") or event_type.endswith("failed"):
+                doc_score = 4
+
+            for technique in local_techniques:
+                counts[technique] = counts.get(technique, 0) + 1
+                source_map.setdefault(technique, set()).add(source_tag)
+                max_score[technique] = max(max_score.get(technique, 0), doc_score)
+
+    for technique, seen_count in counts.items():
+        techniques.setdefault(technique, {"score": 0, "sources": set()})
+        score = max_score.get(technique, 3)
+        if seen_count >= 3 or len(source_map.get(technique, set())) >= 2:
+            score = max(score, 4)
+        techniques[technique]["score"] = max(techniques[technique]["score"], score)
+        techniques[technique]["sources"].update(source_map.get(technique, set()))
+
+
 async def _collect_supply_chain(techniques: Dict[str, Dict], db: Any):
     """Collect supply-chain ATT&CK depth for T1195/T1195.002/T1553.006."""
     # Baseline: policy controls configured in runtime environment.
@@ -501,6 +556,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_threat_intel(techniques)
     # Technique update pass #3: evidence from canonical audit/event telemetry.
     await _collect_audit_and_world_event_evidence(techniques, db)
+    # Technique update pass #4: Celery task ATT&CK metadata envelope evidence.
+    await _collect_celery_task_attack_metadata(techniques, db)
     # Technique update pass #1: supply-chain compromise depth (T1195 family)
     await _collect_supply_chain(techniques, db)
     # Technique update pass #2: secure-boot and firmware integrity techniques
