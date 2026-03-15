@@ -17,6 +17,14 @@ except Exception:
     except Exception:
         emit_world_event = None
 
+try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    try:
+        from backend.services.telemetry_chain import tamper_evident_telemetry
+    except Exception:
+        tamper_evident_telemetry = None
+
 logger = logging.getLogger(__name__)
 
 _governance_executor_task: Optional[asyncio.Task] = None
@@ -53,6 +61,92 @@ class GovernanceExecutorService:
             "queue_id": queue_id,
             "action_type": action_type,
         }
+
+    async def _emit_execution_completion_event(
+        self,
+        *,
+        decision_id: Optional[str],
+        queue_id: Optional[str],
+        action_type: str,
+        outcome: str,
+        reason: Optional[str] = None,
+        command_id: Optional[str] = None,
+        command_type: Optional[str] = None,
+        token_id: Optional[str] = None,
+        execution_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
+    ) -> None:
+        if emit_world_event is None:
+            return
+        refs = [r for r in [decision_id, queue_id, command_id, token_id, execution_id] if r]
+        payload = {
+            "decision_id": decision_id,
+            "queue_id": queue_id,
+            "action_type": action_type,
+            "outcome": outcome,
+            "reason": reason,
+            "command_id": command_id,
+            "command_type": command_type,
+            "token_id": token_id,
+            "execution_id": execution_id,
+            "trace_id": trace_id,
+        }
+        await emit_world_event(
+            self.db,
+            event_type="governance_execution_completed",
+            entity_refs=refs,
+            payload=payload,
+            trigger_triune=outcome == "failed",
+            source="governance_executor",
+        )
+
+    def _record_execution_audit(
+        self,
+        *,
+        decision_id: Optional[str],
+        queue_id: Optional[str],
+        action_type: str,
+        outcome: str,
+        reason: Optional[str] = None,
+        actor: Optional[str] = None,
+        targets: Optional[list] = None,
+        command_id: Optional[str] = None,
+        command_type: Optional[str] = None,
+        token_id: Optional[str] = None,
+        execution_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
+    ) -> None:
+        if tamper_evident_telemetry is None:
+            return
+        try:
+            tamper_evident_telemetry.set_db(self.db)
+            resolved_targets = [str(t) for t in (targets or []) if t]
+            if not resolved_targets:
+                resolved_targets = [str(x) for x in [queue_id, command_id, token_id] if x]
+            tamper_evident_telemetry.record_action(
+                principal=f"service:{actor or 'governance_executor'}",
+                principal_trust_state="trusted",
+                action=f"governance_execution:{action_type}",
+                targets=resolved_targets,
+                policy_decision_id=decision_id,
+                governance_decision_id=decision_id,
+                governance_queue_id=queue_id,
+                token_id=token_id,
+                execution_id=execution_id or command_id or "",
+                trace_id=trace_id,
+                constraints={
+                    "command_type": command_type,
+                    "reason": reason,
+                },
+                result="success" if outcome == "executed" else ("denied" if outcome == "skipped" else "failed"),
+                result_details=reason,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to record governance execution audit for decision=%s queue=%s",
+                decision_id,
+                queue_id,
+            )
 
     async def process_approved_decisions(self, *, limit: int = 100) -> Dict[str, Any]:
         cursor = self.db.triune_decisions.find(
@@ -97,15 +191,30 @@ class GovernanceExecutorService:
             {"_id": 0},
         )
         if not queue_doc:
+            reason = f"Queue document not found: {related_queue_id}"
             await self.db.triune_decisions.update_one(
                 {"decision_id": decision_id},
                 {
                     "$set": {
                         "execution_status": "failed",
-                        "execution_error": f"Queue document not found: {related_queue_id}",
+                        "execution_error": reason,
                         "updated_at": now,
                     }
                 },
+            )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type="unknown",
+                outcome="failed",
+                reason=reason,
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type="unknown",
+                outcome="failed",
+                reason=reason,
             )
             return {"outcome": "failed", "reason": "queue_not_found"}
 
@@ -142,6 +251,22 @@ class GovernanceExecutorService:
                     trigger_triune=False,
                     source="governance_executor",
                 )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="skipped",
+                reason="unsupported_action_type",
+                actor=actor,
+                targets=[related_queue_id, decision_id, action_type],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="skipped",
+                reason="unsupported_action_type",
+            )
             return {"outcome": "skipped", "reason": "unsupported_action_type"}
 
         agent_id = queue_doc.get("subject_id") or payload.get("agent_id")
@@ -155,15 +280,37 @@ class GovernanceExecutorService:
         parameters = payload.get("parameters") or payload.get("params") or payload.get("payload") or {}
 
         if not agent_id or not command_id:
+            reason = "missing agent_id or command_id in approved payload"
             await self.db.triune_decisions.update_one(
                 {"decision_id": decision_id},
                 {
                     "$set": {
                         "execution_status": "failed",
-                        "execution_error": "missing agent_id or command_id in approved payload",
+                        "execution_error": reason,
                         "updated_at": now,
                     }
                 },
+            )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=reason,
+                actor=actor,
+                command_id=command_id,
+                command_type=command_type,
+                targets=[agent_id, command_id, related_queue_id],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=reason,
+                command_id=command_id,
+                command_type=command_type,
+                execution_id=command_id,
             )
             return {"outcome": "failed", "reason": "missing_agent_or_command"}
 
@@ -228,18 +375,69 @@ class GovernanceExecutorService:
                     trigger_triune=False,
                     source="governance_executor",
                 )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="executed",
+                actor=actor,
+                command_id=command_id,
+                command_type=command_type,
+                token_id=str(payload.get("token_id") or ""),
+                execution_id=command_id,
+                trace_id=str(payload.get("trace_id") or ""),
+                targets=[agent_id, command_id, related_queue_id],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="executed",
+                command_id=command_id,
+                command_type=command_type,
+                token_id=str(payload.get("token_id") or ""),
+                execution_id=command_id,
+                trace_id=str(payload.get("trace_id") or ""),
+            )
             return {"outcome": "executed"}
         except Exception as exc:
             logger.exception("Failed to execute approved decision %s: %s", decision_id, exc)
+            error_reason = str(exc)
             await self.db.triune_decisions.update_one(
                 {"decision_id": decision_id},
                 {
                     "$set": {
                         "execution_status": "failed",
-                        "execution_error": str(exc),
+                        "execution_error": error_reason,
                         "updated_at": _iso_now(),
                     }
                 },
+            )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=error_reason,
+                actor=actor,
+                command_id=command_id,
+                command_type=command_type,
+                token_id=str(payload.get("token_id") or ""),
+                execution_id=command_id,
+                trace_id=str(payload.get("trace_id") or ""),
+                targets=[agent_id, command_id, related_queue_id],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=error_reason,
+                command_id=command_id,
+                command_type=command_type,
+                token_id=str(payload.get("token_id") or ""),
+                execution_id=command_id,
+                trace_id=str(payload.get("trace_id") or ""),
             )
             return {"outcome": "failed", "reason": "execution_exception"}
 
@@ -354,15 +552,41 @@ class GovernanceExecutorService:
                     trigger_triune=False,
                     source="governance_executor",
                 )
+            resolved_token_id = str(op_result.get("token_id") or "")
+            resolved_trace_id = str(payload.get("trace_id") or "")
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="executed",
+                actor=actor,
+                token_id=resolved_token_id,
+                execution_id=resolved_token_id or f"{operation}:{decision_id}",
+                trace_id=resolved_trace_id,
+                command_type=operation,
+                targets=[payload.get("principal"), resolved_token_id, related_queue_id],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="executed",
+                reason=operation,
+                command_type=operation,
+                token_id=resolved_token_id,
+                execution_id=resolved_token_id or f"{operation}:{decision_id}",
+                trace_id=resolved_trace_id,
+            )
             return {"outcome": "executed", "result": op_result}
         except Exception as exc:
             logger.exception("Failed token operation '%s' for decision %s: %s", operation, decision_id, exc)
+            error_reason = str(exc)
             await self.db.triune_decisions.update_one(
                 {"decision_id": decision_id},
                 {
                     "$set": {
                         "execution_status": "failed",
-                        "execution_error": str(exc),
+                        "execution_error": error_reason,
                         "updated_at": _iso_now(),
                     }
                 },
@@ -375,6 +599,30 @@ class GovernanceExecutorService:
                         "updated_at": _iso_now(),
                     }
                 },
+            )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=error_reason,
+                actor=actor,
+                command_type=operation,
+                token_id=str(payload.get("token_id") or ""),
+                execution_id=str(payload.get("token_id") or f"{operation}:{decision_id}"),
+                trace_id=str(payload.get("trace_id") or ""),
+                targets=[payload.get("principal"), payload.get("token_id"), related_queue_id],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=error_reason,
+                command_type=operation,
+                token_id=str(payload.get("token_id") or ""),
+                execution_id=str(payload.get("token_id") or f"{operation}:{decision_id}"),
+                trace_id=str(payload.get("trace_id") or ""),
             )
             return {"outcome": "failed", "reason": "token_operation_exception"}
 

@@ -126,7 +126,12 @@ class AuditActionRequest(BaseModel):
     case_id: Optional[str] = None
     evidence_refs: Optional[List[str]] = None
     policy_decision_hash: Optional[str] = None
+    policy_decision_id: Optional[str] = None
+    governance_decision_id: Optional[str] = None
+    governance_queue_id: Optional[str] = None
     token_id: Optional[str] = None
+    execution_id: Optional[str] = None
+    trace_id: Optional[str] = None
     tool_id: Optional[str] = None
     constraints: Optional[Dict] = None
 
@@ -655,7 +660,12 @@ async def record_audit_action(
         case_id=request.case_id,
         evidence_refs=request.evidence_refs,
         policy_decision_hash=request.policy_decision_hash,
+        policy_decision_id=request.policy_decision_id,
+        governance_decision_id=request.governance_decision_id,
+        governance_queue_id=request.governance_queue_id,
         token_id=request.token_id,
+        execution_id=request.execution_id,
+        trace_id=request.trace_id,
         tool_id=request.tool_id,
         constraints=request.constraints
     )

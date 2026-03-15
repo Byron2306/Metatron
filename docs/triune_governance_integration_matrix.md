@@ -83,3 +83,10 @@ Goal: every execution is cryptographically/audit-linked to policy + decision + t
 
 - Persist decision-policy-token-execution linkage.
 - Emit mandatory execution completion events for recompute feedback.
+
+#### Phase 4 progress (this iteration)
+
+- `telemetry_chain.AuditRecord` now persists explicit linkage fields: `policy_decision_id`, `governance_decision_id`, `governance_queue_id`, `token_id`, `execution_id`, and `trace_id`.
+- `governance_executor` now emits mandatory `governance_execution_completed` world events for executed/skipped/failed outcomes with decision/queue/token/execution linkage in payload.
+- `governance_executor` now records audit-chain entries for every terminal execution outcome (success/skip/failure), binding queue decisions to execution artifacts.
+- `mcp_server` now writes execution audit-chain records with governance + token linkage for terminal MCP execution outcomes (including token-validation failures).

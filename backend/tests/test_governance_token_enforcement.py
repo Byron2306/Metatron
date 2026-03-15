@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from backend.services.governance_executor import GovernanceExecutorService
+from backend.services.telemetry_chain import tamper_evident_telemetry
 from backend.services.token_broker import token_broker
 
 
@@ -113,11 +114,19 @@ def _reset_token_broker_state(monkeypatch):
     token_broker.active_tokens.clear()
     token_broker.revoked_tokens.clear()
     token_broker.token_admin_audit_log.clear()
+    tamper_evident_telemetry.audit_chain.clear()
+    tamper_evident_telemetry.event_chain.clear()
+    tamper_evident_telemetry.current_audit_hash = tamper_evident_telemetry.genesis_audit_hash
+    tamper_evident_telemetry.current_event_hash = tamper_evident_telemetry.genesis_event_hash
     monkeypatch.delenv("TOKEN_BROKER_ALLOW_UNGOVERNED_ADMIN_ACTIONS", raising=False)
     yield
     token_broker.active_tokens.clear()
     token_broker.revoked_tokens.clear()
     token_broker.token_admin_audit_log.clear()
+    tamper_evident_telemetry.audit_chain.clear()
+    tamper_evident_telemetry.event_chain.clear()
+    tamper_evident_telemetry.current_audit_hash = tamper_evident_telemetry.genesis_audit_hash
+    tamper_evident_telemetry.current_event_hash = tamper_evident_telemetry.genesis_event_hash
 
 
 def test_token_broker_issue_requires_approved_governance_context():
@@ -196,6 +205,11 @@ def test_governance_executor_executes_issue_token_operation(monkeypatch):
     decision_doc = asyncio.run(fake_db.triune_decisions.find_one({"decision_id": "decision-issue"}))
     assert decision_doc["execution_status"] == "executed"
     assert (decision_doc.get("execution_result") or {}).get("operation") == "issue_token"
+    assert len(tamper_evident_telemetry.audit_chain) >= 1
+    latest_audit = tamper_evident_telemetry.audit_chain[-1]
+    assert latest_audit.governance_decision_id == "decision-issue"
+    assert latest_audit.governance_queue_id == "queue-issue"
+    assert latest_audit.execution_id == token_id
 
 
 def test_governance_executor_executes_revoke_token_operation(monkeypatch):
@@ -244,3 +258,7 @@ def test_governance_executor_executes_revoke_token_operation(monkeypatch):
     assert result["executed"] == 1
     assert issued.token_id not in token_broker.active_tokens
     assert issued.token_id in token_broker.revoked_tokens
+    latest_audit = tamper_evident_telemetry.audit_chain[-1]
+    assert latest_audit.governance_decision_id == "decision-revoke"
+    assert latest_audit.governance_queue_id == "queue-revoke"
+    assert latest_audit.execution_id == issued.token_id

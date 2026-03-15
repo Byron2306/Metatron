@@ -29,6 +29,14 @@ except Exception:
     except Exception:
         emit_world_event = None
 
+try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    try:
+        from backend.services.telemetry_chain import tamper_evident_telemetry
+    except Exception:
+        tamper_evident_telemetry = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -321,6 +329,40 @@ class MCPServer:
             action=action,
             target=target,
         )
+
+    def _record_mcp_execution_audit(
+        self,
+        *,
+        execution: "MCPToolExecution",
+        trace_id: Optional[str],
+        governance_context: Optional[Dict[str, Any]],
+        result: str,
+        result_details: Optional[str] = None,
+        targets: Optional[List[str]] = None,
+    ) -> None:
+        if tamper_evident_telemetry is None:
+            return
+        try:
+            tamper_evident_telemetry.set_db(getattr(self, "db", None))
+            ctx = governance_context or {}
+            tamper_evident_telemetry.record_action(
+                principal=f"service:{execution.principal}",
+                principal_trust_state="trusted",
+                action="mcp_tool_execution",
+                targets=targets or [execution.tool_id],
+                policy_decision_id=execution.policy_decision_id,
+                governance_decision_id=ctx.get("decision_id"),
+                governance_queue_id=ctx.get("queue_id"),
+                token_id=execution.token_id,
+                execution_id=execution.execution_id,
+                trace_id=trace_id or "",
+                constraints={"tool_id": execution.tool_id},
+                result=result,
+                result_details=result_details,
+                tool_id=execution.tool_id,
+            )
+        except Exception:
+            logger.exception("Failed to record MCP execution audit for %s", execution.execution_id)
     
     def _sign_message(self, message: MCPMessage) -> str:
         """Sign a message"""
@@ -1787,6 +1829,12 @@ class MCPServer:
             )
             if governance_valid:
                 execution.policy_decision_id = validated_governance_context.get("decision_id") or execution.policy_decision_id
+        resolved_decision_id = (
+            validated_governance_context.get("decision_id")
+            or execution.policy_decision_id
+            or (str(decision_id) if decision_id else "")
+        )
+        resolved_queue_id = validated_governance_context.get("queue_id") or (str(queue_id) if queue_id else "")
 
         # Mandatory governance boundary: high-impact MCP tools must either have
         # server-validated approved governance context or be newly queued.
@@ -1824,6 +1872,8 @@ class MCPServer:
                         "governance_context_error": governance_error,
                         "caller_governance_approved": governance_approved,
                     }
+                    resolved_decision_id = str(gated.get("decision_id") or resolved_decision_id or "")
+                    resolved_queue_id = str(gated.get("queue_id") or resolved_queue_id or "")
                 except Exception as exc:
                     execution.status = "failed"
                     execution.error = f"Failed to outbound-gate MCP tool request: {exc}"
@@ -1838,6 +1888,11 @@ class MCPServer:
                 payload={
                     "status": execution.status,
                     "policy_decision_id": execution.policy_decision_id,
+                    "governance_decision_id": resolved_decision_id,
+                    "governance_queue_id": resolved_queue_id,
+                    "token_id": execution.token_id,
+                    "execution_id": execution.execution_id,
+                    "trace_id": message.trace_id,
                     "requires_governance": True,
                     "governance_error": governance_error,
                 },
@@ -1879,12 +1934,28 @@ class MCPServer:
                 execution.audit_hash = hashlib.sha256(
                     json.dumps(asdict(execution), sort_keys=True).encode()
                 ).hexdigest()[:32]
+                self._record_mcp_execution_audit(
+                    execution=execution,
+                    trace_id=message.trace_id,
+                    governance_context={
+                        "decision_id": resolved_decision_id,
+                        "queue_id": resolved_queue_id,
+                    },
+                    result="failed",
+                    result_details=execution.error,
+                    targets=[tool_id, target],
+                )
                 await self._emit_mcp_event(
                     event_type="mcp_tool_request_executed",
                     entity_refs=[execution.execution_id, execution.tool_id, execution.principal],
                     payload={
                         "status": execution.status,
                         "policy_decision_id": execution.policy_decision_id,
+                        "governance_decision_id": resolved_decision_id,
+                        "governance_queue_id": resolved_queue_id,
+                        "token_id": execution.token_id,
+                        "execution_id": execution.execution_id,
+                        "trace_id": message.trace_id,
                         "has_error": True,
                         "token_validation_failed": True,
                     },
@@ -1950,6 +2021,17 @@ class MCPServer:
         execution.audit_hash = hashlib.sha256(
             json.dumps(asdict(execution), sort_keys=True).encode()
         ).hexdigest()[:32]
+        self._record_mcp_execution_audit(
+            execution=execution,
+            trace_id=message.trace_id,
+            governance_context={
+                "decision_id": resolved_decision_id,
+                "queue_id": resolved_queue_id,
+            },
+            result="success" if execution.status == "success" else "failed",
+            result_details=execution.error,
+            targets=[tool_id, str(payload.get("target") or tool_id)],
+        )
 
         await self._emit_mcp_event(
             event_type="mcp_tool_request_executed",
@@ -1957,6 +2039,11 @@ class MCPServer:
             payload={
                 "status": execution.status,
                 "policy_decision_id": execution.policy_decision_id,
+                "governance_decision_id": resolved_decision_id,
+                "governance_queue_id": resolved_queue_id,
+                "token_id": execution.token_id,
+                "execution_id": execution.execution_id,
+                "trace_id": message.trace_id,
                 "has_error": execution.error is not None,
             },
             trigger_triune=execution.status in {"failed", "timeout"},

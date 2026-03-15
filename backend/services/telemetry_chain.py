@@ -72,9 +72,14 @@ class AuditRecord:
     case_id: Optional[str]
     evidence_refs: List[str]
     policy_decision_hash: str
+    policy_decision_id: str
+    governance_decision_id: str
+    governance_queue_id: str
     
     # How
     token_id: str               # Capability token used
+    execution_id: str
+    trace_id: str
     constraints: Dict[str, Any]
     
     # Result
@@ -347,6 +352,11 @@ class TamperEvidentTelemetry:
                       action: str, targets: List[str],
                       case_id: str = None, evidence_refs: List[str] = None,
                       policy_decision_hash: str = None, token_id: str = None,
+                      policy_decision_id: str = None,
+                      governance_decision_id: str = None,
+                      governance_queue_id: str = None,
+                      execution_id: str = None,
+                      trace_id: str = None,
                       constraints: Dict = None, tool_id: str = None,
                       result: str = "pending", result_details: str = None,
                       output_artifact_ids: List[str] = None) -> AuditRecord:
@@ -380,7 +390,12 @@ class TamperEvidentTelemetry:
             case_id=case_id,
             evidence_refs=evidence_refs or [],
             policy_decision_hash=policy_decision_hash or "",
+            policy_decision_id=policy_decision_id or "",
+            governance_decision_id=governance_decision_id or "",
+            governance_queue_id=governance_queue_id or "",
             token_id=token_id or "",
+            execution_id=execution_id or "",
+            trace_id=trace_id or "",
             constraints=constraints or {},
             result=result,
             result_details=result_details,
@@ -396,7 +411,17 @@ class TamperEvidentTelemetry:
         self._emit_telemetry_event(
             event_type="telemetry_audit_recorded",
             entity_refs=[record.record_id, principal],
-            payload={"action": action, "result": result, "target_count": len(targets)},
+            payload={
+                "action": action,
+                "result": result,
+                "target_count": len(targets),
+                "policy_decision_id": record.policy_decision_id,
+                "governance_decision_id": record.governance_decision_id,
+                "governance_queue_id": record.governance_queue_id,
+                "token_id": record.token_id,
+                "execution_id": record.execution_id,
+                "trace_id": record.trace_id,
+            },
             trigger_triune=result in {"failed", "denied"},
         )
         
