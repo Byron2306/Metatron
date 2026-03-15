@@ -146,6 +146,14 @@ TECHNIQUE_TO_TACTIC = {
     "T1595.002": "TA0043",
     "T1592.002": "TA0043",
     "T1573": "TA0011",
+    "T1595.001": "TA0043",
+    "T1016": "TA0007",
+    "T1082": "TA0007",
+    "T1083": "TA0007",
+    "T1098": "TA0003",
+    "T1136": "TA0003",
+    "T1548": "TA0004",
+    "T1560": "TA0009",
 }
 
 PRIORITY_GAPS = [
@@ -322,6 +330,70 @@ TRIVY_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
     "secret": ["T1552.001", "T1552.005"],
     "deserialization": ["T1190"],
     "injection": ["T1190"],
+}
+
+AI_ANALYSIS_TYPE_TECHNIQUES: Dict[str, List[str]] = {
+    "threat_detection": ["T1190", "T1059.001", "T1071"],
+    "behavior_analysis": ["T1036", "T1059", "T1078"],
+    "malware_scan": ["T1204", "T1105", "T1027"],
+    "pattern_recognition": ["T1595.001", "T1071", "T1021"],
+}
+
+AI_REASONING_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "ai agent": ["T1059.001", "T1190"],
+    "autonomous": ["T1059", "T1036"],
+    "pattern": ["T1595.001", "T1046"],
+    "threat actor": ["T1589", "T1591"],
+    "campaign": ["T1595.001", "T1021"],
+    "predicted": ["T1021", "T1570"],
+    "lateral": ["T1021", "T1570"],
+    "credential": ["T1003.001", "T1555", "T1078"],
+}
+
+ML_CATEGORY_TECHNIQUES: Dict[str, List[str]] = {
+    "malware": ["T1204", "T1059", "T1105"],
+    "ransomware": ["T1486", "T1490", "T1485"],
+    "apt": ["T1566", "T1071", "T1059.001"],
+    "insider_threat": ["T1078", "T1005"],
+    "data_exfiltration": ["T1041", "T1048", "T1560"],
+    "cryptominer": ["T1496", "T1059"],
+    "botnet": ["T1071", "T1095", "T1041"],
+    "phishing": ["T1566", "T1566.001"],
+    "lateral_movement": ["T1021", "T1570"],
+    "privilege_escalation": ["T1068", "T1548"],
+}
+
+STRATEGY_CANDIDATE_TECHNIQUES: Dict[str, List[str]] = {
+    "isolate": ["T1021", "T1570"],
+    "quarantine": ["T1021", "T1570"],
+    "block_egress": ["T1041", "T1071", "T1048"],
+    "block outbound": ["T1041", "T1071", "T1048"],
+    "rotate_credentials": ["T1078", "T1555"],
+    "force_password_reset": ["T1078", "T1555"],
+    "step_up_authentication": ["T1078", "T1555"],
+    "deploy_deception": ["T1588", "T1552.001"],
+    "seed_decoy_credential_path": ["T1552.001", "T1588"],
+    "throttle_remote_execution": ["T1021.002", "T1021.006"],
+    "investigate": ["T1046", "T1016"],
+}
+
+CORRELATION_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "ioc": ["T1071", "T1041"],
+    "matched indicator": ["T1071", "T1041"],
+    "threat actor": ["T1589", "T1591"],
+    "campaign": ["T1595.001", "T1021"],
+    "credential": ["T1003.001", "T1555", "T1078"],
+    "lateral movement": ["T1021", "T1570"],
+    "auto action": ["T1046", "T1071"],
+}
+
+SIMULATION_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "attack path": ["T1046", "T1016", "T1021"],
+    "blast radius": ["T1021", "T1570", "T1190"],
+    "breach simulated": ["T1190", "T1021", "T1570"],
+    "monte carlo": ["T1595.001", "T1046"],
+    "predicted_next": ["T1021", "T1570"],
+    "choke point": ["T1046", "T1016"],
 }
 
 
@@ -2113,6 +2185,467 @@ async def _collect_container_tooling_evidence(techniques: Dict[str, Dict], db: A
     )
 
 
+async def _collect_ai_threat_mapping_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from AI threat mapping and cognition telemetry."""
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    def mark(local: Set[str], source: str, score: int, extra_sources: Set[str] | None = None) -> None:
+        local = {_normalize_technique(t) for t in local if _normalize_technique(t)}
+        if not local:
+            return
+        tags = set(extra_sources or set())
+        tags.add(source)
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).update(tags)
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    if db is not None:
+        try:
+            docs = await db.ai_analyses.find({}, {"_id": 0}).sort("created_at", -1).to_list(length=1200)
+        except Exception:
+            docs = []
+
+        for doc in docs:
+            local = _extract_attack_techniques(doc)
+            analysis_type = str(doc.get("type") or "").strip().lower()
+            local.update(_extract_keyword_techniques(doc, AI_REASONING_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(doc))
+            for mapped in AI_ANALYSIS_TYPE_TECHNIQUES.get(analysis_type, []):
+                normalized = _normalize_technique(mapped)
+                if normalized:
+                    local.add(normalized)
+
+            risk_score = _safe_int(doc.get("risk_score"))
+            indicator_count = len(doc.get("indicators") or doc.get("threat_indicators") or [])
+            recommendation_blob = " ".join(str(x) for x in (doc.get("recommendations") or []))
+            score = 3
+            if risk_score >= 70 or indicator_count >= 3:
+                score = 4
+            if any(token in recommendation_blob.lower() for token in ["isolate", "quarantine", "block", "contain"]):
+                score = max(score, 4)
+
+            type_source = f"ai_analysis_type_{analysis_type}" if analysis_type else "ai_analysis"
+            mark(local, "ai_analysis_record", score, extra_sources={type_source})
+
+        try:
+            ai_events = await db.world_events.find(
+                {"event_type": {"$regex": r"^(ai_|cognition_)", "$options": "i"}},
+                {"_id": 0, "event_type": 1, "payload": 1},
+            ).to_list(length=1500)
+        except Exception:
+            ai_events = []
+
+        for event in ai_events:
+            local = _extract_attack_techniques(event)
+            local.update(_extract_keyword_techniques(event, AI_REASONING_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(event))
+            event_type = str(event.get("event_type") or "").strip().lower()
+            payload = event.get("payload") or {}
+            if event_type.startswith("ai_") and not local:
+                local.update({"T1059.001", "T1190"})
+            if event_type.startswith("cognition_"):
+                local.update({"T1059", "T1021"})
+            score = 3
+            if _safe_int(payload.get("threat_score")) >= 70 or _safe_int(payload.get("match_count")) > 0:
+                score = 4
+            if event_type.endswith("completed"):
+                score = max(score, 4)
+            mark(local, "ai_cognition_world_event", score, extra_sources={f"event_{event_type}"})
+
+    try:
+        try:
+            from services.ai_reasoning import ai_reasoning
+        except Exception:
+            from backend.services.ai_reasoning import ai_reasoning
+    except Exception:
+        ai_reasoning = None
+
+    if ai_reasoning is not None:
+        analyses = getattr(ai_reasoning, "threat_analyses", {}) or {}
+        for analysis in analyses.values():
+            local = set()
+            for technique in getattr(analysis, "mitre_techniques", []) or []:
+                normalized = _normalize_technique(str(technique))
+                if normalized:
+                    local.add(normalized)
+            local.update(
+                _extract_keyword_techniques(
+                    " ".join(
+                        [
+                            str(getattr(analysis, "description", "")),
+                            " ".join(str(x) for x in (getattr(analysis, "indicators", []) or [])),
+                            " ".join(str(x) for x in (getattr(analysis, "recommended_actions", []) or [])),
+                        ]
+                    ),
+                    AI_REASONING_KEYWORD_TECHNIQUES,
+                )
+            )
+            score = 4 if _safe_int(getattr(analysis, "risk_score", 0)) >= 70 else 3
+            mark(local, "ai_reasoning_runtime_analysis", score)
+
+        for entry in (getattr(ai_reasoning, "reasoning_history", []) or [])[-250:]:
+            local = _extract_keyword_techniques(
+                " ".join(
+                    [
+                        str(getattr(entry, "query", "")),
+                        str(getattr(entry, "conclusion", "")),
+                        " ".join(str(x) for x in (getattr(entry, "evidence", []) or [])),
+                    ]
+                ),
+                AI_REASONING_KEYWORD_TECHNIQUES,
+            )
+            if not local:
+                continue
+            score = 4 if float(getattr(entry, "confidence", 0.0) or 0.0) >= 0.75 else 3
+            mark(local, "ai_reasoning_history", score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_ml_prediction_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from ML attack prediction telemetry."""
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    def mark(local: Set[str], source: str, score: int, extra_sources: Set[str] | None = None) -> None:
+        local = {_normalize_technique(t) for t in local if _normalize_technique(t)}
+        if not local:
+            return
+        tags = set(extra_sources or set())
+        tags.add(source)
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).update(tags)
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    async def ingest_doc(doc: Dict[str, Any], source: str) -> None:
+        local = _extract_attack_techniques(doc)
+        local.update(_extract_semantic_attack_techniques(doc))
+        category = str(doc.get("predicted_category") or doc.get("category") or "").strip().lower()
+        local.update(_extract_keyword_techniques(doc, ML_CATEGORY_TECHNIQUES))
+        for mapped in ML_CATEGORY_TECHNIQUES.get(category, []):
+            normalized = _normalize_technique(mapped)
+            if normalized:
+                local.add(normalized)
+
+        threat_score = _safe_int(doc.get("threat_score"))
+        risk_level = str(doc.get("risk_level") or "").strip().lower()
+        score = 4 if threat_score >= 70 or risk_level in {"critical", "high"} else 3
+        category_source = f"ml_category_{category}" if category else "ml_category_unknown"
+        entity_type = str(doc.get("entity_type") or "").strip().lower()
+        entity_source = f"ml_entity_{entity_type}" if entity_type else "ml_entity_unknown"
+        mark(local, source, score, extra_sources={category_source, entity_source})
+
+    if db is not None:
+        try:
+            predictions = await db.ml_predictions.find({}, {"_id": 0}).sort("timestamp", -1).to_list(length=1800)
+        except Exception:
+            predictions = []
+        for doc in predictions:
+            await ingest_doc(doc, "ml_prediction_record")
+
+        try:
+            prediction_events = await db.world_events.find(
+                {"event_type": {"$regex": r"^ml_.*prediction", "$options": "i"}},
+                {"_id": 0, "event_type": 1, "payload": 1},
+            ).to_list(length=1200)
+        except Exception:
+            prediction_events = []
+        for event in prediction_events:
+            event_type = str(event.get("event_type") or "").strip().lower()
+            payload = event.get("payload") or {}
+            local = _extract_attack_techniques(event)
+            local.update(_extract_keyword_techniques(event, ML_CATEGORY_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(event))
+            if "network" in event_type:
+                local.update({"T1046", "T1071"})
+            elif "process" in event_type:
+                local.update({"T1059", "T1055"})
+            elif "file" in event_type:
+                local.update({"T1204", "T1105"})
+            elif "user" in event_type:
+                local.update({"T1078", "T1555"})
+            elif "snapshot" in event_type:
+                local.update({"T1021", "T1570"})
+            score = 4 if _safe_int(payload.get("threat_score")) >= 70 else 3
+            mark(local, "ml_prediction_world_event", score, extra_sources={f"event_{event_type}"})
+
+    try:
+        try:
+            from ml_threat_prediction import ml_predictor
+        except Exception:
+            from backend.ml_threat_prediction import ml_predictor
+    except Exception:
+        ml_predictor = None
+
+    if ml_predictor is not None:
+        try:
+            in_memory = ml_predictor.get_predictions(limit=300) if hasattr(ml_predictor, "get_predictions") else []
+        except Exception:
+            in_memory = []
+        for row in in_memory:
+            if not isinstance(row, dict):
+                continue
+            await ingest_doc(row, "ml_prediction_runtime_cache")
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_strategy_simulation_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from Triune strategy telemetry and attack simulations."""
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    def mark(local: Set[str], source: str, score: int, extra_sources: Set[str] | None = None) -> None:
+        local = {_normalize_technique(t) for t in local if _normalize_technique(t)}
+        if not local:
+            return
+        tags = set(extra_sources or set())
+        tags.add(source)
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).update(tags)
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    if db is not None:
+        try:
+            triune_docs = await db.triune_analysis.find({}, {"_id": 0}).sort("created", -1).to_list(length=1200)
+        except Exception:
+            triune_docs = []
+        for doc in triune_docs:
+            local = _extract_attack_techniques(doc)
+            local.update(_extract_semantic_attack_techniques(doc))
+            candidates = doc.get("candidates") or []
+            ranked = doc.get("ranked") or []
+            top_score = 0.0
+            for row in ranked:
+                if isinstance(row, dict):
+                    candidate = str(row.get("candidate") or "")
+                    try:
+                        top_score = max(top_score, float(row.get("score") or 0.0))
+                    except Exception:
+                        pass
+                    local.update(_extract_keyword_techniques(candidate, STRATEGY_CANDIDATE_TECHNIQUES))
+                else:
+                    local.update(_extract_keyword_techniques(str(row), STRATEGY_CANDIDATE_TECHNIQUES))
+            for candidate in candidates:
+                local.update(_extract_keyword_techniques(str(candidate), STRATEGY_CANDIDATE_TECHNIQUES))
+            score = 4 if top_score >= 0.75 or len(ranked) >= 4 else 3
+            mark(local, "triune_strategy_analysis", score)
+
+        try:
+            strategy_events = await db.world_events.find(
+                {"event_type": {"$regex": r"^(michael_|triune_|attack_path_|beacon_cascade_)", "$options": "i"}},
+                {"_id": 0, "event_type": 1, "payload": 1},
+            ).to_list(length=1800)
+        except Exception:
+            strategy_events = []
+        for event in strategy_events:
+            event_type = str(event.get("event_type") or "").strip().lower()
+            local = _extract_attack_techniques(event)
+            local.update(_extract_semantic_attack_techniques(event))
+            local.update(_extract_keyword_techniques(event, STRATEGY_CANDIDATE_TECHNIQUES))
+            local.update(_extract_keyword_techniques(event, SIMULATION_KEYWORD_TECHNIQUES))
+            if "attack_path_breach_simulated" in event_type:
+                local.update({"T1190", "T1021", "T1570"})
+            elif "attack_path_analysis_completed" in event_type:
+                local.update({"T1595.001", "T1046", "T1016"})
+            elif "beacon_cascade_activated" in event_type:
+                local.update({"T1021", "T1570", "T1048"})
+            score = 4 if any(token in event_type for token in ["simulated", "completed", "activated"]) else 3
+            mark(local, "strategy_world_event", score, extra_sources={f"event_{event_type}"})
+
+        try:
+            campaign_docs = await db.campaigns.find({}, {"_id": 0}).sort("first_detected", -1).to_list(length=400)
+        except Exception:
+            campaign_docs = []
+        for campaign in campaign_docs:
+            local = _extract_attack_techniques(campaign)
+            local.update(_extract_semantic_attack_techniques(campaign))
+            local.update(_extract_keyword_techniques(campaign, SIMULATION_KEYWORD_TECHNIQUES))
+            predicted_next = campaign.get("predicted_next_moves") or campaign.get("predicted_next") or []
+            if predicted_next:
+                local.update({"T1021", "T1570"})
+            score = 4 if _safe_int(campaign.get("confidence"), default=0) >= 70 else 3
+            mark(local, "campaign_prediction_record", score)
+
+    try:
+        try:
+            from attack_path_analysis import get_attack_path_service
+        except Exception:
+            from backend.attack_path_analysis import get_attack_path_service
+        attack_path_service = get_attack_path_service()
+    except Exception:
+        attack_path_service = None
+
+    if attack_path_service is not None:
+        analysis = getattr(attack_path_service, "_last_analysis", None)
+        if isinstance(analysis, dict):
+            for path in (analysis.get("attack_paths") or [])[:400]:
+                if not isinstance(path, dict):
+                    continue
+                local = _extract_attack_techniques(path)
+                local.update(_extract_semantic_attack_techniques(path))
+                local.update(_extract_keyword_techniques(path, SIMULATION_KEYWORD_TECHNIQUES))
+                risk_score = _safe_int(path.get("risk_score"))
+                score = 4 if risk_score >= 70 else 3
+                mark(local, "attack_path_runtime_analysis", score)
+
+        runtime_paths = getattr(getattr(attack_path_service, "analyzer", None), "_attack_paths", []) or []
+        for path in runtime_paths[:300]:
+            local: Set[str] = set()
+            for technique in getattr(path, "mitre_techniques", []) or []:
+                normalized = _normalize_technique(str(technique))
+                if normalized:
+                    local.add(normalized)
+            local.update(_extract_keyword_techniques(str(path), SIMULATION_KEYWORD_TECHNIQUES))
+            path_score = _safe_int(getattr(path, "risk_score", 0))
+            score = 4 if path_score >= 70 else 3
+            mark(local, "attack_path_runtime_paths", score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_threat_correlation_telemetry_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from correlation engine outputs and telemetry."""
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    def mark(local: Set[str], source: str, score: int, extra_sources: Set[str] | None = None) -> None:
+        local = {_normalize_technique(t) for t in local if _normalize_technique(t)}
+        if not local:
+            return
+        tags = set(extra_sources or set())
+        tags.add(source)
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).update(tags)
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    def extract_from_correlation_doc(doc: Dict[str, Any]) -> Set[str]:
+        local = _extract_attack_techniques(doc)
+        local.update(_extract_semantic_attack_techniques(doc))
+        local.update(_extract_keyword_techniques(doc, CORRELATION_KEYWORD_TECHNIQUES))
+        attribution = doc.get("attribution") or {}
+        for raw in attribution.get("mitre_techniques") or []:
+            normalized = _normalize_technique(str(raw))
+            if normalized:
+                local.add(normalized)
+        return local
+
+    if db is not None:
+        try:
+            docs = await db.threat_correlations.find({}, {"_id": 0}).sort("timestamp", -1).to_list(length=1200)
+        except Exception:
+            docs = []
+        for doc in docs:
+            confidence = str(doc.get("confidence") or "").strip().lower()
+            auto_actions = doc.get("auto_actions_taken") or []
+            matched = doc.get("matched_indicators") or []
+            local = extract_from_correlation_doc(doc)
+            score = 3
+            if confidence == "high" or len(auto_actions) > 0 or len(matched) >= 3:
+                score = 4
+            mark(
+                local,
+                "threat_correlation_record",
+                score,
+                extra_sources={f"correlation_confidence_{confidence}" if confidence else "correlation_confidence_unknown"},
+            )
+
+        try:
+            auto_actions = await db.auto_actions.find({"correlation_id": {"$exists": True}}, {"_id": 0}).to_list(length=1200)
+        except Exception:
+            auto_actions = []
+        for action in auto_actions:
+            local = _extract_attack_techniques(action)
+            local.update(_extract_semantic_attack_techniques(action))
+            local.update(_extract_keyword_techniques(action, CORRELATION_KEYWORD_TECHNIQUES))
+            local.update(_extract_keyword_techniques(action.get("action"), STRATEGY_CANDIDATE_TECHNIQUES))
+            mark(local, "correlation_auto_action", 4)
+
+        try:
+            corr_events = await db.world_events.find(
+                {"event_type": {"$regex": r"^(threat_correlation_|correlation_)", "$options": "i"}},
+                {"_id": 0, "event_type": 1, "payload": 1},
+            ).to_list(length=1200)
+        except Exception:
+            corr_events = []
+        for event in corr_events:
+            event_type = str(event.get("event_type") or "").strip().lower()
+            payload = event.get("payload") or {}
+            local = _extract_attack_techniques(event)
+            local.update(_extract_semantic_attack_techniques(event))
+            local.update(_extract_keyword_techniques(event, CORRELATION_KEYWORD_TECHNIQUES))
+            score = 4 if str(payload.get("confidence") or "").lower() == "high" else 3
+            if _safe_int(payload.get("matched_indicator_count")) >= 2 or _safe_int(payload.get("auto_actions")) > 0:
+                score = 4
+            mark(local, "correlation_world_event", score, extra_sources={f"event_{event_type}"})
+
+    try:
+        try:
+            from threat_correlation import correlation_engine
+        except Exception:
+            from backend.threat_correlation import correlation_engine
+    except Exception:
+        correlation_engine = None
+
+    if correlation_engine is not None:
+        cache = getattr(correlation_engine, "correlation_cache", {}) or {}
+        for result in cache.values():
+            attribution = getattr(result, "attribution", None)
+            local = set()
+            for technique in (getattr(attribution, "mitre_techniques", []) or []):
+                normalized = _normalize_technique(str(technique))
+                if normalized:
+                    local.add(normalized)
+            local.update(_extract_keyword_techniques(str(result), CORRELATION_KEYWORD_TECHNIQUES))
+            confidence = str(getattr(result, "confidence", "")).lower()
+            score = 4 if confidence == "high" else 3
+            mark(
+                local,
+                "correlation_runtime_cache",
+                score,
+                extra_sources={f"correlation_confidence_{confidence}" if confidence else "correlation_confidence_unknown"},
+            )
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
 async def _collect_supply_chain(techniques: Dict[str, Dict], db: Any):
     """Collect supply-chain ATT&CK depth for T1195/T1195.002/T1553.006."""
     # Baseline: policy controls configured in runtime environment.
@@ -2297,6 +2830,10 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     await _collect_edr_evidence(techniques, db)
     await _collect_yara_evidence(techniques, db)
     await _collect_container_tooling_evidence(techniques, db)
+    await _collect_ai_threat_mapping_evidence(techniques, db)
+    await _collect_ml_prediction_evidence(techniques, db)
+    await _collect_strategy_simulation_evidence(techniques, db)
+    await _collect_threat_correlation_telemetry_evidence(techniques, db)
     await _collect_cspm_findings_history(techniques, db)
     await _collect_unified_monitor_telemetry_evidence(techniques, db)
     await _collect_soar_execution_evidence(techniques, db)
