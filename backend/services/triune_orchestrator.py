@@ -274,23 +274,25 @@ class TriuneOrchestrator:
             except Exception:
                 posture_updates = 0
 
-        if self.db is not None and hasattr(self.db, "world_events"):
+        if self.db is not None:
             try:
-                await self.db.world_events.insert_one(
-                    {
-                        "id": f"wevt-cascade-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
-                        "type": "beacon_cascade_activated",
-                        "event_class": "local_reflex",
-                        "entity_refs": predicted_sectors,
-                        "payload": {
-                            "source_sector": source_sector,
-                            "predicted_sectors": predicted_sectors,
-                            "posture_updates": posture_updates,
-                            "active_response_count": len(world_snapshot.get("active_responses") or []),
-                        },
-                        "source": "triune_orchestrator",
-                        "created": now,
-                    }
+                try:
+                    from services.world_events import emit_world_event
+                except Exception:
+                    from backend.services.world_events import emit_world_event
+                await emit_world_event(
+                    self.db,
+                    event_type="beacon_cascade_activated",
+                    event_class="local_reflex",
+                    entity_refs=predicted_sectors,
+                    payload={
+                        "source_sector": source_sector,
+                        "predicted_sectors": predicted_sectors,
+                        "posture_updates": posture_updates,
+                        "active_response_count": len(world_snapshot.get("active_responses") or []),
+                    },
+                    trigger_triune=False,
+                    source="triune_orchestrator",
                 )
             except Exception:
                 pass

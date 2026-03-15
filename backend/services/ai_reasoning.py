@@ -1052,9 +1052,29 @@ ai_reasoning = LocalAIReasoningEngine()
 # robust we bind module-level callables onto the class when missing, then bind
 # the resulting class attributes onto the singleton instance.
 _expected_methods = [
-    'get_reasoning_stats', 'configure_ollama', 'get_ollama_status',
-    'ollama_generate', 'ollama_analyze_threat', 'analyze_with_aatl',
-    'query_aatr', 'run_cognition', 'ml_predict', 'trigger_soar'
+    # Core reasoning APIs expected by routers/services
+    "analyze_threat",
+    "analyze_snapshot",
+    "predict_next_step",
+    "predict_lateral_path",
+    "explain_candidates",
+    "triage_incident",
+    "query",
+    # Internal helpers used by core reasoning APIs
+    "_calculate_risk_score",
+    "_generate_recommendations",
+    "_get_triage_recommendation",
+    # LLM / integration wrappers
+    "get_reasoning_stats",
+    "configure_ollama",
+    "get_ollama_status",
+    "ollama_generate",
+    "ollama_analyze_threat",
+    "analyze_with_aatl",
+    "query_aatr",
+    "run_cognition",
+    "ml_predict",
+    "trigger_soar",
 ]
 import sys as _sys
 _mod = _sys.modules.get(__name__)
@@ -1062,11 +1082,19 @@ for _m in _expected_methods:
     # If the class is missing the method but a module-level function exists,
     # attach it to the class so it becomes a proper descriptor.
     try:
-        if not hasattr(LocalAIReasoningEngine, _m) and _mod and hasattr(_mod, _m) and callable(getattr(_mod, _m)):
-            try:
-                setattr(LocalAIReasoningEngine, _m, getattr(_mod, _m))
-            except Exception:
-                pass
+        if not hasattr(LocalAIReasoningEngine, _m):
+            _candidate = None
+            # First preference: methods accidentally placed on ReasoningContext.
+            if hasattr(ReasoningContext, _m) and callable(getattr(ReasoningContext, _m)):
+                _candidate = getattr(ReasoningContext, _m)
+            # Fallback: module-level function with same name.
+            elif _mod and hasattr(_mod, _m) and callable(getattr(_mod, _m)):
+                _candidate = getattr(_mod, _m)
+            if _candidate is not None:
+                try:
+                    setattr(LocalAIReasoningEngine, _m, _candidate)
+                except Exception:
+                    pass
         # Now bind the attribute from the class onto the singleton instance.
         if not hasattr(ai_reasoning, _m) and hasattr(LocalAIReasoningEngine, _m):
             try:
