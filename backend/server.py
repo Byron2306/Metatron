@@ -35,9 +35,28 @@ logger = logging.getLogger(__name__)
 logger.info(f"Logging initialized at {log_level} level")
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+db_name = os.environ.get("DB_NAME", "seraph_ai_defense")
+use_mock_mongo = os.environ.get("MONGO_USE_MOCK", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+if use_mock_mongo or mongo_url.startswith("mongomock://"):
+    try:
+        from mongomock_motor import AsyncMongoMockClient  # type: ignore
+
+        client = AsyncMongoMockClient()
+        logger.warning("Using mongomock in-memory database backend (MONGO_USE_MOCK enabled)")
+    except Exception as exc:
+        raise RuntimeError(
+            "MONGO_USE_MOCK is enabled but mongomock-motor is not available. "
+            "Install with: pip install mongomock-motor"
+        ) from exc
+else:
+    client = AsyncIOMotorClient(
+        mongo_url,
+        serverSelectionTimeoutMS=int(os.environ.get("MONGO_SERVER_SELECTION_TIMEOUT_MS", "3000")),
+    )
+
+db = client[db_name]
 
 # Ensure internal integration API key is present for M2M calls in non-dev environments
 INTEGRATION_API_KEY = os.environ.get('INTEGRATION_API_KEY', '').strip()

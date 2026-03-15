@@ -218,14 +218,17 @@ async def register_device(
     db = get_db()
     await _sync_engine_from_db(db)
     
-    device = zero_trust_engine.register_device(
-        device_id=request.device_id,
-        device_name=request.device_name,
-        device_type=request.device_type,
-        os_info=request.os_info,
-        security_posture=request.security_posture,
-        owner_id=current_user["id"]
-    )
+    try:
+        device = zero_trust_engine.register_device(
+            device_id=request.device_id,
+            device_name=request.device_name,
+            device_type=request.device_type,
+            os_info=request.os_info,
+            security_posture=request.security_posture,
+            owner_id=current_user["id"]
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     
     # Also store in database
     await _persist_device(db, device, registered_by=current_user.get("name", current_user["id"]))

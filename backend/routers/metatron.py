@@ -9,6 +9,21 @@ except Exception:
 
 router = APIRouter()
 
+try:
+    from bson import ObjectId  # type: ignore
+except Exception:  # pragma: no cover
+    ObjectId = None
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if ObjectId is not None and isinstance(value, ObjectId):
+        return str(value)
+    return value
+
 @router.get("/metatron/hello")
 async def hello():
     return {"msg": "Metatron router active"}
@@ -33,7 +48,7 @@ async def summary(db=Depends(get_db)):
     if hasattr(wm, "campaigns") and wm.campaigns is not None:
         cursor = wm.campaigns.find({}, {"_id": 0})
         result["campaigns"] = [c async for c in cursor]
-    return result
+    return _json_safe(result)
 
 
 @router.get(
@@ -172,15 +187,16 @@ async def state(db=Depends(get_db)):
         "triune_analyses": triune_analyses,
         "timeline": timeline,
     }
+    safe_resp = _json_safe(resp)
 
     # optionally validate/serialize via Pydantic model if available
     if MetatronState is not None:
         try:
-            return MetatronState(**resp)
+            return MetatronState(**safe_resp)
         except Exception:
             # best-effort: fall back to plain dict
             pass
-    return resp
+    return safe_resp
 
 # additional endpoints will be added as architecture evolves
 
@@ -194,7 +210,7 @@ async def get_entity(entity_id: str, db=Depends(get_db)):
     doc = await wm.entities.find_one({"id": entity_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="entity not found")
-    return doc
+    return _json_safe(doc)
 
 
 @router.get("/metatron/entities")
@@ -208,7 +224,7 @@ async def list_entities(type: Optional[str] = None, limit: int = 50, db=Depends(
         query["type"] = type
     cursor = wm.entities.find(query, {"_id": 0}).limit(limit)
     results = [d async for d in cursor]
-    return results
+    return _json_safe(results)
 
 
 @router.get("/metatron/metrics")
@@ -218,7 +234,7 @@ async def metatron_metrics(db=Depends(get_db)):
     if not hasattr(wm, "entities") or wm.entities is None:
         return {"centrality": {}, "avg_path_distance": 0.0, "privilege_escalation_likelihood": 0.0, "blast_radius": 0}
     metrics = await wm.compute_graph_metrics()
-    return metrics
+    return _json_safe(metrics)
 
 
 @router.post("/metatron/campaign")
@@ -255,7 +271,7 @@ async def create_campaign(payload: Dict[str, Any], db=Depends(get_db)):
     await wm.campaigns.insert_one(doc)
     # return created doc without _id
     out = {k: v for k, v in doc.items()}
-    return out
+    return _json_safe(out)
 
 
 @router.get("/metatron/campaigns")
@@ -264,7 +280,7 @@ async def list_campaigns(db=Depends(get_db)):
     if not hasattr(wm, "campaigns") or wm.campaigns is None:
         return []
     cursor = wm.campaigns.find({}, {"_id": 0}).sort("first_detected", -1)
-    return [c async for c in cursor]
+    return _json_safe([c async for c in cursor])
 
 
 @router.get("/metatron/campaign/{campaign_id}")
@@ -275,7 +291,7 @@ async def get_campaign(campaign_id: str, db=Depends(get_db)):
     doc = await wm.campaigns.find_one({"id": campaign_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="campaign not found")
-    return doc
+    return _json_safe(doc)
 
 
 @router.put("/metatron/campaign/{campaign_id}")
@@ -322,7 +338,7 @@ async def update_campaign(campaign_id: str, payload: Dict[str, Any], db=Depends(
 
     await wm.campaigns.update_one({"id": campaign_id}, {"$set": to_set}, upsert=False)
     doc = await wm.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-    return doc or {"updated": True}
+    return _json_safe(doc or {"updated": True})
 
 
 @router.delete("/metatron/campaign/{campaign_id}")

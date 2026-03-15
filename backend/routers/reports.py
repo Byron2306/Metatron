@@ -431,7 +431,16 @@ Keep the summary professional and actionable."""
         }
     except Exception as e:
         logger.error(f"AI summary generation error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate summary: {str(e)}")
+        return {
+            "summary": "AI provider unavailable. Generated fallback summary from local metrics only.",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "data_points": {
+                "threats_analyzed": len(threats),
+                "alerts_analyzed": len(alerts),
+            },
+            "fallback": True,
+            "fallback_reason": str(e),
+        }
 
 
 

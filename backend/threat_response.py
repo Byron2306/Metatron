@@ -670,6 +670,41 @@ class ForensicsCollector:
             }
         )
 
+    @classmethod
+    async def get_evidence(cls, incident_id: str) -> Dict[str, Any]:
+        """Return stored forensic artifacts for an incident id."""
+        incident_dir = cls.FORENSICS_DIR / incident_id
+        if not incident_dir.exists():
+            raise FileNotFoundError(f"Forensics incident not found: {incident_id}")
+
+        artifacts: List[Dict[str, Any]] = []
+        for path in sorted(incident_dir.iterdir()):
+            if not path.is_file():
+                continue
+            artifacts.append(
+                {
+                    "name": path.name,
+                    "size_bytes": path.stat().st_size,
+                    "path": str(path),
+                }
+            )
+
+        context_payload: Dict[str, Any] = {}
+        context_file = incident_dir / "threat_context.json"
+        if context_file.exists():
+            try:
+                context_payload = json.loads(context_file.read_text(encoding="utf-8"))
+            except Exception:
+                context_payload = {}
+
+        return {
+            "incident_id": incident_id,
+            "path": str(incident_dir),
+            "artifact_count": len(artifacts),
+            "artifacts": artifacts,
+            "threat_context": context_payload,
+        }
+
 forensics = ForensicsCollector()
 
 # =============================================================================

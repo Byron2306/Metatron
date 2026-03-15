@@ -203,12 +203,16 @@ async def update_response_settings(settings: dict, current_user: dict = Depends(
 async def test_sms(request: SMSTestRequest, current_user: dict = Depends(check_permission("write"))):
     """Test SMS alerting"""
     try:
-        result = await sms_service.send_alert(request.phone_number, request.message)
-        if result:
+        result = await sms_service.send_emergency_sms(
+            request.message,
+            recipients=[request.phone_number],
+        )
+        if getattr(result, "status", None) == ResponseStatus.SUCCESS:
             await emit_world_event(get_db(), event_type="response_sms_tested", entity_refs=[request.phone_number], payload={"actor": current_user.get("id"), "success": True}, trigger_triune=False)
             return {"success": True, "message": "SMS sent"}
-        else:
-            raise HTTPException(status_code=500, detail="SMS sending failed")
+        raise HTTPException(status_code=400, detail=getattr(result, "message", "SMS sending failed"))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"SMS test failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -271,6 +275,8 @@ async def get_forensics(incident_id: str, current_user: dict = Depends(get_curre
     try:
         evidence = await forensics.get_evidence(incident_id)
         return evidence
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Forensics evidence not found")
     except Exception as e:
         logger.error(f"Forensics retrieval failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

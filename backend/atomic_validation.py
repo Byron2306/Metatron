@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 import asyncio
+from runtime_paths import ensure_data_dir
 
 try:
     from services.world_events import emit_world_event
@@ -21,11 +22,17 @@ class AtomicValidationManager:
     def __init__(self):
         self.enabled = os.environ.get("ATOMIC_VALIDATION_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
         self.atomic_root = Path(os.environ.get("ATOMIC_RED_TEAM_PATH", "/opt/atomic-red-team"))
-        self.results_dir = Path(os.environ.get("ATOMIC_VALIDATION_RESULTS_DIR", "/var/lib/seraph-ai/atomic-validation"))
+        configured_results_dir = Path(
+            os.environ.get("ATOMIC_VALIDATION_RESULTS_DIR", "/var/lib/seraph-ai/atomic-validation")
+        )
         self.runner = os.environ.get("ATOMIC_RUNNER", "pwsh")
         self.db = None
 
-        self.results_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            configured_results_dir.mkdir(parents=True, exist_ok=True)
+            self.results_dir = configured_results_dir
+        except OSError:
+            self.results_dir = ensure_data_dir("atomic-validation")
 
         self.jobs = [
             {

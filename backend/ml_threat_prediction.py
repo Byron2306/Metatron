@@ -23,6 +23,13 @@ from enum import Enum
 from pathlib import Path
 from collections import defaultdict
 import random
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 try:
     import numpy as np
@@ -848,6 +855,23 @@ class MLThreatPredictor:
             ]
         }
         return mappings.get(category, [])
+
+    def _coerce_threat_category(self, raw_value: Any) -> ThreatCategory:
+        """Map classifier output to a valid ThreatCategory."""
+        if isinstance(raw_value, ThreatCategory):
+            return raw_value
+        if isinstance(raw_value, str):
+            normalized = raw_value.strip().lower()
+            try:
+                return ThreatCategory(normalized)
+            except ValueError:
+                pass
+        if isinstance(raw_value, (int, float)):
+            ordered = list(ThreatCategory)
+            idx = int(raw_value)
+            if 0 <= idx < len(ordered):
+                return ordered[idx]
+        return ThreatCategory.MALWARE
     
     async def predict_network_threat(self, network_data: Dict) -> ThreatPrediction:
         """Predict threats from network traffic data"""
@@ -858,7 +882,7 @@ class MLThreatPredictor:
         
         # Threat classification
         category_str, confidence = self.threat_classifier.predict(features)
-        category = ThreatCategory(category_str)
+        category = self._coerce_threat_category(category_str)
         
         # Calculate threat score
         threat_score = int((anomaly_score * 0.6 + confidence * 0.4) * 100)
@@ -1091,7 +1115,7 @@ class MLThreatPredictor:
         
         # Classify
         category_str, confidence = self.threat_classifier.predict(features)
-        category = ThreatCategory(category_str)
+        category = self._coerce_threat_category(category_str)
         
         # Score based on key indicators
         score_factors = [
@@ -1528,10 +1552,9 @@ class EnsemblePredictor:
             category_votes[categories[nn_prediction[0]]] += self.model_weights["neural_network"] * nn_prediction[1]
         
         # Bayesian vote
-        try:
-            category_votes[ThreatCategory(bayesian_prediction[0])] += self.model_weights["bayesian"] * bayesian_prediction[1]
-        except ValueError:
-            pass
+        category_votes[self._coerce_threat_category(bayesian_prediction[0])] += (
+            self.model_weights["bayesian"] * bayesian_prediction[1]
+        )
         
         # Anomaly-based votes contribute to malware category
         anomaly_contribution = (isolation_score + time_series_score) / 2

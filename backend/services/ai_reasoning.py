@@ -371,6 +371,61 @@ class ReasoningContext:
         
         # Combine all text for analysis
         all_text = f"{title} {description} {command_line} {process_name}"
+
+        # Lightweight deterministic threat matching that works offline.
+        matched_patterns: List[str] = []
+        threat_hits: Dict[str, int] = {}
+        for candidate_type, patterns in self.threat_patterns.items():
+            hits = 0
+            for pattern in patterns:
+                if pattern in all_text:
+                    matched_patterns.append(pattern)
+                    hits += 1
+            if hits:
+                threat_hits[candidate_type] = hits
+
+        for indicator in indicators:
+            value = str(indicator or "").lower()
+            if not value:
+                continue
+            for candidate_type, patterns in self.threat_patterns.items():
+                if any(pattern in value for pattern in patterns):
+                    threat_hits[candidate_type] = threat_hits.get(candidate_type, 0) + 1
+                    matched_patterns.append(value[:80])
+
+        if threat_hits:
+            threat_type = max(threat_hits.items(), key=lambda item: item[1])[0]
+        else:
+            threat_type = "unknown"
+
+        severity = str(threat_data.get("severity") or "").strip().lower()
+        if severity not in {"critical", "high", "medium", "low"}:
+            if len(matched_patterns) >= 5:
+                severity = "critical"
+            elif len(matched_patterns) >= 3:
+                severity = "high"
+            elif len(matched_patterns) >= 1:
+                severity = "medium"
+            else:
+                severity = "low"
+
+        mitre_techniques: List[str] = []
+        if any(k in all_text for k in ["mimikatz", "lsass", "credential", "sekurlsa"]):
+            mitre_techniques.append("T1003")
+        if any(k in all_text for k in ["powershell", "cmd.exe", "bash -c", "wscript", "cscript"]):
+            mitre_techniques.append("T1059")
+        if any(k in all_text for k in ["rundll32", "regsvr32", "mshta", "wmic"]):
+            mitre_techniques.append("T1218")
+        if any(k in all_text for k in ["http://", "https://", "dns", "beacon", "c2"]):
+            mitre_techniques.append("T1071")
+        mitre_techniques = list(dict.fromkeys(mitre_techniques))
+        mitre_details = [self.mitre_techniques.get(tid, {}).get("name", tid) for tid in mitre_techniques]
+        if not mitre_details:
+            mitre_details = ["none_observed"]
+
+        risk_score = self._calculate_risk_score(threat_type, severity, [str(i) for i in indicators])
+        exploitability = min(1.0, 0.2 + 0.15 * len(matched_patterns))
+        impact = min(1.0, 0.25 + (risk_score / 100.0) * 0.75)
         
         # Reasoning chain
         reasoning_chain = []

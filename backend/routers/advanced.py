@@ -914,13 +914,17 @@ async def quantum_hybrid_encrypt(
     current_user: dict = Depends(check_permission("write"))
 ):
     """Hybrid encrypt (Kyber + AES-GCM)"""
+    import binascii
     from services.quantum_security import quantum_security
     quantum_security.set_db(get_db())
     
-    encrypted = quantum_security.hybrid_encrypt(
-        plaintext.encode(),
-        recipient_public_key
-    )
+    try:
+        encrypted = quantum_security.hybrid_encrypt(
+            plaintext.encode(),
+            recipient_public_key
+        )
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid quantum encryption input: {exc}") from exc
     actor = current_user.get("email", current_user.get("id", "unknown"))
     await emit_world_event(
         get_db(),
@@ -949,6 +953,13 @@ async def quantum_hybrid_decrypt(
     """Hybrid decrypt (Kyber + AES-GCM)"""
     from services.quantum_security import quantum_security
     quantum_security.set_db(get_db())
+
+    required_fields = {"kem_ciphertext", "nonce", "ciphertext"}
+    if not isinstance(encrypted_data, dict) or not required_fields.issubset(set(encrypted_data.keys())):
+        raise HTTPException(
+            status_code=400,
+            detail=f"encrypted_data must include fields: {sorted(required_fields)}",
+        )
     
     plaintext = quantum_security.hybrid_decrypt(key_id, encrypted_data)
     

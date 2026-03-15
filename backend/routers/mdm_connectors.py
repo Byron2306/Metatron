@@ -124,11 +124,11 @@ async def sync_all_devices(
 ):
     """Sync devices from all connected MDM platforms"""
     # Run sync in background for large inventories
-    async def do_sync():
-        await mdm_manager.sync_all_devices()
-        await mdm_manager.sync_all_policies()
-    
-    background_tasks.add_task(asyncio.create_task, do_sync())
+    def do_sync():
+        asyncio.run(mdm_manager.sync_all_devices())
+        asyncio.run(mdm_manager.sync_all_policies())
+
+    background_tasks.add_task(do_sync)
     return {"message": "Sync initiated", "status": "running"}
 
 

@@ -94,7 +94,7 @@ async def create_playbook(
         logger.info(f"Created playbook {playbook['id']} by user {current_user['id']}")
         await emit_world_event(get_db(), event_type="soar_playbook_created", entity_refs=[playbook["id"]], payload={"actor": current_user.get("id"), "trigger": playbook.get("trigger")}, trigger_triune=False)
         return playbook
-    except ValueError as e:
+    except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/playbooks/{playbook_id}")
@@ -358,7 +358,7 @@ async def create_template(
         )
         logger.info(f"Created template {template['id']} by user {current_user['id']}")
         return template
-    except ValueError as e:
+    except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/templates/{template_id}/clone")

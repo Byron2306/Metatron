@@ -38,10 +38,11 @@ def _load_swarm_module():
 
     dependencies_stub.get_current_user = _fake_get_current_user
     dependencies_stub.check_permission = _fake_check_permission
+    dependencies_stub.require_machine_token = lambda **_kwargs: (lambda *_a, **_k: {"auth": "ok"})
     dependencies_stub.db = None
     dependencies_stub.get_db = lambda: None
     dependencies_stub.logger = SimpleNamespace(debug=lambda *_a, **_k: None, info=lambda *_a, **_k: None, warning=lambda *_a, **_k: None, error=lambda *_a, **_k: None)
-    sys.modules.setdefault("backend.routers.dependencies", dependencies_stub)
+    sys.modules["backend.routers.dependencies"] = dependencies_stub
 
     module_path = ROUTERS_DIR / "swarm.py"
     spec = importlib.util.spec_from_file_location("backend.routers.swarm", module_path)

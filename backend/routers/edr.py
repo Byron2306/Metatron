@@ -66,14 +66,24 @@ async def get_fim_status(current_user: dict = Depends(get_current_user)):
 @router.post("/fim/baseline")
 async def create_fim_baseline(current_user: dict = Depends(check_permission("write"))):
     """Create FIM baseline"""
-    result = await edr_manager.create_fim_baseline()
+    try:
+        result = await edr_manager.create_fim_baseline()
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=f"FIM baseline permission error: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"FIM baseline failed: {exc}") from exc
     await emit_world_event(get_db(), event_type="edr_fim_baseline_created", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
     return result
 
 @router.post("/fim/check")
 async def check_file_integrity(current_user: dict = Depends(get_current_user)):
     """Check file integrity against baseline"""
-    events = await edr_manager.check_file_integrity()
+    try:
+        events = await edr_manager.check_file_integrity()
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=f"FIM check permission error: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"FIM check failed: {exc}") from exc
     await emit_world_event(get_db(), event_type="edr_fim_check_completed", entity_refs=[], payload={"violations": len(events)}, trigger_triune=False)
     return {
         "events": events,
