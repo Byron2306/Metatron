@@ -133,6 +133,8 @@ TECHNIQUE_TO_TACTIC = {
     "T1047": "TA0002",
     "T1021.003": "TA0008",
     "T1021.006": "TA0008",
+    "T1611": "TA0004",
+    "T1578": "TA0040",
 }
 
 PRIORITY_GAPS = [
@@ -1007,13 +1009,8 @@ async def _collect_threat_incident_evidence(techniques: Dict[str, Dict], db: Any
 
 async def _collect_cspm_findings_history(techniques: Dict[str, Dict], db: Any):
     """Collect ATT&CK evidence from CSPM findings and scan/check history."""
-    if db is None:
-        return
-
-    findings_col = getattr(db, "cspm_findings", None)
-    scans_col = getattr(db, "cspm_scans", None)
-    if findings_col is None and scans_col is None:
-        return
+    findings_col = getattr(db, "cspm_findings", None) if db is not None else None
+    scans_col = getattr(db, "cspm_scans", None) if db is not None else None
 
     try:
         findings = await findings_col.find({}, {"_id": 0}).to_list(length=2000) if findings_col is not None else []
@@ -1025,11 +1022,63 @@ async def _collect_cspm_findings_history(techniques: Dict[str, Dict], db: Any):
     except Exception:
         scans = []
 
+    # CSPM can run fully in-memory; include runtime engine state as a fallback/source.
+    try:
+        try:
+            from cspm_engine import get_cspm_engine
+        except Exception:
+            from backend.cspm_engine import get_cspm_engine
+        engine = get_cspm_engine()
+    except Exception:
+        engine = None
+
+    if engine is not None:
+        try:
+            for finding in (getattr(engine, "findings_db", {}) or {}).values():
+                if hasattr(finding, "to_dict"):
+                    findings.append(finding.to_dict())
+                elif isinstance(finding, dict):
+                    findings.append(finding)
+        except Exception:
+            pass
+        try:
+            scans.extend(
+                {"status": str(getattr(scan, "status", ""))}
+                for scan in (getattr(engine, "scan_history", []) or [])
+            )
+        except Exception:
+            pass
+        try:
+            scanners = getattr(engine, "scanners", {}) or {}
+            for scanner in scanners.values():
+                for check in (getattr(scanner, "checks", {}) or {}).values():
+                    for technique in (_extract_attack_techniques(getattr(check, "mitre_techniques", [])) or set()):
+                        techniques.setdefault(technique, {"score": 0, "sources": set()})
+                        techniques[technique]["score"] = max(techniques[technique]["score"], 3)
+                        techniques[technique]["sources"].add("cspm_check_catalog")
+        except Exception:
+            pass
+
     completed_scans = sum(1 for row in scans if str(row.get("status") or "").lower() in {"completed", "done", "success"})
 
     counts: Dict[str, int] = {}
     source_map: Dict[str, Set[str]] = {}
     max_score: Dict[str, int] = {}
+    cspm_keyword_map: Dict[str, List[str]] = {
+        "public access": ["T1190", "T1133"],
+        "internet": ["T1190", "T1133"],
+        "security group": ["T1046", "T1190"],
+        "network": ["T1046", "T1016"],
+        "storage": ["T1530", "T1567.002"],
+        "bucket": ["T1530"],
+        "identity": ["T1078", "T1078.004"],
+        "access key": ["T1078.004", "T1552.005"],
+        "credential": ["T1552.001", "T1552.005"],
+        "cloudtrail": ["T1562.008", "T1070"],
+        "logging": ["T1562.001", "T1070"],
+        "kubernetes": ["T1611", "T1578"],
+        "container": ["T1611"],
+    }
 
     for finding in findings:
         local_techniques = _extract_attack_techniques(finding)
@@ -1037,11 +1086,23 @@ async def _collect_cspm_findings_history(techniques: Dict[str, Dict], db: Any):
             normalized = _normalize_technique(str(raw))
             if normalized:
                 local_techniques.add(normalized)
+        finding_text = " ".join(
+            [
+                str(finding.get("title") or ""),
+                str(finding.get("description") or ""),
+                str(finding.get("category") or ""),
+                str(finding.get("subcategory") or ""),
+                str(finding.get("check_id") or ""),
+                str(finding.get("check_title") or ""),
+            ]
+        )
+        local_techniques.update(_extract_semantic_attack_techniques(finding_text))
+        local_techniques.update(_extract_keyword_techniques(finding_text, cspm_keyword_map))
         if not local_techniques:
             continue
 
-        severity = str(finding.get("severity") or "").lower()
-        status = str(finding.get("status") or "").lower()
+        severity = str(finding.get("severity") or "").lower().split(".")[-1].strip()
+        status = str(finding.get("status") or "").lower().split(".")[-1].strip()
         transitions = finding.get("state_transition_log") or []
         evidence = finding.get("evidence") or {}
 
