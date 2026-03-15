@@ -48,7 +48,6 @@ import SetupGuidePage from "./pages/SetupGuidePage";
 import TenantsPage from "./pages/TenantsPage";
 import UnifiedAgentPage from "./pages/UnifiedAgentPage";
 import WorldViewPage from "./pages/WorldViewPage";
-import GraphWorld from "./pages/GraphWorld";
 import CSPMPage from "./pages/CSPMPage";
 import AttackPathsPage from "./pages/AttackPathsPage";
 import DeceptionPage from "./pages/DeceptionPage";
@@ -100,7 +99,7 @@ function App() {
               <Route index element={<DashboardPage />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="world" element={<WorldViewPage />} />
-              <Route path="world/graph" element={<GraphWorld />} />
+              <Route path="world/graph" element={<Navigate to="/world?tab=graph" replace />} />
               <Route path="ai-detection" element={<AIDetectionPage />} />
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="threats" element={<ThreatsPage />} />
