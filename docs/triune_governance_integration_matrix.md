@@ -20,7 +20,7 @@ This matrix maps the end-to-end governance chain and the concrete backend integr
 | Approved decision executor | `governance_executor` | `backend/services/governance_executor.py:process_approved_decisions` | Releases approved queue-backed decisions | P1 hardening |
 | Command dispatch primitives | `governed_dispatch` | `backend/services/governed_dispatch.py` | Centralized queue writes | P2 hardening |
 | Capability plane | `token_broker` | `backend/services/token_broker.py` | Exists but not fully bound to all PEP paths | P3 |
-| Tool/MCP enforcement points (PEP) | `tool_gateway` + `mcp_server` | `backend/services/tool_gateway.py:execute`, `backend/services/mcp_server.py:_handle_tool_request` | Partial runtime enforcement | P3 |
+| Tool/MCP enforcement points (PEP) | `tool_gateway` + `mcp_server` | `backend/services/tool_gateway.py:execute`, `backend/services/mcp_server.py:_handle_tool_request` | High-impact runtime governance + token checks enforced; broader rollout pending | P3 |
 | Audit + feedback | telemetry + world events | `backend/services/telemetry_chain.py`, `backend/services/world_events.py` | Available, not uniformly linked to decision/token IDs | P4 |
 
 ## Phase plan
@@ -66,6 +66,14 @@ Goal: require approved decision context + token + policy constraints at executio
 - `tool_gateway.execute`: mandatory token validation + decision context checks.
 - `mcp_server._handle_tool_request`: remove caller-trusted bypass flag semantics; verify server-side decision context.
 - Bind token issuance/revocation to approved decisions only.
+
+#### Phase 3 progress (this iteration)
+
+- `mcp_server._handle_tool_request` now requires **server-validated** approved governance context (`decision_id`/`queue_id`) for high-impact tools; metadata-only `governance_approved` flags no longer allow execution.
+- If governance context is absent/invalid for high-impact tools, requests are re-routed into `OutboundGateService` and returned as `queued_for_triune_approval`.
+- High-impact MCP execution now enforces capability token validation (`token_id` + `principal_identity` + `action/target`) before handler execution.
+- Execution handlers receive normalized governance/token metadata so downstream PEPs can enforce without trusting caller payload shape.
+- `tool_gateway.execute` now enforces approved governance context + capability token validation for approval-required tools (and supports optional environment-wide strict rollout toggles).
 
 ### Phase 4 — Audit closure
 

@@ -258,6 +258,58 @@ class ToolGateway:
     def get_tool(self, tool_id: str) -> Optional[ToolDefinition]:
         """Get tool definition"""
         return self.tools.get(tool_id)
+
+    def _governance_context_required(self, tool: ToolDefinition) -> bool:
+        enforce_all = str(os.environ.get("TOOL_GATEWAY_REQUIRE_GOVERNANCE_CONTEXT", "false")).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        return bool(tool.requires_approval or enforce_all)
+
+    def _token_required(self, tool: ToolDefinition) -> bool:
+        enforce_all = str(os.environ.get("TOOL_GATEWAY_REQUIRE_TOKEN", "false")).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        return bool(tool.requires_approval or enforce_all)
+
+    @staticmethod
+    def _resolve_target(parameters: Dict[str, Any], explicit_target: Optional[str]) -> str:
+        if explicit_target:
+            return str(explicit_target)
+        for key in ("target", "ip", "file_path", "path", "pid", "output_dir"):
+            if key in parameters and parameters.get(key) is not None:
+                return str(parameters.get(key))
+        return "*"
+
+    @staticmethod
+    def _validate_capability_token(
+        *,
+        token_id: str,
+        principal: str,
+        principal_identity: Optional[str],
+        action: str,
+        target: str,
+    ) -> Tuple[bool, str]:
+        if not token_id:
+            return False, "Missing capability token"
+        if not principal_identity:
+            return False, "Missing principal_identity for token validation"
+        try:
+            from services.token_broker import token_broker
+        except Exception:
+            from backend.services.token_broker import token_broker
+        return token_broker.validate_token(
+            token_id=token_id,
+            principal=principal,
+            principal_identity=principal_identity,
+            action=action,
+            target=target,
+        )
     
     def _validate_parameters(self, tool: ToolDefinition, 
                              params: Dict[str, Any]) -> Tuple[bool, str]:
@@ -353,7 +405,11 @@ class ToolGateway:
     
     def execute(self, tool_id: str, parameters: Dict[str, Any],
                 principal: str, token_id: str,
-                trust_state: str = "unknown") -> ToolExecution:
+                trust_state: str = "unknown",
+                principal_identity: Optional[str] = None,
+                action: Optional[str] = None,
+                target: Optional[str] = None,
+                governance_context: Optional[Dict[str, Any]] = None) -> ToolExecution:
         """
         Execute a tool through the gateway.
         
@@ -380,6 +436,36 @@ class ToolGateway:
                 execution_id, tool_id, timestamp, principal, token_id,
                 parameters, f"Unknown tool: {tool_id}"
             )
+
+        # Governed execution boundary for high-impact tools.
+        if self._governance_context_required(tool):
+            context = governance_context or {}
+            if not context.get("approved"):
+                return self._failed_execution(
+                    execution_id, tool_id, timestamp, principal, token_id,
+                    parameters, "Approved governance context is required for this tool"
+                )
+            if not (context.get("decision_id") or context.get("queue_id")):
+                return self._failed_execution(
+                    execution_id, tool_id, timestamp, principal, token_id,
+                    parameters, "Governance context missing decision_id/queue_id"
+                )
+
+        if self._token_required(tool):
+            resolved_action = str(action or "tool_execution")
+            resolved_target = self._resolve_target(parameters, target)
+            valid_token, token_message = self._validate_capability_token(
+                token_id=str(token_id or ""),
+                principal=principal,
+                principal_identity=principal_identity,
+                action=resolved_action,
+                target=resolved_target,
+            )
+            if not valid_token:
+                return self._failed_execution(
+                    execution_id, tool_id, timestamp, principal, token_id,
+                    parameters, f"Token validation failed: {token_message}"
+                )
         
         # Check trust state
         trust_order = ["trusted", "degraded", "unknown", "quarantined"]

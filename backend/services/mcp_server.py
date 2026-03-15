@@ -15,7 +15,7 @@ import ipaddress
 import time
 import signal
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List, Callable, Tuple
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 import uuid
@@ -245,6 +245,82 @@ class MCPServer:
             )
         except Exception:
             pass
+
+    async def _resolve_approved_governance_context(
+        self,
+        *,
+        decision_id: Optional[str],
+        queue_id: Optional[str],
+        required_action_types: Optional[set] = None,
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """Validate that provided governance context is approved server-side."""
+        if getattr(self, "db", None) is None:
+            return False, "MCP DB context unavailable for governance validation", {}
+
+        if not decision_id and not queue_id:
+            return False, "Missing approved governance context", {}
+
+        decision_doc = None
+        queue_doc = None
+        if decision_id:
+            decision_doc = await self.db.triune_decisions.find_one({"decision_id": decision_id}, {"_id": 0})
+            if not decision_doc:
+                return False, f"Unknown governance decision_id: {decision_id}", {}
+
+        if queue_id:
+            queue_doc = await self.db.triune_outbound_queue.find_one({"queue_id": queue_id}, {"_id": 0})
+            if not queue_doc:
+                return False, f"Unknown governance queue_id: {queue_id}", {}
+
+        if decision_doc and queue_doc:
+            if decision_doc.get("related_queue_id") and decision_doc.get("related_queue_id") != queue_doc.get("queue_id"):
+                return False, "Governance decision/queue mismatch", {}
+
+        if decision_doc and str(decision_doc.get("status") or "").lower() != "approved":
+            return False, f"Governance decision is not approved (status={decision_doc.get('status')})", {}
+        if queue_doc and str(queue_doc.get("status") or "").lower() not in {"approved", "released_to_execution"}:
+            return False, f"Governance queue is not approved (status={queue_doc.get('status')})", {}
+
+        action_type = None
+        if decision_doc:
+            action_type = str(decision_doc.get("action_type") or "").lower()
+        elif queue_doc:
+            action_type = str(queue_doc.get("action_type") or "").lower()
+        if required_action_types and action_type and action_type not in required_action_types:
+            return False, f"Governance action_type '{action_type}' not allowed for this tool execution", {}
+
+        resolved_context = {
+            "approved": True,
+            "decision_id": (decision_doc or {}).get("decision_id") or decision_id,
+            "queue_id": (queue_doc or {}).get("queue_id") or (decision_doc or {}).get("related_queue_id") or queue_id,
+            "action_type": action_type,
+        }
+        return True, "ok", resolved_context
+
+    def _validate_capability_token(
+        self,
+        *,
+        token_id: Optional[str],
+        principal: str,
+        principal_identity: Optional[str],
+        action: str,
+        target: str,
+    ) -> Tuple[bool, str]:
+        if not token_id:
+            return False, "Missing capability token for execution"
+        if not principal_identity:
+            return False, "Missing principal_identity for token-bound execution"
+        try:
+            from services.token_broker import token_broker
+        except Exception:
+            from backend.services.token_broker import token_broker
+        return token_broker.validate_token(
+            token_id=str(token_id),
+            principal=principal,
+            principal_identity=principal_identity,
+            action=action,
+            target=target,
+        )
     
     def _sign_message(self, message: MCPMessage) -> str:
         """Sign a message"""
@@ -1037,13 +1113,22 @@ class MCPServer:
         from services.tool_gateway import tool_gateway
 
         output_dir = str(params.get("output_path") or ensure_data_dir("forensics", "memory_dumps"))
-        token_id = f"mcp-{uuid.uuid4().hex[:10]}"
+        token_id = str(params.get("_token_id") or params.get("token_id") or "")
+        governance_context = params.get("_governance_context") or {}
+        principal = str(params.get("_principal") or "mcp_server")
+        principal_identity = params.get("_principal_identity")
+        action = str(params.get("_action") or "mcp_tool_execution")
+        target = str(params.get("_target") or "memory_dump")
         execution = tool_gateway.execute(
             tool_id="memory_dump",
             parameters={"pid": pid, "output_dir": output_dir},
-            principal="mcp_server",
+            principal=principal,
             token_id=token_id,
             trust_state="trusted",
+            principal_identity=principal_identity,
+            action=action,
+            target=target,
+            governance_context=governance_context,
         )
 
         if execution.status != "success":
@@ -1667,6 +1752,8 @@ class MCPServer:
             MCPToolCategory.AI_DEFENSE,
             MCPToolCategory.QUARANTINE,
         }
+        decision_id = payload.get("decision_id") or payload.get("policy_decision_id")
+        queue_id = payload.get("queue_id")
         governance_approved = bool(payload.get("governance_approved"))
         
         # Create execution record
@@ -1688,9 +1775,22 @@ class MCPServer:
         
         self.executions[execution.execution_id] = execution
 
-        # Mandatory governance boundary: high-impact MCP tools must be outbound-gated
-        # unless explicitly marked as already approved by upstream governance.
-        if tool.category in high_impact_categories and not governance_approved:
+        required_action_types = {"mcp_tool_execution", "tool_execution"}
+        validated_governance_context: Dict[str, Any] = {}
+        governance_valid = False
+        governance_error = "missing"
+        if decision_id or queue_id:
+            governance_valid, governance_error, validated_governance_context = await self._resolve_approved_governance_context(
+                decision_id=str(decision_id) if decision_id else None,
+                queue_id=str(queue_id) if queue_id else None,
+                required_action_types=required_action_types,
+            )
+            if governance_valid:
+                execution.policy_decision_id = validated_governance_context.get("decision_id") or execution.policy_decision_id
+
+        # Mandatory governance boundary: high-impact MCP tools must either have
+        # server-validated approved governance context or be newly queued.
+        if tool.category in high_impact_categories and not governance_valid:
             if getattr(self, "db", None) is None:
                 execution.status = "failed"
                 execution.error = "MCP DB context unavailable for outbound governance"
@@ -1721,6 +1821,8 @@ class MCPServer:
                         "queue_id": gated.get("queue_id"),
                         "decision_id": gated.get("decision_id"),
                         "action_id": gated.get("action_id"),
+                        "governance_context_error": governance_error,
+                        "caller_governance_approved": governance_approved,
                     }
                 except Exception as exc:
                     execution.status = "failed"
@@ -1737,6 +1839,7 @@ class MCPServer:
                     "status": execution.status,
                     "policy_decision_id": execution.policy_decision_id,
                     "requires_governance": True,
+                    "governance_error": governance_error,
                 },
                 trigger_triune=True,
             )
@@ -1753,18 +1856,72 @@ class MCPServer:
                 },
                 trace_id=message.trace_id,
             )
+
+        enforce_token = (
+            tool.category in high_impact_categories
+            or str(os.environ.get("MCP_ENFORCE_TOKEN_ALL_TOOLS", "false")).lower() in {"1", "true", "yes", "on"}
+        )
+        if enforce_token:
+            action = str(payload.get("action") or "mcp_tool_execution")
+            target = str(payload.get("target") or tool_id)
+            principal_identity = payload.get("principal_identity")
+            valid_token, token_message = self._validate_capability_token(
+                token_id=execution.token_id,
+                principal=message.source,
+                principal_identity=principal_identity,
+                action=action,
+                target=target,
+            )
+            if not valid_token:
+                execution.status = "failed"
+                execution.error = f"Token validation failed: {token_message}"
+                execution.completed_at = datetime.now(timezone.utc).isoformat()
+                execution.audit_hash = hashlib.sha256(
+                    json.dumps(asdict(execution), sort_keys=True).encode()
+                ).hexdigest()[:32]
+                await self._emit_mcp_event(
+                    event_type="mcp_tool_request_executed",
+                    entity_refs=[execution.execution_id, execution.tool_id, execution.principal],
+                    payload={
+                        "status": execution.status,
+                        "policy_decision_id": execution.policy_decision_id,
+                        "has_error": True,
+                        "token_validation_failed": True,
+                    },
+                    trigger_triune=True,
+                )
+                return self.create_message(
+                    message_type=MCPMessageType.TOOL_RESPONSE,
+                    source="mcp_server",
+                    destination=message.source,
+                    payload={
+                        "execution_id": execution.execution_id,
+                        "status": execution.status,
+                        "output": execution.output,
+                        "error": execution.error,
+                        "audit_hash": execution.audit_hash,
+                    },
+                    trace_id=message.trace_id,
+                )
         
         # Execute if handler registered
         if tool_id in self.tool_handlers:
             try:
                 handler = self.tool_handlers[tool_id]
+                execution_params = dict(payload.get("params", {}))
+                execution_params["_governance_context"] = validated_governance_context
+                execution_params["_token_id"] = execution.token_id
+                execution_params["_principal"] = message.source
+                execution_params["_principal_identity"] = payload.get("principal_identity")
+                execution_params["_action"] = payload.get("action") or "mcp_tool_execution"
+                execution_params["_target"] = payload.get("target") or tool_id
                 if asyncio.iscoroutinefunction(handler):
                     result = await asyncio.wait_for(
-                        handler(payload.get("params", {})),
+                        handler(execution_params),
                         timeout=tool.timeout_seconds
                     )
                 else:
-                    result = handler(payload.get("params", {}))
+                    result = handler(execution_params)
                 
                 execution.status = "success"
                 execution.output = result
