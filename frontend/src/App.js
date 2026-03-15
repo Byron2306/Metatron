@@ -2,9 +2,6 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "./components/ui/sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginPage from "./pages/LoginPage";
-import DashboardPage from "./pages/DashboardPage";
-import AlertsPage from "./pages/AlertsPage";
-import ThreatsPage from "./pages/ThreatsPage";
 import NetworkTopologyPage from "./pages/NetworkTopologyPage";
 import ThreatHuntingPage from "./pages/ThreatHuntingPage";
 import HoneypotsPage from "./pages/HoneypotsPage";
@@ -13,11 +10,8 @@ import AgentsPage from "./pages/AgentsPage";
 import SettingsPage from "./pages/SettingsPage";
 import TimelinePage from "./pages/TimelinePage";
 import AuditLogPage from "./pages/AuditLogPage";
-import SigmaPage from "./pages/SigmaPage";
 import ZeekPage from "./pages/ZeekPage";
 import OsqueryFleetPage from "./pages/OsqueryFleetPage";
-import AtomicValidationPage from "./pages/AtomicValidationPage";
-import MitreAttackCoveragePage from "./pages/MitreAttackCoveragePage";
 import RansomwarePage from "./pages/RansomwarePage";
 import ContainerSecurityPage from "./pages/ContainerSecurityPage";
 import VPNPage from "./pages/VPNPage";
@@ -30,7 +24,6 @@ import KibanaDashboardsPage from "./pages/KibanaDashboardsPage";
 import AgentCommandsPage from "./pages/AgentCommandsPage";
 import AgentDetailsPage from "./pages/AgentDetailsPage";
 import SwarmDashboard from "./pages/SwarmDashboard";
-import CommandCenterPage from "./pages/CommandCenterPage";
 import AdvancedServicesPage from "./pages/AdvancedServicesPage";
 import TacticalHeatmapPage from "./pages/TacticalHeatmapPage";
 import VNSAlertsPage from "./pages/VNSAlertsPage";
@@ -49,6 +42,8 @@ import ResponseOperationsPage from "./pages/ResponseOperationsPage";
 import InvestigationWorkspacePage from "./pages/InvestigationWorkspacePage";
 import EmailSecurityWorkspacePage from "./pages/EmailSecurityWorkspacePage";
 import EndpointMobilityWorkspacePage from "./pages/EndpointMobilityWorkspacePage";
+import CommandWorkspacePage from "./pages/CommandWorkspacePage";
+import DetectionEngineeringWorkspacePage from "./pages/DetectionEngineeringWorkspacePage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -87,14 +82,15 @@ function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<DashboardPage />} />
-              <Route path="dashboard" element={<DashboardPage />} />
+              <Route index element={<Navigate to="/command" replace />} />
+              <Route path="command" element={<CommandWorkspacePage />} />
+              <Route path="dashboard" element={<Navigate to="/command?tab=dashboard" replace />} />
               <Route path="world" element={<WorldViewPage />} />
               <Route path="world/graph" element={<Navigate to="/world?tab=graph" replace />} />
               <Route path="ai-activity" element={<AIActivityWorkspacePage />} />
               <Route path="ai-detection" element={<Navigate to="/ai-activity?tab=signals" replace />} />
-              <Route path="alerts" element={<AlertsPage />} />
-              <Route path="threats" element={<ThreatsPage />} />
+              <Route path="alerts" element={<Navigate to="/command?tab=alerts" replace />} />
+              <Route path="threats" element={<Navigate to="/command?tab=threats" replace />} />
               <Route path="network" element={<NetworkTopologyPage />} />
               <Route path="hunting" element={<ThreatHuntingPage />} />
               <Route path="honeypots" element={<HoneypotsPage />} />
@@ -108,11 +104,12 @@ function App() {
               <Route path="settings" element={<SettingsPage />} />
               <Route path="investigation" element={<InvestigationWorkspacePage />} />
               <Route path="threat-intel" element={<Navigate to="/investigation?tab=intel" replace />} />
-              <Route path="sigma" element={<SigmaPage />} />
+              <Route path="detection-engineering" element={<DetectionEngineeringWorkspacePage />} />
+              <Route path="sigma" element={<Navigate to="/detection-engineering?tab=sigma" replace />} />
               <Route path="zeek" element={<ZeekPage />} />
               <Route path="osquery-fleet" element={<OsqueryFleetPage />} />
-              <Route path="atomic-validation" element={<AtomicValidationPage />} />
-              <Route path="mitre-attack" element={<MitreAttackCoveragePage />} />
+              <Route path="atomic-validation" element={<Navigate to="/detection-engineering?tab=atomic" replace />} />
+              <Route path="mitre-attack" element={<Navigate to="/detection-engineering?tab=mitre" replace />} />
               <Route path="ransomware" element={<RansomwarePage />} />
               <Route path="containers" element={<ContainerSecurityPage />} />
               <Route path="vpn" element={<VPNPage />} />
@@ -130,7 +127,7 @@ function App() {
               <Route path="cli-sessions" element={<Navigate to="/ai-activity?tab=sessions" replace />} />
               <Route path="swarm" element={<Navigate to="/unified-agent" replace />} />
               <Route path="ai-threats" element={<Navigate to="/ai-activity?tab=intelligence" replace />} />
-              <Route path="command-center" element={<CommandCenterPage />} />
+              <Route path="command-center" element={<Navigate to="/command?tab=center" replace />} />
               <Route path="advanced" element={<AdvancedServicesPage />} />
               <Route path="heatmap" element={<TacticalHeatmapPage />} />
               <Route path="vns-alerts" element={<VNSAlertsPage />} />
