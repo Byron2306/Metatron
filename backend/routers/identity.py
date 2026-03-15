@@ -7,16 +7,30 @@ from typing import Any, Dict, List, Optional
 from collections import defaultdict
 import ipaddress
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 
 from identity_protection import get_identity_protection_engine
 
 from .dependencies import get_db
 try:
+    from .dependencies import get_current_user, check_permission
+except Exception:
+    def get_current_user(*args, **kwargs):
+        return {"id": "system", "email": "system@local", "role": "admin"}
+
+    def check_permission(required_permission: str):
+        async def _checker(*a, **k):
+            return {"id": "system", "email": "system@local", "role": "admin"}
+        return _checker
+try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -810,33 +824,40 @@ def _build_soar_trigger_event(action_doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _dispatch_identity_action_doc(action_doc: Dict[str, Any]) -> Dict[str, Any]:
-    from dataclasses import asdict, is_dataclass
-    from soar_engine import soar_engine
-
     action_id = str(action_doc.get("action_id") or "")
-    trigger_event = _build_soar_trigger_event(action_doc)
-    executions = await soar_engine.trigger_playbooks(trigger_event)
-    normalized_executions: List[Any] = []
-    for execution in executions or []:
-        if is_dataclass(execution):
-            normalized_executions.append(asdict(execution))
-        elif hasattr(execution, "__dict__"):
-            normalized_executions.append(dict(execution.__dict__))
-        else:
-            normalized_executions.append(execution)
-
-    status = "dispatched" if normalized_executions else "no_matching_playbook"
+    db = get_db()
+    actor = str(action_doc.get("requested_by") or "identity-service")
+    gate = OutboundGateService(db)
+    gated = await gate.gate_action(
+        action_type="response_execution",
+        actor=actor,
+        payload=action_doc,
+        impact_level="critical",
+        subject_id=str(action_doc.get("user") or action_doc.get("provider") or action_id or "identity-action"),
+        entity_refs=[action_id, str(action_doc.get("user") or ""), str(action_doc.get("provider") or "")],
+        requires_triune=True,
+    )
+    status = "gated_pending_approval"
     dispatch_meta = {
-        "trigger_event": trigger_event,
-        "executions": normalized_executions,
-        "executions_count": len(normalized_executions),
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "action_type": "response_execution",
     }
     await _update_identity_response_action_status(action_id, status=status, metadata=dispatch_meta)
+    await emit_world_event(
+        db,
+        event_type="identity_response_action_dispatch_gated",
+        entity_refs=[action_id, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"action": action_doc.get("action"), "requested_by": actor},
+        trigger_triune=True,
+    )
     return {
         "status": status,
         "action_id": action_id,
-        "executions": normalized_executions,
-        "executions_count": len(normalized_executions),
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "executions": [],
+        "executions_count": 0,
     }
 
 
@@ -1191,6 +1212,7 @@ async def get_token_abuse_analytics(
     auto_dispatch: bool = Query(False),
     auto_dispatch_min_confidence: int = Query(85, ge=60, le=100),
     dry_run_dispatch: bool = Query(False),
+    current_user: dict = Depends(get_current_user),
 ) -> Dict[str, Any]:
     resolved_auto_dispatch = auto_dispatch if isinstance(auto_dispatch, bool) else bool(getattr(auto_dispatch, "default", False))
     resolved_min_confidence = (
@@ -1224,7 +1246,10 @@ async def get_token_abuse_analytics(
 
 
 @router.post("/response/actions")
-async def queue_identity_response_action(request: IdentityResponseActionRequest) -> Dict[str, Any]:
+async def queue_identity_response_action(
+    request: IdentityResponseActionRequest,
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     allowed_actions = {"revoke_session", "revoke_token", "disable_user", "rotate_credentials"}
     action = (request.action or "").strip().lower()
     if action not in allowed_actions:
@@ -1233,7 +1258,13 @@ async def queue_identity_response_action(request: IdentityResponseActionRequest)
 
     action_doc = _normalize_identity_response_action(request)
     await _persist_identity_response_action(action_doc)
-    await emit_world_event(get_db(), event_type="identity_response_action_queued", entity_refs=[action_doc.get("id", "")], payload={"action": action_doc.get("action"), "requested_by": action_doc.get("requested_by")}, trigger_triune=False)
+    await emit_world_event(
+        get_db(),
+        event_type="identity_response_action_queued",
+        entity_refs=[action_doc.get("action_id", "")],
+        payload={"action": action_doc.get("action"), "requested_by": current_user.get("email", current_user.get("id"))},
+        trigger_triune=None,
+    )
 
     return {
         "status": "queued",
@@ -1252,7 +1283,11 @@ async def get_identity_response_actions(limit: int = Query(50, ge=1, le=500)) ->
 
 
 @router.post("/response/actions/{action_id}/dispatch")
-async def dispatch_identity_response_action(action_id: str, dry_run: bool = Query(False)) -> Dict[str, Any]:
+async def dispatch_identity_response_action(
+    action_id: str,
+    dry_run: bool = Query(False),
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     action_doc = await _find_identity_response_action(action_id)
     if not action_doc:
         from fastapi import HTTPException
@@ -1260,7 +1295,13 @@ async def dispatch_identity_response_action(action_id: str, dry_run: bool = Quer
 
     trigger_event = _build_soar_trigger_event(action_doc)
     if dry_run:
-        await emit_world_event(get_db(), event_type="identity_response_action_dispatch_requested", entity_refs=[action_id], payload={"dry_run": True}, trigger_triune=False)
+        await emit_world_event(
+            get_db(),
+            event_type="identity_response_action_dispatch_requested",
+            entity_refs=[action_id],
+            payload={"dry_run": True, "actor": current_user.get("email", current_user.get("id"))},
+            trigger_triune=False,
+        )
         return {
             "status": "dry_run",
             "action_id": action_id,

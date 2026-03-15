@@ -345,80 +345,44 @@ async def block_device(
     request: BlockDeviceRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Block a device and optionally trigger remediation commands to the agent"""
+    """Queue device block through mandatory outbound governance."""
     from .dependencies import get_db
-    import uuid
-    from datetime import datetime, timezone
     
     db = get_db()
     await _sync_engine_from_db(db)
-    
-    # Block the device in Zero Trust
-    block_result = zero_trust_engine.block_device(device_id, request.reason)
-    
-    if not block_result.get("success"):
-        raise HTTPException(status_code=404, detail=block_result.get("error", "Device not found"))
+    from backend.services.outbound_gate import OutboundGateService
+    gate = OutboundGateService(db)
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={
+            "operation": "zero_trust_block_device",
+            "device_id": device_id,
+            "reason": request.reason,
+            "trigger_remediation": bool(request.trigger_remediation),
+        },
+        impact_level="critical",
+        subject_id=device_id,
+        entity_refs=[device_id],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="zero_trust_device_block_gated",
+        entity_refs=[device_id, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor, "reason": request.reason},
+        trigger_triune=True,
+    )
 
-    blocked_device = zero_trust_engine.devices.get(device_id)
-    if blocked_device:
-        await _persist_device(db, _device_to_dict(blocked_device))
-    
-    # If remediation is requested, create agent commands
-    commands_created = []
-    if request.trigger_remediation:
-        # Get device info
-        device = zero_trust_engine.devices.get(device_id)
-        
-        # Create remediation command for the agent
-        command_id = str(uuid.uuid4())[:12]
-        command = {
-            "command_id": command_id,
-            "agent_id": device_id,  # Use device_id as agent_id
-            "command_type": "remediate_compliance",
-            "command_name": "Remediate Compliance Issue",
-            "parameters": {
-                "issue_type": "zero_trust_violation",
-                "remediation_action": "full_scan_and_report",
-                "reason": request.reason,
-                "compliance_issues": device.compliance_issues if device else []
-            },
-            "priority": "high",
-            "risk_level": "medium",
-            "status": "pending_approval",
-            "created_by": current_user.get("email", current_user.get("id")),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "approved_by": None,
-            "approved_at": None,
-            "executed_at": None,
-            "result": None,
-            "source": "zero_trust_violation"
-        }
-        
-        from backend.services.outbound_gate import OutboundGateService
-        gate = OutboundGateService(db)
-        try:
-            queued = await gate.gate_action(
-                action_type="cross_sector_hardening",
-                actor=current_user.get("email", "system"),
-                payload=command,
-                impact_level="critical",
-                subject_id=device_id,
-                entity_refs=[device_id, command_id],
-                requires_triune=True,
-            )
-            await db.agent_commands.insert_one({**command, "status": queued.get("status"), "queue_id": queued.get("queue_id"), "decision_id": queued.get("decision_id")})
-            commands_created.append(command_id)
-            logger.info(f"Zero Trust remediation command queued for device {device_id}: {command_id} (queue={queued.get('queue_id')})")
-        except Exception:
-            logger.exception("Failed to enqueue zero-trust remediation command")
-    
     return {
         "success": True,
         "device_id": device_id,
-        "status": "blocked",
+        "status": "queued_for_triune_approval",
         "reason": request.reason,
-        "remediation_commands": commands_created,
-        "message": f"Device blocked. {len(commands_created)} remediation command(s) queued for approval."
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "message": "Device block queued for triune approval.",
     }
 
 @router.post("/devices/{device_id}/unblock")

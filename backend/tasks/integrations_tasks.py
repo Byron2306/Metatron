@@ -43,7 +43,7 @@ def _emit_task_event(db, event_type: str, entity_refs=None, payload=None):
                 event_type=event_type,
                 entity_refs=entity_refs or [],
                 payload=payload or {},
-                trigger_triune=False,
+                trigger_triune=None,
                 source="task.integrations",
             )
         )
@@ -78,9 +78,23 @@ def run_velociraptor_task(self, job_id: str, collection_name: str = None):
     else:
         cli_cmd = f"velociraptor --config /config/config.yaml collect --output /data/collection_{ts}.json"
 
-    cmd = f"docker run --rm -v {outdir}:/data veloci/velociraptor:latest {cli_cmd}"
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{outdir}:/data",
+        "veloci/velociraptor:latest",
+        "velociraptor",
+        "--config",
+        "/config/config.yaml",
+        "collect",
+    ]
+    if collection_name:
+        cmd.extend(["--collection", collection_name])
+    cmd.extend(["--output", f"/data/collection_{ts}.json"])
 
-    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3600)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
     if proc.returncode != 0:
         logger.error(f"Velociraptor failed: {proc.stderr}")
         _emit_task_event(db_for_events, "integrations_velociraptor_task_failed", [job_id], {"error": proc.stderr[:500]})
@@ -173,8 +187,12 @@ def extract_indicators_from_collection(collection_file: str):
         except Exception:
             # fallback to command-line yara
             try:
-                yara_cmd = f"yara -r {yara_rules_dir} {collection_file}"
-                yc = subprocess.run(yara_cmd, shell=True, capture_output=True, text=True, timeout=120)
+                yc = subprocess.run(
+                    ["yara", "-r", yara_rules_dir, collection_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
                 if yc.returncode == 0 and yc.stdout:
                     for line in yc.stdout.splitlines():
                         parts = line.strip().split()

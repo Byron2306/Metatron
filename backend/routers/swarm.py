@@ -3,10 +3,11 @@ Swarm Management Router
 =======================
 Manages the agent swarm - discovery, deployment, telemetry.
 """
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request, Header
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
+import os
 import uuid
 
 from .dependencies import get_db
@@ -39,6 +40,20 @@ router = APIRouter(prefix="/swarm", tags=["Swarm Management"])
 _BAT_DEFAULT_SERVER_URL = "http://165.22.41.184:8001"
 
 SWARM_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
+SWARM_AGENT_TOKEN = (os.environ.get("SWARM_AGENT_TOKEN") or os.environ.get("INTEGRATION_API_KEY") or "").strip()
+
+
+async def verify_swarm_agent_token(
+    x_agent_token: Optional[str] = Header(default=None),
+    x_internal_token: Optional[str] = Header(default=None),
+):
+    """Validate machine token for scanner/agent/browser polling endpoints."""
+    if not SWARM_AGENT_TOKEN:
+        raise HTTPException(status_code=503, detail="SWARM_AGENT_TOKEN is not configured")
+    token = (x_agent_token or x_internal_token or "").strip()
+    if token != SWARM_AGENT_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid swarm agent token")
+    return {"auth": "ok"}
 
 
 # =============================================================================
@@ -102,7 +117,10 @@ class AgentHeartbeatRequest(BaseModel):
 # =============================================================================
 
 @router.post("/agents/register")
-async def register_agent(request: AgentRegistrationRequest):
+async def register_agent(
+    request: AgentRegistrationRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Register a new Seraph Defender agent"""
     now = datetime.now(timezone.utc).isoformat()
     
@@ -137,7 +155,11 @@ async def register_agent(request: AgentRegistrationRequest):
 
 
 @router.post("/agents/{agent_id}/heartbeat")
-async def agent_heartbeat(agent_id: str, request: AgentHeartbeatRequest):
+async def agent_heartbeat(
+    agent_id: str,
+    request: AgentHeartbeatRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Receive heartbeat from agent"""
     now = datetime.now(timezone.utc).isoformat()
     
@@ -238,7 +260,7 @@ async def send_command_to_agent(
 
 
 @router.get("/agents/{agent_id}/commands")
-async def get_pending_commands(agent_id: str):
+async def get_pending_commands(agent_id: str, auth: dict = Depends(verify_swarm_agent_token)):
     """Get pending commands for an agent (agent polls this)"""
     cursor = db.agent_commands.find(
         {"agent_id": agent_id, "status": "pending"},
@@ -279,7 +301,12 @@ async def get_pending_commands(agent_id: str):
 
 
 @router.post("/agents/{agent_id}/commands/{command_id}/ack")
-async def acknowledge_command(agent_id: str, command_id: str, result: dict = None):
+async def acknowledge_command(
+    agent_id: str,
+    command_id: str,
+    result: dict = None,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Agent acknowledges command execution"""
     now = datetime.now(timezone.utc).isoformat()
     
@@ -421,7 +448,10 @@ async def respond_to_threat(
 # =============================================================================
 
 @router.post("/scanner/report")
-async def receive_scanner_report(request: ScannerReportRequest):
+async def receive_scanner_report(
+    request: ScannerReportRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """
     Receive device reports from network scanners running on user's LAN.
     This is the PRIMARY way devices get into the system.
@@ -498,9 +528,9 @@ async def receive_scanner_report(request: ScannerReportRequest):
     
     logger.info(f"Scanner {request.scanner_id} reported {len(request.devices)} devices ({new_devices} new, {updated_devices} updated)")
     
-    # Auto-deploy unified agents to deployable devices if requested
+    # Auto-deploy unified agents to deployable devices only when requested
     auto_deploy_queued = 0
-    if request.auto_deploy_request or True:  # Always attempt auto-deploy for deployable devices
+    if request.auto_deploy_request:
         for device in request.devices:
             ip = device.get('ip_address')
             if not ip:
@@ -542,6 +572,17 @@ async def receive_scanner_report(request: ScannerReportRequest):
                 await db.deployment_tasks.insert_one(deploy_task)
                 auto_deploy_queued += 1
     
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_scanner_report_ingested",
+        entity_refs=[request.scanner_id, request.network],
+        payload={
+            "new_devices": new_devices,
+            "updated_devices": updated_devices,
+            "auto_deploy_queued": auto_deploy_queued,
+        },
+        trigger_triune=None,
+    )
     return {
         "status": "ok",
         "message": f"Received {len(request.devices)} devices",
@@ -1174,7 +1215,10 @@ async def deploy_via_winrm(
 # =============================================================================
 
 @router.post("/telemetry/ingest")
-async def ingest_telemetry(request: TelemetryIngestRequest):
+async def ingest_telemetry(
+    request: TelemetryIngestRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Ingest telemetry events from agents and process through AATL"""
     from services.aatl import get_aatl_engine
     
@@ -1272,7 +1316,10 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
 
 
 @router.post("/alerts/critical")
-async def receive_critical_alert(alert: Dict[str, Any]):
+async def receive_critical_alert(
+    alert: Dict[str, Any],
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Receive critical alerts from agents (auto-kill notifications, etc.)"""
     now = datetime.now(timezone.utc).isoformat()
     
@@ -1529,7 +1576,10 @@ async def auto_kill_batch(
 
 # Browser extension command endpoint
 @router.post("/browser-shield/kill")
-async def browser_kill_command(command: Dict[str, Any]):
+async def browser_kill_command(
+    command: Dict[str, Any],
+    current_user: dict = Depends(check_permission("write")),
+):
     """
     Send kill command to browser extension.
     Extensions poll this endpoint to receive commands.
@@ -1543,17 +1593,44 @@ async def browser_kill_command(command: Dict[str, Any]):
         "target": command.get("target"),
         "reason": command.get("reason", "Server command"),
         "created_at": now,
-        "status": "pending",
+        "status": "gated_pending_approval",
         "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     }
-    
+
+    gate = OutboundGateService(get_db())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await gate.gate_action(
+        action_type="response_execution",
+        actor=actor,
+        payload=command_doc,
+        impact_level="high",
+        subject_id=str(command.get("target") or "browser"),
+        entity_refs=[command_doc["command_id"], str(command.get("target") or "")],
+        requires_triune=True,
+    )
+    command_doc["gate"] = {
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "action_id": gated.get("action_id"),
+    }
     await db.browser_commands.insert_one(command_doc)
-    
-    return {"status": "queued", "command_id": command_doc["command_id"]}
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_browser_command_gated",
+        entity_refs=[command_doc["command_id"], gated.get("queue_id"), gated.get("decision_id")],
+        payload={"action": command.get("action"), "target": command.get("target"), "actor": actor},
+        trigger_triune=True,
+    )
+    return {
+        "status": "queued_for_triune_approval",
+        "command_id": command_doc["command_id"],
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 
 @router.get("/browser-shield/commands")
-async def get_browser_commands():
+async def get_browser_commands(auth: dict = Depends(verify_swarm_agent_token)):
     """Browser extensions poll this to get pending commands"""
     now = datetime.now(timezone.utc)
     
@@ -1576,7 +1653,7 @@ async def get_browser_commands():
 
 
 @router.get("/browser-shield/blocklist")
-async def get_browser_blocklist():
+async def get_browser_blocklist(auth: dict = Depends(verify_swarm_agent_token)):
     """Get domain blocklist for browser extension"""
     # Static blocklist + dynamic from threats
     static_domains = [

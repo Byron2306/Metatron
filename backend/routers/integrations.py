@@ -9,6 +9,10 @@ try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 from integrations_manager import run_amass, ingest_indicators_direct, get_job, list_jobs
 from integrations_manager import run_velociraptor, ingest_host_logs
 from integrations_manager import run_purplesharp
@@ -40,21 +44,26 @@ class DirectIngestRequest(BaseModel):
 
 @router.post("/amass/run")
 async def start_amass(req: AmassRequest, user: dict = Depends(check_permission("write"))):
-    """Start Amass enumeration on the server; returns job id."""
-    # Kick off background task
-    task = asyncio.create_task(run_amass(req.domain))
-    # task will register job internally and update
-    # We don't have immediate job id from run_amass (it creates one), but run_amass returns job dict when complete
-    # To provide job id immediately, run_amass creates a job entry first. We'll wait a tick for it to appear.
-    await asyncio.sleep(0.1)
-    jobs = list_jobs()
-    # Find most recent job for amass/domain
-    matches = [j for j in jobs if j.get('tool') == 'amass' and j.get('params', {}).get('domain') == req.domain]
-    if not matches:
-        raise HTTPException(status_code=500, detail='Failed to start amass job')
-    job = sorted(matches, key=lambda x: x.get('created_at'), reverse=True)[0]
-    await emit_world_event(get_db(), event_type="integration_amass_started", entity_refs=[job["id"], req.domain], payload={"actor": user.get("id")}, trigger_triune=False)
-    return {"job_id": job['id'], "status": job['status']}
+    """Queue Amass execution through outbound governance."""
+    actor = user.get("email", user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={"tool": "amass", "domain": req.domain},
+        impact_level="high",
+        subject_id=req.domain,
+        entity_refs=[req.domain],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="integration_amass_gated",
+        entity_refs=[req.domain, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": user.get("id")},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 @router.get("/jobs")
 async def get_jobs(user: dict = Depends(get_current_user)):
@@ -97,10 +106,26 @@ class VelociraptorRequest(BaseModel):
 
 @router.post('/velociraptor/run')
 async def start_velociraptor(req: VelociraptorRequest, user: dict = Depends(check_permission('write'))):
-    """Start a Velociraptor collection on the server (enqueues Celery task)."""
-    job = await run_velociraptor(req.collection_name)
-    await emit_world_event(get_db(), event_type="integration_velociraptor_started", entity_refs=[job["id"]], payload={"collection_name": req.collection_name, "actor": user.get("id")}, trigger_triune=False)
-    return {"job_id": job['id'], "status": job.get('status')}
+    """Queue Velociraptor execution through outbound governance."""
+    actor = user.get("email", user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={"tool": "velociraptor", "collection_name": req.collection_name},
+        impact_level="critical",
+        subject_id=req.collection_name,
+        entity_refs=[req.collection_name or "velociraptor_default"],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="integration_velociraptor_gated",
+        entity_refs=[gated.get("queue_id"), gated.get("decision_id")],
+        payload={"collection_name": req.collection_name, "actor": user.get("id")},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 class PurpleSharpRequest(BaseModel):
@@ -110,9 +135,25 @@ class PurpleSharpRequest(BaseModel):
 
 @router.post('/purplesharp/run')
 async def start_purplesharp(req: PurpleSharpRequest, user: dict = Depends(check_permission('write'))):
-    job = await run_purplesharp(req.target, req.options)
-    await emit_world_event(get_db(), event_type="integration_purplesharp_started", entity_refs=[job["id"]], payload={"target": req.target, "actor": user.get("id")}, trigger_triune=False)
-    return {"job_id": job['id'], "status": job.get('status')}
+    actor = user.get("email", user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={"tool": "purplesharp", "target": req.target, "options": req.options or {}},
+        impact_level="critical",
+        subject_id=req.target,
+        entity_refs=[req.target or "purplesharp_default"],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="integration_purplesharp_gated",
+        entity_refs=[gated.get("queue_id"), gated.get("decision_id")],
+        payload={"target": req.target, "actor": user.get("id")},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 class HostLogIngestRequest(BaseModel):

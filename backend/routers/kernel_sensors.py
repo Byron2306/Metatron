@@ -19,16 +19,30 @@ Version: 1.0.0
 
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
 import asyncio
 import logging
 
 from .dependencies import get_db
 try:
+    from .dependencies import get_current_user, check_permission
+except Exception:
+    def get_current_user(*args, **kwargs):
+        return {"id": "system", "email": "system@local", "role": "admin"}
+
+    def check_permission(required_permission: str):
+        async def _checker(*a, **k):
+            return {"id": "system", "email": "system@local", "role": "admin"}
+        return _checker
+try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 
 from ebpf_kernel_sensors import (
     get_kernel_sensor_manager,
@@ -212,7 +226,11 @@ async def list_sensors():
 
 
 @router.post("/sensors/{sensor_type}/start", response_model=SensorActionResponse)
-async def start_sensor(sensor_type: str, request: SensorActionRequest = SensorActionRequest()):
+async def start_sensor(
+    sensor_type: str,
+    request: SensorActionRequest = SensorActionRequest(),
+    current_user: dict = Depends(check_permission("write")),
+):
     """
     Start a kernel sensor.
     
@@ -235,42 +253,37 @@ async def start_sensor(sensor_type: str, request: SensorActionRequest = SensorAc
                    f"Valid types: {[s.value for s in SensorType]}"
         )
     
-    manager = get_kernel_sensor_manager()
-    
-    # Check current state
-    current_state = manager.sensors.get(sensor)
-    if current_state and current_state.status == SensorStatus.ACTIVE and not request.force:
-        return SensorActionResponse(
-            success=True,
-            sensor_type=sensor_type,
-            status="active",
-            message=f"Sensor {sensor_type} is already active",
-        )
-    
-    try:
-        success = await manager.start_sensor(sensor)
-        
-        new_state = manager.sensors.get(sensor)
-        
-        await emit_world_event(get_db(), event_type="kernel_sensor_started", entity_refs=[sensor_type], payload={"success": success, "status": new_state.status.value if new_state else "unknown"}, trigger_triune=False)
-        return SensorActionResponse(
-            success=success,
-            sensor_type=sensor_type,
-            status=new_state.status.value if new_state else "unknown",
-            message=f"Sensor {sensor_type} started successfully" if success 
-                    else f"Failed to start sensor: {new_state.error_message if new_state else 'Unknown error'}",
-        )
-        
-    except Exception as e:
-        logger.error(f"Error starting sensor {sensor_type}: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to start sensor: {str(e)}"
-        )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "kernel_sensor_start", "sensor_type": sensor_type, "force": bool(request.force)},
+        impact_level="high",
+        subject_id=sensor_type,
+        entity_refs=[sensor_type],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="kernel_sensor_start_gated",
+        entity_refs=[sensor_type, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return SensorActionResponse(
+        success=True,
+        sensor_type=sensor_type,
+        status="gated_pending_approval",
+        message="Sensor start queued for triune approval",
+    )
 
 
 @router.post("/sensors/{sensor_type}/stop", response_model=SensorActionResponse)
-async def stop_sensor(sensor_type: str):
+async def stop_sensor(
+    sensor_type: str,
+    current_user: dict = Depends(check_permission("write")),
+):
     """
     Stop a kernel sensor.
     
@@ -284,71 +297,93 @@ async def stop_sensor(sensor_type: str):
             detail=f"Invalid sensor type: {sensor_type}"
         )
     
-    manager = get_kernel_sensor_manager()
-    
-    try:
-        await manager.stop_sensor(sensor)
-        
-        await emit_world_event(get_db(), event_type="kernel_sensor_stopped", entity_refs=[sensor_type], payload={"success": True}, trigger_triune=False)
-        return SensorActionResponse(
-            success=True,
-            sensor_type=sensor_type,
-            status="disabled",
-            message=f"Sensor {sensor_type} stopped successfully",
-        )
-        
-    except Exception as e:
-        logger.error(f"Error stopping sensor {sensor_type}: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to stop sensor: {str(e)}"
-        )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "kernel_sensor_stop", "sensor_type": sensor_type},
+        impact_level="critical",
+        subject_id=sensor_type,
+        entity_refs=[sensor_type],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="kernel_sensor_stop_gated",
+        entity_refs=[sensor_type, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return SensorActionResponse(
+        success=True,
+        sensor_type=sensor_type,
+        status="gated_pending_approval",
+        message="Sensor stop queued for triune approval",
+    )
 
 
 @router.post("/sensors/start-all")
-async def start_all_sensors():
+async def start_all_sensors(current_user: dict = Depends(check_permission("write"))):
     """
     Start all available kernel sensors.
     
     Starts process, file, network, memory, and module sensors.
     Returns the status of each sensor start operation.
     """
-    manager = get_kernel_sensor_manager()
-    results = {}
-    
-    for sensor_type in SensorType:
-        try:
-            success = await manager.start_sensor(sensor_type)
-            state = manager.sensors.get(sensor_type)
-            results[sensor_type.value] = {
-                "success": success,
-                "status": state.status.value if state else "unknown",
-                "error": state.error_message if state and state.error_message else None,
-            }
-        except Exception as e:
-            results[sensor_type.value] = {
-                "success": False,
-                "status": "error",
-                "error": str(e),
-            }
-    
-    await emit_world_event(get_db(), event_type="kernel_sensors_start_all", entity_refs=[], payload={"results": results}, trigger_triune=False)
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "kernel_sensors_start_all"},
+        impact_level="high",
+        subject_id="kernel_sensors",
+        entity_refs=["kernel_sensors"],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="kernel_sensors_start_all_gated",
+        entity_refs=[gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
     return {
-        "message": "Sensor start operation completed",
-        "results": results,
+        "message": "Start-all queued for triune approval",
+        "status": "queued_for_triune_approval",
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     }
 
 
 @router.post("/sensors/stop-all")
-async def stop_all_sensors():
+async def stop_all_sensors(current_user: dict = Depends(check_permission("write"))):
     """Stop all active kernel sensors."""
-    manager = get_kernel_sensor_manager()
-    await manager.stop_all()
-    
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "kernel_sensors_stop_all"},
+        impact_level="critical",
+        subject_id="kernel_sensors",
+        entity_refs=["kernel_sensors"],
+        requires_triune=True,
+    )
     now = datetime.now(timezone.utc).isoformat()
-    await emit_world_event(get_db(), event_type="kernel_sensors_stop_all", entity_refs=[], payload={"timestamp": now}, trigger_triune=False)
+    await emit_world_event(
+        get_db(),
+        event_type="kernel_sensors_stop_all_gated",
+        entity_refs=[gated.get("queue_id"), gated.get("decision_id")],
+        payload={"timestamp": now, "actor": actor},
+        trigger_triune=True,
+    )
     return {
-        "message": "All sensors stopped",
+        "message": "Stop-all queued for triune approval",
+        "status": "queued_for_triune_approval",
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
         "timestamp": now,
     }
 

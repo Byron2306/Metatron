@@ -80,10 +80,10 @@ async def _new_job(tool: str, params: Dict[str, Any]):
     return job_id
 
 
-async def _run_subprocess(cmd: str, cwd: Path = None, timeout: int = 3600):
-    logger.info(f"Running: {cmd}")
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
+async def _run_subprocess(cmd: List[str], cwd: Path = None, timeout: int = 3600):
+    logger.info("Running command: %s", " ".join(cmd))
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(cwd) if cwd else None,
@@ -113,7 +113,19 @@ async def run_amass(domain: str) -> Dict[str, Any]:
     outpath = INTEGRATIONS_DIR / outname
 
     # Docker amass command writes JSON-lines to mounted folder
-    cmd = f"docker run --rm -v {INTEGRATIONS_DIR}:/data caffix/amass:latest enum -d {domain} -oJ /data/{outname}"
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{INTEGRATIONS_DIR}:/data",
+        "caffix/amass:latest",
+        "enum",
+        "-d",
+        domain,
+        "-oJ",
+        f"/data/{outname}",
+    ]
 
     try:
         rc, out, err = await _run_subprocess(cmd)
@@ -241,7 +253,15 @@ async def _scheduler_loop():
             try:
                 hours = int(os.environ.get('AMASS_SCHEDULE_HOURS', '0'))
                 domains = os.environ.get('AMASS_DOMAINS', '').split(',') if os.environ.get('AMASS_DOMAINS') else []
+                allow_ungated_scheduler = str(os.environ.get("ALLOW_UNGATED_INTEGRATION_SCHEDULER", "false")).lower() in {"1", "true", "yes", "on"}
                 if hours > 0 and domains:
+                    if not allow_ungated_scheduler:
+                        logger.warning(
+                            "Skipping scheduled integration execution because it is not outbound-gated. "
+                            "Set ALLOW_UNGATED_INTEGRATION_SCHEDULER=true only for controlled environments."
+                        )
+                        await asyncio.sleep(max(3600, hours * 3600))
+                        continue
                     for d in [x.strip() for x in domains if x.strip()]:
                         logger.info(f"Scheduler: launching amass for {d}")
                         await run_amass(d)
@@ -286,21 +306,16 @@ async def run_velociraptor(collection_name: str = None) -> Dict[str, Any]:
         # send task by name
         celery_app.send_task('backend.tasks.integrations_tasks.run_velociraptor_task', args=[job_id, collection_name])
     except Exception:
-        logger.exception('Failed to enqueue velociraptor task; running inline')
-        # fallback to inline execution
-        _jobs[job_id]["status"] = "running"
+        logger.exception('Failed to enqueue velociraptor task')
+        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["result"] = {"error": "failed_to_enqueue_velociraptor_task"}
+        _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
         if col is not None:
-            await col.update_one({"id": job_id}, {"$set": {"status": "running", "updated_at": datetime.utcnow().isoformat()}})
-        # call inline
-        try:
-            rc = await _run_subprocess(cmd)
-        except Exception as e:
-            _jobs[job_id]["status"] = "failed"
-            _jobs[job_id]["result"] = {"error": str(e)}
-            _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
-            if col is not None:
-                await col.update_one({"id": job_id}, {"$set": {"status": "failed", "result": _jobs[job_id]["result"], "updated_at": _jobs[job_id]["updated_at"]}})
-            return _jobs[job_id]
+            await col.update_one(
+                {"id": job_id},
+                {"$set": {"status": "failed", "result": _jobs[job_id]["result"], "updated_at": _jobs[job_id]["updated_at"]}},
+            )
+        return _jobs[job_id]
 
     # Return job metadata (worker will update status later)
     return _jobs[job_id]

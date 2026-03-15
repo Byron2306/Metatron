@@ -62,13 +62,22 @@ try:
 except Exception:
     from backend.services.world_events import emit_world_event
 try:
-    from .dependencies import get_current_user
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
+try:
+    from .dependencies import get_current_user, check_permission
 except Exception:
     # Tests may provide a minimal dependencies stub without get_current_user.
     # Provide a harmless fallback for import-time resolution that will be
     # replaced by FastAPI dependency injection in real runs.
     def get_current_user(*args, **kwargs):
         return None
+
+    def check_permission(required_permission: str):
+        async def _checker(*a, **k):
+            return {"id": "system", "email": "system@local", "role": "admin"}
+        return _checker
 
 logger = logging.getLogger(__name__)
 
@@ -665,7 +674,10 @@ def _provider_summary(provider: CloudProvider, creds: CloudCredentials) -> Dict[
 # =============================================================================
 
 @router.post("/providers", summary="Configure a cloud provider")
-async def configure_provider(config: ProviderConfig) -> Dict[str, Any]:
+async def configure_provider(
+    config: ProviderConfig,
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     """
     Configure credentials for a cloud provider.
     
@@ -674,51 +686,35 @@ async def configure_provider(config: ProviderConfig) -> Dict[str, Any]:
     - **credentials**: Provider-specific credentials
     """
     await _load_providers_from_db()
-
-    credentials = CloudCredentials(
-        provider=config.provider,
-        account_id=config.account_id,
-        region=config.region,
-        aws_access_key=config.aws_access_key,
-        aws_secret_key=config.aws_secret_key,
-        aws_role_arn=config.aws_role_arn,
-        azure_tenant_id=config.azure_tenant_id,
-        azure_client_id=config.azure_client_id,
-        azure_client_secret=config.azure_client_secret,
-        azure_subscription_id=config.azure_subscription_id,
-        gcp_project_id=config.gcp_project_id,
-        gcp_service_account_key=config.gcp_service_account_key_path,
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={
+            "operation": "cspm_configure_provider",
+            "provider": config.provider.value,
+            "account_id": config.account_id,
+            "region": config.region,
+        },
+        impact_level="high",
+        subject_id=config.provider.value,
+        entity_refs=[config.provider.value, config.account_id],
+        requires_triune=True,
     )
-    
-    if not credentials.validate():
-        raise HTTPException(status_code=400, detail="Invalid credentials for provider")
-    
-    # Store credentials
-    _configured_providers[config.provider] = credentials
-
-    # Persist provider config with encrypted secrets.
-    await _persist_provider_to_db(config.provider, credentials)
     await emit_world_event(
         get_db(),
-        event_type="cspm_provider_configured",
-        entity_refs=[config.provider.value],
-        payload={"account_id": config.account_id, "region": config.region},
-        trigger_triune=False,
+        event_type="cspm_provider_configuration_gated",
+        entity_refs=[config.provider.value, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor, "account_id": config.account_id},
+        trigger_triune=True,
     )
-    
-    # Register scanner with engine
-    engine = get_cspm_engine()
-    scanner = _scanner_for(config.provider, credentials)
-    if scanner:
-        engine.register_scanner(scanner)
-    
-    logger.info(f"Configured provider: {config.provider.value}")
-    
     return {
-        "status": "configured",
+        "status": "queued_for_triune_approval",
         "provider": config.provider.value,
         "account_id": config.account_id,
-        "secrets_stored": "encrypted",
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     }
 
 
@@ -730,27 +726,39 @@ async def list_providers() -> List[Dict[str, Any]]:
 
 
 @router.delete("/providers/{provider}", summary="Remove provider configuration")
-async def remove_provider(provider: CloudProvider) -> Dict[str, str]:
+async def remove_provider(
+    provider: CloudProvider,
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, str]:
     """Remove a cloud provider configuration"""
     await _load_providers_from_db()
-    if provider in _configured_providers:
-        del _configured_providers[provider]
-        engine = get_cspm_engine()
-        if provider in engine.scanners:
-            del engine.scanners[provider]
+    if provider not in _configured_providers:
+        raise HTTPException(status_code=404, detail="Provider not configured")
 
-        db = get_db()
-        if db is not None:
-            await db[_PROVIDER_COLLECTION].delete_one({"provider": provider.value})
-        await emit_world_event(
-            get_db(),
-            event_type="cspm_provider_removed",
-            entity_refs=[provider.value],
-            payload={"provider": provider.value},
-            trigger_triune=False,
-        )
-        return {"status": "removed", "provider": provider.value}
-    raise HTTPException(status_code=404, detail="Provider not configured")
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "cspm_remove_provider", "provider": provider.value},
+        impact_level="critical",
+        subject_id=provider.value,
+        entity_refs=[provider.value],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="cspm_provider_removal_gated",
+        entity_refs=[provider.value, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {
+        "status": "queued_for_triune_approval",
+        "provider": provider.value,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 
 @router.post("/scan", summary="Start a CSPM scan")
@@ -770,10 +778,8 @@ async def start_scan(
     """
     await _load_providers_from_db()
     engine = get_cspm_engine()
-    
+
     if not engine.scanners:
-        # Return a structured non-error response so the UI can render next steps
-        # without surfacing a hard API failure state.
         return {
             "status": "not_configured",
             "scan_id": "not-configured",
@@ -782,117 +788,40 @@ async def start_scan(
             "message": "No cloud providers configured. Configure a provider first.",
             "next_step": "POST /api/v1/cspm/providers",
         }
-    
-    # Generate scan ID
-    scan_id = str(uuid.uuid4())
+
     selected_providers = [p.value for p in (request.providers or list(engine.scanners.keys()))]
-    await _create_scan_record(scan_id, request, selected_providers)
+    actor = current_user.get("email", current_user.get("id", "unknown")) if isinstance(current_user, dict) else "unknown"
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={
+            "operation": "cspm_scan_start",
+            "providers": selected_providers,
+            "regions": request.regions,
+            "resource_types": request.resource_types,
+            "check_ids": request.check_ids,
+            "severity_filter": request.severity_filter,
+        },
+        impact_level="high",
+        subject_id="cspm_scan",
+        entity_refs=selected_providers,
+        requires_triune=True,
+    )
     await emit_world_event(
         get_db(),
-        event_type="cspm_scan_started",
-        entity_refs=[scan_id],
-        payload={"providers": selected_providers, "requested_by": current_user.get("id")},
-        trigger_triune=False,
+        event_type="cspm_scan_start_gated",
+        entity_refs=selected_providers + [gated.get("queue_id"), gated.get("decision_id")],
+        payload={"requested_by": actor},
+        trigger_triune=True,
     )
-    
-    # Start scan in background
-    async def run_scan():
-        try:
-            started_record = await _get_scan_record(scan_id)
-            transitioned = await _transition_scan_state(
-                scan_id,
-                expected_statuses=["started"],
-                next_status="running",
-                actor="system:cspm",
-                reason="scan worker started",
-                expected_state_version=int(started_record.get("state_version") or 0),
-            )
-            if not transitioned:
-                logger.warning("CSPM scan %s could not transition to running due to state conflict", scan_id)
-                return
-
-            results = await engine.scan_all(
-                providers=request.providers,
-                regions=request.regions,
-                resource_types=request.resource_types,
-                check_ids=request.check_ids,
-                severity_filter=request.severity_filter,
-            )
-            # Store results
-            for provider, result in results.items():
-                _active_scans[result.scan_id] = result
-
-            await _persist_scan_findings(results)
-
-            provider_results = []
-            resources_scanned = 0
-            findings_count = 0
-            critical_count = 0
-            high_count = 0
-            medium_count = 0
-            low_count = 0
-            for provider, result in results.items():
-                provider_results.append(
-                    {
-                        "provider": provider.value,
-                        "scan_id": result.scan_id,
-                        "status": result.status,
-                        "error_message": result.error_message,
-                        "resources_scanned": result.resources_scanned,
-                        "findings_count": result.findings_count,
-                        "critical_count": result.critical_count,
-                        "high_count": result.high_count,
-                        "medium_count": result.medium_count,
-                        "low_count": result.low_count,
-                        "started_at": result.started_at,
-                        "completed_at": result.completed_at,
-                    }
-                )
-                resources_scanned += int(result.resources_scanned or 0)
-                findings_count += int(result.findings_count or 0)
-                critical_count += int(result.critical_count or 0)
-                high_count += int(result.high_count or 0)
-                medium_count += int(result.medium_count or 0)
-                low_count += int(result.low_count or 0)
-
-            running_record = await _get_scan_record(scan_id)
-            await _transition_scan_state(
-                scan_id,
-                expected_statuses=["running"],
-                next_status="completed",
-                actor="system:cspm",
-                reason="scan worker completed",
-                expected_state_version=int(running_record.get("state_version") or 0),
-                extra_updates={
-                    "provider_results": provider_results,
-                    "resources_scanned": resources_scanned,
-                    "findings_count": findings_count,
-                    "critical_count": critical_count,
-                    "high_count": high_count,
-                    "medium_count": medium_count,
-                    "low_count": low_count,
-                },
-            )
-        except Exception as e:
-            logger.error(f"Scan failed: {e}")
-            running_record = await _get_scan_record(scan_id)
-            await _transition_scan_state(
-                scan_id,
-                expected_statuses=["started", "running"],
-                next_status="failed",
-                actor="system:cspm",
-                reason="scan worker failed",
-                expected_state_version=int(running_record.get("state_version") or 0),
-                extra_updates={"error_message": str(e)},
-            )
-    
-    background_tasks.add_task(run_scan)
-    
     return {
-        "status": "started",
-        "scan_id": scan_id,
+        "status": "queued_for_triune_approval",
+        "scan_id": f"gated-{gated.get('queue_id')}",
         "providers": selected_providers,
         "started_at": datetime.now(timezone.utc).isoformat(),
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     }
 
 

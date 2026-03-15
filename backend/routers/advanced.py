@@ -560,10 +560,26 @@ async def add_canary_ip(
     ip: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Add a canary IP"""
-    from services.vns import vns
-    vns.add_canary_ip(ip)
-    return {"status": "added", "canary_ip": ip}
+    """Queue canary IP deployment through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "vns_add_canary_ip", "ip": ip},
+        impact_level="high",
+        subject_id=ip,
+        entity_refs=[ip],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_vns_canary_ip_gated",
+        entity_refs=[ip, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "canary_ip": ip, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.post("/vns/canary/domain")
@@ -571,10 +587,26 @@ async def add_canary_domain(
     domain: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Add a canary domain"""
-    from services.vns import vns
-    vns.add_canary_domain(domain)
-    return {"status": "added", "canary_domain": domain}
+    """Queue canary domain deployment through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "vns_add_canary_domain", "domain": domain},
+        impact_level="high",
+        subject_id=domain,
+        entity_refs=[domain],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_vns_canary_domain_gated",
+        entity_refs=[domain, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "canary_domain": domain, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.post("/vns/validate")
@@ -930,50 +962,36 @@ async def submit_file_to_sandbox(
     request: SandboxSubmitRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Submit a file for sandbox analysis"""
-    from services.cuckoo_sandbox import cuckoo_sandbox
-    cuckoo_sandbox.set_db(get_db())
-    import tempfile
-    import base64
-    
-    if request.file_base64:
-        # Decode base64 file
-        file_data = base64.b64decode(request.file_base64)
-        file_name = request.file_name or "sample.bin"
-        
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file_name}") as f:
-            f.write(file_data)
-            temp_path = f.name
-        
-        result = cuckoo_sandbox.submit_file(temp_path, request.options)
-        
-        # Clean up
-        try:
-            os.unlink(temp_path)
-        except:
-            pass
-        
-        await emit_world_event(
-            get_db(),
-            event_type="advanced_sandbox_file_submitted",
-            entity_refs=[],
-            payload={"file_name": file_name, "status": result.get("status") if isinstance(result, dict) else None},
-            trigger_triune=False,
-        )
-        return result
-    elif request.file_path:
-        result = cuckoo_sandbox.submit_file(request.file_path, request.options)
-        await emit_world_event(
-            get_db(),
-            event_type="advanced_sandbox_file_submitted",
-            entity_refs=[],
-            payload={"file_path": request.file_path, "status": result.get("status") if isinstance(result, dict) else None},
-            trigger_triune=False,
-        )
-        return result
-    else:
+    """Queue file submission to sandbox through outbound governance."""
+    if not request.file_base64 and not request.file_path:
         raise HTTPException(status_code=400, detail="file_path or file_base64 required")
+
+    subject = request.file_name or request.file_path or "inline_file_submission"
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={
+            "sandbox_action": "submit_file",
+            "file_name": request.file_name,
+            "file_path": request.file_path,
+            "has_inline_file": bool(request.file_base64),
+            "options": request.options or {},
+        },
+        impact_level="high",
+        subject_id=subject,
+        entity_refs=[subject],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_sandbox_file_submission_gated",
+        entity_refs=[subject, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.post("/sandbox/submit/url")
@@ -981,22 +999,29 @@ async def submit_url_to_sandbox(
     request: SandboxSubmitRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Submit a URL for sandbox analysis"""
-    from services.cuckoo_sandbox import cuckoo_sandbox
-    cuckoo_sandbox.set_db(get_db())
-    
+    """Queue URL submission to sandbox through outbound governance."""
     if not request.url:
         raise HTTPException(status_code=400, detail="url required")
-    
-    result = cuckoo_sandbox.submit_url(request.url, request.options)
+
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={"sandbox_action": "submit_url", "url": request.url, "options": request.options or {}},
+        impact_level="high",
+        subject_id=request.url,
+        entity_refs=[request.url],
+        requires_triune=True,
+    )
     await emit_world_event(
         get_db(),
-        event_type="advanced_sandbox_url_submitted",
-        entity_refs=[],
-        payload={"url": request.url, "status": result.get("status") if isinstance(result, dict) else None},
-        trigger_triune=False,
+        event_type="advanced_sandbox_url_submission_gated",
+        entity_refs=[request.url, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
     )
-    return result
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.get("/sandbox/task/{task_id}")

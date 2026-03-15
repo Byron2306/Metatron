@@ -1656,6 +1656,18 @@ class MCPServer:
         
         tool = self.tools[tool_id]
         payload = message.payload
+        high_impact_categories = {
+            MCPToolCategory.EDR,
+            MCPToolCategory.FIREWALL,
+            MCPToolCategory.SOAR,
+            MCPToolCategory.FORENSICS,
+            MCPToolCategory.DECEPTION,
+            MCPToolCategory.IDENTITY,
+            MCPToolCategory.NETWORK,
+            MCPToolCategory.AI_DEFENSE,
+            MCPToolCategory.QUARANTINE,
+        }
+        governance_approved = bool(payload.get("governance_approved"))
         
         # Create execution record
         execution = MCPToolExecution(
@@ -1675,6 +1687,72 @@ class MCPServer:
         )
         
         self.executions[execution.execution_id] = execution
+
+        # Mandatory governance boundary: high-impact MCP tools must be outbound-gated
+        # unless explicitly marked as already approved by upstream governance.
+        if tool.category in high_impact_categories and not governance_approved:
+            if getattr(self, "db", None) is None:
+                execution.status = "failed"
+                execution.error = "MCP DB context unavailable for outbound governance"
+            else:
+                try:
+                    try:
+                        from services.outbound_gate import OutboundGateService
+                    except Exception:
+                        from backend.services.outbound_gate import OutboundGateService
+
+                    gate = OutboundGateService(self.db)
+                    gated = await gate.gate_action(
+                        action_type="mcp_tool_execution",
+                        actor=message.source,
+                        payload={
+                            "tool_id": tool_id,
+                            "params": payload.get("params", {}),
+                            "trace_id": message.trace_id,
+                            "request_message_id": message.message_id,
+                        },
+                        impact_level="critical",
+                        subject_id=tool_id,
+                        entity_refs=[tool_id, message.source, message.message_id],
+                        requires_triune=True,
+                    )
+                    execution.status = "queued_for_triune_approval"
+                    execution.output = {
+                        "queue_id": gated.get("queue_id"),
+                        "decision_id": gated.get("decision_id"),
+                        "action_id": gated.get("action_id"),
+                    }
+                except Exception as exc:
+                    execution.status = "failed"
+                    execution.error = f"Failed to outbound-gate MCP tool request: {exc}"
+
+            execution.completed_at = datetime.now(timezone.utc).isoformat()
+            execution.audit_hash = hashlib.sha256(
+                json.dumps(asdict(execution), sort_keys=True).encode()
+            ).hexdigest()[:32]
+            await self._emit_mcp_event(
+                event_type="mcp_tool_request_gated",
+                entity_refs=[execution.execution_id, execution.tool_id, execution.principal],
+                payload={
+                    "status": execution.status,
+                    "policy_decision_id": execution.policy_decision_id,
+                    "requires_governance": True,
+                },
+                trigger_triune=True,
+            )
+            return self.create_message(
+                message_type=MCPMessageType.TOOL_RESPONSE,
+                source="mcp_server",
+                destination=message.source,
+                payload={
+                    "execution_id": execution.execution_id,
+                    "status": execution.status,
+                    "output": execution.output,
+                    "error": execution.error,
+                    "audit_hash": execution.audit_hash,
+                },
+                trace_id=message.trace_id,
+            )
         
         # Execute if handler registered
         if tool_id in self.tool_handlers:

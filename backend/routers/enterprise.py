@@ -343,26 +343,39 @@ async def issue_token(
     request: TokenRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Issue a capability token"""
-    from services.token_broker import token_broker
-    
-    token = token_broker.issue_token(
-        principal=request.principal,
-        principal_identity=request.principal_identity,
-        action=request.action,
-        targets=request.targets,
-        tool_id=request.tool_id,
-        ttl_seconds=request.ttl_seconds,
-        max_uses=request.max_uses,
-        constraints=request.constraints
+    """Queue capability token issuance through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={
+            "operation": "issue_token",
+            "principal": request.principal,
+            "principal_identity": request.principal_identity,
+            "action": request.action,
+            "targets": request.targets,
+            "tool_id": request.tool_id,
+            "ttl_seconds": request.ttl_seconds,
+            "max_uses": request.max_uses,
+            "constraints": request.constraints,
+        },
+        impact_level="high",
+        subject_id=request.principal,
+        entity_refs=[request.principal, request.action],
+        requires_triune=True,
     )
-    await emit_world_event(get_db(), event_type="enterprise_token_issued", entity_refs=[token.token_id, request.principal], payload={"action": request.action, "targets": request.targets}, trigger_triune=False)
-    
+    await emit_world_event(
+        get_db(),
+        event_type="enterprise_token_issue_gated",
+        entity_refs=[request.principal, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"action": request.action, "actor": actor},
+        trigger_triune=True,
+    )
     return {
-        "token_id": token.token_id,
-        "expires_at": token.expires_at,
-        "max_uses": token.max_uses,
-        "message": "Token issued",
+        "status": "queued_for_triune_approval",
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
         "contract_version": ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
@@ -395,12 +408,26 @@ async def revoke_token(
     token_id: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Revoke a token"""
-    from services.token_broker import token_broker
-    
-    success = token_broker.revoke_token(token_id)
-    await emit_world_event(get_db(), event_type="enterprise_token_revoked", entity_refs=[token_id], payload={"success": success, "actor": current_user.get("id")}, trigger_triune=False)
-    return {"success": success}
+    """Queue token revoke through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "revoke_token", "token_id": token_id},
+        impact_level="critical",
+        subject_id=token_id,
+        entity_refs=[token_id],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="enterprise_token_revoke_gated",
+        entity_refs=[token_id, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.post("/token/revoke-principal/{principal}")
@@ -408,12 +435,26 @@ async def revoke_principal_tokens(
     principal: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Revoke all tokens for a principal"""
-    from services.token_broker import token_broker
-    
-    count = token_broker.revoke_tokens_for_principal(principal)
-    await emit_world_event(get_db(), event_type="enterprise_principal_tokens_revoked", entity_refs=[principal], payload={"revoked_count": count, "actor": current_user.get("id")}, trigger_triune=False)
-    return {"revoked_count": count}
+    """Queue principal token revoke through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "revoke_principal_tokens", "principal": principal},
+        impact_level="critical",
+        subject_id=principal,
+        entity_refs=[principal],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="enterprise_principal_token_revoke_gated",
+        entity_refs=[principal, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.get("/token/active")
