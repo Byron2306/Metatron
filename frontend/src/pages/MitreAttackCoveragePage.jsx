@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { motion } from 'framer-motion';
@@ -36,7 +36,7 @@ const MitreAttackCoveragePage = () => {
   const [loading, setLoading] = useState(false);
   const [coverage, setCoverage] = useState(null);
 
-  const loadCoverage = async () => {
+  const loadCoverage = useCallback(async () => {
     setLoading(true);
     try {
       const res = await axios.get(`${API}/mitre/coverage`, { headers });
@@ -46,13 +46,41 @@ const MitreAttackCoveragePage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [headers]);
 
   useEffect(() => {
     if (token) {
       loadCoverage();
     }
-  }, [token]);
+  }, [token, loadCoverage]);
+
+  const derived = useMemo(() => {
+    const techniques = coverage?.techniques || [];
+    const implementedTechniques = techniques.filter((t) => t.implemented).length;
+    const coveredScoreGte3 = techniques.filter((t) => Number(t.score) >= 3).length;
+    const implementedCoveredScoreGte3 = techniques.filter((t) => t.implemented && Number(t.score) >= 3).length;
+    const implementedCoveragePercent = implementedTechniques
+      ? Number(((implementedCoveredScoreGte3 / implementedTechniques) * 100).toFixed(2))
+      : 0;
+    const enterpriseTotal = Number(coverage?.enterprise_total_techniques || 0);
+    const enterpriseCoveragePercent = enterpriseTotal
+      ? Number(((coveredScoreGte3 / enterpriseTotal) * 100).toFixed(2))
+      : 0;
+    const roadmapTarget = Number(coverage?.roadmap_target_techniques || 639);
+    const roadmapCoveragePercent = roadmapTarget
+      ? Number(((coveredScoreGte3 / roadmapTarget) * 100).toFixed(2))
+      : 0;
+    return {
+      roadmapTarget,
+      observedTechniques: techniques.length,
+      implementedTechniques,
+      coveredScoreGte3,
+      implementedCoveredScoreGte3,
+      implementedCoveragePercent,
+      enterpriseCoveragePercent,
+      roadmapCoveragePercent,
+    };
+  }, [coverage]);
 
   return (
     <div className="space-y-6" data-testid="mitre-attack-coverage-page">
@@ -79,20 +107,20 @@ const MitreAttackCoveragePage = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
-          <p className="text-slate-400 text-sm">Enterprise Techniques</p>
-          <p className="text-2xl font-bold text-white">{coverage?.enterprise_total_techniques || 0}</p>
+          <p className="text-slate-400 text-sm">Roadmap Target Techniques</p>
+          <p className="text-2xl font-bold text-white">{derived.roadmapTarget}</p>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
-          <p className="text-slate-400 text-sm">Implemented Techniques</p>
-          <p className="text-2xl font-bold text-white">{coverage?.implemented_techniques || 0}</p>
+          <p className="text-slate-400 text-sm">Technique IDs Referenced in Code</p>
+          <p className="text-2xl font-bold text-white">{derived.implementedTechniques}</p>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
-          <p className="text-slate-400 text-sm">Implemented Score &gt;= 3</p>
-          <p className="text-2xl font-bold text-white">{coverage?.implemented_covered_score_gte3 || 0}</p>
+          <p className="text-slate-400 text-sm">Covered Techniques (Score &gt;= 3)</p>
+          <p className="text-2xl font-bold text-white">{derived.coveredScoreGte3}</p>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
           <p className="text-slate-400 text-sm">Implemented Coverage % (&gt;=3)</p>
-          <p className="text-2xl font-bold text-white">{coverage?.implemented_coverage_percent_gte3 || 0}%</p>
+          <p className="text-2xl font-bold text-white">{derived.implementedCoveragePercent}%</p>
         </motion.div>
       </div>
 
@@ -100,15 +128,15 @@ const MitreAttackCoveragePage = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
           <p className="text-slate-400 text-sm">Observed Techniques (All Sources)</p>
-          <p className="text-xl font-semibold text-white">{coverage?.observed_techniques || 0}</p>
+          <p className="text-xl font-semibold text-white">{derived.observedTechniques}</p>
         </div>
         <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
           <p className="text-slate-400 text-sm">Enterprise Coverage % (&gt;=3)</p>
-          <p className="text-xl font-semibold text-white">{coverage?.coverage_percent_gte3 || 0}%</p>
+          <p className="text-xl font-semibold text-white">{derived.enterpriseCoveragePercent}%</p>
         </div>
         <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
-          <p className="text-slate-400 text-sm">Implemented Tactics</p>
-          <p className="text-xl font-semibold text-white">{coverage?.implemented_tactics || 0}</p>
+          <p className="text-slate-400 text-sm">Roadmap Coverage % (&gt;=3)</p>
+          <p className="text-xl font-semibold text-white">{derived.roadmapCoveragePercent}%</p>
         </div>
       </div>
 

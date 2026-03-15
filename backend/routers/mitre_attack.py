@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
+import os
 import re
-from typing import Dict, List, Set
+from typing import Any, Dict, List, Set
 
 from fastapi import APIRouter, Depends
 
@@ -18,6 +19,7 @@ import atomic_validation as atomic_validation_module
 router = APIRouter(prefix="/mitre", tags=["MITRE ATT&CK"])
 
 ENTERPRISE_TECHNIQUE_TOTAL = 216
+ROADMAP_TARGET_TECHNIQUE_TOTAL = 639
 
 TACTICS = [
     {"id": "TA0043", "name": "Reconnaissance"},
@@ -38,6 +40,7 @@ TACTICS = [
 
 TECHNIQUE_TO_TACTIC = {
     "T1195": "TA0001",
+    "T1195.002": "TA0001",
     "T1199": "TA0001",
     "T1113": "TA0009",
     "T1123": "TA0009",
@@ -47,6 +50,7 @@ TECHNIQUE_TO_TACTIC = {
     "T1528": "TA0006",
     "T1552.001": "TA0006",
     "T1552.005": "TA0006",
+    "T1553.006": "TA0005",
     "T1567.002": "TA0010",
     "T1059": "TA0002",
     "T1059.001": "TA0002",
@@ -250,6 +254,69 @@ def _collect_threat_intel(techniques: Dict[str, Dict]):
             techniques[tnorm]['score'] = max(techniques[tnorm]['score'], 3)
 
 
+async def _collect_supply_chain(techniques: Dict[str, Dict], db: Any):
+    """Collect supply-chain ATT&CK depth for T1195/T1195.002/T1553.006."""
+    # Baseline: policy controls configured in runtime environment.
+    supply_chain_baseline = {
+        "TRIVY_ENABLED": ("T1195.002", "trivy_policy"),
+        "COSIGN_VERIFY": ("T1553.006", "cosign_policy"),
+    }
+    for env_key, (technique, source) in supply_chain_baseline.items():
+        default_value = "true" if env_key == "TRIVY_ENABLED" else "false"
+        if str(os.environ.get(env_key, default_value)).lower() in {"1", "true", "yes", "on"}:
+            techniques.setdefault(technique, {"score": 0, "sources": set()})
+            # Trivy-backed image scanning is treated as high-fidelity detection
+            # for software supply-chain compromise (first roadmap technique update).
+            baseline_score = 3 if technique == "T1195.002" else 2
+            techniques[technique]["score"] = max(techniques[technique]["score"], baseline_score)
+            techniques[technique]["sources"].add(source)
+            if technique == "T1195.002":
+                techniques.setdefault("T1195", {"score": 0, "sources": set()})
+                techniques["T1195"]["score"] = max(techniques["T1195"]["score"], 3)
+                techniques["T1195"]["sources"].add("supply_chain_image_scanning")
+
+    # Runtime evidence from container security manager (if available).
+    try:
+        from container_security import container_security  # lazy import
+        stats = container_security.get_stats() if hasattr(container_security, "get_stats") else {}
+        if int(stats.get("cached_scans", 0) or 0) > 0:
+            techniques.setdefault("T1195.002", {"score": 0, "sources": set()})
+            techniques["T1195.002"]["score"] = max(techniques["T1195.002"]["score"], 3)
+            techniques["T1195.002"]["sources"].add("container_scan_cache")
+
+        if int(stats.get("signing_cache", 0) or 0) > 0:
+            for technique, source in [("T1553.006", "image_signing_cache"), ("T1195", "supply_chain_signing_observed")]:
+                techniques.setdefault(technique, {"score": 0, "sources": set()})
+                techniques[technique]["score"] = max(techniques[technique]["score"], 3)
+                techniques[technique]["sources"].add(source)
+    except Exception:
+        pass
+
+    if db is None:
+        return
+
+    # Persistent evidence from recorded container scans.
+    try:
+        scan_docs = await db.container_scans.find({}, {"_id": 0, "scan_status": 1, "critical_count": 1, "high_count": 1}).to_list(500)
+    except Exception:
+        scan_docs = []
+
+    if scan_docs:
+        techniques.setdefault("T1195.002", {"score": 0, "sources": set()})
+        techniques["T1195.002"]["score"] = max(techniques["T1195.002"]["score"], 3)
+        techniques["T1195.002"]["sources"].add("container_scan_history")
+
+        risky_scans = sum(
+            1
+            for row in scan_docs
+            if int(row.get("critical_count", 0) or 0) > 0 or int(row.get("high_count", 0) or 0) > 0
+        )
+        if risky_scans > 0:
+            techniques.setdefault("T1195", {"score": 0, "sources": set()})
+            techniques["T1195"]["score"] = max(techniques["T1195"]["score"], 3)
+            techniques["T1195"]["sources"].add("supply_chain_risky_image_findings")
+
+
 def _summarize_tactics(techniques: Dict[str, Dict], implemented_meta: Dict[str, Dict]) -> List[Dict]:
     index = {t["id"]: {"tactic_id": t["id"], "tactic_name": t["name"], "technique_count": 0, "score_gte3_count": 0} for t in TACTICS}
 
@@ -272,13 +339,14 @@ def _score_distribution(techniques: Dict[str, Dict]) -> Dict[str, int]:
         buckets[str(score)] += 1
 
     covered = sum(v for k, v in buckets.items() if k != "0")
-    buckets["0"] = max(ENTERPRISE_TECHNIQUE_TOTAL - covered, 0)
+    buckets["0"] = max(ROADMAP_TARGET_TECHNIQUE_TOTAL - covered, 0)
     return buckets
 
 
 @router.get("/coverage")
 async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     techniques: Dict[str, Dict] = {}
+    db = get_db()
 
     _collect_sigma(techniques)
     _collect_osquery(techniques)
@@ -286,6 +354,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_atomic(techniques)
     # include indicators ingested via integrations (Amass, Velociraptor, etc.)
     _collect_threat_intel(techniques)
+    # Technique update pass #1: supply-chain compromise depth (T1195 family)
+    await _collect_supply_chain(techniques, db)
     implemented_meta = _merge_implemented_sweep(techniques)
 
     ordered = []
@@ -328,16 +398,34 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     checked_at = datetime.now(timezone.utc).isoformat()
     coverage_percent = round((covered_gte3 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
     implemented_coverage_percent = round((implemented_covered_gte3 / implemented_count) * 100, 2) if implemented_count else 0.0
-    await emit_world_event(get_db(), event_type="mitre_coverage_calculated", entity_refs=[], payload={"actor": current_user.get("id"), "observed_techniques": len(ordered), "covered_score_gte3": covered_gte3, "coverage_percent_gte3": coverage_percent, "implemented_techniques": implemented_count, "implemented_covered_score_gte3": implemented_covered_gte3, "implemented_coverage_percent_gte3": implemented_coverage_percent}, trigger_triune=False)
-    await emit_world_event(get_db(), event_type="mitre_coverage_calculated", entity_refs=[], payload={"actor": current_user.get("id"), "observed_techniques": len(ordered), "covered_score_gte3": covered_gte3, "coverage_percent_gte3": coverage_percent}, trigger_triune=False)
+    roadmap_coverage_percent = round((covered_gte3 / ROADMAP_TARGET_TECHNIQUE_TOTAL) * 100, 2)
+    await emit_world_event(
+        db,
+        event_type="mitre_coverage_calculated",
+        entity_refs=[],
+        payload={
+            "actor": current_user.get("id"),
+            "observed_techniques": len(ordered),
+            "covered_score_gte3": covered_gte3,
+            "coverage_percent_gte3": coverage_percent,
+            "implemented_techniques": implemented_count,
+            "implemented_covered_score_gte3": implemented_covered_gte3,
+            "implemented_coverage_percent_gte3": implemented_coverage_percent,
+            "roadmap_target_techniques": ROADMAP_TARGET_TECHNIQUE_TOTAL,
+            "roadmap_coverage_percent_gte3": roadmap_coverage_percent,
+        },
+        trigger_triune=False,
+    )
     return {
         "checked_at": checked_at,
         "enterprise_total_techniques": ENTERPRISE_TECHNIQUE_TOTAL,
+        "roadmap_target_techniques": ROADMAP_TARGET_TECHNIQUE_TOTAL,
         "observed_techniques": len(ordered),
         "implemented_techniques": implemented_count,
         "implemented_tactics": len(implemented_tactics),
         "covered_score_gte3": covered_gte3,
         "coverage_percent_gte3": coverage_percent,
+        "roadmap_coverage_percent_gte3": roadmap_coverage_percent,
         "implemented_covered_score_gte3": implemented_covered_gte3,
         "implemented_coverage_percent_gte3": implemented_coverage_percent,
         "score_distribution": score_dist,
