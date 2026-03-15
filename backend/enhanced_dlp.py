@@ -20,6 +20,16 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 import logging
 import os
+import asyncio
+import threading
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +295,39 @@ class EnhancedDLPEngine:
         self.incidents: Dict[str, DLPIncident] = {}
         self.scan_history: Dict[str, DLPScanResult] = {}
         self._init_default_policies()
+        self.db = None
         logger.info("EnhancedDLPEngine initialized")
+
+    def set_db(self, db):
+        """Attach optional DB context for canonical event emission."""
+        self.db = db
+
+    def _emit_dlp_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        if emit_world_event is None or self.db is None:
+            return
+        coro = emit_world_event(
+            self.db,
+            event_type=event_type,
+            entity_refs=entity_refs,
+            payload=payload,
+            trigger_triune=trigger_triune,
+        )
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def _init_default_policies(self):
         """Initialize default DLP policies"""
@@ -634,6 +676,21 @@ class EnhancedDLPEngine:
         
         self.incidents[incident_id] = incident
         logger.warning(f"DLP incident created: {incident_id} - {scan_result.policy_violated}")
+        self._emit_dlp_event(
+            event_type="dlp.incident.created",
+            entity_refs=[incident_id, user_id] if user_id else [incident_id],
+            payload={
+                "source": source,
+                "destination": destination,
+                "action_taken": scan_result.action.value,
+                "policy_violated": scan_result.policy_violated,
+                "classification": scan_result.classification.value,
+                "risk_score": scan_result.risk_score,
+                "match_count": len(scan_result.matches),
+                "compliance_violations": scan_result.compliance_violations,
+            },
+            trigger_triune=scan_result.risk_score >= 0.8,
+        )
     
     def get_incident(self, incident_id: str) -> Optional[DLPIncident]:
         """Get incident by ID"""

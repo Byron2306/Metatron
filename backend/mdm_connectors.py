@@ -30,6 +30,14 @@ import re
 
 logger = logging.getLogger(__name__)
 
+try:
+    from services.world_events import emit_world_event
+except Exception:  # pragma: no cover
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:  # pragma: no cover
+        emit_world_event = None
+
 
 class MDMPlatform(str, Enum):
     INTUNE = "intune"
@@ -696,9 +704,33 @@ class MDMConnectorManager:
     def __init__(self):
         self.connectors: Dict[str, MDMConnector] = {}
         self.all_devices: Dict[str, MDMDevice] = {}
+        self._db = None
         logger.info("MDMConnectorManager initialized")
+
+    def set_db(self, db):
+        self._db = db
+
+    async def _emit_event(
+        self,
+        event_type: str,
+        entity_refs: Optional[List[str]] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        trigger_triune: bool = False,
+    ) -> None:
+        if self._db is None or emit_world_event is None:
+            return
+        try:
+            await emit_world_event(
+                self._db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=trigger_triune,
+            )
+        except Exception:
+            logger.debug("mdm world event emission failed", exc_info=True)
     
-    def add_connector(self, name: str, platform: MDMPlatform, config: Dict[str, str]) -> bool:
+    async def add_connector(self, name: str, platform: MDMPlatform, config: Dict[str, str]) -> bool:
         """Add an MDM connector"""
         try:
             if platform == MDMPlatform.INTUNE:
@@ -710,15 +742,27 @@ class MDMConnectorManager:
                 return False
             
             logger.info(f"Added {platform.value} connector: {name}")
+            await self._emit_event(
+                "mdm_connector_added_service",
+                entity_refs=[name],
+                payload={"platform": platform.value},
+                trigger_triune=False,
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to add connector {name}: {e}")
             return False
     
-    def remove_connector(self, name: str) -> bool:
+    async def remove_connector(self, name: str) -> bool:
         """Remove an MDM connector"""
         if name in self.connectors:
             del self.connectors[name]
+            await self._emit_event(
+                "mdm_connector_removed_service",
+                entity_refs=[name],
+                payload={"removed": True},
+                trigger_triune=False,
+            )
             return True
         return False
     
@@ -727,6 +771,12 @@ class MDMConnectorManager:
         results = {}
         for name, connector in self.connectors.items():
             results[name] = await connector.connect()
+        await self._emit_event(
+            "mdm_connect_all_completed_service",
+            entity_refs=list(results.keys()),
+            payload={"connected": sum(1 for v in results.values() if v), "total": len(results)},
+            trigger_triune=False,
+        )
         return results
     
     async def disconnect_all(self) -> Dict[str, bool]:
@@ -747,6 +797,11 @@ class MDMConnectorManager:
                     self.all_devices[device.device_id] = device
         
         logger.info(f"Total devices synced: {len(all_devices)}")
+        await self._emit_event(
+            "mdm_devices_synced_service",
+            payload={"device_count": len(all_devices), "connector_count": len(self.connectors)},
+            trigger_triune=False,
+        )
         return all_devices
     
     async def sync_all_policies(self) -> List[MDMCompliancePolicy]:
@@ -775,7 +830,14 @@ class MDMConnectorManager:
         # Find the right connector
         for connector in self.connectors.values():
             if device_id in connector.devices:
-                return await connector.execute_action(device_id, action, params)
+                result = await connector.execute_action(device_id, action, params)
+                await self._emit_event(
+                    "mdm_device_action_executed_service",
+                    entity_refs=[device_id],
+                    payload={"action": action.value, "status": result.status},
+                    trigger_triune=action in {DeviceManagementAction.WIPE, DeviceManagementAction.RETIRE},
+                )
+                return result
         
         return MDMActionResult(
             action_id=f"action_{uuid.uuid4().hex[:12]}",

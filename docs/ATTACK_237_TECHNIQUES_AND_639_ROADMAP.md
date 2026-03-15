@@ -74,3 +74,50 @@ This document lists every ATT&CK technique/sub-technique ID currently referenced
 3. Split coverage into: **Implemented**, **Observed**, **Validated**, **Automated Response**.
 4. Gate new detections with Atomic validation and auto-create coverage deltas in dashboard.
 5. Add monthly “net-new ATT&CK depth” KPI by tactic to prevent regressions.
+
+
+## Focused addendum: audit logging, browser isolation, Celery app, and container security
+
+### Audit logging (telemetry chain + security services)
+Current state:
+- Strong local audit chain concepts exist (hash-linked records, principal/action/result lineage).
+- Multiple services already emit auditable events, but evidence normalization is still uneven across domains.
+
+Recommended integrations to increase ATT&CK depth:
+- Add unified ATT&CK annotation on every audit record (`technique_id`, `tactic_id`, `confidence`, `evidence_ref`).
+- Forward audit chain records to SIEM with tamper-evident hash checkpoints and periodic notarization.
+- Add ATT&CK-aware audit queries for: credential access, privilege changes, defense evasion events, and policy bypass attempts.
+
+### Browser isolation
+Current state:
+- Browser isolation service exists and can provide high-value telemetry for web-driven initial access/execution chains.
+
+Recommended integrations to increase ATT&CK depth:
+- Capture browser process tree + downloaded artifact lineage and map to techniques (drive-by compromise, malicious scripts, phishing follow-ons).
+- Integrate detonation verdicts into world events and triune scoring loop with explicit ATT&CK tags.
+- Correlate browser isolation sessions with identity risk and outbound C2/exfil patterns.
+
+### Celery app and async task pipeline
+Current state:
+- Celery task modules exist for world ingest, triune tasks, and integration collectors.
+- Background tasks are a major source of “observed” ATT&CK evidence but currently mixed in reliability and environment assumptions.
+
+Recommended integrations to increase ATT&CK depth:
+- Add standardized task-level ATT&CK metadata envelope (`source`, `techniques`, `tactics`, `validation_level`).
+- Add dead-letter queue + retry policy metrics as security telemetry (failed ingestion can hide ATT&CK evidence).
+- Add periodic ATT&CK reconciliation task that compares implemented techniques vs observed-in-last-N-days to detect blind spots.
+
+### Container security (`container_security.py` + runtime tooling)
+Current state:
+- Container/runtime visibility exists across Trivy/Falco/Suricata and related routes/tooling, but ATT&CK mapping should be more explicit and unified.
+
+Recommended integrations to increase ATT&CK depth:
+- Normalize container findings into ATT&CK technique/sub-technique IDs at ingest time.
+- Add runtime drift detection for container escape, privileged execution, and suspicious syscall patterns.
+- Correlate container findings with kube/cloud control-plane logs for lateral movement and persistence coverage.
+
+### Priority implementation order for these four domains
+1. **Audit logging normalization** (fastest multiplier for trustworthy ATT&CK coverage accounting).
+2. **Celery metadata envelope** (stabilizes background evidence quality and triune analytics).
+3. **Container ATT&CK normalization** (major expansion of modern attack-surface coverage).
+4. **Browser isolation enrichment** (high signal for initial access/execution chains).

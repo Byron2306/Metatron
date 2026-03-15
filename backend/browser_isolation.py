@@ -25,6 +25,10 @@ import logging
 import re
 import json
 import os
+import asyncio
+import threading
+
+from services.world_events import emit_world_event
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +137,40 @@ class BrowserIsolationService:
         self.certificate_cache: Dict[str, CertificateInfo] = {}
         self._init_threat_intelligence()
     
+
+    def set_db(self, db):
+        self.db = db
+
+    def _emit_browser_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        db = getattr(self, "db", None)
+        if db is None:
+            return
+
+        coro = emit_world_event(
+            db,
+            event_type=event_type,
+            entity_refs=entity_refs,
+            payload=payload,
+            trigger_triune=trigger_triune,
+        )
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
+
     def _init_threat_intelligence(self):
         """Initialize threat intelligence data"""
         # Known malicious domains (sample)
@@ -398,6 +436,19 @@ class BrowserIsolationService:
         )
         
         self.download_cache[file_hash] = result
+
+        self._emit_browser_event(
+            "browser_isolation_download_scanned",
+            [file_hash, file_name],
+            {
+                "is_safe": result.is_safe,
+                "detections": result.detections,
+                "threat_name": result.threat_name,
+                "file_size": file_size,
+            },
+            trigger_triune=not result.is_safe,
+        )
+
         return result
     
     def check_domain_age(self, domain: str) -> Tuple[int, bool]:
@@ -599,6 +650,12 @@ class BrowserIsolationService:
         analysis = self.analyze_url(url, deep_scan=deep_scan)
         
         if analysis.is_blocked:
+            self._emit_browser_event(
+                "browser_isolation_session_blocked",
+                [user_id, analysis.domain],
+                {"url": url, "threat_level": analysis.threat_level.value, "reasons": analysis.reasons},
+                trigger_triune=True,
+            )
             return {
                 "success": False,
                 "error": "URL is blocked",
@@ -636,7 +693,14 @@ class BrowserIsolationService:
         )
         
         self.sessions[session_id] = session
-        
+
+        self._emit_browser_event(
+            "browser_isolation_session_created",
+            [session_id, user_id, analysis.domain],
+            {"url": url, "isolation_mode": isolation_mode, "threat_level": analysis.threat_level.value, "category": analysis.category},
+            trigger_triune=analysis.threat_level in {ThreatLevel.HIGH, ThreatLevel.MALICIOUS},
+        )
+
         logger.info(f"Created isolated session {session_id} for user {user_id}")
         
         return {
@@ -661,6 +725,12 @@ class BrowserIsolationService:
         session.is_active = False
         session.ended_at = datetime.now(timezone.utc).isoformat()
         
+        self._emit_browser_event(
+            "browser_isolation_session_ended",
+            [session_id, session.user_id],
+            {"threat_level": session.threat_level.value, "downloads_blocked": session.downloads_blocked, "scripts_blocked": session.scripts_blocked},
+            trigger_triune=session.threat_level in {ThreatLevel.HIGH, ThreatLevel.MALICIOUS},
+        )
         logger.info(f"Ended session {session_id}")
         return True
     

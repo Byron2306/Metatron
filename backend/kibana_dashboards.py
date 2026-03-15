@@ -10,6 +10,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+try:
+    from services.world_events import emit_world_event
+except Exception:  # pragma: no cover
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:  # pragma: no cover
+        emit_world_event = None
+
 # Pre-built Kibana dashboard configurations
 KIBANA_DASHBOARDS = {
     "security-overview": {
@@ -286,6 +294,7 @@ def generate_kibana_dashboard_ndjson(dashboard_id: str, dashboard_config: Dict) 
 class KibanaDashboardService:
     def __init__(self):
         self.dashboards = KIBANA_DASHBOARDS
+        self._db = None
         self.elasticsearch_url = os.environ.get("ELASTICSEARCH_URL")
         self.api_key = os.environ.get("ELASTICSEARCH_API_KEY")
         self.elasticsearch_username = os.environ.get("ELASTICSEARCH_USERNAME")
@@ -305,6 +314,47 @@ class KibanaDashboardService:
                 )
             logger.info(f"Kibana configured: ES={self.elasticsearch_url}  Kibana={self.kibana_url}")
     
+    def set_db(self, db):
+        self._db = db
+
+    async def _emit_event(
+        self,
+        event_type: str,
+        entity_refs: Optional[List[str]] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        trigger_triune: bool = False,
+    ) -> None:
+        if self._db is None or emit_world_event is None:
+            return
+        try:
+            await emit_world_event(
+                self._db,
+                event_type=event_type,
+                entity_refs=entity_refs or [],
+                payload=payload or {},
+                trigger_triune=trigger_triune,
+            )
+        except Exception:
+            logger.debug("kibana world event emission failed", exc_info=True)
+
+    def _emit_event_sync(self, event_type: str, entity_refs: Optional[List[str]] = None, payload: Optional[Dict[str, Any]] = None, trigger_triune: bool = False):
+        if self._db is None or emit_world_event is None:
+            return
+        async def _emit():
+            await self._emit_event(event_type, entity_refs, payload, trigger_triune)
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            loop.create_task(_emit())
+        except RuntimeError:
+            try:
+                import asyncio
+                asyncio.run(_emit())
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def configure(
         self,
         elasticsearch_url: str,
@@ -386,6 +436,11 @@ class KibanaDashboardService:
                 )
                 
                 if response.status_code in [200, 201, 409]:  # 409 = already exists
+                    await self._emit_event(
+                        "kibana_index_pattern_created_service",
+                        payload={"success": True},
+                        trigger_triune=False,
+                    )
                     return {"success": True, "message": "Index pattern created/exists"}
                 else:
                     logger.warning(f"Kibana API response: {response.status_code}")

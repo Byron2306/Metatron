@@ -89,6 +89,78 @@ class TriuneOrchestrator:
                 hotspots.append(hotspot.model_dump())
             else:
                 hotspots.append(hotspot.dict())
+
+        attack_path_graph = await self.world_model.compute_attack_path(seed_ids=entity_ids or None, max_depth=3)
+        graph_metrics = await self.world_model.compute_graph_metrics(seed_ids=entity_ids or None, max_depth=3)
+
+        edges: List[Dict[str, Any]] = []
+        try:
+            edges = await self.world_model.edges.find({}, {"_id": 0}).sort("created", -1).to_list(100)
+        except Exception:
+            edges = attack_path_graph.get("edges", [])[:100]
+
+        campaigns: List[Dict[str, Any]] = []
+        try:
+            campaigns = await self.world_model.campaigns.find({}, {"_id": 0}).sort("first_detected", -1).to_list(20)
+        except Exception:
+            campaigns = []
+
+        recent_world_events: List[Dict[str, Any]] = []
+        try:
+            recent_world_events = await self.db.world_events.find({}, {"_id": 0}).sort("created", -1).to_list(100)
+        except Exception:
+            recent_world_events = []
+
+        active_responses: List[Dict[str, Any]] = []
+        try:
+            active_responses = await self.db.response_history.find({"status": {"$in": ["pending", "in_progress", "active"]}}, {"_id": 0}).sort("timestamp", -1).to_list(50)
+        except Exception:
+            active_responses = []
+
+        trust_state: Dict[str, Any] = {}
+        try:
+            for ent in entities:
+                attrs = ent.get("attributes", {})
+                if attrs.get("trust_state"):
+                    trust_state[ent.get("id")] = attrs.get("trust_state")
+            if not trust_state:
+                identities = await self.db.world_entities.find({"attributes.trust_state": {"$exists": True}}, {"_id": 0, "id": 1, "attributes.trust_state": 1}).to_list(200)
+                for ident in identities:
+                    trust_state[ident.get("id")] = (ident.get("attributes") or {}).get("trust_state")
+        except Exception:
+            trust_state = {}
+
+        sector_risk: Dict[str, Any] = {}
+        try:
+            pipeline = [
+                {"$match": {"attributes.risk_score": {"$exists": True}}},
+                {"$project": {"sector": {"$ifNull": ["$attributes.sector", "unknown"]}, "risk": "$attributes.risk_score"}},
+                {"$group": {"_id": "$sector", "avg_risk": {"$avg": "$risk"}, "entities": {"$sum": 1}}},
+                {"$sort": {"avg_risk": -1}},
+            ]
+            sector_rows = await self.db.world_entities.aggregate(pipeline).to_list(20)
+            sector_risk = {row.get("_id", "unknown"): {"avg_risk": row.get("avg_risk", 0.0), "entities": row.get("entities", 0)} for row in sector_rows}
+        except Exception:
+            sector_risk = {}
+
+        attack_path_summary = {
+            "node_count": len(attack_path_graph.get("nodes", [])),
+            "edge_count": len(attack_path_graph.get("edges", [])),
+            "top_nodes": [n.get("id") for n in attack_path_graph.get("nodes", [])[:10]],
+            "graph_metrics": graph_metrics,
+        }
+
+        return {
+            "entities": entities,
+            "hotspots": hotspots,
+            "edges": edges,
+            "campaigns": campaigns,
+            "trust_state": trust_state,
+            "recent_world_events": recent_world_events,
+            "active_responses": active_responses,
+            "sector_risk": sector_risk,
+            "attack_path_graph": attack_path_graph,
+            "attack_path_summary": attack_path_summary,
         return {
             "entities": entities,
             "hotspots": hotspots,

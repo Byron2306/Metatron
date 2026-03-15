@@ -42,6 +42,15 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 from collections import defaultdict
 import uuid
+import threading
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -419,6 +428,10 @@ class CloudScanner(ABC):
         Returns:
             ScanResult with findings and resources
         """
+        # Reset per-scan mutable state to avoid cross-scan accumulation
+        self.findings = []
+        self.resources = {}
+
         scan_id = str(uuid.uuid4())
         scan_result = ScanResult(
             scan_id=scan_id,
@@ -637,6 +650,36 @@ class CSPMEngine:
             "scans_by_provider": defaultdict(int),
             "findings_by_severity": defaultdict(int),
         }
+
+        self.db = None
+
+    def set_db(self, db):
+        """Attach database handle for canonical world-event emission."""
+        self.db = db
+
+    def _emit_cspm_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
+        if emit_world_event is None or self.db is None:
+            return
+
+        coro = emit_world_event(
+            self.db,
+            event_type=event_type,
+            entity_refs=entity_refs,
+            payload=payload,
+            trigger_triune=trigger_triune,
+        )
+
+        async def _run():
+            try:
+                await coro
+            except Exception:
+                pass
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_run())
+        except RuntimeError:
+            threading.Thread(target=lambda: asyncio.run(_run()), daemon=True).start()
     
     def register_scanner(self, scanner: CloudScanner):
         """Register a cloud scanner"""
@@ -682,6 +725,36 @@ class CSPMEngine:
                 
                 for finding in result.findings:
                     self.stats["findings_by_severity"][finding.severity.value] += 1
+
+                self._emit_cspm_event(
+                    "cspm_provider_scan_completed",
+                    [provider.value, result.account_id],
+                    {
+                        "scan_id": result.scan_id,
+                        "provider": provider.value,
+                        "status": result.status,
+                        "findings_count": result.findings_count,
+                        "critical_count": result.critical_count,
+                        "high_count": result.high_count,
+                        "resources_scanned": result.resources_scanned,
+                    },
+                    trigger_triune=(result.status == "failed" or result.critical_count > 0),
+                )
+
+        if results:
+            total_critical = sum(r.critical_count for r in results.values())
+            total_high = sum(r.high_count for r in results.values())
+            self._emit_cspm_event(
+                "cspm_multi_scan_completed",
+                [p.value for p in results.keys()],
+                {
+                    "providers_scanned": len(results),
+                    "total_findings": sum(r.findings_count for r in results.values()),
+                    "total_critical": total_critical,
+                    "total_high": total_high,
+                },
+                trigger_triune=(total_critical > 0),
+            )
         
         return results
     

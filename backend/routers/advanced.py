@@ -19,6 +19,10 @@ try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 
 import logging
 
@@ -268,24 +272,25 @@ async def execute_mcp_tool(
     mcp_server.set_db(get_db())
     import asyncio
     
-    # Create MCP message
-    message = mcp_server.create_message(
-        message_type=MCPMessageType.TOOL_REQUEST,
-        source=f"operator:{current_user.get('email', 'unknown')}",
-        destination=request.tool_id,
-        payload={"params": request.params},
-        trace_id=request.trace_id
+    gate = OutboundGateService(get_db())
+    actor = f"operator:{current_user.get('email', 'unknown')}"
+    gated = await gate.gate_action(
+        action_type="mcp_tool_execution",
+        actor=actor,
+        payload={"tool_id": request.tool_id, "params": request.params, "trace_id": request.trace_id},
+        impact_level="critical",
+        subject_id=request.tool_id,
+        entity_refs=[request.tool_id, actor],
+        requires_triune=True,
     )
-    
-    # Execute
-    response = await mcp_server.handle_message(message)
-    
+
+    await emit_world_event(get_db(), event_type="advanced_mcp_execution_gated", entity_refs=[request.tool_id, actor], payload={"queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
+
     return {
-        "message_id": response.message_id,
-        "status": response.payload.get("status"),
-        "output": response.payload.get("output"),
-        "error": response.payload.get("error"),
-        "execution_id": response.payload.get("execution_id")
+        "status": "queued_for_triune_approval",
+        "tool_id": request.tool_id,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     }
 
 

@@ -28,6 +28,7 @@ except Exception:
     db = None
 
 import logging
+from backend.services.outbound_gate import OutboundGateService
 
 logger = logging.getLogger(__name__)
 
@@ -203,13 +204,35 @@ async def send_command_to_agent(
         "created_by": current_user.get("email", "system")
     }
     
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="swarm_command",
+        actor=current_user.get("email", "system"),
+        payload=command_doc,
+        impact_level="critical" if request.priority in {"high", "critical"} else "high",
+        subject_id=agent_id,
+        entity_refs=[command_doc["command_id"]],
+        requires_triune=True,
+    )
+
+    command_doc["status"] = "gated_pending_approval"
+    command_doc["gate"] = {
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "action_id": gated.get("action_id"),
+    }
+
     await db.agent_commands.insert_one(command_doc)
+    await emit_world_event(get_db(), event_type="swarm_agent_command_gated", entity_refs=[agent_id, command_doc["command_id"]], payload={"command_type": request.type, "actor": current_user.get("email", "system"), "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
+    logger.info(f"Command gated for agent {agent_id}: {request.type}")
     await emit_world_event(get_db(), event_type="swarm_agent_command_queued", entity_refs=[agent_id, command_doc["command_id"]], payload={"command_type": request.type, "actor": current_user.get("email", "system")}, trigger_triune=False)
     logger.info(f"Command queued for agent {agent_id}: {request.type}")
     return {
-        "status": "ok",
+        "status": "queued_for_triune_approval",
         "command_id": command_doc["command_id"],
-        "message": f"Command {request.type} queued for agent {agent_id}",
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "message": f"Command {request.type} gated for agent {agent_id}",
         "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 

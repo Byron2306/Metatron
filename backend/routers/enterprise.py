@@ -20,6 +20,10 @@ try:
 except Exception:
     from backend.services.world_events import emit_world_event
 try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
+try:
     from .dependencies import get_current_user, check_permission, db
 except Exception:
     def get_current_user(*args, **kwargs):
@@ -470,23 +474,29 @@ async def execute_tool(
     from services.tool_gateway import tool_gateway
     
     principal = f"operator:{current_user.get('email', 'unknown')}"
-    
-    execution = tool_gateway.execute(
-        tool_id=request.tool_id,
-        parameters=request.parameters,
-        principal=principal,
-        token_id=request.token_id,
-        trust_state=request.trust_state
+
+    tool = tool_gateway.get_tool(request.tool_id)
+    impact = "critical" if (tool and tool.requires_approval) else "high"
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=principal,
+        payload={"tool_id": request.tool_id, "parameters": request.parameters, "token_id": request.token_id, "trust_state": request.trust_state},
+        impact_level=impact,
+        subject_id=request.tool_id,
+        entity_refs=[request.tool_id, principal],
+        requires_triune=True,
     )
+
+    await emit_world_event(get_db(), event_type="enterprise_tool_execution_gated", entity_refs=[request.tool_id, principal], payload={"queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
+
     await emit_world_event(get_db(), event_type="enterprise_tool_executed", entity_refs=[request.tool_id, principal], payload={"execution_id": execution.execution_id, "status": execution.status}, trigger_triune=False)
     
     return {
-        "execution_id": execution.execution_id,
-        "status": execution.status,
-        "exit_code": execution.exit_code,
-        "stdout": execution.stdout,
-        "stderr": execution.stderr,
-        "duration_ms": execution.duration_ms,
+        "status": "queued_for_triune_approval",
+        "tool_id": request.tool_id,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
         "contract_version": ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION,
     }
 

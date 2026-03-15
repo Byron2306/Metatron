@@ -88,6 +88,7 @@ async def scan_container_image(request: ScanImageRequest, current_user: dict = D
             "high_count": result.get("high_count"),
             "total_vulnerabilities": result.get("total_vulnerabilities"),
         },
+        trigger_triune=(result.get("critical_count", 0) > 0),
         trigger_triune=False,
     )
     
@@ -107,6 +108,7 @@ async def scan_all_images(current_user: dict = Depends(check_permission("write")
         event_type="container_scan_all_completed",
         entity_refs=[],
         payload={"images_scanned": len(results), "total_vulnerabilities": total_vulns, "critical_count": critical},
+        trigger_triune=(critical > 0),
         trigger_triune=False,
     )
     
@@ -159,6 +161,14 @@ async def get_falco_alerts(
 ):
     """Get recent Falco alerts"""
     alerts = container_security.falco.get_alerts(limit=limit, priority=priority)
+    db = get_db()
+    await emit_world_event(
+        db,
+        event_type="container_falco_alerts_queried",
+        entity_refs=[],
+        payload={"count": len(alerts), "priority": priority},
+        trigger_triune=any((a.get("priority") in {"Critical", "Error", "critical", "error"}) for a in alerts if isinstance(a, dict)),
+    )
     return {"alerts": alerts, "count": len(alerts)}
 
 

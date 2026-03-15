@@ -327,6 +327,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
 
     checked_at = datetime.now(timezone.utc).isoformat()
     coverage_percent = round((covered_gte3 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
+    implemented_coverage_percent = round((implemented_covered_gte3 / implemented_count) * 100, 2) if implemented_count else 0.0
+    await emit_world_event(get_db(), event_type="mitre_coverage_calculated", entity_refs=[], payload={"actor": current_user.get("id"), "observed_techniques": len(ordered), "covered_score_gte3": covered_gte3, "coverage_percent_gte3": coverage_percent, "implemented_techniques": implemented_count, "implemented_covered_score_gte3": implemented_covered_gte3, "implemented_coverage_percent_gte3": implemented_coverage_percent}, trigger_triune=False)
     await emit_world_event(get_db(), event_type="mitre_coverage_calculated", entity_refs=[], payload={"actor": current_user.get("id"), "observed_techniques": len(ordered), "covered_score_gte3": covered_gte3, "coverage_percent_gte3": coverage_percent}, trigger_triune=False)
     return {
         "checked_at": checked_at,
@@ -336,6 +338,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
         "implemented_tactics": len(implemented_tactics),
         "covered_score_gte3": covered_gte3,
         "coverage_percent_gte3": coverage_percent,
+        "implemented_covered_score_gte3": implemented_covered_gte3,
+        "implemented_coverage_percent_gte3": implemented_coverage_percent,
         "score_distribution": score_dist,
         "tactics": tactics,
         "techniques": ordered,

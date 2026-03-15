@@ -22,6 +22,16 @@ from typing import Optional, Dict, List, Any, Set
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 import logging
+import asyncio
+import threading
+
+try:
+    from services.world_events import emit_world_event
+except Exception:
+    try:
+        from backend.services.world_events import emit_world_event
+    except Exception:
+        emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +182,39 @@ class EnhancedKernelSecurity:
             "syscalls_checked": 0
         }
         
+        self.db = None
         logger.info("EnhancedKernelSecurity initialized")
+
+    def set_db(self, db):
+        """Attach optional DB context for canonical event emission."""
+        self.db = db
+
+    def _emit_kernel_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = True):
+        if emit_world_event is None or self.db is None:
+            return
+        coro = emit_world_event(
+            self.db,
+            event_type=event_type,
+            entity_refs=entity_refs,
+            payload=payload,
+            trigger_triune=trigger_triune,
+        )
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+            return
+
+        def _runner():
+            try:
+                asyncio.run(coro)
+            except Exception:
+                pass
+
+        threading.Thread(target=_runner, daemon=True).start()
     
     def full_scan(self) -> Dict[str, Any]:
         """Perform full kernel security scan"""
@@ -303,7 +345,21 @@ class EnhancedKernelSecurity:
                 )
                 threats.append(threat)
                 self.threats[threat.threat_id] = threat
-        
+
+        for threat in threats:
+            self._emit_kernel_event(
+                event_type="kernel.threat.detected",
+                entity_refs=[threat.threat_id, threat.threat_type.value],
+                payload={
+                    "severity": threat.severity.value,
+                    "title": threat.title,
+                    "description": threat.description,
+                    "mitre_technique": threat.mitre_technique,
+                    "evidence": threat.evidence,
+                },
+                trigger_triune=threat.severity in {ThreatSeverity.CRITICAL, ThreatSeverity.HIGH},
+            )
+
         return threats
     
     def _verify_kernel_modules(self) -> List[KernelModule]:

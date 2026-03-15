@@ -16,6 +16,13 @@ from mobile_security import mobile_security_service
 router = APIRouter(prefix="/mobile-security", tags=["Mobile Security"])
 
 
+def _bind_mobile_security_db():
+    try:
+        mobile_security_service.set_db(get_db())
+    except Exception:
+        pass
+
+
 # Request/Response Models
 class RegisterDeviceRequest(BaseModel):
     device_name: str
@@ -59,6 +66,7 @@ class UpdatePolicyRequest(BaseModel):
 
 @router.get("/stats")
 async def get_mobile_security_stats(current_user: dict = Depends(get_current_user)):
+    _bind_mobile_security_db()
     """Get mobile security statistics"""
     return mobile_security_service.get_stats()
 
@@ -280,6 +288,7 @@ async def get_compliance_checks(current_user: dict = Depends(get_current_user)):
 
 @router.get("/dashboard")
 async def get_mobile_dashboard(current_user: dict = Depends(get_current_user)):
+    _bind_mobile_security_db()
     """Get mobile security dashboard data"""
     stats = mobile_security_service.get_stats()
     devices = mobile_security_service.get_all_devices()

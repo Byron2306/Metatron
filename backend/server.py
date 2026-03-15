@@ -64,6 +64,8 @@ from atomic_validation import atomic_validation
 from attack_path_analysis import attack_path_service
 from zero_trust import zero_trust_engine
 from threat_response import response_engine
+from browser_isolation import browser_isolation_service
+from cspm_engine import get_cspm_engine
 
 audit.set_database(db)
 timeline_builder.set_database(db)
@@ -78,6 +80,8 @@ atomic_validation.set_db(db)
 attack_path_service.set_db(db)
 zero_trust_engine.set_db(db)
 response_engine.configure_db(db)
+browser_isolation_service.set_db(db)
+get_cspm_engine().set_db(db)
 
 # initialize world model and triune intelligence services
 from services.world_model import WorldModelService

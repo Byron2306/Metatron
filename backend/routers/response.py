@@ -17,6 +17,7 @@ from threat_response import (
 # Use centralized reasoning snapshot input
 from services.ai_reasoning import ai_reasoning, ReasoningContext
 from services.world_events import emit_world_event
+from services.outbound_gate import OutboundGateService
 
 router = APIRouter(prefix="/threat-response", tags=["Threat Response"])
 
@@ -49,19 +50,21 @@ async def get_blocked_ips(current_user: dict = Depends(get_current_user)):
 
 @router.post("/block-ip")
 async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_permission("write"))):
-    """Manually block an IP address"""
+    """Queue manual IP block via mandatory outbound gate."""
     try:
-        _configure_response_engine_db(get_db())
-        result = await manual_block_ip(
-            request.ip,
-            request.reason,
-            request.duration_hours,
-            current_user.get("name", "admin")
-        )
-        # ingest into world model as a containment event
-        from services.world_model import WorldModelService, WorldEntity
-        # get_db already imported at module level
         db = get_db()
+        _configure_response_engine_db(db)
+        gate = OutboundGateService(db)
+        gated = await gate.gate_action(
+            action_type="response_block_ip",
+            actor=current_user.get("name", "admin"),
+            payload={"ip": request.ip, "reason": request.reason, "duration_hours": request.duration_hours},
+            impact_level="critical",
+            subject_id=request.ip,
+            entity_refs=[request.ip],
+            requires_triune=True,
+        )
+        return {"status": "queued_for_triune_approval", "action": "block_ip", "ip": request.ip, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "IP block queued; execution awaits triune approval"}
         wm = WorldModelService(db)
         await wm.upsert_entity(WorldEntity(id=request.ip, type="agent", attributes={"blocked": True, "reason": request.reason}))
         triune = await emit_world_event(
@@ -73,18 +76,26 @@ async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_p
         result["triune"] = triune.get("triune")
         return result
     except Exception as e:
-        logger.error(f"Failed to block IP: {str(e)}")
+        logger.error(f"Failed to gate block IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/unblock-ip/{ip}")
 async def unblock_ip(ip: str, current_user: dict = Depends(check_permission("write"))):
-    """Unblock an IP address"""
+    """Queue manual IP unblock via mandatory outbound gate."""
     try:
-        _configure_response_engine_db(get_db())
-        result = await manual_unblock_ip(ip, current_user.get("name", "admin"))
-        # update world model
-        from services.world_model import WorldModelService
         db = get_db()
+        _configure_response_engine_db(db)
+        gate = OutboundGateService(db)
+        gated = await gate.gate_action(
+            action_type="response_unblock_ip",
+            actor=current_user.get("name", "admin"),
+            payload={"ip": ip},
+            impact_level="high",
+            subject_id=ip,
+            entity_refs=[ip],
+            requires_triune=True,
+        )
+        return {"status": "queued_for_triune_approval", "action": "unblock_ip", "ip": ip, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "IP unblock queued; execution awaits triune approval"}
         wm = WorldModelService(db)
         await wm.entities.update_one({"id": ip}, {"$set": {"attributes.blocked": False}})
         triune = await emit_world_event(
@@ -96,7 +107,7 @@ async def unblock_ip(ip: str, current_user: dict = Depends(check_permission("wri
         result["triune"] = triune.get("triune")
         return result
     except Exception as e:
-        logger.error(f"Failed to unblock IP: {str(e)}")
+        logger.error(f"Failed to gate unblock IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history")

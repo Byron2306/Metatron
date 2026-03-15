@@ -16,6 +16,13 @@ from kibana_dashboards import kibana_dashboard_service, KibanaDashboardService
 router = APIRouter(prefix="/kibana", tags=["Kibana Dashboards"])
 
 
+def _bind_kibana_db():
+    try:
+        kibana_dashboard_service.set_db(get_db())
+    except Exception:
+        pass
+
+
 class ConfigureKibanaRequest(BaseModel):
     elasticsearch_url: str
     api_key: Optional[str] = None
@@ -87,6 +94,7 @@ async def configure_kibana(
     request: ConfigureKibanaRequest,
     current_user: dict = Depends(check_permission("manage_users"))
 ):
+    _bind_kibana_db()
     """Configure Kibana connection settings"""
     kibana_dashboard_service.configure(
         elasticsearch_url=request.elasticsearch_url,
@@ -111,6 +119,7 @@ async def setup_index_pattern(
 
 @router.get("/status")
 async def get_kibana_status(current_user: dict = Depends(get_current_user)):
+    _bind_kibana_db()
     """Get Kibana integration status"""
     return {
         "configured": bool(kibana_dashboard_service.elasticsearch_url),

@@ -16,6 +16,7 @@ async def emit_world_event(
     entity_refs: Optional[List[str]] = None,
     payload: Optional[Dict[str, Any]] = None,
     trigger_triune: bool = True,
+    source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Persist a canonical world event and optionally execute Triune recomputation.
 
@@ -31,6 +32,7 @@ async def emit_world_event(
         "type": event_type,
         "entity_refs": entity_refs,
         "payload": payload,
+        "source": source or "world_event_emitter",
         "created": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -47,6 +49,7 @@ async def emit_world_event(
         triune_bundle = await orchestrator.handle_world_change(
             event_type=event_type,
             entity_ids=entity_refs,
+            context={"source": source or "world_event_emitter", "payload": payload},
             context={"source": "world_event_emitter", "payload": payload},
         )
 
