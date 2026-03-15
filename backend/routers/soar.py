@@ -14,6 +14,10 @@ try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 from routers.dependencies import get_db
 from soar_engine import soar_engine, PlaybookStatus
 
@@ -141,53 +145,75 @@ async def execute_playbook(
     event: TriggerEventRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Manually execute a playbook"""
-    try:
-        event_dict = event.model_dump()
-        event_dict.update(event_dict.pop("extra", {}))
-        
-        execution = await soar_engine.execute_playbook(playbook_id, event_dict)
-        logger.info(f"Executed playbook {playbook_id} by user {current_user['id']}")
-        
-        from dataclasses import asdict
-        return asdict(execution)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"Playbook execution failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """Queue manual playbook execution through outbound governance."""
+    event_dict = event.model_dump()
+    event_dict.update(event_dict.pop("extra", {}))
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="response_execution",
+        actor=actor,
+        payload={"operation": "soar_execute_playbook", "playbook_id": playbook_id, "event": event_dict},
+        impact_level="critical",
+        subject_id=playbook_id,
+        entity_refs=[playbook_id],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="soar_playbook_execution_gated",
+        entity_refs=[playbook_id, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {
+        "status": "queued_for_triune_approval",
+        "playbook_id": playbook_id,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 @router.post("/trigger")
 async def trigger_playbooks(
     event: TriggerEventRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Trigger all matching playbooks for an event"""
+    """Queue SOAR trigger through outbound governance."""
     event_dict = event.model_dump()
     event_dict.update(event_dict.pop("extra", {}))
-
-    # ingest the event into world model for risk scoring
+    db = get_db()
+    actor = current_user.get("email", current_user.get("id", "unknown")) if isinstance(current_user, dict) else "unknown"
+    event_id = f"soar_{uuid.uuid4().hex[:8]}"
     try:
-        db = get_db()
         wm = WorldModelService(db)
-        event_id = f"soar_{uuid.uuid4().hex[:8]}"
-        await wm.upsert_entity(
-            WorldEntity(id=event_id, type="detection", attributes=event_dict)
-        )
+        await wm.upsert_entity(WorldEntity(id=event_id, type="detection", attributes=event_dict))
         if event_dict.get("source_ip"):
-            await wm.add_edge(
-                WorldEdge(source=event_dict["source_ip"], target=event_id, relation="soar_event")
-            )
-        await emit_world_event(db, event_type="soar_trigger", entity_refs=[event_id], payload=event_dict, trigger_triune=False)
+            await wm.add_edge(WorldEdge(source=event_dict["source_ip"], target=event_id, relation="soar_event"))
     except Exception:
         logger.warning("SOAR trigger event ingestion failed")
-    
-    executions = await soar_engine.trigger_playbooks(event_dict)
-    
-    from dataclasses import asdict
+
+    gate = OutboundGateService(db)
+    gated = await gate.gate_action(
+        action_type="response_execution",
+        actor=actor,
+        payload={"operation": "soar_trigger_playbooks", "event_id": event_id, "event": event_dict},
+        impact_level="critical",
+        subject_id=event_id,
+        entity_refs=[event_id],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        db,
+        event_type="soar_trigger_gated",
+        entity_refs=[event_id, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
     return {
-        "triggered_playbooks": len(executions),
-        "executions": [asdict(e) for e in executions]
+        "status": "queued_for_triune_approval",
+        "event_id": event_id,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     }
 
 @router.get("/executions")
