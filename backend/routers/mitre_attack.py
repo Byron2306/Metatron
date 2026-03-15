@@ -317,6 +317,70 @@ async def _collect_supply_chain(techniques: Dict[str, Dict], db: Any):
             techniques["T1195"]["sources"].add("supply_chain_risky_image_findings")
 
 
+async def _collect_secure_boot(techniques: Dict[str, Dict]):
+    """Collect ATT&CK depth from secure-boot / firmware integrity capability."""
+    def _mark(technique_id: str, score: int, source: str):
+        t = _normalize_technique(technique_id)
+        if not t:
+            return
+        techniques.setdefault(t, {"score": 0, "sources": set()})
+        techniques[t]["score"] = max(techniques[t]["score"], score)
+        techniques[t]["sources"].add(source)
+
+    # Capability-based baseline from implemented secure boot pipeline.
+    for baseline in ["T1542.001", "T1542.003", "T1014", "T1495", "T1601", "T1553.006"]:
+        _mark(baseline, 3, "secure_boot_pipeline")
+
+    try:
+        from secure_boot_verification import get_secure_boot_verifier
+    except Exception:  # pragma: no cover
+        try:
+            from backend.secure_boot_verification import get_secure_boot_verifier
+        except Exception:
+            return
+
+    try:
+        verifier = get_secure_boot_verifier()
+    except Exception:
+        return
+    if verifier is None:
+        return
+
+    # Hardened policy state (Secure Boot enabled) increases confidence for trust-controls coverage.
+    try:
+        status = await verifier.get_secure_boot_status()
+        if bool(getattr(status, "secure_boot_enabled", False)):
+            _mark("T1553.006", 4, "secure_boot_policy_enforced")
+    except Exception:
+        pass
+
+    # Boot-chain verification can emit concrete ATT&CK techniques with high-fidelity evidence.
+    try:
+        chain = await verifier.verify_boot_chain()
+        for technique in getattr(chain, "mitre_techniques", []) or []:
+            _mark(technique, 4, "secure_boot_bootchain")
+    except Exception:
+        pass
+
+    # Alerts and scan history indicate observed detections over time.
+    try:
+        alerts = await verifier.get_alerts(limit=200)
+    except Exception:
+        alerts = []
+    for alert in alerts or []:
+        _mark(getattr(alert, "mitre_technique", ""), 4, "secure_boot_alert")
+
+    try:
+        history = getattr(verifier, "scan_history", {}) or {}
+    except Exception:
+        history = {}
+    if history:
+        for scan in history.values():
+            threats = ((scan or {}).get("result") or {}).get("threats") or []
+            for threat in threats:
+                _mark((threat or {}).get("mitre_technique", ""), 4, "secure_boot_scan_history")
+
+
 def _summarize_tactics(techniques: Dict[str, Dict], implemented_meta: Dict[str, Dict]) -> List[Dict]:
     index = {t["id"]: {"tactic_id": t["id"], "tactic_name": t["name"], "technique_count": 0, "score_gte3_count": 0} for t in TACTICS}
 
@@ -356,6 +420,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_threat_intel(techniques)
     # Technique update pass #1: supply-chain compromise depth (T1195 family)
     await _collect_supply_chain(techniques, db)
+    # Technique update pass #2: secure-boot and firmware integrity techniques
+    await _collect_secure_boot(techniques)
     implemented_meta = _merge_implemented_sweep(techniques)
 
     ordered = []
