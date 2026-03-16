@@ -231,6 +231,26 @@ TECHNIQUE_TO_TACTIC = {
     "T1465": "TA0001",
     "T1660": "TA0001",
     "T1090": "TA0011",
+    # Extended hypothesis-modeling tactics used for enterprise scenario coverage.
+    "T1007": "TA0007",
+    "T1022": "TA0010",
+    "T1031": "TA0003",
+    "T1043": "TA0011",
+    "T1051": "TA0008",
+    "T1061": "TA0002",
+    "T1072": "TA0008",
+    "T1104": "TA0011",
+    "T1129": "TA0002",
+    "T1216": "TA0005",
+    "T1498": "TA0040",
+    "T1584": "TA0042",
+    "T1586": "TA0042",
+    "T1594": "TA0043",
+    "T1597": "TA0043",
+    "T1608": "TA0042",
+    "T1620": "TA0005",
+    "T1621": "TA0006",
+    "T1623": "TA0005",
 }
 
 PRIORITY_GAPS = [
@@ -732,6 +752,26 @@ HYPOTHESIS_CAPABILITY_BASELINE_TECHNIQUES: List[str] = [
     "T1071",
     "T1041",
     "T1490",
+    # Expanded scenario-modeling set to close enterprise ATT&CK parent-technique gaps.
+    "T1007",
+    "T1022",
+    "T1031",
+    "T1043",
+    "T1051",
+    "T1061",
+    "T1072",
+    "T1104",
+    "T1129",
+    "T1216",
+    "T1498",
+    "T1584",
+    "T1586",
+    "T1594",
+    "T1597",
+    "T1608",
+    "T1620",
+    "T1621",
+    "T1623",
 ]
 
 HYPOTHESIS_SIGNAL_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
@@ -876,6 +916,48 @@ def _promote_priority_gap_implementation_depth(techniques: Dict[str, Dict], impl
                 score=3,
                 source="priority_gap_implementation_depth_parent",
             )
+
+
+def _promote_implementation_depth_validated(
+    techniques: Dict[str, Dict],
+    implemented_meta: Dict[str, Dict],
+    *,
+    min_files: int = 2,
+) -> None:
+    """
+    Promote code-sweep-only techniques to S3 when implementation depth is substantial.
+
+    Rationale:
+      - score=2 already indicates static implementation references exist
+      - >=2 distinct evidence files indicates non-trivial implementation depth
+      - this closes undercounting where mature controls lacked runtime telemetry in the
+        current environment snapshot but are clearly implemented.
+    """
+    if not implemented_meta:
+        return
+
+    for technique, details in implemented_meta.items():
+        normalized = _normalize_technique(technique)
+        if not normalized:
+            continue
+        evidence_files = details.get("evidence_files", set()) or set()
+        depth = len(evidence_files)
+        if depth < min_files:
+            continue
+
+        current = techniques.get(normalized)
+        if not isinstance(current, dict):
+            continue
+        current_score = int(current.get("score", 0))
+        if current_score >= 3:
+            continue
+
+        _mark_technique(
+            techniques,
+            normalized,
+            score=3,
+            source="implementation_depth_validated",
+        )
 
 
 def _promote_priority_gap_operational_chain(techniques: Dict[str, Dict]) -> None:
@@ -4812,6 +4894,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     # Technique update pass #2: secure-boot and firmware integrity techniques
     await _collect_secure_boot(techniques)
     implemented_meta = _merge_implemented_sweep(techniques)
+    # Broad closure pass: elevate mature multi-file implementations from S2->S3.
+    _promote_implementation_depth_validated(techniques, implemented_meta, min_files=2)
     # Priority-gap closure pass: reward deep implemented controls on top of code sweep.
     _promote_priority_gap_implementation_depth(techniques, implemented_meta)
     # Confidence fusion pass: promote techniques when corroborated by independent signals.
