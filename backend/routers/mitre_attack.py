@@ -604,7 +604,7 @@ MOBILE_SECURITY_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
 
 MONITOR_CAPABILITY_TECHNIQUES: Dict[str, List[str]] = {
     # User-facing monitor domains in unified agent telemetry.
-    "registry": ["T1012", "T1112"],
+    "registry": ["T1012", "T1081", "T1112"],
     "process_tree": ["T1106", "T1559.001"],
     "lolbin": ["T1127", "T1197", "T1202"],
     "memory": ["T1106", "T1140"],
@@ -2475,6 +2475,20 @@ async def _collect_unified_monitor_telemetry_evidence(techniques: Dict[str, Dict
                     for t in MONITOR_TECHNIQUES.get(monitor_name, [])
                     if _normalize_technique(t)
                 }
+                monitor_techniques.update(
+                    {
+                        _normalize_technique(t)
+                        for t in MONITOR_CAPABILITY_TECHNIQUES.get(monitor_name, [])
+                        if _normalize_technique(t)
+                    }
+                )
+                monitor_techniques.update(
+                    {
+                        _normalize_technique(t)
+                        for t in MONITOR_EXTENDED_CAPABILITY_TECHNIQUES.get(monitor_name, [])
+                        if _normalize_technique(t)
+                    }
+                )
                 monitor_techniques.update(_extract_attack_techniques(payload))
                 monitor_techniques.update(_extract_keyword_techniques(payload, MONITOR_RUNTIME_KEYWORD_TECHNIQUES))
                 monitor_techniques.update(_extract_keyword_techniques(monitor_name, MONITOR_RUNTIME_KEYWORD_TECHNIQUES))
