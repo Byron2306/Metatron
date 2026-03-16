@@ -28,7 +28,7 @@ const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl
   : envBackendUrl.replace(/\/+$/, '');
 
 export default function ThreatHuntingPage() {
-  const { token } = useAuth();
+  const { getAuthHeaders } = useAuth();
   const [status, setStatus] = useState(null);
   const [rules, setRules] = useState([]);
   const [matches, setMatches] = useState([]);
@@ -57,7 +57,7 @@ export default function ThreatHuntingPage() {
   const fetchStatus = async () => {
     try {
       const response = await fetch(`${API_URL}/api/hunting/status`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       const data = await response.json();
       setStatus(data);
@@ -69,7 +69,7 @@ export default function ThreatHuntingPage() {
   const fetchRules = async () => {
     try {
       const response = await fetch(`${API_URL}/api/hunting/rules`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       const data = await response.json();
       setRules(data.rules || []);
@@ -81,7 +81,7 @@ export default function ThreatHuntingPage() {
   const fetchMatches = async () => {
     try {
       const response = await fetch(`${API_URL}/api/hunting/matches/high-severity`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       const data = await response.json();
       setMatches(data.matches || []);
@@ -93,7 +93,7 @@ export default function ThreatHuntingPage() {
   const fetchTactics = async () => {
     try {
       const response = await fetch(`${API_URL}/api/hunting/tactics`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       const data = await response.json();
       setTactics(data.tactics || []);
@@ -107,7 +107,7 @@ export default function ThreatHuntingPage() {
       const response = await fetch(`${API_URL}/api/hunting/rules/${ruleId}/toggle`, {
         method: "PUT",
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeaders(),
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ enabled })
@@ -130,7 +130,7 @@ export default function ThreatHuntingPage() {
       const response = await fetch(`${API_URL}/api/hunting/hypotheses/generate`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeaders(),
           "Content-Type": "application/json"
         },
         body: JSON.stringify({

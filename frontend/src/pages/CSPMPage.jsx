@@ -19,7 +19,7 @@ const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl
 
 const CSPMPage = () => {
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, getAuthHeaders } = useAuth();
   
   // State
   const [loading, setLoading] = useState(true);
@@ -49,7 +49,7 @@ const CSPMPage = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const headers = { 'Authorization': `Bearer ${token}` };
+      const headers = getAuthHeaders();
       
       const [dashboardRes, postureRes, providersRes, findingsRes, scansRes] = await Promise.all([
         fetch(`${API_URL}/api/v1/cspm/dashboard`, { headers }),
@@ -80,7 +80,7 @@ const CSPMPage = () => {
   const fetchCompliance = async (framework) => {
     try {
       const response = await fetch(`${API_URL}/api/v1/cspm/compliance/${framework}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       if (response.ok) {
         const data = await response.json();
@@ -97,7 +97,7 @@ const CSPMPage = () => {
       const response = await fetch(`${API_URL}/api/v1/cspm/scan`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -178,7 +178,7 @@ const CSPMPage = () => {
       const response = await fetch(`${API_URL}/api/v1/cspm/providers`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
@@ -201,7 +201,7 @@ const CSPMPage = () => {
       const response = await fetch(`${API_URL}/api/v1/cspm/findings/${findingId}/status`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ status, reason })
@@ -219,7 +219,7 @@ const CSPMPage = () => {
   const exportFindings = async () => {
     try {
       const response = await fetch(`${API_URL}/api/v1/cspm/export?format=csv`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       if (response.ok) {
         const blob = await response.blob();

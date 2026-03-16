@@ -45,10 +45,62 @@ class USBDeviceRequest(BaseModel):
     vendor_id: str
     product_id: str
 
+
+async def _collect_fleet_edr_rollup() -> dict:
+    """Best-effort fleet aggregation so EDR page shows distributed posture."""
+    db = get_db()
+    if db is None:
+        return {
+            "total_endpoints": 0,
+            "online_endpoints": 0,
+            "fim_violations": 0,
+            "memory_alerts": 0,
+            "usb_alerts": 0,
+            "runtime_alerts": 0,
+        }
+
+    try:
+        total_endpoints = await db.unified_agents.count_documents({})
+        online_endpoints = await db.unified_agents.count_documents({"status": "online"})
+
+        pipeline = [
+            {
+                "$group": {
+                    "_id": None,
+                    "fim_violations": {"$sum": {"$ifNull": ["$monitors_summary.file_integrity.suspicious_count", 0]}},
+                    "memory_alerts": {"$sum": {"$ifNull": ["$monitors_summary.memory_forensics.suspicious_regions", 0]}},
+                    "usb_alerts": {"$sum": {"$ifNull": ["$monitors_summary.usb_monitor.events", 0]}},
+                    "runtime_alerts": {"$sum": {"$ifNull": ["$monitors_summary.process_tree_monitor.suspicious_count", 0]}},
+                }
+            }
+        ]
+        rows = await db.unified_agents.aggregate(pipeline).to_list(1)
+        summed = rows[0] if rows else {}
+
+        return {
+            "total_endpoints": total_endpoints,
+            "online_endpoints": online_endpoints,
+            "fim_violations": int(summed.get("fim_violations", 0) or 0),
+            "memory_alerts": int(summed.get("memory_alerts", 0) or 0),
+            "usb_alerts": int(summed.get("usb_alerts", 0) or 0),
+            "runtime_alerts": int(summed.get("runtime_alerts", 0) or 0),
+        }
+    except Exception:
+        return {
+            "total_endpoints": 0,
+            "online_endpoints": 0,
+            "fim_violations": 0,
+            "memory_alerts": 0,
+            "usb_alerts": 0,
+            "runtime_alerts": 0,
+        }
+
 @router.get("/status")
 async def get_edr_status(current_user: dict = Depends(get_current_user)):
     """Get EDR system status"""
-    return edr_manager.get_status()
+    status = edr_manager.get_status()
+    status["fleet"] = await _collect_fleet_edr_rollup()
+    return status
 
 # Process Tree endpoints
 @router.get("/process-tree")
@@ -149,6 +201,7 @@ async def capture_live_memory(current_user: dict = Depends(check_permission("man
 async def collect_telemetry(current_user: dict = Depends(get_current_user)):
     """Collect EDR telemetry"""
     telemetry = await edr_manager.collect_telemetry()
+    telemetry["fleet"] = await _collect_fleet_edr_rollup()
     actor = (current_user or {}).get("email", (current_user or {}).get("id", "unknown"))
     await emit_world_event(
         get_db(),

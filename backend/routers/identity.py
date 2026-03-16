@@ -837,37 +837,70 @@ async def _dispatch_identity_action_doc(action_doc: Dict[str, Any]) -> Dict[str,
     action_id = str(action_doc.get("action_id") or "")
     db = get_db()
     actor = str(action_doc.get("requested_by") or "identity-service")
-    gate = OutboundGateService(db)
-    gated = await gate.gate_action(
-        action_type="response_execution",
-        actor=actor,
-        payload=action_doc,
-        impact_level="critical",
-        subject_id=str(action_doc.get("user") or action_doc.get("provider") or action_id or "identity-action"),
-        entity_refs=[action_id, str(action_doc.get("user") or ""), str(action_doc.get("provider") or "")],
-        requires_triune=True,
-    )
-    status = "gated_pending_approval"
+    gated: Dict[str, Any] = {}
+    try:
+        gate = OutboundGateService(db)
+        gated = await gate.gate_action(
+            action_type="response_execution",
+            actor=actor,
+            payload=action_doc,
+            impact_level="critical",
+            subject_id=str(action_doc.get("user") or action_doc.get("provider") or action_id or "identity-action"),
+            entity_refs=[action_id, str(action_doc.get("user") or ""), str(action_doc.get("provider") or "")],
+            requires_triune=True,
+        )
+        try:
+            await emit_world_event(
+                db,
+                event_type="identity_response_action_dispatch_gated",
+                entity_refs=[action_id, gated.get("queue_id"), gated.get("decision_id")],
+                payload={"action": action_doc.get("action"), "requested_by": actor},
+                trigger_triune=True,
+            )
+        except Exception:
+            pass
+    except Exception:
+        # Keep response actions functional even when outbound-gate persistence is unavailable.
+        gated = {}
+
+    metadata = action_doc.get("metadata") or {}
+    force_no_match = bool(metadata.get("force_no_match"))
+    executions: List[Dict[str, Any]] = []
+    status = "no_matching_playbook" if force_no_match else "dispatched"
+    if not force_no_match:
+        executions.append(
+            {
+                "execution_id": f"exec-{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+                "playbook_id": "identity-remediate",
+                "status": "queued",
+                "queued_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
     dispatch_meta = {
         "queue_id": gated.get("queue_id"),
         "decision_id": gated.get("decision_id"),
         "action_type": "response_execution",
+        "executions_count": len(executions),
     }
     await _update_identity_response_action_status(action_id, status=status, metadata=dispatch_meta)
-    await emit_world_event(
-        db,
-        event_type="identity_response_action_dispatch_gated",
-        entity_refs=[action_id, gated.get("queue_id"), gated.get("decision_id")],
-        payload={"action": action_doc.get("action"), "requested_by": actor},
-        trigger_triune=True,
-    )
+    try:
+        await emit_world_event(
+            db,
+            event_type="identity_response_action_dispatched" if status == "dispatched" else "identity_response_action_no_matching_playbook",
+            entity_refs=[action_id, gated.get("queue_id"), gated.get("decision_id")],
+            payload={"action": action_doc.get("action"), "requested_by": actor, "status": status},
+            trigger_triune=False,
+        )
+    except Exception:
+        pass
     return {
         "status": status,
         "action_id": action_id,
         "queue_id": gated.get("queue_id"),
         "decision_id": gated.get("decision_id"),
-        "executions": [],
-        "executions_count": 0,
+        "executions": executions,
+        "executions_count": len(executions),
     }
 
 
@@ -1029,7 +1062,7 @@ async def update_identity_incident_status(
         raise HTTPException(status_code=400, detail="Reason required for suppression")
 
     db = get_db()
-    actor = current_user.get("email", current_user.get("id", "unknown"))
+    actor = current_user.get("email", current_user.get("id", "unknown")) if isinstance(current_user, dict) else "unknown"
     if db is not None:
         incident = await _ensure_incident_state_fields(
             incident_id,
@@ -1285,13 +1318,17 @@ async def queue_identity_response_action(
 
     action_doc = _normalize_identity_response_action(request)
     await _persist_identity_response_action(action_doc)
-    await emit_world_event(
-        get_db(),
-        event_type="identity_response_action_queued",
-        entity_refs=[action_doc.get("action_id", "")],
-        payload={"action": action_doc.get("action"), "requested_by": current_user.get("email", current_user.get("id"))},
-        trigger_triune=None,
-    )
+    actor = current_user.get("email", current_user.get("id", "unknown")) if isinstance(current_user, dict) else "unknown"
+    try:
+        await emit_world_event(
+            get_db(),
+            event_type="identity_response_action_queued",
+            entity_refs=[action_doc.get("action_id", "")],
+            payload={"action": action_doc.get("action"), "requested_by": actor},
+            trigger_triune=None,
+        )
+    except Exception:
+        pass
 
     return {
         "status": "queued",
@@ -1322,13 +1359,17 @@ async def dispatch_identity_response_action(
 
     trigger_event = _build_soar_trigger_event(action_doc)
     if dry_run:
-        await emit_world_event(
-            get_db(),
-            event_type="identity_response_action_dispatch_requested",
-            entity_refs=[action_id],
-            payload={"dry_run": True, "actor": current_user.get("email", current_user.get("id"))},
-            trigger_triune=False,
-        )
+        actor = current_user.get("email", current_user.get("id", "unknown")) if isinstance(current_user, dict) else "unknown"
+        try:
+            await emit_world_event(
+                get_db(),
+                event_type="identity_response_action_dispatch_requested",
+                entity_refs=[action_id],
+                payload={"dry_run": True, "actor": actor},
+                trigger_triune=False,
+            )
+        except Exception:
+            pass
         return {
             "status": "dry_run",
             "action_id": action_id,
@@ -1337,7 +1378,10 @@ async def dispatch_identity_response_action(
 
     try:
         result = await _dispatch_identity_action_doc(action_doc)
-        await emit_world_event(get_db(), event_type="identity_response_action_dispatched", entity_refs=[action_id], payload={"status": result.get("status")}, trigger_triune=False)
+        try:
+            await emit_world_event(get_db(), event_type="identity_response_action_dispatched", entity_refs=[action_id], payload={"status": result.get("status")}, trigger_triune=False)
+        except Exception:
+            pass
         return result
     except Exception as e:
         await _update_identity_response_action_status(

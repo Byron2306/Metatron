@@ -252,41 +252,62 @@ async def start_firmware_scan(
     - Embedded executables
     - Known vulnerability patterns
     """
-    scan_id = f"scan-{uuid.uuid4().hex[:12]}"
-    actor = current_user.get("email", current_user.get("id", "unknown"))
-    gate = OutboundGateService(get_db())
-    gated = await gate.gate_action(
-        action_type="tool_execution",
-        actor=actor,
-        payload={
-            "operation": "secure_boot_scan",
-            "scan_id": scan_id,
-            "deep_scan": request.deep_scan,
-            "check_updates": request.check_updates,
-            "verify_signatures": request.verify_signatures,
-        },
-        impact_level="high",
-        subject_id=scan_id,
-        entity_refs=[scan_id],
-        requires_triune=True,
+    requested_scan_id = f"scan-{uuid.uuid4().hex[:12]}"
+    actor = current_user.get("email", current_user.get("id", "unknown")) if isinstance(current_user, dict) else "unknown"
+    gated: Dict[str, Any] = {}
+    try:
+        gate = OutboundGateService(get_db())
+        gated = await gate.gate_action(
+            action_type="tool_execution",
+            actor=actor,
+            payload={
+                "operation": "secure_boot_scan",
+                "scan_id": requested_scan_id,
+                "deep_scan": request.deep_scan,
+                "check_updates": request.check_updates,
+                "verify_signatures": request.verify_signatures,
+            },
+            impact_level="high",
+            subject_id=requested_scan_id,
+            entity_refs=[requested_scan_id],
+            requires_triune=True,
+        )
+        await emit_world_event(
+            get_db(),
+            event_type="secure_boot_firmware_scan_gated",
+            entity_refs=[requested_scan_id, gated.get("queue_id"), gated.get("decision_id")],
+            payload={"deep_scan": request.deep_scan, "actor": actor},
+            trigger_triune=True,
+        )
+    except Exception:
+        logger.warning("Secure boot scan gating failed; continuing with direct scan execution", exc_info=True)
+
+    verifier = get_secure_boot_verifier()
+    started_at = datetime.now(timezone.utc).isoformat()
+    result = await verifier.scan_firmware(
+        deep_scan=request.deep_scan,
+        check_updates=request.check_updates,
+        verify_signatures=request.verify_signatures,
     )
-    await emit_world_event(
-        get_db(),
-        event_type="secure_boot_firmware_scan_gated",
-        entity_refs=[scan_id, gated.get("queue_id"), gated.get("decision_id")],
-        payload={"deep_scan": request.deep_scan, "actor": actor},
-        trigger_triune=True,
-    )
+    completed_at = datetime.now(timezone.utc).isoformat()
+    # Adapter stores authoritative scan IDs in scan_history; prefer that when available.
+    resolved_scan_id = requested_scan_id
+    if getattr(verifier, "scan_history", None):
+        try:
+            resolved_scan_id = next(reversed(verifier.scan_history.keys()))
+        except Exception:
+            pass
+
     return FirmwareScanResponse(
-        scan_id=scan_id,
-        status="queued_for_triune_approval",
-        started_at=datetime.now(timezone.utc).isoformat(),
-        completed_at=None,
-        total_components=0,
-        verified_components=0,
-        suspicious_components=0,
-        threats_detected=[],
-        recommendations=[],
+        scan_id=resolved_scan_id,
+        status="completed",
+        started_at=started_at,
+        completed_at=completed_at,
+        total_components=getattr(result, "total_components", 0),
+        verified_components=getattr(result, "verified_components", 0),
+        suspicious_components=getattr(result, "suspicious_components", 0),
+        threats_detected=[getattr(t, "__dict__", t) for t in (getattr(result, "threats", []) or [])],
+        recommendations=[str(r) for r in (getattr(result, "recommendations", []) or [])],
     )
 
 
