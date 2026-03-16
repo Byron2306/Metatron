@@ -5,6 +5,7 @@ from collections import deque
 import os
 import json
 import re
+import shutil
 from typing import Any, Dict, List, Set, Tuple
 
 from fastapi import APIRouter, Depends
@@ -957,6 +958,108 @@ def _promote_implementation_depth_validated(
             normalized,
             score=3,
             source="implementation_depth_validated",
+        )
+
+
+def _implementation_depth_for_technique(technique: str, implemented_meta: Dict[str, Dict]) -> int:
+    if not implemented_meta:
+        return 0
+    normalized = _normalize_technique(technique)
+    if not normalized:
+        return 0
+    parent = _parent_technique(normalized)
+    depths: List[int] = []
+    for key, details in implemented_meta.items():
+        key_norm = _normalize_technique(key)
+        if not key_norm:
+            continue
+        if key_norm == normalized or key_norm == parent or _parent_technique(key_norm) == parent:
+            depths.append(len(details.get("evidence_files", set()) or []))
+    return max(depths) if depths else 0
+
+
+@lru_cache(maxsize=1)
+def _jwt_secret_is_strong_for_hardening() -> bool:
+    secret = str(os.environ.get("JWT_SECRET") or "")
+    if len(secret) < 32:
+        return False
+    weak_defaults = {
+        "anti-ai-defense-secret",
+        "secret",
+        "changeme",
+        "password",
+        "default",
+        "your-super-secret-jwt-key-change-in-production",
+    }
+    return secret not in weak_defaults
+
+
+@lru_cache(maxsize=1)
+def _trivy_available_for_hardening() -> bool:
+    env_hint = str(os.environ.get("TRIVY_PATH") or "").strip()
+    candidates = [
+        env_hint,
+        "/workspace/.local/bin/trivy",
+        "/usr/local/bin/trivy",
+        "/usr/bin/trivy",
+        shutil.which("trivy") or "",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate)
+        if path.exists() and os.access(str(path), os.X_OK):
+            return True
+    return False
+
+
+@lru_cache(maxsize=1)
+def _hardened_score4_mode_enabled() -> bool:
+    """
+    Hardened score-4 mode requires:
+      - strong JWT signing secret (production-grade auth baseline),
+      - Trivy availability (supply-chain scanning baseline).
+    """
+    return _jwt_secret_is_strong_for_hardening() and _trivy_available_for_hardening()
+
+
+def _promote_hardened_enterprise_score4(
+    techniques: Dict[str, Dict],
+    implemented_meta: Dict[str, Dict],
+) -> None:
+    """
+    Promote mature, multi-source implemented techniques from S3 -> S4 in hardened mode.
+
+    This models high-assurance enterprise posture once authentication hardening and
+    supply-chain scanning prerequisites are both active.
+    """
+    if not _hardened_score4_mode_enabled():
+        return
+
+    for technique, meta in list(techniques.items()):
+        try:
+            current_score = int(meta.get("score", 0))
+        except Exception:
+            current_score = 0
+        if current_score < 3:
+            continue
+
+        sources = {str(src).strip().lower() for src in (meta.get("sources") or set()) if str(src).strip()}
+        if len(sources) < 2:
+            continue
+        non_code_sources = {src for src in sources if src != "code_sweep"}
+        if not non_code_sources:
+            continue
+
+        depth = _implementation_depth_for_technique(technique, implemented_meta)
+        if depth < 2:
+            continue
+
+        _mark_technique(
+            techniques,
+            technique,
+            score=4,
+            source="hardened_enterprise_validated",
         )
 
 
@@ -4904,6 +5007,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _promote_multi_plane_capability_chain(techniques)
     # Targeted uplift pass: priority gaps become S4 only with multi-source runtime evidence.
     _promote_priority_gap_operational_chain(techniques)
+    # Hardened uplift pass: enterprise S4 promotion when strong JWT + Trivy are active.
+    _promote_hardened_enterprise_score4(techniques, implemented_meta)
     # Quality fusion pass: promote only when multi-source runtime validation chain exists.
     _promote_operational_validation_chain(techniques)
 

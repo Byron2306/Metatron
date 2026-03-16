@@ -217,8 +217,11 @@ class TrivyScanner:
     
     def _find_trivy(self) -> Optional[str]:
         """Find trivy binary"""
-        paths = ["/usr/local/bin/trivy", "/usr/bin/trivy", "trivy"]
+        env_path = os.environ.get("TRIVY_PATH", "").strip()
+        paths = [env_path, "/workspace/.local/bin/trivy", "/usr/local/bin/trivy", "/usr/bin/trivy", "trivy"]
         for path in paths:
+            if not path:
+                continue
             try:
                 result = subprocess.run([path, "--version"], capture_output=True, timeout=5)
                 if result.returncode == 0:
