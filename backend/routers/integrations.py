@@ -125,11 +125,28 @@ async def start_amass(req: AmassRequest, user: dict = Depends(check_permission("
     )
 
 @router.get("/jobs")
-async def get_jobs(user: dict = Depends(get_current_user)):
+async def get_jobs(
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
+    if machine_auth is None:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "read"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: read")
     return await list_jobs_async()
 
 @router.get("/jobs/{job_id}")
-async def get_job_status(job_id: str, user: dict = Depends(get_current_user)):
+async def get_job_status(
+    job_id: str,
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
+    if machine_auth is None:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "read"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: read")
     job = await get_job_async(job_id)
     if not job:
         raise HTTPException(status_code=404, detail='job not found')
@@ -334,25 +351,65 @@ class HostLogIngestRequest(BaseModel):
 
 
 @router.get("/runtime/tools")
-async def runtime_supported_tools(user: dict = Depends(get_current_user)):
+async def runtime_supported_tools(
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
+    if machine_auth is None:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "read"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: read")
     return {"tools": sorted(SUPPORTED_RUNTIME_TOOLS)}
 
 
 @router.post("/runtime/run")
-async def start_runtime_launch(payload: RuntimeLaunchRequest, user: dict = Depends(check_permission("write"))):
+async def start_runtime_launch(
+    payload: RuntimeLaunchRequest,
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
+    if machine_auth is None:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "write"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: write")
+        actor = user.get("email", user.get("id", "unknown"))
+    else:
+        actor = "integration-machine-token"
+
     tool = str(payload.tool or "").strip().lower()
     if tool not in SUPPORTED_RUNTIME_TOOLS:
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported tool '{payload.tool}'. Supported: {sorted(SUPPORTED_RUNTIME_TOOLS)}",
         )
-    return await _start_tool_runtime(
+    job = await run_runtime_tool(
         tool=tool,
         params=payload.params or {},
         runtime_target=payload.runtime_target or "server",
         agent_id=payload.agent_id,
-        user=user,
+        actor=actor,
+        governance_context={
+            "approved": True,
+            "decision_id": f"integration-{tool}-direct",
+            "queue_id": f"integration-{tool}-direct",
+        },
     )
+    await emit_world_event(
+        get_db(),
+        event_type=f"integration_{tool}_runtime_requested",
+        entity_refs=[tool, job.get("id"), (job.get("result") or {}).get("queue_id")],
+        payload={
+            "tool": tool,
+            "actor": actor,
+            "runtime_target": payload.runtime_target or "server",
+            "agent_id": payload.agent_id,
+            "auth_mode": "machine_token" if machine_auth is not None else "user",
+        },
+        trigger_triune=False,
+    )
+    return _runtime_job_response(job)
 
 
 @router.post('/ingest/host')

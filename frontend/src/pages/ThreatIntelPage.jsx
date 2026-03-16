@@ -19,6 +19,17 @@ const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl ===
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
+const CORE_TOOLS = ['amass', 'arkime', 'bloodhound', 'spiderfoot', 'velociraptor', 'sigma', 'atomic'];
+const CORE_TOOL_ACTIONS = {
+  amass: ['status', 'run'],
+  arkime: ['status', 'start', 'parse_ingest'],
+  bloodhound: ['status', 'start', 'parse_ingest'],
+  spiderfoot: ['status', 'start', 'parse_ingest'],
+  velociraptor: ['status', 'run'],
+  sigma: ['status', 'reload', 'coverage', 'list_rules'],
+  atomic: ['status', 'jobs', 'runs', 'run'],
+};
+
 const ThreatIntelPage = () => {
   const { token } = useAuth();
   const [stats, setStats] = useState(null);
@@ -33,6 +44,16 @@ const ThreatIntelPage = () => {
   const [supportedTools, setSupportedTools] = useState([]);
   const [toolInputFile, setToolInputFile] = useState('');
   const [toolParamsJson, setToolParamsJson] = useState('{}');
+  const [coreActionByTool, setCoreActionByTool] = useState({
+    amass: 'status',
+    arkime: 'status',
+    bloodhound: 'status',
+    spiderfoot: 'status',
+    velociraptor: 'status',
+    sigma: 'status',
+    atomic: 'status',
+  });
+  const [coreStatusByTool, setCoreStatusByTool] = useState({});
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -45,6 +66,21 @@ const ThreatIntelPage = () => {
     const iv = setInterval(() => fetchJobs(), 5000);
     return () => clearInterval(iv);
   }, [token]);
+
+  useEffect(() => {
+    const next = {};
+    for (const tool of CORE_TOOLS) {
+      const latest = (jobs || []).find((row) => String(row?.tool || '').toLowerCase() === tool);
+      if (latest) {
+        next[tool] = {
+          status: latest.status || 'unknown',
+          updated_at: latest.updated_at,
+          job_id: latest.id,
+        };
+      }
+    }
+    setCoreStatusByTool(next);
+  }, [jobs]);
 
   const [amassDomain, setAmassDomain] = useState('');
   const [jobs, setJobs] = useState([]);
@@ -92,12 +128,6 @@ const ThreatIntelPage = () => {
     }
   };
 
-  const handleStartAmass = async () => {
-    if (!amassDomain.trim()) return toast.error('Provide a domain');
-    await launchIntegration('amass', { domain: amassDomain.trim() });
-    setAmassDomain('');
-  };
-
   const handleUploadHostLogs = async (file) => {
     if (!file) return toast.error('Select a log file');
     setLoading(true);
@@ -114,17 +144,57 @@ const ThreatIntelPage = () => {
     }
   };
 
-  const handleStartVelociraptor = async () => {
-    await launchIntegration('velociraptor', { collection_name: '' });
-  };
-
   const handleStartPurpleSharp = async () => {
     await launchIntegration('purplesharp', { target: '' });
   };
 
-  const launchIntegration = async (tool, params = {}) => {
+  const buildCoreParams = (tool, action) => {
+    const selectedAction = String(action || 'status').trim().toLowerCase();
+    const params = { action: selectedAction };
+
+    if (tool === 'amass' && selectedAction !== 'status') {
+      if (!amassDomain.trim()) {
+        toast.error('Provide a domain for Amass run');
+        return null;
+      }
+      params.domain = amassDomain.trim();
+    }
+
+    if (['arkime', 'bloodhound', 'spiderfoot'].includes(tool) && selectedAction === 'parse_ingest') {
+      if (!toolInputFile.trim()) {
+        toast.error(`Provide input file path for ${tool} parse_ingest`);
+        return null;
+      }
+      params.input_file = toolInputFile.trim();
+      params.strict_nonempty_parse = true;
+    }
+
+    if (tool === 'velociraptor' && selectedAction !== 'status') {
+      params.collection_name = '';
+    }
+
+    return params;
+  };
+
+  const runCoreTool = async (tool, forceStatus = false) => {
+    const action = forceStatus ? 'status' : (coreActionByTool[tool] || 'status');
+    const params = buildCoreParams(tool, action);
+    if (!params) return;
+    await launchIntegration(tool, params);
+  };
+
+  const runCoreStatusSweep = async () => {
+    for (const tool of CORE_TOOLS) {
+      await launchIntegration(tool, { action: 'status' }, { silent: true });
+    }
+    toast.success('Core integration status sweep submitted');
+    fetchJobs();
+  };
+
+  const launchIntegration = async (tool, params = {}, options = {}) => {
+    const silent = Boolean(options?.silent);
     if (runtimeTarget !== 'server' && !selectedAgentId) {
-      toast.error('Select a unified agent for agent runtime target');
+      if (!silent) toast.error('Select a unified agent for agent runtime target');
       return;
     }
     setJobStarting(true);
@@ -134,7 +204,7 @@ const ThreatIntelPage = () => {
         try {
           parsedParams = JSON.parse(toolParamsJson);
         } catch (e) {
-          toast.error('Custom params JSON is invalid');
+          if (!silent) toast.error('Custom params JSON is invalid');
           setJobStarting(false);
           return;
         }
@@ -148,15 +218,19 @@ const ThreatIntelPage = () => {
       const res = await axios.post(`${API}/integrations/runtime/run`, payload, { headers });
       const queueId = res.data?.queue_id;
       const decisionId = res.data?.decision_id;
-      if (queueId || decisionId) {
-        toast.success(`${tool} queued for approval • queue ${queueId || 'n/a'}`);
-      } else {
-        toast.success(`${tool} launched • job ${res.data?.job_id || 'created'}`);
+      if (!silent) {
+        if (queueId || decisionId) {
+          toast.success(`${tool} queued for approval • queue ${queueId || 'n/a'}`);
+        } else {
+          toast.success(`${tool} launched • job ${res.data?.job_id || 'created'}`);
+        }
       }
       fetchJobs();
+      return res.data;
     } catch (err) {
       console.error(err);
-      toast.error(`Failed to launch ${tool}`);
+      if (!silent) toast.error(`Failed to launch ${tool}`);
+      return null;
     } finally {
       setJobStarting(false);
     }
@@ -497,54 +571,70 @@ const ThreatIntelPage = () => {
             </div>
           </div>
 
-          <div className="flex gap-2 items-center mb-4">
-            <Input placeholder="example.com" value={amassDomain} onChange={(e)=>setAmassDomain(e.target.value)} className="bg-slate-800 border-slate-700 text-white" />
-            <Button onClick={handleStartAmass} disabled={jobStarting} data-testid="run-amass-btn">
-              {jobStarting ? 'Starting...' : 'Run Amass'}
+          <div className="mb-3 flex items-center gap-2">
+            <Input
+              placeholder="example.com (for Amass run)"
+              value={amassDomain}
+              onChange={(e) => setAmassDomain(e.target.value)}
+              className="bg-slate-800 border-slate-700 text-white max-w-sm"
+            />
+            <Button onClick={runCoreStatusSweep} disabled={jobStarting} variant="outline">
+              Status Sweep (7 tools)
             </Button>
-            <Button onClick={handleStartVelociraptor} disabled={jobStarting} data-testid="run-velociraptor-btn">
-              {jobStarting ? 'Starting...' : 'Run Velociraptor'}
-            </Button>
+            <Button onClick={fetchJobs} variant="outline">Refresh Jobs</Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
+            {CORE_TOOLS.map((tool) => {
+              const status = coreStatusByTool?.[tool]?.status || 'n/a';
+              const updatedAt = coreStatusByTool?.[tool]?.updated_at;
+              const statusColor = String(status).includes('failed')
+                ? 'text-red-400 border-red-500/30'
+                : String(status).includes('completed') || String(status).includes('running')
+                ? 'text-green-400 border-green-500/30'
+                : 'text-slate-300 border-slate-600';
+              return (
+                <div key={tool} className="p-3 rounded-lg bg-slate-800/50 border border-slate-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-white font-medium capitalize">{tool}</p>
+                    <Badge variant="outline" className={statusColor}>{status}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <select
+                      value={coreActionByTool[tool] || 'status'}
+                      onChange={(e) => setCoreActionByTool((prev) => ({ ...prev, [tool]: e.target.value }))}
+                      className="bg-slate-900 border border-slate-700 text-white rounded px-2 py-1 text-xs flex-1"
+                    >
+                      {(CORE_TOOL_ACTIONS[tool] || ['status']).map((action) => (
+                        <option key={action} value={action}>{action}</option>
+                      ))}
+                    </select>
+                    <Button size="sm" variant="outline" onClick={() => runCoreTool(tool, true)} disabled={jobStarting}>
+                      Status
+                    </Button>
+                    <Button size="sm" onClick={() => runCoreTool(tool, false)} disabled={jobStarting}>
+                      Run
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {updatedAt ? `Updated ${new Date(updatedAt).toLocaleString()}` : 'No recent jobs'}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap gap-2 items-center mb-4">
             <Button onClick={handleStartPurpleSharp} disabled={jobStarting} data-testid="run-purplesharp-btn">
               {jobStarting ? 'Starting...' : 'Run PurpleSharp'}
             </Button>
-            <Button onClick={() => launchIntegration('arkime', toolInputFile ? { input_file: toolInputFile } : { action: 'status' })} disabled={jobStarting}>
-              Run Arkime
-            </Button>
-            <Button onClick={() => launchIntegration('bloodhound', toolInputFile ? { input_file: toolInputFile } : { action: 'status' })} disabled={jobStarting}>
-              Run BloodHound
-            </Button>
-            <Button onClick={() => launchIntegration('spiderfoot', toolInputFile ? { input_file: toolInputFile } : { action: 'status' })} disabled={jobStarting}>
-              Run SpiderFoot
-            </Button>
-            <Button onClick={() => launchIntegration('sigma', { action: 'reload' })} disabled={jobStarting}>
-              Run Sigma
-            </Button>
-            <Button onClick={() => launchIntegration('atomic', { action: 'status' })} disabled={jobStarting}>
-              Run Atomic
-            </Button>
-            <Button onClick={() => launchIntegration('trivy', { action: 'status' })} disabled={jobStarting}>
-              Run Trivy
-            </Button>
-            <Button onClick={() => launchIntegration('falco', { action: 'status' })} disabled={jobStarting}>
-              Run Falco
-            </Button>
-            <Button onClick={() => launchIntegration('suricata', { action: 'status' })} disabled={jobStarting}>
-              Run Suricata
-            </Button>
-            <Button onClick={() => launchIntegration('yara', { action: 'status' })} disabled={jobStarting}>
-              Run YARA
-            </Button>
-            <Button onClick={() => launchIntegration('cuckoo', { action: 'status' })} disabled={jobStarting}>
-              Run Cuckoo
-            </Button>
-            <Button onClick={() => launchIntegration('osquery', { action: 'status' })} disabled={jobStarting}>
-              Run Osquery
-            </Button>
-            <Button onClick={() => launchIntegration('zeek', { action: 'status' })} disabled={jobStarting}>
-              Run Zeek
-            </Button>
-            <Button onClick={fetchJobs} variant="outline">Refresh Jobs</Button>
+            <Button onClick={() => launchIntegration('trivy', { action: 'status' })} disabled={jobStarting}>Run Trivy</Button>
+            <Button onClick={() => launchIntegration('falco', { action: 'status' })} disabled={jobStarting}>Run Falco</Button>
+            <Button onClick={() => launchIntegration('suricata', { action: 'status' })} disabled={jobStarting}>Run Suricata</Button>
+            <Button onClick={() => launchIntegration('yara', { action: 'status' })} disabled={jobStarting}>Run YARA</Button>
+            <Button onClick={() => launchIntegration('cuckoo', { action: 'status' })} disabled={jobStarting}>Run Cuckoo</Button>
+            <Button onClick={() => launchIntegration('osquery', { action: 'status' })} disabled={jobStarting}>Run Osquery</Button>
+            <Button onClick={() => launchIntegration('zeek', { action: 'status' })} disabled={jobStarting}>Run Zeek</Button>
           </div>
 
           <div className="mb-4 flex items-center gap-2 text-xs text-slate-400">

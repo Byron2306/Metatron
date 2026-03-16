@@ -17,6 +17,9 @@ def test_canonical_port5000_api_contract():
         "/api/external-access/status",
         "/api/attack-coverage",
         "/api/integration/backend-gap-report",
+        "/api/integrations/core/tools",
+        "/api/integrations/core/status",
+        "/api/integrations/core/jobs",
         "/api/vpn/status",
         "/api/monitors/amsi",
         "/api/monitors/webview",
@@ -64,3 +67,14 @@ def test_canonical_port5000_api_contract():
     assert "backend_feature_families" in backend_gap
     for cmd_type in ["trivy_scan", "falco_status", "suricata_status", "volatility_scan"]:
         assert cmd_type in backend_gap["supported_agent_command_types"], f"Missing command support: {cmd_type}"
+
+    core_tools = client.get("/api/integrations/core/tools").get_json()
+    assert "tools" in core_tools
+    for tool_name in ["amass", "arkime", "bloodhound", "spiderfoot", "velociraptor", "sigma", "atomic"]:
+        assert tool_name in core_tools["tools"], f"Missing core integration tool: {tool_name}"
+
+    core_status = client.get("/api/integrations/core/status").get_json()
+    assert "tools" in core_status
+
+    core_jobs = client.get("/api/integrations/core/jobs").get_json()
+    assert "jobs" in core_jobs

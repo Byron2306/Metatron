@@ -4,7 +4,7 @@ import uuid
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
 import os
 import re
 import shutil
@@ -217,6 +217,47 @@ def _tool_binary(name: str) -> str:
     return shutil.which(name) or ""
 
 
+def _resolve_input_file(input_file: str) -> Tuple[Optional[Path], Optional[str]]:
+    """Resolve and validate an input artifact path."""
+    raw = str(input_file or "").strip()
+    if not raw:
+        return None, "input_file_required"
+    try:
+        candidate = Path(raw).expanduser()
+        candidate = candidate.resolve() if candidate.is_absolute() else (Path.cwd() / candidate).resolve()
+    except Exception:
+        return None, "input_file_invalid_path"
+    if not candidate.exists():
+        return None, "input_file_not_found"
+    if not candidate.is_file():
+        return None, "input_file_not_a_file"
+    if not os.access(candidate, os.R_OK):
+        return None, "input_file_not_readable"
+    return candidate, None
+
+
+async def _ingest_export_file(
+    *,
+    tool: str,
+    input_file: str,
+    strict_nonempty_parse: bool = False,
+) -> Dict[str, Any]:
+    resolved, err = _resolve_input_file(input_file)
+    if err:
+        raise ValueError(err)
+    source_path = str(resolved)
+    indicators = await _extract_indicators_from_json_file(source_path, tool)
+    if strict_nonempty_parse and not indicators:
+        raise RuntimeError("empty_indicator_parse")
+    ingested = await threat_intel.ingest_indicators(tool, indicators) if indicators else {"ingested": 0}
+    return {
+        "ingested": ingested.get("ingested", 0) if isinstance(ingested, dict) else 0,
+        "source_file": source_path,
+        "indicators_extracted": len(indicators),
+        "strict_nonempty_parse": bool(strict_nonempty_parse),
+    }
+
+
 async def _new_running_job(tool: str, params: Dict[str, Any]) -> str:
     job_id = await _new_job(tool, params)
     await _persist_job(job_id, status="running")
@@ -323,7 +364,7 @@ async def _sync_agent_command_state(job: Dict[str, Any]) -> Dict[str, Any]:
         mapped_status = job.get("status")
         if cmd_status in {"completed"}:
             mapped_status = "completed"
-        elif cmd_status in {"failed", "error", "cancelled", "unknown_command"}:
+        elif cmd_status in {"failed", "error", "cancelled", "unknown_command", "rejected", "denied", "expired"}:
             mapped_status = "failed"
         elif cmd_status in {"delivered", "pending", "queued", "gated_pending_approval"}:
             mapped_status = "running" if cmd_status in {"pending", "delivered"} else "queued_for_triune_approval"
@@ -363,13 +404,7 @@ async def run_amass(
     """Run Amass via Docker on the server, parse JSON-lines output and ingest domains."""
     assert_governance_context(governance_context, action="integrations.run_amass")
     params = {"domain": domain}
-    job_id = await _new_job("amass", params)
-    # update status to running in DB and memory
-    _jobs[job_id]["status"] = "running"
-    _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
-    col = _db_collection()
-    if col is not None:
-        await col.update_one({"id": job_id}, {"$set": {"status": "running", "updated_at": datetime.utcnow().isoformat()}})
+    job_id = await _new_running_job("amass", params)
 
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     outname = f"amass_{domain}_{ts}.json"
@@ -393,16 +428,22 @@ async def run_amass(
     try:
         rc, out, err = await _run_subprocess(cmd)
         if rc != 0:
-            _jobs[job_id]["status"] = "failed"
-            _jobs[job_id]["result"] = {"rc": rc, "stderr": err}
-            _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
-            col = _db_collection()
-            if col is not None:
-                await col.update_one({"id": job_id}, {"$set": {"status": "failed", "result": _jobs[job_id]["result"], "updated_at": _jobs[job_id]["updated_at"]}})
+            await _persist_job(
+                job_id,
+                status="failed",
+                result={
+                    "rc": rc,
+                    "stderr_tail": (err or "")[-4000:],
+                    "stdout_tail": (out or "")[-4000:],
+                    "artifact_dir": str(INTEGRATIONS_DIR),
+                    "artifacts": [outname] if outpath.exists() else [],
+                },
+            )
             return _jobs[job_id]
 
         # Parse JSON-lines
         indicators = []
+        discovered_domains = set()
         if outpath.exists():
             with open(outpath, 'r', encoding='utf-8') as fh:
                 for line in fh:
@@ -412,6 +453,7 @@ async def run_amass(
                         j = json.loads(line)
                         name = j.get('name') or j.get('host')
                         if name:
+                            discovered_domains.add(str(name).strip().lower())
                             indicators.append({'type':'domain','value':name, 'confidence':50})
                     except Exception:
                         continue
@@ -422,30 +464,32 @@ async def run_amass(
         else:
             res = {"ingested": 0}
 
-        _jobs[job_id]["status"] = "completed"
-        _jobs[job_id]["result"] = res
+        result_payload = {
+            **(res if isinstance(res, dict) else {"ingested": 0}),
+            "artifact_dir": str(INTEGRATIONS_DIR),
+            "artifacts": [outname] if outpath.exists() else [],
+            "indicators_extracted": len(indicators),
+            "enumerated_domain_count": len(discovered_domains),
+            "stdout_tail": (out or "")[-4000:],
+            "stderr_tail": (err or "")[-2000:],
+        }
+        await _persist_job(job_id, status="completed", result=result_payload)
         await _emit_integration_event(
             "integration_job_completed_service",
             entity_refs=[job_id],
             payload={"tool": "amass", "ingested": res.get("ingested", 0) if isinstance(res, dict) else None},
             trigger_triune=False,
         )
-        _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
-        col = _db_collection()
-        if col is not None:
-            await col.update_one({"id": job_id}, {"$set": {"status": "completed", "result": res, "updated_at": _jobs[job_id]["updated_at"]}})
         return _jobs[job_id]
     except Exception as e:
         logger.exception("Amass run failed")
-        _jobs[job_id]["status"] = "failed"
-        _jobs[job_id]["result"] = {"error": str(e)}
+        await _persist_job(job_id, status="failed", result={"error": str(e), "artifact_dir": str(INTEGRATIONS_DIR)})
         await _emit_integration_event(
             "integration_job_failed_service",
             entity_refs=[job_id],
             payload={"tool": "amass", "error": str(e)},
             trigger_triune=False,
         )
-        _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
         return _jobs[job_id]
 
 
@@ -475,25 +519,29 @@ async def ingest_indicators_direct(source: str, indicators: List[Dict[str, Any]]
 
 
 async def get_job_async(job_id: str):
-    # in-memory first
-    if job_id in _jobs:
-        return _json_safe(await _sync_agent_command_state(_jobs[job_id]))
     db = get_db()
-    if db is None:
+    doc = None
+    if db is not None:
+        try:
+            doc = await db.integrations_jobs.find_one({"id": job_id}, {"_id": 0})
+        except Exception:
+            logger.debug("Failed reading integration job from DB", exc_info=True)
+            doc = None
+
+    mem = _jobs.get(job_id)
+    if doc is None and mem is None:
         return None
-    try:
-        doc = await db.integrations_jobs.find_one({"id": job_id}, {"_id": 0})
-        if not doc:
-            return None
-        merged = dict(doc)
-        if job_id in _jobs:
-            merged.update(_jobs[job_id])
-        hydrated = await _sync_agent_command_state(merged)
-        _jobs[job_id] = dict(hydrated)
-        return _json_safe(hydrated)
-    except Exception:
-        logger.debug("Failed reading integration job from DB", exc_info=True)
-        return None
+
+    # DB should be authoritative when available (prevents stale in-memory status).
+    if doc is not None:
+        merged = dict(mem or {})
+        merged.update(dict(doc))
+    else:
+        merged = dict(mem or {})
+
+    hydrated = await _sync_agent_command_state(merged)
+    _jobs[job_id] = dict(hydrated)
+    return _json_safe(hydrated)
 
 
 def get_job(job_id: str):
@@ -516,7 +564,13 @@ async def list_jobs_async(limit: int = 200):
         except Exception:
             logger.debug("Failed listing integration jobs from DB", exc_info=True)
     for jid, job in _jobs.items():
-        jobs_map[jid] = dict({**jobs_map.get(jid, {}), **job})
+        # Keep DB fields authoritative when present.
+        if jid in jobs_map:
+            merged = dict(job)
+            merged.update(jobs_map[jid])
+            jobs_map[jid] = merged
+        else:
+            jobs_map[jid] = dict(job)
 
     hydrated: List[Dict[str, Any]] = []
     for job in jobs_map.values():
@@ -594,28 +648,26 @@ async def run_velociraptor(
     assert_governance_context(governance_context, action="integrations.run_velociraptor")
     params = {"collection": collection_name}
     job_id = await _new_job("velociraptor", params)
-    _jobs[job_id]["status"] = "pending"
-    _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
-    col = _db_collection()
-    if col is not None:
-        await col.update_one({"id": job_id}, {"$set": {"status": "pending", "updated_at": _jobs[job_id]["updated_at"]}})
+    await _persist_job(job_id, status="pending")
 
     # Enqueue Celery task to perform the collection (worker will update the DB)
     try:
         # import here to avoid requiring Celery at module import time
         from celery_app import celery_app
         # send task by name
-        celery_app.send_task('backend.tasks.integrations_tasks.run_velociraptor_task', args=[job_id, collection_name])
+        async_result = celery_app.send_task('backend.tasks.integrations_tasks.run_velociraptor_task', args=[job_id, collection_name])
+        await _persist_job(
+            job_id,
+            status="pending",
+            result={
+                "queued": True,
+                "task_id": getattr(async_result, "id", None),
+                "collection_name": collection_name,
+            },
+        )
     except Exception:
         logger.exception('Failed to enqueue velociraptor task')
-        _jobs[job_id]["status"] = "failed"
-        _jobs[job_id]["result"] = {"error": "failed_to_enqueue_velociraptor_task"}
-        _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
-        if col is not None:
-            await col.update_one(
-                {"id": job_id},
-                {"$set": {"status": "failed", "result": _jobs[job_id]["result"], "updated_at": _jobs[job_id]["updated_at"]}},
-            )
+        await _persist_job(job_id, status="failed", result={"error": "failed_to_enqueue_velociraptor_task"})
         return _jobs[job_id]
 
     # Return job metadata (worker will update status later)
@@ -743,13 +795,35 @@ async def _run_docker_service(
 async def run_arkime(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
     assert_governance_context(governance_context, action="integrations.run_arkime")
     settings = params or {}
+    action = str(settings.get("action") or "start").strip().lower()
+    if action in {"status", "health"}:
+        return await _run_tool_status_probe("arkime", settings)
     input_file = str(settings.get("input_file") or "").strip()
-    if input_file:
-        job_id = await _new_job("arkime", {"input_file": input_file})
+    if input_file or action in {"ingest", "parse_ingest", "parse"}:
+        job_id = await _new_job("arkime", {"action": action, "input_file": input_file})
         await _persist_job(job_id, status="running")
-        indicators = await _extract_indicators_from_json_file(input_file, "arkime")
-        ingested = await threat_intel.ingest_indicators("arkime", indicators) if indicators else {"ingested": 0}
-        await _persist_job(job_id, status="completed", result={"ingested": ingested.get("ingested", 0), "source_file": input_file})
+        try:
+            result = await _ingest_export_file(
+                tool="arkime",
+                input_file=input_file,
+                strict_nonempty_parse=bool(settings.get("strict_nonempty_parse", False)),
+            )
+            result["action"] = "parse_ingest"
+            await _persist_job(job_id, status="completed", result=result)
+        except Exception as exc:
+            await _persist_job(
+                job_id,
+                status="failed",
+                result={
+                    "action": "parse_ingest",
+                    "source_file": input_file,
+                    "error": str(exc),
+                },
+            )
+        return _jobs[job_id]
+    if action not in {"", "start", "launch", "run"}:
+        job_id = await _new_job("arkime", {"action": action})
+        await _persist_job(job_id, status="failed", result={"error": f"unsupported_action:{action}"})
         return _jobs[job_id]
     return await _run_docker_service(
         tool="arkime",
@@ -763,13 +837,35 @@ async def run_arkime(governance_context: Dict[str, Any] = None, params: Dict[str
 async def run_bloodhound(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
     assert_governance_context(governance_context, action="integrations.run_bloodhound")
     settings = params or {}
+    action = str(settings.get("action") or "start").strip().lower()
+    if action in {"status", "health"}:
+        return await _run_tool_status_probe("bloodhound", settings)
     input_file = str(settings.get("input_file") or "").strip()
-    if input_file:
-        job_id = await _new_job("bloodhound", {"input_file": input_file})
+    if input_file or action in {"ingest", "parse_ingest", "parse"}:
+        job_id = await _new_job("bloodhound", {"action": action, "input_file": input_file})
         await _persist_job(job_id, status="running")
-        indicators = await _extract_indicators_from_json_file(input_file, "bloodhound")
-        ingested = await threat_intel.ingest_indicators("bloodhound", indicators) if indicators else {"ingested": 0}
-        await _persist_job(job_id, status="completed", result={"ingested": ingested.get("ingested", 0), "source_file": input_file})
+        try:
+            result = await _ingest_export_file(
+                tool="bloodhound",
+                input_file=input_file,
+                strict_nonempty_parse=bool(settings.get("strict_nonempty_parse", False)),
+            )
+            result["action"] = "parse_ingest"
+            await _persist_job(job_id, status="completed", result=result)
+        except Exception as exc:
+            await _persist_job(
+                job_id,
+                status="failed",
+                result={
+                    "action": "parse_ingest",
+                    "source_file": input_file,
+                    "error": str(exc),
+                },
+            )
+        return _jobs[job_id]
+    if action not in {"", "start", "launch", "run"}:
+        job_id = await _new_job("bloodhound", {"action": action})
+        await _persist_job(job_id, status="failed", result={"error": f"unsupported_action:{action}"})
         return _jobs[job_id]
     image = str(settings.get("image") or "specterops/bloodhound:latest")
     return await _run_docker_service(
@@ -783,13 +879,35 @@ async def run_bloodhound(governance_context: Dict[str, Any] = None, params: Dict
 async def run_spiderfoot(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
     assert_governance_context(governance_context, action="integrations.run_spiderfoot")
     settings = params or {}
+    action = str(settings.get("action") or "start").strip().lower()
+    if action in {"status", "health"}:
+        return await _run_tool_status_probe("spiderfoot", settings)
     input_file = str(settings.get("input_file") or "").strip()
-    if input_file:
-        job_id = await _new_job("spiderfoot", {"input_file": input_file})
+    if input_file or action in {"ingest", "parse_ingest", "parse"}:
+        job_id = await _new_job("spiderfoot", {"action": action, "input_file": input_file})
         await _persist_job(job_id, status="running")
-        indicators = await _extract_indicators_from_json_file(input_file, "spiderfoot")
-        ingested = await threat_intel.ingest_indicators("spiderfoot", indicators) if indicators else {"ingested": 0}
-        await _persist_job(job_id, status="completed", result={"ingested": ingested.get("ingested", 0), "source_file": input_file})
+        try:
+            result = await _ingest_export_file(
+                tool="spiderfoot",
+                input_file=input_file,
+                strict_nonempty_parse=bool(settings.get("strict_nonempty_parse", False)),
+            )
+            result["action"] = "parse_ingest"
+            await _persist_job(job_id, status="completed", result=result)
+        except Exception as exc:
+            await _persist_job(
+                job_id,
+                status="failed",
+                result={
+                    "action": "parse_ingest",
+                    "source_file": input_file,
+                    "error": str(exc),
+                },
+            )
+        return _jobs[job_id]
+    if action not in {"", "start", "launch", "run"}:
+        job_id = await _new_job("spiderfoot", {"action": action})
+        await _persist_job(job_id, status="failed", result={"error": f"unsupported_action:{action}"})
         return _jobs[job_id]
     return await _run_docker_service(
         tool="spiderfoot",
@@ -803,17 +921,29 @@ async def run_sigma(governance_context: Dict[str, Any] = None, params: Dict[str,
     assert_governance_context(governance_context, action="integrations.run_sigma")
     payload = params or {}
     action = str(payload.get("action") or "reload").lower().strip()
-    job_id = await _new_job("sigma", {"action": action})
+    job_id = await _new_job("sigma", {"action": action, "params": payload})
     await _persist_job(job_id, status="running")
     try:
         from sigma_engine import sigma_engine
-        if action == "evaluate":
+
+        if action == "status":
+            result = sigma_engine.get_status()
+        elif action == "list_rules":
+            result = sigma_engine.list_rules(
+                limit=int(payload.get("limit") or 50),
+                offset=int(payload.get("offset") or 0),
+                query=str(payload.get("query") or ""),
+            )
+        elif action == "evaluate":
             event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
             result = sigma_engine.evaluate_event(event, max_matches=int(payload.get("max_matches") or 25))
         elif action == "coverage":
             result = sigma_engine.coverage_summary()
-        else:
+        elif action in {"reload", "refresh"}:
             result = sigma_engine.reload_rules()
+        else:
+            await _persist_job(job_id, status="failed", result={"error": f"unsupported_action:{action}", "action": action})
+            return _jobs[job_id]
         await _persist_job(job_id, status="completed", result={"action": action, "result": result})
         return _jobs[job_id]
     except Exception as exc:
@@ -843,13 +973,32 @@ async def run_atomic(governance_context: Dict[str, Any] = None, params: Dict[str
             }
             await _persist_job(job_id, status="completed", result=result)
             return _jobs[job_id]
+        if action == "jobs":
+            await _persist_job(job_id, status="completed", result={"action": action, "result": manager.list_jobs()})
+            return _jobs[job_id]
+        if action == "runs":
+            await _persist_job(
+                job_id,
+                status="completed",
+                result={"action": action, "result": manager.list_runs(limit=int(payload.get("limit") or 50))},
+            )
+            return _jobs[job_id]
+        if action not in {"run", "execute"}:
+            await _persist_job(job_id, status="failed", result={"error": f"unsupported_action:{action}", "action": action})
+            return _jobs[job_id]
         if not selected_job:
-            all_jobs = manager.list_jobs() or []
-            if not all_jobs:
+            jobs_payload = manager.list_jobs() or {}
+            job_rows = jobs_payload.get("jobs") if isinstance(jobs_payload, dict) else []
+            if not isinstance(job_rows, list) or not job_rows:
                 await _persist_job(job_id, status="failed", result={"error": "atomic_jobs_unavailable"})
                 return _jobs[job_id]
-            selected_job = str(all_jobs[0].get("job_id") or "")
+            selected_job = str((job_rows[0] or {}).get("job_id") or "")
+            if not selected_job:
+                await _persist_job(job_id, status="failed", result={"error": "atomic_jobs_unavailable"})
+                return _jobs[job_id]
         result = await asyncio.to_thread(manager.run_job, selected_job, dry_run)
+        if isinstance(result, dict):
+            result.setdefault("selected_job_id", selected_job)
         ok = bool(result.get("ok", False))
         await _persist_job(job_id, status="completed" if ok else "failed", result=result)
         return _jobs[job_id]
@@ -1101,10 +1250,43 @@ async def _run_tool_status_probe(tool: str, params: Dict[str, Any] = None) -> Di
     job_id = await _new_running_job(tool, {"action": "status", "params": payload})
     try:
         docker_bin = _tool_binary("docker")
+        docker_containers: List[Dict[str, str]] = []
+        if docker_bin:
+            rc, out, _ = await _run_subprocess([docker_bin, "ps", "--format", "{{.Image}}|{{.Names}}"], timeout=15)
+            if rc == 0:
+                for line in (out or "").splitlines():
+                    if "|" not in line:
+                        continue
+                    image, name = line.split("|", 1)
+                    docker_containers.append({"image": image.strip(), "name": name.strip()})
+
+        def _matching_containers(tokens: List[str]) -> List[Dict[str, str]]:
+            lowered_tokens = [str(t).lower() for t in tokens if t]
+            matches: List[Dict[str, str]] = []
+            for row in docker_containers:
+                image = str(row.get("image") or "").lower()
+                name = str(row.get("name") or "").lower()
+                if any(token in image or token in name for token in lowered_tokens):
+                    matches.append(row)
+            return matches
+
         if tool == "amass":
-            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "caffix/amass:latest"}
+            parser = Path(__file__).resolve().parent.parent / "unified_agent" / "integrations" / "amass" / "parse_amass.py"
+            result = {
+                "available": bool(docker_bin),
+                "docker_available": bool(docker_bin),
+                "image": "caffix/amass:latest",
+                "running_containers": _matching_containers(["amass", "caffix/amass"]),
+                "parser_available": parser.exists(),
+                "parser_path": str(parser),
+            }
         elif tool == "velociraptor":
-            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "veloci/velociraptor:latest"}
+            result = {
+                "available": bool(docker_bin),
+                "docker_available": bool(docker_bin),
+                "image": "veloci/velociraptor:latest",
+                "running_containers": _matching_containers(["velociraptor", "veloci/velociraptor"]),
+            }
         elif tool == "purplesharp":
             script = Path(__file__).resolve().parent.parent / "unified_agent" / "integrations" / "purplesharp" / "run_purplesharp.sh"
             result = {
@@ -1113,11 +1295,48 @@ async def _run_tool_status_probe(tool: str, params: Dict[str, Any] = None) -> Di
                 "pwsh_available": bool(_tool_binary("pwsh") or _tool_binary("powershell")),
             }
         elif tool == "arkime":
-            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "quay.io/arkime/arkime:latest"}
+            parser = Path(__file__).resolve().parent.parent / "unified_agent" / "integrations" / "arkime" / "parse_arkime.py"
+            result = {
+                "available": bool(docker_bin),
+                "docker_available": bool(docker_bin),
+                "image": "quay.io/arkime/arkime:latest",
+                "running_containers": _matching_containers(["arkime"]),
+                "parser_available": parser.exists(),
+                "parser_path": str(parser),
+            }
         elif tool == "bloodhound":
-            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "specterops/bloodhound:latest"}
+            parser = Path(__file__).resolve().parent.parent / "unified_agent" / "integrations" / "bloodhound" / "parse_bloodhound.py"
+            result = {
+                "available": bool(docker_bin),
+                "docker_available": bool(docker_bin),
+                "image": "specterops/bloodhound:latest",
+                "running_containers": _matching_containers(["bloodhound", "neo4j"]),
+                "parser_available": parser.exists(),
+                "parser_path": str(parser),
+            }
         elif tool == "spiderfoot":
-            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "spiderfoot/spiderfoot:latest"}
+            result = {
+                "available": bool(docker_bin),
+                "docker_available": bool(docker_bin),
+                "image": "spiderfoot/spiderfoot:latest",
+                "running_containers": _matching_containers(["spiderfoot"]),
+            }
+        elif tool == "sigma":
+            from sigma_engine import sigma_engine
+
+            result = {"available": True, "engine": sigma_engine.get_status()}
+        elif tool == "atomic":
+            import importlib
+
+            atomic_module = importlib.import_module("atomic_validation")
+            manager = getattr(atomic_module, "atomic_validation")
+            manager.set_db(get_db())
+            jobs = manager.list_jobs()
+            result = {
+                "available": True,
+                "status": manager.get_status(),
+                "jobs_count": int((jobs or {}).get("count") or 0) if isinstance(jobs, dict) else 0,
+            }
         else:
             result = {"available": True}
         await _persist_job(job_id, status="completed", result={"action": "status", "result": result})
