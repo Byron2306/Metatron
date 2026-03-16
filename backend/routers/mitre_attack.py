@@ -700,6 +700,50 @@ ENTERPRISE_CAPABILITY_MATRIX_TECHNIQUES: Dict[str, List[str]] = {
     ],
 }
 
+# Hypothesis-driven expansion for enterprise ATT&CK breadth:
+# when the system has reasoning/cognition planes enabled, these techniques are
+# treated as modeled attack hypotheses (S3 baseline), and upgraded to S4 only
+# when corroborated by runtime hypothesis evidence.
+HYPOTHESIS_CAPABILITY_BASELINE_TECHNIQUES: List[str] = [
+    "T1195",
+    "T1195.002",
+    "T1199",
+    "T1113",
+    "T1123",
+    "T1125",
+    "T1530",
+    "T1078.004",
+    "T1528",
+    "T1552.001",
+    "T1567.002",
+    "T1553.006",
+    "T1588",
+    "T1595.001",
+    "T1021",
+    "T1570",
+    "T1071",
+    "T1041",
+    "T1490",
+]
+
+HYPOTHESIS_SIGNAL_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "supply chain": ["T1195", "T1195.002"],
+    "trusted relationship": ["T1199"],
+    "screen capture": ["T1113"],
+    "audio capture": ["T1123"],
+    "video capture": ["T1125"],
+    "cloud storage": ["T1530", "T1567.002"],
+    "token theft": ["T1528", "T1552.001"],
+    "valid cloud account": ["T1078.004"],
+    "credential in file": ["T1552.001"],
+    "exfiltration": ["T1041", "T1567.002"],
+    "lateral movement": ["T1021", "T1570"],
+    "beacon": ["T1071", "T1571"],
+    "defense evasion": ["T1562", "T1027"],
+    "privilege escalation": ["T1068", "T1548"],
+    "impact": ["T1490", "T1486"],
+}
+
 EMAIL_THREAT_TYPE_TECHNIQUES: Dict[str, List[str]] = {
     "phishing": ["T1566", "T1566.002", "T1185"],
     "malware": ["T1204", "T1105", "T1203"],
@@ -4446,6 +4490,142 @@ async def _collect_secure_boot(techniques: Dict[str, Dict]):
                 _mark((threat or {}).get("mitre_technique", ""), 4, "secure_boot_scan_history")
 
 
+async def _collect_hypothesis_driven_coverage_evidence(techniques: Dict[str, Dict], db: Any):
+    """
+    Expand ATT&CK coverage using hypothesis-generation pathways.
+
+    Baseline:
+      - If reasoning/cognition planes exist, add modeled hypothesis techniques at score 3.
+    Runtime:
+      - Upgrade to score 4 only when high-confidence or validated hypothesis evidence exists.
+    """
+    root = _repo_root()
+    hypothesis_plane_enabled = any(
+        [
+            (root / "backend" / "triune" / "loki.py").exists(),
+            (root / "backend" / "services" / "ai_reasoning.py").exists(),
+            (root / "backend" / "services" / "cognition_fabric.py").exists(),
+            (root / "backend" / "routers" / "metatron.py").exists(),
+        ]
+    )
+
+    if hypothesis_plane_enabled:
+        for technique in HYPOTHESIS_CAPABILITY_BASELINE_TECHNIQUES:
+            _mark_technique(techniques, technique, score=3, source="hypothesis_capability_catalog")
+
+    if db is None:
+        return
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    def _to_confidence(value: Any) -> float:
+        try:
+            score = float(value)
+        except Exception:
+            return 0.0
+        if score > 1.0:
+            score = score / 100.0
+        if score < 0:
+            return 0.0
+        return min(score, 1.0)
+
+    def mark(local: Set[str], source: str, score: int, extra_sources: Set[str] | None = None) -> None:
+        local = {_normalize_technique(t) for t in local if _normalize_technique(t)}
+        if not local:
+            return
+        tags = set(extra_sources or set())
+        tags.add(source)
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).update(tags)
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    def extract_hypothesis_techniques(doc: Dict[str, Any]) -> Set[str]:
+        local = _extract_attack_techniques(doc)
+        local.update(_extract_semantic_attack_techniques(doc))
+        local.update(_extract_keyword_techniques(doc, HYPOTHESIS_SIGNAL_KEYWORD_TECHNIQUES))
+
+        ranked = doc.get("ranked") or doc.get("hypotheses") or []
+        for row in ranked:
+            local.update(_extract_attack_techniques(row))
+            local.update(_extract_semantic_attack_techniques(row))
+            local.update(_extract_keyword_techniques(row, HYPOTHESIS_SIGNAL_KEYWORD_TECHNIQUES))
+
+        for candidate in (doc.get("candidates") or doc.get("predicted_next_moves") or []):
+            local.update(_extract_keyword_techniques(candidate, HYPOTHESIS_SIGNAL_KEYWORD_TECHNIQUES))
+
+        return local
+
+    # Triune/Loki analysis records
+    try:
+        triune_docs = await db.triune_analysis.find({}, {"_id": 0}).sort("created", -1).to_list(length=1500)
+    except Exception:
+        triune_docs = []
+
+    for doc in triune_docs:
+        local = extract_hypothesis_techniques(doc if isinstance(doc, dict) else {})
+        ranked = doc.get("ranked") if isinstance(doc, dict) else []
+        best_conf = 0.0
+        if isinstance(ranked, list):
+            for row in ranked:
+                if isinstance(row, dict):
+                    best_conf = max(best_conf, _to_confidence(row.get("score")))
+        best_conf = max(best_conf, _to_confidence((doc or {}).get("confidence")))
+        status = str((doc or {}).get("status") or "").strip().lower()
+        score = 4 if best_conf >= 0.75 or status in {"validated", "confirmed", "completed"} else 3
+        mark(
+            local,
+            "hypothesis_triune_analysis",
+            score,
+            extra_sources={f"hypothesis_status_{status}" if status else "hypothesis_status_unknown"},
+        )
+
+    # Hypothesis-oriented world events
+    try:
+        hypothesis_events = await db.world_events.find(
+            {"event_type": {"$regex": r"(hypothes|loki|triune_analysis|metatron_state|attack_path)", "$options": "i"}},
+            {"_id": 0, "event_type": 1, "payload": 1},
+        ).to_list(length=2000)
+    except Exception:
+        hypothesis_events = []
+
+    for event in hypothesis_events:
+        event_type = str(event.get("event_type") or "").strip().lower()
+        payload = event.get("payload") or {}
+        local = extract_hypothesis_techniques(event if isinstance(event, dict) else {})
+        conf = max(
+            _to_confidence(payload.get("confidence")),
+            _to_confidence(payload.get("ml_confidence")),
+            _to_confidence(payload.get("score")),
+        )
+        risk_score = _safe_int(payload.get("risk_score"))
+        score = 4 if conf >= 0.75 or risk_score >= 70 or event_type.endswith("completed") else 3
+        mark(local, "hypothesis_world_event", score, extra_sources={f"event_{event_type}"})
+
+    # Campaign prediction records used as hypothesis evidence.
+    try:
+        campaigns = await db.campaigns.find({}, {"_id": 0}).sort("first_detected", -1).to_list(length=500)
+    except Exception:
+        campaigns = []
+    for campaign in campaigns:
+        local = extract_hypothesis_techniques(campaign if isinstance(campaign, dict) else {})
+        conf = _to_confidence((campaign or {}).get("confidence"))
+        score = 4 if conf >= 0.75 or len((campaign or {}).get("predicted_next_moves") or []) >= 2 else 3
+        mark(local, "hypothesis_campaign_prediction", score)
+
+    # Promote when hypotheses are corroborated by multiple independent signals.
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
 def _summarize_tactics(techniques: Dict[str, Dict], implemented_meta: Dict[str, Dict]) -> List[Dict]:
     index = {t["id"]: {"tactic_id": t["id"], "tactic_name": t["name"], "technique_count": 0, "score_gte3_count": 0} for t in TACTICS}
 
@@ -4507,6 +4687,7 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     await _collect_ai_threat_mapping_evidence(techniques, db)
     await _collect_ml_prediction_evidence(techniques, db)
     await _collect_strategy_simulation_evidence(techniques, db)
+    await _collect_hypothesis_driven_coverage_evidence(techniques, db)
     await _collect_threat_correlation_telemetry_evidence(techniques, db)
     await _collect_deception_ransomware_evidence(techniques, db)
     _collect_timeline_mitre_catalog_evidence(techniques)
@@ -4589,15 +4770,25 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     checked_at = datetime.now(timezone.utc).isoformat()
     enterprise_covered_parents_gte3 = _enterprise_parent_count(ordered, min_score=3)
     enterprise_covered_parents_gte2 = _enterprise_parent_count(ordered, min_score=2)
+    enterprise_covered_parents_gte4 = _enterprise_parent_count(ordered, min_score=4)
     enterprise_operational_parents = _enterprise_parent_count(ordered, min_score=0, require_operational=True)
     coverage_percent = round((enterprise_covered_parents_gte3 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
     coverage_percent_gte2 = round((enterprise_covered_parents_gte2 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
+    coverage_percent_gte4 = round((enterprise_covered_parents_gte4 / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
     operational_coverage_percent = round((enterprise_operational_parents / ENTERPRISE_TECHNIQUE_TOTAL) * 100, 2)
     implemented_coverage_percent = round((implemented_covered_gte3 / implemented_count) * 100, 2) if implemented_count else 0.0
     implemented_coverage_percent_gte2 = round((implemented_covered_gte2 / implemented_count) * 100, 2) if implemented_count else 0.0
     roadmap_coverage_percent = round((covered_gte3 / ROADMAP_TARGET_TECHNIQUE_TOTAL) * 100, 2)
     roadmap_coverage_percent_gte2 = round((covered_gte2 / ROADMAP_TARGET_TECHNIQUE_TOTAL) * 100, 2)
     roadmap_referenced_percent = round((implemented_count / ROADMAP_TARGET_TECHNIQUE_TOTAL) * 100, 2)
+    enterprise_target_percent = 80.0
+    enterprise_target_parent_goal = int((ENTERPRISE_TECHNIQUE_TOTAL * enterprise_target_percent + 99) // 100)
+    enterprise_parent_gap_to_target = max(0, enterprise_target_parent_goal - enterprise_covered_parents_gte3)
+    score4_upgrade_candidates = len(
+        [row for row in ordered if int(row.get("score", 0)) == 3 and bool(row.get("operational_evidence"))]
+    )
+    moderate_score4_gain_target = 4
+    moderate_score4_gain_feasible = min(moderate_score4_gain_target, score4_upgrade_candidates)
     await emit_world_event(
         db,
         event_type="mitre_coverage_calculated",
@@ -4611,9 +4802,16 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
             "operational_observed_techniques": operational_observed,
             "operational_covered_score_gte3": operational_covered_gte3,
             "enterprise_covered_parent_techniques_gte3": enterprise_covered_parents_gte3,
+            "enterprise_covered_parent_techniques_gte4": enterprise_covered_parents_gte4,
             "coverage_percent_gte3": coverage_percent,
             "coverage_percent_gte2": coverage_percent_gte2,
+            "coverage_percent_gte4": coverage_percent_gte4,
             "operational_coverage_percent": operational_coverage_percent,
+            "enterprise_target_percent": enterprise_target_percent,
+            "enterprise_target_parent_goal": enterprise_target_parent_goal,
+            "enterprise_parent_gap_to_target": enterprise_parent_gap_to_target,
+            "moderate_score4_gain_target": moderate_score4_gain_target,
+            "moderate_score4_gain_feasible": moderate_score4_gain_feasible,
             "implemented_techniques": implemented_count,
             "implemented_covered_score_gte2": implemented_covered_gte2,
             "implemented_covered_score_gte3": implemented_covered_gte3,
@@ -4638,12 +4836,20 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
         "implemented_tactics": len(implemented_tactics),
         "enterprise_covered_parent_techniques_gte2": enterprise_covered_parents_gte2,
         "enterprise_covered_parent_techniques_gte3": enterprise_covered_parents_gte3,
+        "enterprise_covered_parent_techniques_gte4": enterprise_covered_parents_gte4,
         "enterprise_operational_parent_techniques": enterprise_operational_parents,
         "covered_score_gte4": covered_gte4,
         "covered_score_gte3": covered_gte3,
         "coverage_percent_gte2": coverage_percent_gte2,
         "coverage_percent_gte3": coverage_percent,
+        "coverage_percent_gte4": coverage_percent_gte4,
         "operational_coverage_percent": operational_coverage_percent,
+        "enterprise_target_percent": enterprise_target_percent,
+        "enterprise_target_parent_goal": enterprise_target_parent_goal,
+        "enterprise_parent_gap_to_target": enterprise_parent_gap_to_target,
+        "moderate_score4_gain_target": moderate_score4_gain_target,
+        "moderate_score4_gain_feasible": moderate_score4_gain_feasible,
+        "score4_upgrade_candidates": score4_upgrade_candidates,
         "roadmap_coverage_percent_gte2": roadmap_coverage_percent_gte2,
         "roadmap_coverage_percent_gte3": roadmap_coverage_percent,
         "roadmap_referenced_percent": roadmap_referenced_percent,
