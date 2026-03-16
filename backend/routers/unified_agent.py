@@ -1098,6 +1098,127 @@ async def list_unified_agents(
     }
 
 
+@router.get("/fleet/endpoint-posture-map")
+async def get_fleet_endpoint_posture_map(
+    limit: int = 1000,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Fleet posture map for dashboard consumption.
+    Returns per-agent beacon posture, trust state, and last boundary outcome.
+    """
+    safe_limit = max(1, min(int(limit or 1000), 5000))
+    agents = await db.unified_agents.find({}, {"_id": 0}).limit(safe_limit).to_list(safe_limit)
+    agent_ids = [str(a.get("agent_id") or "").strip() for a in agents if str(a.get("agent_id") or "").strip()]
+
+    posture_by_agent: Dict[str, Dict[str, Any]] = {}
+    if hasattr(db, "endpoint_posture"):
+        try:
+            cursor = db.endpoint_posture.find(
+                {"agent_id": {"$in": agent_ids}} if agent_ids else {},
+                {"_id": 0},
+            )
+            for row in await cursor.to_list(safe_limit):
+                aid = str(row.get("agent_id") or "").strip()
+                if aid:
+                    posture_by_agent[aid] = row
+        except Exception:
+            logger.exception("Failed to load endpoint_posture collection")
+
+    latest_boundary_by_agent: Dict[str, Dict[str, Any]] = {}
+    if hasattr(db, "agent_commands"):
+        try:
+            pipeline = [
+                {"$match": {"boundary_outcome": {"$exists": True, "$ne": None}}},
+                {"$sort": {"completed_at": -1, "updated_at": -1, "created_at": -1}},
+                {
+                    "$group": {
+                        "_id": "$agent_id",
+                        "boundary_outcome": {"$first": "$boundary_outcome"},
+                        "boundary_updated_at": {"$first": "$updated_at"},
+                        "command_id": {"$first": "$command_id"},
+                    }
+                },
+            ]
+            rows = await db.agent_commands.aggregate(pipeline).to_list(safe_limit)
+            for row in rows:
+                aid = str(row.get("_id") or "").strip()
+                if aid:
+                    latest_boundary_by_agent[aid] = row
+        except Exception:
+            logger.exception("Failed to aggregate boundary outcomes from agent_commands")
+
+    entries: List[Dict[str, Any]] = []
+    for agent in agents:
+        agent_id = str(agent.get("agent_id") or "").strip()
+        if not agent_id:
+            continue
+        posture = posture_by_agent.get(agent_id, {})
+        fortress = agent.get("endpoint_fortress") if isinstance(agent.get("endpoint_fortress"), dict) else {}
+        fortress_beacon = fortress.get("beacon") if isinstance(fortress.get("beacon"), dict) else {}
+        boundary = latest_boundary_by_agent.get(agent_id, {})
+
+        beacon_state = (
+            posture.get("beacon_state")
+            or fortress_beacon.get("state")
+            or "Green"
+        )
+        beacon_score = int(
+            posture.get("beacon_score")
+            or fortress_beacon.get("score")
+            or 0
+        )
+        trust_state = "trusted"
+        state_lower = str(beacon_state or "green").lower()
+        if state_lower == "red":
+            trust_state = "compromised"
+        elif state_lower in {"amber", "yellow"}:
+            trust_state = "degraded"
+
+        last_boundary_outcome = (
+            posture.get("last_boundary_outcome")
+            or boundary.get("boundary_outcome")
+            or "unknown"
+        )
+        entries.append(
+            {
+                "agent_id": agent_id,
+                "hostname": agent.get("hostname"),
+                "platform": agent.get("platform"),
+                "ip_address": agent.get("ip_address"),
+                "status": agent.get("status", "unknown"),
+                "beacon_state": beacon_state,
+                "beacon_score": beacon_score,
+                "trust_state": trust_state,
+                "last_boundary_outcome": last_boundary_outcome,
+                "last_boundary_at": posture.get("updated_at") or boundary.get("boundary_updated_at"),
+            }
+        )
+
+    severity_rank = {"red": 4, "amber": 3, "yellow": 2, "green": 1}
+    entries.sort(
+        key=lambda e: (
+            severity_rank.get(str(e.get("beacon_state") or "").lower(), 0),
+            int(e.get("beacon_score") or 0),
+            str(e.get("last_boundary_at") or ""),
+        ),
+        reverse=True,
+    )
+    return {
+        "entries": entries,
+        "total": len(entries),
+        "summary": {
+            "green": sum(1 for e in entries if str(e.get("beacon_state") or "").lower() == "green"),
+            "yellow": sum(1 for e in entries if str(e.get("beacon_state") or "").lower() == "yellow"),
+            "amber": sum(1 for e in entries if str(e.get("beacon_state") or "").lower() == "amber"),
+            "red": sum(1 for e in entries if str(e.get("beacon_state") or "").lower() == "red"),
+            "degraded_or_worse": sum(
+                1 for e in entries if str(e.get("trust_state") or "").lower() in {"degraded", "compromised"}
+            ),
+        },
+    }
+
+
 @router.get("/agents/{agent_id}")
 async def get_unified_agent(
     agent_id: str,
@@ -3545,74 +3666,124 @@ async def download_agent_package_windows():
 
 
 @router.get("/agent/install-script")
-async def get_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
-    """Get the agent installation script"""
-    
-    # Use explicit query param first; otherwise infer from request/proxy headers
+async def get_install_script(
+    request: Request,
+    server_url: Optional[str] = None,
+    format: Optional[str] = None,
+    enrollment_key: Optional[str] = None,
+    integration_token: Optional[str] = None,
+    ca_cert_pem_b64: Optional[str] = None,
+    noninteractive: Optional[bool] = False,
+):
+    """Get an auth/cert aware Linux agent installation script."""
+
     forwarded_proto = request.headers.get("x-forwarded-proto")
     proto = forwarded_proto or request.url.scheme or "http"
     base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
-    
-    script = f'''#!/bin/bash
-# Seraph AI Unified Agent Installer
-# Automatically generated for: {base_url}
+    embedded_enrollment = (enrollment_key or "").strip()
+    embedded_integration = (integration_token or "").strip()
+    embedded_ca_b64 = (ca_cert_pem_b64 or "").strip()
+    noninteractive_flag = "1" if bool(noninteractive) else "0"
 
-set -e
+    script = f'''#!/bin/bash
+# Seraph AI Unified Agent Installer (auth + cert aware)
+set -euo pipefail
 
 SERAPH_SERVER="{base_url}"
 INSTALL_DIR="/opt/seraph-agent"
+EMBEDDED_ENROLLMENT_KEY="{embedded_enrollment}"
+EMBEDDED_INTEGRATION_TOKEN="{embedded_integration}"
+EMBEDDED_CA_CERT_B64="{embedded_ca_b64}"
+SERAPH_NONINTERACTIVE="${{SERAPH_NONINTERACTIVE:-{noninteractive_flag}}}"
 
-echo "================================================================"
-echo "  SERAPH AI UNIFIED AGENT INSTALLER"
-echo "  Target Server: $SERAPH_SERVER"
-echo "================================================================"
+SERAPH_ENROLLMENT_KEY="${{SERAPH_ENROLLMENT_KEY:-$EMBEDDED_ENROLLMENT_KEY}}"
+SERAPH_INTEGRATION_TOKEN="${{SERAPH_INTEGRATION_TOKEN:-$EMBEDDED_INTEGRATION_TOKEN}}"
+SERAPH_CA_CERT_PEM_B64="${{SERAPH_CA_CERT_PEM_B64:-$EMBEDDED_CA_CERT_B64}}"
 
-# Check root
 if [[ $EUID -ne 0 ]]; then
-    echo "This script must be run as root (use sudo)"
-    exit 1
+  echo "This installer must run as root (use sudo)."
+  exit 1
 fi
 
-# Create installation directory
+if [[ -z "${{SERAPH_ENROLLMENT_KEY}}" ]]; then
+  echo "Missing enrollment key. Export SERAPH_ENROLLMENT_KEY before install."
+  exit 2
+fi
+
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Install Python dependencies
-echo "Installing Python and dependencies..."
-apt-get update
-apt-get install -y python3 python3-pip python3-venv curl
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update -y
+  apt-get install -y python3 python3-pip python3-venv curl ca-certificates
+elif command -v dnf >/dev/null 2>&1; then
+  dnf install -y python3 python3-pip curl ca-certificates
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y python3 python3-pip curl ca-certificates
+elif command -v pacman >/dev/null 2>&1; then
+  pacman -Sy --noconfirm python python-pip curl ca-certificates
+fi
 
-# Create virtual environment
+curl -fsSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
+tar -xzf agent.tar.gz
+rm -f agent.tar.gz
+
 python3 -m venv venv
 source venv/bin/activate
-
-# Install required packages
 pip install --upgrade pip
-pip install psutil requests netifaces scapy watchdog python-nmap aiohttp pyyaml cryptography
+if [[ -f "requirements.txt" ]]; then
+  pip install -r requirements.txt
+else
+  pip install psutil requests netifaces watchdog pyyaml cryptography
+fi
 
-# Install YARA (optional, for malware scanning)
-echo "Installing YARA..."
-apt-get install -y yara libyara-dev 2>/dev/null || true
-pip install yara-python 2>/dev/null || echo "YARA installation skipped (optional)"
+mkdir -p "$INSTALL_DIR/certs"
+CA_CERT_PATH=""
+if [[ -n "${{SERAPH_CA_CERT_PEM_B64}}" ]]; then
+  CA_CERT_PATH="$INSTALL_DIR/certs/seraph-agent-ca.pem"
+  SERAPH_CA_CERT_PEM_B64="$SERAPH_CA_CERT_PEM_B64" CA_CERT_PATH="$CA_CERT_PATH" python3 - <<'PY'
+import base64, os, pathlib
+payload = os.environ.get("SERAPH_CA_CERT_PEM_B64", "").strip()
+target = os.environ.get("CA_CERT_PATH", "").strip()
+if payload and target:
+    pathlib.Path(target).write_bytes(base64.b64decode(payload.encode()))
+PY
+  chmod 600 "$CA_CERT_PATH"
+fi
 
-# Download agent package
-echo "Downloading agent from server..."
-curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
-tar -xzf agent.tar.gz
-rm agent.tar.gz
+cat > "$INSTALL_DIR/agent_config.json" <<EOF
+{{
+  "server_url": "$SERAPH_SERVER",
+  "enrollment_key": "$SERAPH_ENROLLMENT_KEY",
+  "auth_token": "",
+  "integration_api_key": "$SERAPH_INTEGRATION_TOKEN",
+  "local_ui_enabled": false
+}}
+EOF
+chmod 600 "$INSTALL_DIR/agent_config.json"
 
-# Create systemd service
-cat > /etc/systemd/system/seraph-agent.service << EOF
+cat > /etc/default/seraph-agent <<EOF
+SERAPH_ENROLLMENT_KEY=$SERAPH_ENROLLMENT_KEY
+SERAPH_INTEGRATION_TOKEN=$SERAPH_INTEGRATION_TOKEN
+SERAPH_NONINTERACTIVE=$SERAPH_NONINTERACTIVE
+EOF
+if [[ -n "$CA_CERT_PATH" ]]; then
+  echo "REQUESTS_CA_BUNDLE=$CA_CERT_PATH" >> /etc/default/seraph-agent
+fi
+chmod 600 /etc/default/seraph-agent
+
+cat > /etc/systemd/system/seraph-agent.service <<'EOF'
 [Unit]
-Description=Seraph AI Unified Agent
+Description=Seraph Unified Agent
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=$INSTALL_DIR
-Environment="PATH=$INSTALL_DIR/venv/bin"
-ExecStart=$INSTALL_DIR/venv/bin/python core/agent.py --server $SERAPH_SERVER
+WorkingDirectory=/opt/seraph-agent
+EnvironmentFile=-/etc/default/seraph-agent
+Environment=PATH=/opt/seraph-agent/venv/bin
+ExecStart=/opt/seraph-agent/venv/bin/python /opt/seraph-agent/core/agent.py --config /opt/seraph-agent/agent_config.json --no-ui
 Restart=always
 RestartSec=10
 
@@ -3620,22 +3791,17 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-# Enable and start service
 systemctl daemon-reload
 systemctl enable seraph-agent
-systemctl start seraph-agent
-
-echo ""
-echo "================================================================"
-echo "  INSTALLATION COMPLETE"
-echo "================================================================"
-echo "Agent installed to: $INSTALL_DIR"
-echo "Service status: systemctl status seraph-agent"
-echo "Service logs: journalctl -u seraph-agent -f"
-echo ""
+systemctl restart seraph-agent
+systemctl is-active --quiet seraph-agent
+echo "SERAPH_DEPLOY_SUCCESS"
 '''
-    
-    usage = f"curl -sSL {base_url}/api/unified/agent/install-script | sudo bash"
+
+    usage = (
+        f"curl -sSL {base_url}/api/unified/agent/install-script | "
+        "sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash"
+    )
     if (format or "").lower() == "json":
         return {"script": script, "usage": usage}
 
@@ -3648,120 +3814,126 @@ echo ""
 
 
 @router.get("/agent/install-windows")
-async def get_windows_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
-    """Get the Windows agent installation script (PowerShell)"""
-    
+async def get_windows_install_script(
+    request: Request,
+    server_url: Optional[str] = None,
+    format: Optional[str] = None,
+    enrollment_key: Optional[str] = None,
+    integration_token: Optional[str] = None,
+    ca_cert_pem_b64: Optional[str] = None,
+    noninteractive: Optional[bool] = False,
+):
+    """Get an auth/cert aware Windows installer script."""
+
     forwarded_proto = request.headers.get("x-forwarded-proto")
     proto = forwarded_proto or request.url.scheme or "http"
     base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
-    
-    script = f'''# Seraph AI Unified Agent - Windows Installer
-# Run as Administrator
+    embedded_enrollment = (enrollment_key or "").strip()
+    embedded_integration = (integration_token or "").strip()
+    embedded_ca_b64 = (ca_cert_pem_b64 or "").strip()
+    noninteractive_flag = "$true" if bool(noninteractive) else "$false"
 
+    script = f'''# Seraph Unified Agent Installer (Windows)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $SERAPH_SERVER = "{base_url}"
 $INSTALL_DIR = "C:\\ProgramData\\SeraphAgent"
 $ZIP_PATH = "$INSTALL_DIR\\agent.zip"
-$LOG_PATH = "$INSTALL_DIR\\install.log"
-
-Write-Host "================================================================" -ForegroundColor Cyan
-Write-Host "  SERAPH AI UNIFIED AGENT INSTALLER (Windows)" -ForegroundColor Cyan
-Write-Host "  Target Server: $SERAPH_SERVER" -ForegroundColor Cyan
-Write-Host "================================================================" -ForegroundColor Cyan
+$CONFIG_PATH = "$INSTALL_DIR\\agent_config.json"
+$RUNNER_PATH = "$INSTALL_DIR\\run-agent.ps1"
+$CA_CERT_PATH = "$INSTALL_DIR\\certs\\seraph-agent-ca.pem"
+$EMBEDDED_ENROLLMENT_KEY = "{embedded_enrollment}"
+$EMBEDDED_INTEGRATION_TOKEN = "{embedded_integration}"
+$EMBEDDED_CA_CERT_B64 = "{embedded_ca_b64}"
+$NONINTERACTIVE = {noninteractive_flag}
 
 function Assert-Admin {{
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {{
-        if ($PSCommandPath) {{
-            Write-Host "Re-launching installer with Administrator privileges..." -ForegroundColor Yellow
-            $argList = @(
-                "-ExecutionPolicy", "Bypass",
-                "-NoExit",
-                "-File", "`"$PSCommandPath`""
-            )
-            Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $argList
-            exit 0
-        }}
-        throw "This installer must be run as Administrator."
-    }}
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+  if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {{
+    throw "Installer must run as Administrator."
+  }}
 }}
 
 function Get-PythonExecutable {{
-    if (Get-Command py -ErrorAction SilentlyContinue) {{ return "py -3" }}
-    if (Get-Command python -ErrorAction SilentlyContinue) {{ return "python" }}
-    return $null
+  if (Get-Command py -ErrorAction SilentlyContinue) {{ return "py -3" }}
+  if (Get-Command python -ErrorAction SilentlyContinue) {{ return "python" }}
+  return $null
 }}
 
 try {{
-    Assert-Admin
+  Assert-Admin
+  New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+  New-Item -ItemType Directory -Force -Path "$INSTALL_DIR\\certs" | Out-Null
+  Set-Location $INSTALL_DIR
 
-    New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
-    Start-Transcript -Path $LOG_PATH -Append | Out-Null
+  $enrollment = $env:SERAPH_ENROLLMENT_KEY
+  if (-not $enrollment) {{ $enrollment = $EMBEDDED_ENROLLMENT_KEY }}
+  if (-not $enrollment) {{ throw "Missing SERAPH_ENROLLMENT_KEY" }}
 
-    # Create installation directory
-    New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
-    Set-Location $INSTALL_DIR
+  $integration = $env:SERAPH_INTEGRATION_TOKEN
+  if (-not $integration) {{ $integration = $EMBEDDED_INTEGRATION_TOKEN }}
 
-    # Download agent (Windows ZIP variant)
-    Write-Host "Downloading agent package..."
-    Invoke-WebRequest -UseBasicParsing -Uri "$SERAPH_SERVER/api/unified/agent/download/windows" -OutFile $ZIP_PATH
+  $caCertB64 = $env:SERAPH_CA_CERT_PEM_B64
+  if (-not $caCertB64) {{ $caCertB64 = $EMBEDDED_CA_CERT_B64 }}
+  if ($caCertB64) {{
+    [IO.File]::WriteAllBytes($CA_CERT_PATH, [Convert]::FromBase64String($caCertB64))
+  }}
 
-    # Extract
-    Write-Host "Extracting package..."
-    Expand-Archive -Path $ZIP_PATH -DestinationPath $INSTALL_DIR -Force
-    Remove-Item $ZIP_PATH -Force
+  Invoke-WebRequest -UseBasicParsing -Uri "$SERAPH_SERVER/api/unified/agent/download/windows" -OutFile $ZIP_PATH
+  Expand-Archive -Path $ZIP_PATH -DestinationPath $INSTALL_DIR -Force
+  Remove-Item $ZIP_PATH -Force
 
-    # Resolve Python executable
-    $pythonCmd = Get-PythonExecutable
-    if (-not $pythonCmd) {{
-        throw "Python 3 not found. Install Python 3 (with PATH enabled) and re-run installer."
-    }}
+  $pythonCmd = Get-PythonExecutable
+  if (-not $pythonCmd) {{
+    throw "Python 3 not found. Install Python 3 and rerun installer."
+  }}
 
-    Write-Host "Installing Python dependencies..."
-    cmd /c "$pythonCmd -m pip install --upgrade pip"
+  cmd /c "$pythonCmd -m pip install --upgrade pip"
+  if (Test-Path "$INSTALL_DIR\\requirements.txt") {{
+    cmd /c "$pythonCmd -m pip install -r $INSTALL_DIR\\requirements.txt"
+  }} else {{
     cmd /c "$pythonCmd -m pip install psutil requests netifaces watchdog pyyaml cryptography"
-    
-    # Install YARA (optional, for malware scanning)
-    Write-Host "Installing YARA (optional)..."
-    try {{
-        cmd /c "$pythonCmd -m pip install yara-python"
-    }} catch {{
-        Write-Host "YARA installation skipped (optional)" -ForegroundColor Yellow
-    }}
+  }}
 
-    # Create scheduled task to run at startup
-    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c $pythonCmd core\\agent.py --server $SERAPH_SERVER" -WorkingDirectory $INSTALL_DIR
-    $trigger = New-ScheduledTaskTrigger -AtStartup
-    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
-    Register-ScheduledTask -TaskName "SeraphAgent" -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+  $config = @{{
+    server_url = $SERAPH_SERVER
+    enrollment_key = $enrollment
+    auth_token = ""
+    integration_api_key = $integration
+    local_ui_enabled = $false
+  }} | ConvertTo-Json -Depth 6
+  Set-Content -Path $CONFIG_PATH -Value $config -Encoding UTF8
 
-    # Start agent
-    Write-Host "Starting agent..."
-    Start-ScheduledTask -TaskName "SeraphAgent"
+  $runner = @"
+$ErrorActionPreference = 'Stop'
+if (Test-Path '$CA_CERT_PATH') {{ $env:REQUESTS_CA_BUNDLE = '$CA_CERT_PATH' }}
+& cmd /c "$pythonCmd core\\agent.py --config `"$CONFIG_PATH`" --no-ui"
+"@
+  Set-Content -Path $RUNNER_PATH -Value $runner -Encoding UTF8
 
-    try {{ Stop-Transcript | Out-Null }} catch {{ }}
+  $taskArgs = "-ExecutionPolicy Bypass -File `"$RUNNER_PATH`""
+  $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs -WorkingDirectory $INSTALL_DIR
+  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
+  Register-ScheduledTask -TaskName "SeraphAgent" -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+  Start-ScheduledTask -TaskName "SeraphAgent"
 }} catch {{
-    try {{ Stop-Transcript | Out-Null }} catch {{ }}
-    Write-Host "INSTALL FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "See log: $LOG_PATH" -ForegroundColor Yellow
-    Read-Host "Press Enter to close"
-    exit 1
+  Write-Host "INSTALL FAILED: $($_.Exception.Message)" -ForegroundColor Red
+  exit 1
 }}
 
-Write-Host ""
-Write-Host "================================================================" -ForegroundColor Green
-Write-Host "  INSTALLATION COMPLETE" -ForegroundColor Green
-Write-Host "================================================================" -ForegroundColor Green
-Write-Host "Agent installed to: $INSTALL_DIR"
-Write-Host "Check status: Get-ScheduledTask -TaskName SeraphAgent"
-Write-Host "Install log: $LOG_PATH"
-Read-Host "Press Enter to close"
+Write-Host "SERAPH_DEPLOY_SUCCESS" -ForegroundColor Green
+if (-not $NONINTERACTIVE) {{
+  Write-Host "Agent installed to: $INSTALL_DIR"
+}}
 '''
-    
-    usage = f"irm {base_url}/api/unified/agent/install-windows | iex"
+
+    usage = (
+        f"irm {base_url}/api/unified/agent/install-windows | "
+        "powershell -Command \"$env:SERAPH_ENROLLMENT_KEY='<ENROLLMENT_KEY>'; iex ($input | Out-String)\""
+    )
     if (format or "").lower() == "json":
         return {"script": script, "usage": usage}
 
@@ -3774,26 +3946,50 @@ Read-Host "Press Enter to close"
 
 
 @router.get("/agent/install-macos")
-async def get_macos_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
+async def get_macos_install_script(
+    request: Request,
+    server_url: Optional[str] = None,
+    format: Optional[str] = None,
+    enrollment_key: Optional[str] = None,
+    integration_token: Optional[str] = None,
+    ca_cert_pem_b64: Optional[str] = None,
+    noninteractive: Optional[bool] = False,
+):
     """Get the macOS agent installation script"""
     
     forwarded_proto = request.headers.get("x-forwarded-proto")
     proto = forwarded_proto or request.url.scheme or "http"
     base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    embedded_enrollment = (enrollment_key or "").strip()
+    embedded_integration = (integration_token or "").strip()
+    embedded_ca_b64 = (ca_cert_pem_b64 or "").strip()
+    noninteractive_flag = "1" if bool(noninteractive) else "0"
     
     script = f'''#!/bin/bash
 # Seraph AI Unified Agent - macOS Installer
 
-set -e
+set -euo pipefail
 
 SERAPH_SERVER="{base_url}"
 INSTALL_DIR="$HOME/Library/Application Support/SeraphAgent"
 LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/com.seraph.agent.plist"
+EMBEDDED_ENROLLMENT_KEY="{embedded_enrollment}"
+EMBEDDED_INTEGRATION_TOKEN="{embedded_integration}"
+EMBEDDED_CA_CERT_B64="{embedded_ca_b64}"
+SERAPH_NONINTERACTIVE="${{SERAPH_NONINTERACTIVE:-{noninteractive_flag}}}"
+SERAPH_ENROLLMENT_KEY="${{SERAPH_ENROLLMENT_KEY:-$EMBEDDED_ENROLLMENT_KEY}}"
+SERAPH_INTEGRATION_TOKEN="${{SERAPH_INTEGRATION_TOKEN:-$EMBEDDED_INTEGRATION_TOKEN}}"
+SERAPH_CA_CERT_PEM_B64="${{SERAPH_CA_CERT_PEM_B64:-$EMBEDDED_CA_CERT_B64}}"
 
 echo "================================================================"
 echo "  SERAPH AI UNIFIED AGENT INSTALLER (macOS)"
 echo "  Target Server: $SERAPH_SERVER"
 echo "================================================================"
+
+if [[ -z "${{SERAPH_ENROLLMENT_KEY}}" ]]; then
+    echo "Missing enrollment key. Export SERAPH_ENROLLMENT_KEY before install."
+    exit 2
+fi
 
 # Create installation directory
 mkdir -p "$INSTALL_DIR"
@@ -3829,6 +4025,28 @@ curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
 tar -xzf agent.tar.gz
 rm agent.tar.gz
 
+# Optional custom CA bundle for TLS trust
+mkdir -p "$INSTALL_DIR/certs"
+if [[ -n "${{SERAPH_CA_CERT_PEM_B64}}" ]]; then
+    SERAPH_CA_CERT_PEM_B64="$SERAPH_CA_CERT_PEM_B64" python3 - <<'PY'
+import base64, os, pathlib
+payload = os.environ.get("SERAPH_CA_CERT_PEM_B64", "").strip()
+if payload:
+    pathlib.Path("certs/seraph-agent-ca.pem").write_bytes(base64.b64decode(payload.encode()))
+PY
+fi
+
+# Persist auth/bootstrap configuration
+cat > "$INSTALL_DIR/agent_config.json" <<EOF
+{{
+  "server_url": "$SERAPH_SERVER",
+  "enrollment_key": "$SERAPH_ENROLLMENT_KEY",
+  "auth_token": "",
+  "integration_api_key": "$SERAPH_INTEGRATION_TOKEN",
+  "local_ui_enabled": false
+}}
+EOF
+
 # Create LaunchAgent plist for auto-start
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$LAUNCH_AGENT_PATH" << EOF
@@ -3842,9 +4060,15 @@ cat > "$LAUNCH_AGENT_PATH" << EOF
     <array>
         <string>$INSTALL_DIR/venv/bin/python</string>
         <string>$INSTALL_DIR/core/agent.py</string>
-        <string>--server</string>
-        <string>$SERAPH_SERVER</string>
+        <string>--config</string>
+        <string>$INSTALL_DIR/agent_config.json</string>
+        <string>--no-ui</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>REQUESTS_CA_BUNDLE</key>
+        <string>$INSTALL_DIR/certs/seraph-agent-ca.pem</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -3870,7 +4094,7 @@ echo "Stop: launchctl unload $LAUNCH_AGENT_PATH"
 echo "Start: launchctl load $LAUNCH_AGENT_PATH"
 '''
     
-    usage = f"curl -sSL {base_url}/api/unified/agent/install-macos | bash"
+    usage = f"curl -sSL {base_url}/api/unified/agent/install-macos | SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash"
     if (format or "").lower() == "json":
         return {"script": script, "usage": usage}
 

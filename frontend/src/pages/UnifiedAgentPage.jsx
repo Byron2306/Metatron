@@ -750,21 +750,21 @@ export default function UnifiedAgentPage() {
                   { 
                     name: "Linux", 
                     icon: "🐧", 
-                    command: `curl -sSL ${API_ROOT}/unified/agent/install-script | sudo bash`,
+                    command: `curl -sSL ${API_ROOT}/unified/agent/install-script | sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash`,
                     endpoint: `${API_ROOT}/unified/agent/install-script`,
                     color: "border-green-500 hover:bg-green-500/10"
                   },
                   { 
                     name: "Windows", 
                     icon: "🪟", 
-                    command: `powershell -Command "irm ${API_ROOT}/unified/agent/install-windows | iex"`,
+                    command: `powershell -Command "$env:SERAPH_ENROLLMENT_KEY='<ENROLLMENT_KEY>'; irm ${API_ROOT}/unified/agent/install-windows | iex"`,
                     endpoint: `${API_ROOT}/unified/agent/install-windows`,
                     color: "border-blue-500 hover:bg-blue-500/10"
                   },
                   { 
                     name: "macOS", 
                     icon: "🍎", 
-                    command: `curl -sSL ${API_ROOT}/unified/agent/install-macos | bash`,
+                    command: `curl -sSL ${API_ROOT}/unified/agent/install-macos | SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash`,
                     endpoint: `${API_ROOT}/unified/agent/install-macos`,
                     color: "border-purple-500 hover:bg-purple-500/10"
                   },

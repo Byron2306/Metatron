@@ -7572,7 +7572,7 @@ class LANDiscoveryScanner:
         except:
             return False
     
-    def report_to_server(self, devices: Optional[List[dict]] = None) -> bool:
+    def report_to_server(self, devices: Optional[List[dict]] = None, headers: Optional[Dict[str, str]] = None) -> bool:
         """Report discovered devices to server for auto-deployment"""
         if not REQUESTS_AVAILABLE or not self.server_url:
             logger.warning("Cannot report: requests not available or server URL not set")
@@ -7590,9 +7590,11 @@ class LANDiscoveryScanner:
                 'auto_deploy_request': True  # Request auto-deployment
             }
             
+            request_headers = dict(headers or {})
             response = requests.post(
                 f"{self.server_url}/api/swarm/scanner/report",
                 json=payload,
+                headers=request_headers,
                 timeout=30
             )
             
@@ -16173,7 +16175,9 @@ class UnifiedAgent:
         devices = self.lan_discovery.scan_network()
         
         if report and self.config.server_url:
-            self.lan_discovery.report_to_server(devices)
+            scanner_headers = self._get_side_channel_headers()
+            scanner_headers.update(self._get_auth_headers())
+            self.lan_discovery.report_to_server(devices, headers=scanner_headers)
         
         return devices
     

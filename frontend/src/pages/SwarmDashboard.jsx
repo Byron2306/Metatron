@@ -499,7 +499,7 @@ const SwarmDashboard = () => {
                   </div>
                   <div className="p-2 bg-slate-900 rounded">
                     <span className="text-green-400 text-xs font-bold">LINUX/macOS:</span>
-                    <code className="block text-green-400 text-xs mt-1">{`python3 seraph_defender.py --api-url ${window.location.origin} --monitor`}</code>
+                    <code className="block text-green-400 text-xs mt-1">{`curl -sSL ${window.location.origin}/api/unified/agent/install-script | sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash`}</code>
                   </div>
                 </div>
               </CardContent>
@@ -518,13 +518,13 @@ const SwarmDashboard = () => {
                   <div>
                     <h4 className="text-white font-medium text-sm mb-1">Windows (PowerShell as Admin):</h4>
                     <code className="block p-3 bg-slate-900 rounded text-green-400 text-xs overflow-x-auto">
-                      {`Invoke-WebRequest -Uri "${window.location.origin}/api/swarm/agent/download/windows" -OutFile seraph_defender.py; python seraph_defender.py --api-url "${window.location.origin}" --monitor`}
+                      {`$env:SERAPH_ENROLLMENT_KEY="<ENROLLMENT_KEY>"; irm ${window.location.origin}/api/unified/agent/install-windows | iex`}
                     </code>
                   </div>
                   <div>
                     <h4 className="text-white font-medium text-sm mb-1">Linux/macOS One-liner:</h4>
                     <code className="block p-3 bg-slate-900 rounded text-green-400 text-xs overflow-x-auto">
-                      {`curl -sL ${window.location.origin}/api/swarm/agent/download/linux -o seraph_defender.py && python3 seraph_defender.py --api-url ${window.location.origin} --monitor`}
+                      {`curl -sSL ${window.location.origin}/api/unified/agent/install-script | sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash`}
                     </code>
                   </div>
                   <div>

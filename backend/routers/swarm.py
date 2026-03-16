@@ -9,8 +9,10 @@ from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
 import os
 import uuid
+import hmac
+import hashlib
 
-from .dependencies import get_db, require_machine_token
+from .dependencies import get_db, require_machine_token, machine_token_matches
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -50,6 +52,125 @@ verify_swarm_agent_token = require_machine_token(
     header_names=["x-agent-token", "x-internal-token"],
     subject="swarm agent",
 )
+
+
+def _unified_agent_secret() -> str:
+    return str(os.environ.get("SERAPH_AGENT_SECRET") or "dev-agent-secret-change-in-production")
+
+
+def _verify_unified_agent_hmac_token(agent_id: str, token: str) -> bool:
+    try:
+        parts = str(token or "").split(":")
+        if len(parts) != 2:
+            return False
+        timestamp, provided_signature = parts
+        token_time = int(timestamp)
+        now = int(datetime.now(timezone.utc).timestamp())
+        if now - token_time > 86400:
+            return False
+        message = f"{agent_id}:{timestamp}"
+        expected = hmac.new(
+            _unified_agent_secret().encode(),
+            message.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(provided_signature, expected)
+    except Exception:
+        return False
+
+
+async def _verify_scanner_ingest_auth(request: Request) -> Dict[str, Any]:
+    """
+    Accept scanner ingest auth from either:
+    1) shared machine token (x-internal-token or x-agent-token), or
+    2) unified per-agent token (x-agent-id + x-agent-token).
+    """
+    machine_header_token = (
+        request.headers.get("x-internal-token")
+        or request.headers.get("x-agent-token")
+    )
+    if machine_header_token and machine_token_matches(
+        machine_header_token,
+        ["SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY"],
+    ):
+        return {"auth": "machine_token", "subject": "swarm agent"}
+
+    unified_agent_id = str(request.headers.get("x-agent-id") or "").strip()
+    unified_agent_token = str(request.headers.get("x-agent-token") or "").strip()
+    if unified_agent_id and unified_agent_token and _verify_unified_agent_hmac_token(unified_agent_id, unified_agent_token):
+        existing = await db.unified_agents.find_one({"agent_id": unified_agent_id}, {"_id": 0, "agent_id": 1})
+        if existing:
+            return {"auth": "unified_agent_token", "agent_id": unified_agent_id}
+
+    raise HTTPException(
+        status_code=401,
+        detail="Missing or invalid scanner authentication (expected machine token or unified agent token)",
+    )
+
+
+def _normalize_scanner_device(device: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    ip = str(device.get("ip_address") or device.get("ip") or "").strip()
+    if not ip:
+        return None
+    os_raw = str(device.get("os") or device.get("os_type") or "unknown").strip()
+    os_norm = os_raw.lower()
+    if os_norm == "darwin":
+        os_norm = "macos"
+    device_type = str(device.get("device_type") or "").strip().lower()
+    if not device_type:
+        if os_norm in {"windows", "linux", "macos"}:
+            device_type = "workstation"
+        elif os_norm in {"ios", "android"}:
+            device_type = "mobile"
+        else:
+            device_type = "unknown"
+
+    deployable = bool(device.get("deployable"))
+    if not deployable and os_norm in {"windows", "linux", "macos"} and device_type in {"workstation", "server"}:
+        deployable = True
+    mobile_manageable = bool(device.get("mobile_manageable")) or os_norm in {"ios", "android"}
+
+    normalized_ports: List[Dict[str, Any]] = []
+    for entry in device.get("open_ports") or []:
+        if isinstance(entry, dict):
+            port = entry.get("port")
+            if isinstance(port, int):
+                normalized_ports.append(
+                    {
+                        "port": port,
+                        "service": str(entry.get("service") or "unknown"),
+                    }
+                )
+        elif isinstance(entry, int):
+            normalized_ports.append({"port": entry, "service": "unknown"})
+
+    return {
+        "ip_address": ip,
+        "mac_address": device.get("mac_address"),
+        "hostname": device.get("hostname"),
+        "vendor": device.get("vendor"),
+        "os_type": os_norm,
+        "os_label": os_raw,
+        "device_type": device_type,
+        "open_ports": normalized_ports,
+        "discovery_method": device.get("discovery_method"),
+        "deployable": deployable,
+        "mobile_manageable": mobile_manageable,
+    }
+
+
+def _ensure_device_flags(device: Dict[str, Any]) -> Dict[str, Any]:
+    os_norm = str(device.get("os_type") or "").lower().strip()
+    if os_norm == "darwin":
+        os_norm = "macos"
+    device_type = str(device.get("device_type") or "").lower().strip()
+    if not device.get("deployable"):
+        device["deployable"] = os_norm in {"windows", "linux", "macos"} and device_type in {"workstation", "server", "unknown"}
+    if not device.get("mobile_manageable"):
+        device["mobile_manageable"] = os_norm in {"ios", "android"}
+    if isinstance(device.get("open_ports"), list) and device["open_ports"] and isinstance(device["open_ports"][0], int):
+        device["open_ports"] = [{"port": p, "service": "unknown"} for p in device["open_ports"] if isinstance(p, int)]
+    return device
 
 
 def _record_swarm_audit(
@@ -461,7 +582,7 @@ async def respond_to_threat(
 @router.post("/scanner/report")
 async def receive_scanner_report(
     request: ScannerReportRequest,
-    auth: dict = Depends(verify_swarm_agent_token),
+    auth: dict = Depends(_verify_scanner_ingest_auth),
 ):
     """
     Receive device reports from network scanners running on user's LAN.
@@ -486,8 +607,13 @@ async def receive_scanner_report(
     
     new_devices = 0
     updated_devices = 0
+    normalized_devices: List[Dict[str, Any]] = []
     
-    for device in request.devices:
+    for raw_device in request.devices:
+        device = _normalize_scanner_device(raw_device)
+        if not device:
+            continue
+        normalized_devices.append(device)
         ip = device.get('ip_address')
         if not ip:
             continue
@@ -496,9 +622,9 @@ async def receive_scanner_report(
         risk_score = 30  # Base risk
         if not device.get('deployable', False):
             risk_score += 20  # Higher risk if can't deploy agent
-        if device.get('os') == 'unknown':
+        if str(device.get('os_type') or 'unknown').lower() == 'unknown':
             risk_score += 15
-        if device.get('device_type') == 'iot':
+        if str(device.get('device_type') or '').lower() == 'iot':
             risk_score += 10
         
         device_doc = {
@@ -506,7 +632,8 @@ async def receive_scanner_report(
             "mac_address": device.get('mac_address'),
             "hostname": device.get('hostname'),
             "vendor": device.get('vendor'),
-            "os_type": device.get('os', 'unknown'),
+            "os_type": device.get('os_type', 'unknown'),
+            "os_label": device.get('os_label', device.get('os_type', 'unknown')),
             "device_type": device.get('device_type', 'unknown'),
             "open_ports": device.get('open_ports', []),
             "discovery_method": device.get('discovery_method'),
@@ -537,12 +664,25 @@ async def receive_scanner_report(
         else:
             updated_devices += 1
     
-    logger.info(f"Scanner {request.scanner_id} reported {len(request.devices)} devices ({new_devices} new, {updated_devices} updated)")
+    logger.info(f"Scanner {request.scanner_id} reported {len(normalized_devices)} devices ({new_devices} new, {updated_devices} updated)")
     
     # Auto-deploy unified agents to deployable devices only when requested
     auto_deploy_queued = 0
+    deployment_errors: List[str] = []
+    deployment_service = None
     if request.auto_deploy_request:
-        for device in request.devices:
+        from services.agent_deployment import get_deployment_service, start_deployment_service
+
+        deployment_service = get_deployment_service()
+        if deployment_service is None:
+            try:
+                api_url = os.environ.get('API_URL', 'http://localhost:8001')
+                deployment_service = await start_deployment_service(db, api_url)
+                logger.info("Started deployment service for scanner auto-deploy")
+            except Exception as exc:
+                deployment_errors.append(f"deployment_service_unavailable:{exc}")
+
+        for device in normalized_devices:
             ip = device.get('ip_address')
             if not ip:
                 continue
@@ -559,29 +699,27 @@ async def receive_scanner_report(
                 if existing_device and existing_device.get('deployment_status') in ['deployed', 'deploying', 'queued']:
                     continue
                 
-                # Queue for auto-deployment
-                await db.discovered_devices.update_one(
-                    {"ip_address": ip},
-                    {"$set": {
-                        "deployment_status": "queued",
-                        "deployment_queued_at": now,
-                        "deployment_method": "auto"
-                    }}
-                )
-                
-                # Create deployment task
-                deploy_task = {
-                    "task_id": f"deploy-{uuid.uuid4().hex[:8]}",
-                    "target_ip": ip,
-                    "target_hostname": device.get('hostname'),
-                    "target_os": device.get('os', device.get('os_type', 'unknown')),
-                    "status": "pending",
-                    "created_at": now,
-                    "method": "auto",
-                    "agent_type": "unified"
-                }
-                await db.deployment_tasks.insert_one(deploy_task)
-                auto_deploy_queued += 1
+                if deployment_service is None:
+                    continue
+                try:
+                    task_id = await deployment_service.queue_deployment(
+                        device_ip=ip,
+                        device_hostname=device.get('hostname'),
+                        os_type=device.get('os_type', 'unknown'),
+                    )
+                    await db.discovered_devices.update_one(
+                        {"ip_address": ip},
+                        {"$set": {
+                            "deployment_status": "queued",
+                            "deployment_queued_at": now,
+                            "deployment_method": "auto",
+                            "deployment_task_id": task_id,
+                            "agent_type": "unified",
+                        }}
+                    )
+                    auto_deploy_queued += 1
+                except Exception as exc:
+                    deployment_errors.append(f"{ip}:{exc}")
     
     await emit_world_event(
         get_db(),
@@ -591,15 +729,17 @@ async def receive_scanner_report(
             "new_devices": new_devices,
             "updated_devices": updated_devices,
             "auto_deploy_queued": auto_deploy_queued,
+            "deployment_errors": len(deployment_errors),
         },
         trigger_triune=None,
     )
     return {
         "status": "ok",
-        "message": f"Received {len(request.devices)} devices",
+        "message": f"Received {len(normalized_devices)} devices",
         "new_devices": new_devices,
         "updated_devices": updated_devices,
         "auto_deploy_queued": auto_deploy_queued,
+        "deployment_errors": deployment_errors[:10] if deployment_errors else [],
         "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
@@ -627,6 +767,7 @@ async def get_discovered_devices(
     
     cursor = db.discovered_devices.find(query, {"_id": 0})
     devices = await cursor.to_list(500)
+    devices = [_ensure_device_flags(dict(d)) for d in devices]
     
     # Calculate stats
     stats = {
@@ -718,6 +859,90 @@ async def download_agent(platform: str, request: Request, server_url: Optional[s
     import io, os, zipfile, tarfile
 
     UNIFIED_AGENT_DIR = "/app/unified_agent"
+
+    # ── Dedicated network scanner script ─────────────────────────────────────
+    if platform == "scanner":
+        scanner_script = """#!/usr/bin/env python3
+import argparse
+import json
+import socket
+import subprocess
+from datetime import datetime, timezone
+from ipaddress import IPv4Network
+import requests
+
+
+def local_cidr():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    parts = ip.split(".")
+    return f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+
+
+def scan_hosts(cidr: str):
+    hosts = []
+    net = IPv4Network(cidr, strict=False)
+    for host in list(net.hosts())[:254]:
+        ip = str(host)
+        try:
+            result = subprocess.run(["ping", "-c", "1", "-W", "1", ip], capture_output=True, timeout=2)
+            if result.returncode == 0:
+                hosts.append({
+                    "ip_address": ip,
+                    "hostname": ip,
+                    "os": "unknown",
+                    "device_type": "unknown",
+                    "deployable": False,
+                    "mobile_manageable": False,
+                })
+        except Exception:
+            continue
+    return hosts
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Seraph Network Scanner")
+    parser.add_argument("--api-url", required=True)
+    parser.add_argument("--network", default="")
+    parser.add_argument("--scanner-id", default=f"scanner-{socket.gethostname()}")
+    parser.add_argument("--token", default="")
+    parser.add_argument("--agent-id", default="")
+    parser.add_argument("--agent-token", default="")
+    args = parser.parse_args()
+
+    cidr = args.network or local_cidr()
+    devices = scan_hosts(cidr)
+    payload = {
+        "scanner_id": args.scanner_id,
+        "network": cidr,
+        "scan_time": datetime.now(timezone.utc).isoformat(),
+        "devices": devices,
+        "auto_deploy_request": True,
+    }
+    headers = {}
+    token = args.token or ""
+    if token:
+        headers["x-internal-token"] = token
+    if args.agent_id and args.agent_token:
+        headers["x-agent-id"] = args.agent_id
+        headers["x-agent-token"] = args.agent_token
+    r = requests.post(f"{args.api_url.rstrip('/')}/api/swarm/scanner/report", json=payload, headers=headers, timeout=60)
+    r.raise_for_status()
+    print(json.dumps(r.json(), indent=2))
+
+
+if __name__ == "__main__":
+    main()
+"""
+        return Response(
+            content=scanner_script.encode("utf-8"),
+            media_type="text/x-python",
+            headers={"Content-Disposition": "attachment; filename=seraph_network_scanner.py"},
+        )
 
     # ── Windows batch installer ──────────────────────────────────────────────
     if platform in ("windows-installer", "batch"):
@@ -2647,7 +2872,11 @@ async def scan_and_auto_deploy(
     }, {"_id": 0})
     devices = await cursor.to_list(100)
     
+    if service is None:
+        raise HTTPException(status_code=503, detail="Deployment service unavailable for auto-deploy")
+
     queued_count = 0
+    queued_tasks: List[Dict[str, Any]] = []
     for device in devices:
         ip = device.get("ip_address")
         if not ip:
@@ -2658,35 +2887,32 @@ async def scan_and_auto_deploy(
         if existing:
             continue
         
-        # Queue for deployment
-        await db.discovered_devices.update_one(
-            {"ip_address": ip},
-            {"$set": {
-                "deployment_status": "queued",
-                "deployment_queued_at": now,
-                "agent_type": "unified"
-            }}
-        )
-        
-        # Create deployment task
-        deploy_task = {
-            "task_id": f"unified-{uuid.uuid4().hex[:8]}",
-            "target_ip": ip,
-            "target_hostname": device.get("hostname"),
-            "target_os": device.get("os_type", "unknown"),
-            "status": "pending",
-            "created_at": now,
-            "method": "auto",
-            "agent_type": "unified"
-        }
-        await db.deployment_tasks.insert_one(deploy_task)
-        queued_count += 1
+        try:
+            task_id = await service.queue_deployment(
+                device_ip=ip,
+                device_hostname=device.get("hostname"),
+                os_type=device.get("os_type", "unknown"),
+            )
+            await db.discovered_devices.update_one(
+                {"ip_address": ip},
+                {"$set": {
+                    "deployment_status": "queued",
+                    "deployment_queued_at": now,
+                    "agent_type": "unified",
+                    "deployment_task_id": task_id,
+                }}
+            )
+            queued_count += 1
+            queued_tasks.append({"ip": ip, "task_id": task_id})
+        except Exception as exc:
+            logger.error("Failed to queue unified auto-deploy for %s: %s", ip, exc)
     
     return {
         "status": "ok",
         "message": "Network scan and auto-deploy initiated",
         "scan_triggered": scan_triggered,
         "devices_queued": queued_count,
+        "queued_tasks": queued_tasks,
         "network": request.network or "all networks"
     }
 
@@ -2761,31 +2987,24 @@ async def deploy_unified_to_device(
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Deployment service unavailable: {e}")
     
-    # Queue deployment
+    task_id = await service.queue_deployment(
+        device_ip=device_ip,
+        device_hostname=device.get("hostname"),
+        os_type=device.get("os_type", "unknown"),
+    )
     await db.discovered_devices.update_one(
         {"ip_address": device_ip},
         {"$set": {
             "deployment_status": "queued",
             "deployment_queued_at": now,
-            "agent_type": "unified"
+            "agent_type": "unified",
+            "deployment_task_id": task_id,
         }}
     )
-    
-    deploy_task = {
-        "task_id": f"unified-{uuid.uuid4().hex[:8]}",
-        "target_ip": device_ip,
-        "target_hostname": device.get("hostname"),
-        "target_os": device.get("os_type", "unknown"),
-        "status": "pending",
-        "created_at": now,
-        "method": "manual",
-        "agent_type": "unified"
-    }
-    await db.deployment_tasks.insert_one(deploy_task)
     
     return {
         "status": "queued",
         "message": f"Unified agent deployment queued for {device_ip}",
-        "task_id": deploy_task["task_id"],
+        "task_id": task_id,
         "os_type": device.get("os_type")
     }
