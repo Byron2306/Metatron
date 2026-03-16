@@ -134,6 +134,7 @@ TECHNIQUE_TO_TACTIC = {
     "T1585": "TA0042",
     "T1047": "TA0002",
     "T1021.003": "TA0008",
+    "T1021.005": "TA0008",
     "T1021.006": "TA0008",
     "T1611": "TA0004",
     "T1610": "TA0002",
@@ -229,6 +230,7 @@ TECHNIQUE_TO_TACTIC = {
     "T1444": "TA0002",
     "T1465": "TA0001",
     "T1660": "TA0001",
+    "T1090": "TA0011",
 }
 
 PRIORITY_GAPS = [
@@ -598,6 +600,49 @@ MOBILE_SECURITY_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
     "workspace one": ["T1078.004", "T1199"],
     "google workspace": ["T1078.004", "T1199"],
     "compliance": ["T1078.004", "T1552.001"],
+}
+
+MONITOR_CAPABILITY_TECHNIQUES: Dict[str, List[str]] = {
+    # User-facing monitor domains in unified agent telemetry.
+    "email_protection": ["T1566", "T1566.001", "T1566.002", "T1185"],
+    "firewall": ["T1562.004", "T1568", "T1571", "T1572", "T1573", "T1499"],
+    "hidden_file": ["T1564.001", "T1564.004"],
+    "priv_escalation": ["T1068", "T1548", "T1134.005"],
+    "alias_rename": ["T1036.003", "T1036.005", "T1202"],
+    "cli_telemetry": ["T1219", "T1021.001", "T1021.002", "T1021.006"],
+    "whitelist": ["T1204", "T1140"],
+    "webview2": ["T1189", "T1176", "T1059.007"],
+    "mobile_security": ["T1660", "T1439", "T1465", "T1557"],
+    "vulnerability": ["T1203", "T1190"],
+}
+
+MONITOR_RUNTIME_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "remote access": ["T1219", "T1021"],
+    "rdp": ["T1021.001"],
+    "smb": ["T1021.002"],
+    "winrm": ["T1021.006"],
+    "ssh": ["T1021.004"],
+    "teamviewer": ["T1219"],
+    "anydesk": ["T1219"],
+    "screenconnect": ["T1219"],
+    "vnc": ["T1021.005", "T1219"],
+    "browser extension": ["T1176", "T1185"],
+    "extension hijack": ["T1176", "T1185"],
+    "credential phish": ["T1185", "T1566.002"],
+    "phishing": ["T1566", "T1566.002", "T1185"],
+    "attachment": ["T1566.001", "T1204"],
+    "malware": ["T1204", "T1105", "T1140"],
+    "ransomware": ["T1486", "T1490"],
+    "hidden file": ["T1564.001"],
+    "alternate data stream": ["T1564.004"],
+    "alias": ["T1036.003", "T1202"],
+    "rename": ["T1036.005"],
+    "firewall disabled": ["T1562.004"],
+    "suspicious rule": ["T1562.004", "T1571"],
+    "dns tunnel": ["T1071.004", "T1572"],
+    "proxy": ["T1090", "T1573"],
+    "beacon": ["T1071", "T1571"],
+    "privilege escalation": ["T1068", "T1548"],
 }
 
 
@@ -1230,6 +1275,25 @@ def _cspm_scanner_catalog_techniques() -> List[str]:
         ),
         "mitre_techniques",
     )
+
+
+@lru_cache(maxsize=1)
+def _unified_monitor_catalog_keys() -> Set[str]:
+    """Extract declared unified monitor telemetry keys from unified_agent router."""
+    path = _repo_root() / "backend" / "routers" / "unified_agent.py"
+    if not path.exists():
+        return set()
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return set()
+    match = re.search(r"MONITOR_TELEMETRY_KEYS\s*=\s*\[(.*?)\]", text, flags=re.DOTALL)
+    if not match:
+        return set()
+    keys: Set[str] = set()
+    for token in re.findall(r"\"([a-zA-Z0-9_]+)\"", match.group(1)):
+        keys.add(token.strip())
+    return keys
 
 
 @lru_cache(maxsize=1)
@@ -2113,6 +2177,18 @@ async def _collect_mobile_security_evidence(techniques: Dict[str, Dict], db: Any
 
 async def _collect_unified_monitor_telemetry_evidence(techniques: Dict[str, Dict], db: Any):
     """Collect ATT&CK evidence from unified agent monitor telemetry and summaries."""
+    declared_monitor_keys = _unified_monitor_catalog_keys()
+    for monitor_name, monitor_techniques in MONITOR_CAPABILITY_TECHNIQUES.items():
+        if declared_monitor_keys and monitor_name not in declared_monitor_keys:
+            continue
+        for technique in monitor_techniques:
+            _mark_technique(
+                techniques,
+                technique,
+                score=3,
+                source=f"monitor_{monitor_name}_capability_catalog",
+            )
+
     if db is None:
         return
 
@@ -2138,6 +2214,8 @@ async def _collect_unified_monitor_telemetry_evidence(techniques: Dict[str, Dict
                     if _normalize_technique(t)
                 }
                 monitor_techniques.update(_extract_attack_techniques(payload))
+                monitor_techniques.update(_extract_keyword_techniques(payload, MONITOR_RUNTIME_KEYWORD_TECHNIQUES))
+                monitor_techniques.update(_extract_keyword_techniques(monitor_name, MONITOR_RUNTIME_KEYWORD_TECHNIQUES))
                 if not monitor_techniques:
                     continue
                 score = 4 if _monitor_payload_has_signal(payload) else 3
