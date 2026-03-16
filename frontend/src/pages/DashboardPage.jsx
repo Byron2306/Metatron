@@ -153,14 +153,6 @@ const DashboardPage = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-blue-500 font-mono animate-pulse">Loading threat data...</div>
-      </div>
-    );
-  }
-
   // Chart data
   const threatTypeData = Object.entries(stats?.threats_by_type || {}).map(([name, value]) => ({
     name: name.replace('_', ' ').toUpperCase(),
@@ -201,6 +193,14 @@ const DashboardPage = () => {
     });
     return buckets;
   }, [stats?.recent_threats]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-blue-500 font-mono animate-pulse">Loading threat data...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 lg:p-8 space-y-6" data-testid="dashboard-page">
