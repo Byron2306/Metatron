@@ -1300,6 +1300,85 @@ def _is_operational_outcome_source(source: str) -> bool:
     return any(token in value for token in outcome_tokens)
 
 
+def _evidence_source_domain(source: str) -> str:
+    value = str(source or "").strip().lower()
+    if not value:
+        return ""
+    parts = value.split("_")
+    if parts[0] == "monitor" and len(parts) > 1:
+        return f"monitor_{parts[1]}"
+    if parts[0] == "integration" and len(parts) > 3 and parts[1] == "tool":
+        return f"integration_{parts[3]}"
+    if parts[0] == "threat" and len(parts) > 1:
+        return f"threat_{parts[1]}"
+    if parts[0] == "world" and len(parts) > 1:
+        return f"world_{parts[1]}"
+    return parts[0]
+
+
+def _promote_multi_plane_capability_chain(techniques: Dict[str, Dict]) -> None:
+    """
+    Promote S3 -> S4 when capabilities are corroborated across independent control planes.
+
+    This captures techniques evidenced by multiple distinct capability sources (e.g. monitor,
+    email/mobile/browser, SOAR, CSPM, identity) even when runtime outcomes are sparse.
+    """
+    for technique, meta in techniques.items():
+        try:
+            current_score = int(meta.get("score", 0))
+        except Exception:
+            current_score = 0
+        if current_score < 3 or current_score >= 4:
+            continue
+        sources_raw = meta.get("sources", set()) or set()
+        sources = {
+            str(src).strip().lower()
+            for src in sources_raw
+            if str(src).strip() and str(src).strip().lower() != "code_sweep"
+        }
+        if len(sources) < 2:
+            continue
+        domains = {_evidence_source_domain(src) for src in sources if _evidence_source_domain(src)}
+        if len(domains) < 2:
+            continue
+
+        capability_sources = {src for src in sources if "capability" in src}
+        capability_domains = {
+            _evidence_source_domain(src)
+            for src in capability_sources
+            if _evidence_source_domain(src)
+        }
+        has_cross_plane_capabilities = len(capability_sources) >= 2 and len(capability_domains) >= 2
+        has_capability_plus_noncapability = bool(capability_sources) and any(
+            src not in capability_sources for src in sources
+        )
+        has_cross_plane_catalog_corroboration = any(
+            (
+                src in {"sigma", "osquery", "atomic_job"}
+                or src.startswith("integration_tool_catalog_")
+                or src.startswith("soar_")
+                or src.startswith("identity_")
+                or src.startswith("cspm_")
+                or src.startswith("token_broker_")
+                or src in CATALOG_BASELINE_SOURCES
+            )
+            for src in sources
+        )
+        if not (
+            has_cross_plane_capabilities
+            or has_capability_plus_noncapability
+            or has_cross_plane_catalog_corroboration
+        ):
+            continue
+
+        _mark_technique(
+            techniques,
+            technique,
+            score=4,
+            source="evidence_fusion_multi_plane_capability",
+        )
+
+
 def _promote_operational_validation_chain(techniques: Dict[str, Dict]) -> None:
     """
     Promote S3 -> S4 when a technique has a multi-source operational validation chain.
@@ -1321,7 +1400,7 @@ def _promote_operational_validation_chain(techniques: Dict[str, Dict]) -> None:
         runtime_sources = {src for src in sources if _is_runtime_operational_source(src)}
         if len(runtime_sources) < 2:
             continue
-        domains = {src.split("_", 1)[0] for src in runtime_sources}
+        domains = {_evidence_source_domain(src) for src in runtime_sources if _evidence_source_domain(src)}
         if len(domains) < 2:
             continue
         if not any(_is_operational_outcome_source(src) for src in runtime_sources):
@@ -4459,6 +4538,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     implemented_meta = _merge_implemented_sweep(techniques)
     # Confidence fusion pass: promote techniques when corroborated by independent signals.
     _promote_corroborated_catalog_techniques(techniques)
+    # Depth fusion pass: promote techniques validated across multiple control-plane capabilities.
+    _promote_multi_plane_capability_chain(techniques)
     # Quality fusion pass: promote only when multi-source runtime validation chain exists.
     _promote_operational_validation_chain(techniques)
 
