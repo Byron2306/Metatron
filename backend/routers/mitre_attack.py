@@ -143,6 +143,10 @@ TECHNIQUE_TO_TACTIC = {
     "T1203": "TA0002",
     "T1485": "TA0040",
     "T1552": "TA0006",
+    "T1543": "TA0003",
+    "T1550": "TA0008",
+    "T1592": "TA0043",
+    "T1595": "TA0043",
     "T1595.002": "TA0043",
     "T1592.002": "TA0043",
     "T1573": "TA0011",
@@ -3027,6 +3031,84 @@ async def _collect_deception_ransomware_evidence(techniques: Dict[str, Dict], db
     )
 
 
+def _collect_timeline_mitre_catalog_evidence(techniques: Dict[str, Dict]):
+    """Collect ATT&CK evidence from timeline MITRE mapping and incident-correlation capabilities."""
+    try:
+        try:
+            from threat_timeline import MITRE_MAPPING, timeline_builder
+        except Exception:
+            from backend.threat_timeline import MITRE_MAPPING, timeline_builder
+    except Exception:
+        MITRE_MAPPING = {}
+        timeline_builder = None
+
+    # Enterprise capability baseline: timeline engine explicitly maps these techniques.
+    for mapped in (MITRE_MAPPING or {}).values():
+        for technique in mapped or []:
+            normalized = _normalize_technique(str(technique))
+            if normalized:
+                _mark_technique(techniques, normalized, score=3, source="timeline_mitre_catalog")
+
+    if timeline_builder is None:
+        return
+
+    # Promote to S4 when in-memory timeline/correlation state exists.
+    try:
+        correlator = getattr(timeline_builder, "_incident_correlator", None)
+        timelines = getattr(correlator, "timelines", {}) if correlator is not None else {}
+    except Exception:
+        timelines = {}
+    for timeline in (timelines or {}).values():
+        local = _extract_attack_techniques(getattr(timeline, "mitre_mapping", {}) or {})
+        local.update(_extract_semantic_attack_techniques(str(getattr(timeline, "summary", ""))))
+        for technique in local:
+            _mark_technique(techniques, technique, score=4, source="timeline_runtime_correlation")
+
+
+async def _collect_threat_actor_catalog_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from threat-actor attribution catalogs and observed correlations."""
+    try:
+        try:
+            from threat_correlation import THREAT_ACTORS
+        except Exception:
+            from backend.threat_correlation import THREAT_ACTORS
+    except Exception:
+        THREAT_ACTORS = {}
+
+    actor_techniques: Dict[str, Set[str]] = {}
+    for actor_id, actor_data in (THREAT_ACTORS or {}).items():
+        local: Set[str] = set()
+        for technique in actor_data.get("mitre_techniques") or []:
+            normalized = _normalize_technique(str(technique))
+            if normalized:
+                local.add(normalized)
+                _mark_technique(techniques, normalized, score=3, source="threat_actor_catalog")
+        if local:
+            actor_techniques[str(actor_id).lower()] = local
+
+    if db is None:
+        return
+
+    try:
+        docs = await db.threat_correlations.find({}, {"_id": 0, "attribution": 1, "confidence": 1}).to_list(length=1200)
+    except Exception:
+        docs = []
+
+    for doc in docs:
+        attribution = doc.get("attribution") or {}
+        actor = str(attribution.get("threat_actor") or "").strip().lower()
+        confidence = str(doc.get("confidence") or "").strip().lower()
+        local = _extract_attack_techniques(attribution)
+        for technique in actor_techniques.get(actor, set()):
+            local.add(technique)
+        if not local:
+            continue
+        score = 4 if confidence == "high" else 3
+        source = "threat_actor_attribution_observed" if confidence == "high" else "threat_actor_attribution_seen"
+        for technique in local:
+            _mark_technique(techniques, technique, score=score, source=source)
+
+
 async def _collect_supply_chain(techniques: Dict[str, Dict], db: Any):
     """Collect supply-chain ATT&CK depth for T1195/T1195.002/T1553.006."""
     # Baseline: policy controls configured in runtime environment.
@@ -3216,6 +3298,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     await _collect_strategy_simulation_evidence(techniques, db)
     await _collect_threat_correlation_telemetry_evidence(techniques, db)
     await _collect_deception_ransomware_evidence(techniques, db)
+    _collect_timeline_mitre_catalog_evidence(techniques)
+    await _collect_threat_actor_catalog_evidence(techniques, db)
     await _collect_cspm_findings_history(techniques, db)
     await _collect_unified_monitor_telemetry_evidence(techniques, db)
     await _collect_soar_execution_evidence(techniques, db)
