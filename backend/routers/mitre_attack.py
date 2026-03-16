@@ -1209,6 +1209,82 @@ def _promote_corroborated_catalog_techniques(techniques: Dict[str, Dict]) -> Non
         _mark_technique(techniques, technique, score=4, source="evidence_fusion_corroborated")
 
 
+def _is_runtime_operational_source(source: str) -> bool:
+    value = str(source or "").strip().lower()
+    if not value or value == "code_sweep":
+        return False
+    if value.endswith("_capability_catalog"):
+        return False
+    if "catalog" in value and all(token not in value for token in ("runtime", "observed", "detected", "execution", "world_event", "telemetry", "live")):
+        return False
+    runtime_tokens = (
+        "runtime",
+        "world_event",
+        "telemetry",
+        "execution",
+        "detected",
+        "alert",
+        "analysis",
+        "scan",
+        "match",
+        "incident",
+        "events",
+        "ingested",
+        "memory_analyses",
+        "threat_",
+    )
+    return any(token in value for token in runtime_tokens)
+
+
+def _is_operational_outcome_source(source: str) -> bool:
+    value = str(source or "").strip().lower()
+    if not value:
+        return False
+    outcome_tokens = (
+        "blocked",
+        "quarantine",
+        "resolved",
+        "completed",
+        "success",
+        "execution",
+        "commands_queued",
+        "attribution_observed",
+        "live_match",
+        "runtime_threat",
+        "runtime_assessment",
+    )
+    return any(token in value for token in outcome_tokens)
+
+
+def _promote_operational_validation_chain(techniques: Dict[str, Dict]) -> None:
+    """
+    Promote S3 -> S4 when a technique has a multi-source operational validation chain.
+
+    Requirements:
+    - At least 2 runtime/operational sources,
+    - Runtime evidence from at least 2 source domains,
+    - At least one source indicates execution/outcome state.
+    """
+    for technique, meta in techniques.items():
+        try:
+            current_score = int(meta.get("score", 0))
+        except Exception:
+            current_score = 0
+        if current_score < 3 or current_score >= 4:
+            continue
+        sources_raw = meta.get("sources", set()) or set()
+        sources = {str(src).strip().lower() for src in sources_raw if str(src).strip()}
+        runtime_sources = {src for src in sources if _is_runtime_operational_source(src)}
+        if len(runtime_sources) < 2:
+            continue
+        domains = {src.split("_", 1)[0] for src in runtime_sources}
+        if len(domains) < 2:
+            continue
+        if not any(_is_operational_outcome_source(src) for src in runtime_sources):
+            continue
+        _mark_technique(techniques, technique, score=4, source="evidence_fusion_operational_chain")
+
+
 def _extract_semantic_attack_techniques(value: Any) -> Set[str]:
     """Infer ATT&CK techniques from operational text semantics."""
     text = str(value or "").lower()
@@ -4240,6 +4316,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     implemented_meta = _merge_implemented_sweep(techniques)
     # Confidence fusion pass: promote techniques when corroborated by independent signals.
     _promote_corroborated_catalog_techniques(techniques)
+    # Quality fusion pass: promote only when multi-source runtime validation chain exists.
+    _promote_operational_validation_chain(techniques)
 
     ordered = []
     for technique in sorted(techniques.keys()):
