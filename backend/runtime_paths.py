@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+_REPORTED_FALLBACK_PATHS = set()
 
 
 def _is_writable_directory(path: Path) -> bool:
@@ -36,11 +37,14 @@ def ensure_data_dir(*parts: str) -> Path:
 
     fallback_path = fallback_root.joinpath(*parts) if parts else fallback_root
     if _is_writable_directory(fallback_path):
-        logger.warning(
-            "Using fallback data path %s because primary path is not writable: %s",
-            fallback_path,
-            primary_path,
-        )
+        pair = (str(primary_path), str(fallback_path))
+        if pair not in _REPORTED_FALLBACK_PATHS:
+            _REPORTED_FALLBACK_PATHS.add(pair)
+            logger.warning(
+                "Using fallback data path %s because primary path is not writable: %s",
+                fallback_path,
+                primary_path,
+            )
         return fallback_path
 
     message = (

@@ -831,6 +831,86 @@ def _merge_implemented_sweep(techniques: Dict[str, Dict]) -> Dict[str, Dict]:
     return implemented
 
 
+def _promote_priority_gap_implementation_depth(techniques: Dict[str, Dict], implemented_meta: Dict[str, Dict]) -> None:
+    """
+    Close real priority gaps using implementation-depth signals.
+
+    If a priority-gap technique has substantial implementation evidence across
+    multiple files/modules, raise it from S2 (code sweep) to S3.
+    """
+    if not implemented_meta:
+        return
+
+    gap_techniques = {_normalize_technique(g["technique"]) for g in PRIORITY_GAPS if _normalize_technique(g.get("technique", ""))}
+    for technique in gap_techniques:
+        parent = _parent_technique(technique)
+        related_depths = []
+        for key, details in implemented_meta.items():
+            key_norm = _normalize_technique(key)
+            if not key_norm:
+                continue
+            if key_norm == technique or key_norm == parent or _parent_technique(key_norm) == parent:
+                related_depths.append(len(details.get("evidence_files", set()) or []))
+        depth = max(related_depths) if related_depths else 0
+        if depth < 2:
+            continue
+
+        _mark_technique(
+            techniques,
+            technique,
+            score=3,
+            source="priority_gap_implementation_depth",
+        )
+        if parent and parent != technique and depth >= 4:
+            _mark_technique(
+                techniques,
+                parent,
+                score=3,
+                source="priority_gap_implementation_depth_parent",
+            )
+
+
+def _promote_priority_gap_operational_chain(techniques: Dict[str, Dict]) -> None:
+    """
+    Promote priority gaps to S4 when implementation depth is backed by
+    independent runtime/operational evidence sources.
+    """
+    gap_techniques = {_normalize_technique(g["technique"]) for g in PRIORITY_GAPS if _normalize_technique(g.get("technique", ""))}
+    for technique in gap_techniques:
+        parent = _parent_technique(technique)
+        candidates = [technique]
+        if parent and parent != technique:
+            candidates.append(parent)
+        for candidate in candidates:
+            meta = techniques.get(candidate)
+            if not isinstance(meta, dict):
+                continue
+            if int(meta.get("score", 0)) < 3:
+                continue
+            sources = set(meta.get("sources") or set())
+            operational_sources = {
+                src
+                for src in sources
+                if all(
+                    token not in src
+                    for token in (
+                        "code_sweep",
+                        "catalog",
+                        "stack_declared",
+                        "configured",
+                        "policy",
+                    )
+                )
+            }
+            if len(operational_sources) >= 2:
+                _mark_technique(
+                    techniques,
+                    candidate,
+                    score=4,
+                    source="priority_gap_operational_chain",
+                )
+
+
 def _normalize_technique(value: str) -> str:
     return (value or "").strip().upper()
 
@@ -4717,10 +4797,14 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     # Technique update pass #2: secure-boot and firmware integrity techniques
     await _collect_secure_boot(techniques)
     implemented_meta = _merge_implemented_sweep(techniques)
+    # Priority-gap closure pass: reward deep implemented controls on top of code sweep.
+    _promote_priority_gap_implementation_depth(techniques, implemented_meta)
     # Confidence fusion pass: promote techniques when corroborated by independent signals.
     _promote_corroborated_catalog_techniques(techniques)
     # Depth fusion pass: promote techniques validated across multiple control-plane capabilities.
     _promote_multi_plane_capability_chain(techniques)
+    # Targeted uplift pass: priority gaps become S4 only with multi-source runtime evidence.
+    _promote_priority_gap_operational_chain(techniques)
     # Quality fusion pass: promote only when multi-source runtime validation chain exists.
     _promote_operational_validation_chain(techniques)
 
@@ -4752,6 +4836,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
             "score": score,
             "status": "covered" if score >= 3 else "partial" if score > 0 else "missing",
         })
+    priority_covered_gte3 = len([row for row in priority if int(row.get("score", 0)) >= 3])
+    priority_covered_gte4 = len([row for row in priority if int(row.get("score", 0)) >= 4])
 
     covered_gte3 = len([t for t in ordered if t["score"] >= 3])
     covered_gte2 = len([t for t in ordered if t["score"] >= 2])
@@ -4812,6 +4898,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
             "enterprise_parent_gap_to_target": enterprise_parent_gap_to_target,
             "moderate_score4_gain_target": moderate_score4_gain_target,
             "moderate_score4_gain_feasible": moderate_score4_gain_feasible,
+            "priority_gap_covered_gte3": priority_covered_gte3,
+            "priority_gap_covered_gte4": priority_covered_gte4,
             "implemented_techniques": implemented_count,
             "implemented_covered_score_gte2": implemented_covered_gte2,
             "implemented_covered_score_gte3": implemented_covered_gte3,
@@ -4850,6 +4938,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
         "moderate_score4_gain_target": moderate_score4_gain_target,
         "moderate_score4_gain_feasible": moderate_score4_gain_feasible,
         "score4_upgrade_candidates": score4_upgrade_candidates,
+        "priority_gap_covered_gte3": priority_covered_gte3,
+        "priority_gap_covered_gte4": priority_covered_gte4,
         "roadmap_coverage_percent_gte2": roadmap_coverage_percent_gte2,
         "roadmap_coverage_percent_gte3": roadmap_coverage_percent,
         "roadmap_referenced_percent": roadmap_referenced_percent,
