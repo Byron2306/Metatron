@@ -24,6 +24,8 @@ REPORT_DIR = Path("test_reports")
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 JSON_REPORT = REPORT_DIR / "threat_pipeline_e2e_report.json"
 MD_REPORT = REPORT_DIR / "threat_pipeline_e2e_report.md"
+SCORE_JSON_REPORT = REPORT_DIR / "system_scoring_report.json"
+SCORE_MD_REPORT = REPORT_DIR / "system_scoring_report.md"
 AGENT_ENROLLMENT_KEY = "dev-agent-secret-change-in-production"
 
 
@@ -42,6 +44,17 @@ class ThreatPipelineE2E:
         self.token: Optional[str] = None
         self.results: List[StepResult] = []
         self.artifacts: Dict[str, Any] = {}
+        self.domain_summary: Dict[str, Dict[str, int]] = {}
+
+    def _track_domain(self, domain: Optional[str], passed: bool) -> None:
+        if not domain:
+            return
+        stats = self.domain_summary.setdefault(domain, {"total": 0, "passed": 0, "failed": 0})
+        stats["total"] += 1
+        if passed:
+            stats["passed"] += 1
+        else:
+            stats["failed"] += 1
 
     def _auth_headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -58,6 +71,8 @@ class ThreatPipelineE2E:
         json_body: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
         expected_codes: Optional[List[int]] = None,
+        domain: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
     ) -> requests.Response:
         expected = expected_codes or [200, 201]
         merged_headers = self._auth_headers()
@@ -65,7 +80,7 @@ class ThreatPipelineE2E:
             merged_headers.update(headers)
         url = f"{BASE_URL}{path}"
         started = time.perf_counter()
-        resp = self.session.request(method, url, json=json_body, headers=merged_headers, timeout=45)
+        resp = self.session.request(method, url, json=json_body, params=params, headers=merged_headers, timeout=45)
         latency_ms = (time.perf_counter() - started) * 1000
         passed = resp.status_code in expected
         details = ""
@@ -80,6 +95,7 @@ class ThreatPipelineE2E:
                 details=details,
             )
         )
+        self._track_domain(domain, passed)
         return resp
 
     def _register_and_login(self) -> None:
@@ -92,6 +108,7 @@ class ThreatPipelineE2E:
             "/auth/register",
             json_body={"email": email, "password": password, "name": "Threat E2E"},
             expected_codes=[200, 201, 400],
+            domain="core_auth",
         )
         login = self._request(
             "login_user",
@@ -99,6 +116,7 @@ class ThreatPipelineE2E:
             "/auth/login",
             json_body={"email": email, "password": password},
             expected_codes=[200],
+            domain="core_auth",
         )
         data = login.json()
         self.token = data.get("access_token")
@@ -122,6 +140,7 @@ class ThreatPipelineE2E:
                 "indicators": ["suspicious_ps_exec", "mass_file_rename", "shadowcopy_delete"],
             },
             expected_codes=[200, 201],
+            domain="threat_management",
         )
         threat = threat_resp.json()
         self.artifacts["threat_id"] = threat.get("id")
@@ -142,6 +161,7 @@ class ThreatPipelineE2E:
                 ],
             },
             expected_codes=[200, 201],
+            domain="ai_ml",
         )
         self.artifacts["aatl_response"] = aatl_resp.json()
 
@@ -159,6 +179,7 @@ class ThreatPipelineE2E:
                 "sender_ip": "198.51.100.23",
             },
             expected_codes=[200, 201],
+            domain="email_web",
         )
         email_data = email_resp.json()
         self.artifacts["email_assessment_id"] = email_data.get("assessment_id")
@@ -171,6 +192,7 @@ class ThreatPipelineE2E:
             "/browser-isolation/sessions",
             json_body={"url": "https://suspicious-auth-gateway.invalid/login", "isolation_mode": "full"},
             expected_codes=[200, 201],
+            domain="email_web",
         )
         browser_data = browser_resp.json()
         self.artifacts["browser_session_id"] = browser_data.get("session_id")
@@ -190,6 +212,7 @@ class ThreatPipelineE2E:
                 "user_email": "analyst@corp.local",
             },
             expected_codes=[200, 201],
+            domain="mobile_mdm",
         )
         mobile_data = mobile_resp.json()
         device_id = mobile_data.get("device_id")
@@ -207,6 +230,7 @@ class ThreatPipelineE2E:
                     "network_info": {"wifi": "rogue-ap", "mitm_detected": True},
                 },
                 expected_codes=[200],
+                domain="mobile_mdm",
             )
 
     def _simulate_governed_response_pipeline(self) -> None:
@@ -216,6 +240,7 @@ class ThreatPipelineE2E:
             "GET",
             "/governance/decisions/pending?limit=100",
             expected_codes=[200],
+            domain="governance",
         )
         pending_before = int((pending_before_resp.json() or {}).get("count", 0))
         self.artifacts["pending_before"] = pending_before
@@ -237,6 +262,7 @@ class ThreatPipelineE2E:
             },
             headers={"x-enrollment-key": AGENT_ENROLLMENT_KEY},
             expected_codes=[200, 201],
+            domain="endpoint_unified_agent",
         )
         reg_data = reg_resp.json()
         self.artifacts["agent_auth_token_present"] = bool(reg_data.get("auth_token"))
@@ -265,6 +291,7 @@ class ThreatPipelineE2E:
             },
             headers={"x-enrollment-key": AGENT_ENROLLMENT_KEY},
             expected_codes=[200],
+            domain="endpoint_unified_agent",
         )
 
         # 8) Propose high-impact remediation -> outbound gate / governance queue
@@ -280,6 +307,7 @@ class ThreatPipelineE2E:
             },
             headers={"x-enrollment-key": AGENT_ENROLLMENT_KEY},
             expected_codes=[200],
+            domain="governance",
         )
         proposal = proposal_resp.json()
         decision_id = proposal.get("decision_id")
@@ -292,6 +320,7 @@ class ThreatPipelineE2E:
             "GET",
             "/governance/decisions/pending?limit=200",
             expected_codes=[200],
+            domain="governance",
         )
         pending_after_payload = pending_after_resp.json() or {}
         pending_after = int(pending_after_payload.get("count", 0))
@@ -309,6 +338,7 @@ class ThreatPipelineE2E:
                 f"/governance/decisions/{decision_id}/approve",
                 json_body={"reason": "E2E threat pipeline approval"},
                 expected_codes=[200],
+                domain="governance",
             )
             approve_payload = approve_resp.json() or {}
             summary = approve_payload.get("execution_summary") or {}
@@ -320,8 +350,403 @@ class ThreatPipelineE2E:
             "/governance/executor/run-once",
             json_body={"limit": 100},
             expected_codes=[200],
+            domain="governance",
         )
         self.artifacts["executor_summary"] = (exec_resp.json() or {}).get("summary")
+
+    def _approve_decision_if_present(self, decision_id: Optional[str], reason: str) -> None:
+        if not decision_id:
+            return
+        self._request(
+            f"governance_approve_{decision_id}",
+            "POST",
+            f"/governance/decisions/{decision_id}/approve",
+            json_body={"reason": reason},
+            expected_codes=[200],
+            domain="governance",
+        )
+
+    def _simulate_additional_domain_threats(self) -> None:
+        scenario_session = f"sess-{uuid.uuid4().hex[:8]}"
+
+        # Network response domain
+        block_ip_resp = self._request(
+            "threat_response_block_ip",
+            "POST",
+            "/threat-response/block-ip",
+            json_body={"ip": "198.51.100.200", "reason": "multi-domain simulation", "duration_hours": 4},
+            expected_codes=[200],
+            domain="network_response",
+        )
+        block_ip_data = block_ip_resp.json() or {}
+        self._approve_decision_if_present(block_ip_data.get("decision_id"), "E2E network response approval")
+
+        # Zero-trust domain
+        zt_device_id = f"zt-{uuid.uuid4().hex[:6]}"
+        self._request(
+            "zero_trust_register_device",
+            "POST",
+            "/zero-trust/devices",
+            json_body={
+                "device_id": zt_device_id,
+                "device_name": "E2E Finance Laptop",
+                "device_type": "laptop",
+                "os_info": {"name": "Windows", "version": "11"},
+                "security_posture": {"edr": True, "disk_encryption": True, "secure_boot": True},
+            },
+            expected_codes=[200, 201],
+            domain="zero_trust",
+        )
+        self._request(
+            "zero_trust_evaluate_access",
+            "POST",
+            "/zero-trust/evaluate",
+            json_body={
+                "resource": "finance-app",
+                "device_id": zt_device_id,
+                "auth_method": "mfa",
+                "anomaly_score": 0.72,
+                "recent_incidents": 1,
+            },
+            expected_codes=[200],
+            domain="zero_trust",
+        )
+        self._request(
+            "zero_trust_trust_score",
+            "POST",
+            "/zero-trust/trust-score",
+            json_body={
+                "resource": "crown-jewel-db",
+                "device_id": zt_device_id,
+                "auth_method": "password",
+                "anomaly_score": 0.18,
+                "recent_incidents": 0,
+            },
+            expected_codes=[200],
+            domain="zero_trust",
+        )
+
+        # VPN domain (queued through governance)
+        vpn_peer_name = f"e2e-peer-{uuid.uuid4().hex[:4]}"
+        vpn_peer_resp = self._request(
+            "vpn_add_peer",
+            "POST",
+            "/vpn/peers",
+            json_body={"name": vpn_peer_name},
+            expected_codes=[200],
+            domain="vpn",
+        )
+        self._approve_decision_if_present((vpn_peer_resp.json() or {}).get("decision_id"), "E2E VPN peer approval")
+        vpn_start_resp = self._request(
+            "vpn_start",
+            "POST",
+            "/vpn/start",
+            json_body={},
+            expected_codes=[200],
+            domain="vpn",
+        )
+        self._approve_decision_if_present((vpn_start_resp.json() or {}).get("decision_id"), "E2E VPN start approval")
+        vpn_stop_resp = self._request(
+            "vpn_stop",
+            "POST",
+            "/vpn/stop",
+            json_body={},
+            expected_codes=[200],
+            domain="vpn",
+        )
+        self._approve_decision_if_present((vpn_stop_resp.json() or {}).get("decision_id"), "E2E VPN stop approval")
+
+        # Deception and traps
+        self._request(
+            "deception_assess_risk",
+            "POST",
+            "/deception/assess",
+            json_body={
+                "ip": "203.0.113.90",
+                "path": "/admin/login",
+                "headers": {"user-agent": "sqlmap/1.8"},
+                "behavior_flags": {"credential_stuffing": True, "rapid_retries": True},
+            },
+            expected_codes=[200],
+            domain="deception",
+        )
+        self._request(
+            "deception_decoy_interaction",
+            "POST",
+            "/deception/decoy/interaction",
+            json_body={
+                "ip": "203.0.113.90",
+                "decoy_type": "api_key",
+                "decoy_id": f"decoy-{uuid.uuid4().hex[:6]}",
+                "headers": {"user-agent": "curl/8.0"},
+            },
+            expected_codes=[200],
+            domain="deception",
+        )
+
+        # Threat intel and hunting support
+        self._request(
+            "threat_intel_check_indicator",
+            "POST",
+            "/threat-intel/check",
+            json_body={"value": "198.51.100.200", "ioc_type": "ip"},
+            expected_codes=[200],
+            domain="threat_intel",
+        )
+
+        # Honey token and honeypot
+        honey_create_resp = self._request(
+            "honey_token_create_api_key",
+            "POST",
+            "/honey-tokens",
+            json_body={
+                "name": "E2E API honey token",
+                "token_type": "api_key",
+                "description": "multi-domain e2e simulation",
+                "location": "e2e-ci",
+            },
+            expected_codes=[200, 201],
+            domain="deception",
+        )
+        honey_token_id = (honey_create_resp.json() or {}).get("id")
+        if honey_token_id:
+            self._request(
+                "honey_token_toggle",
+                "POST",
+                f"/honey-tokens/{honey_token_id}/toggle",
+                expected_codes=[200],
+                domain="deception",
+            )
+        honeypot_resp = self._request(
+            "honeypot_create",
+            "POST",
+            "/honeypots",
+            json_body={
+                "name": f"e2e-ssh-{uuid.uuid4().hex[:4]}",
+                "type": "ssh",
+                "ip": "10.22.33.44",
+                "port": 2222,
+                "description": "E2E honeypot simulation",
+            },
+            expected_codes=[200, 201],
+            domain="deception",
+        )
+        honeypot_id = (honeypot_resp.json() or {}).get("id")
+        if honeypot_id:
+            self._request(
+                "honeypot_record_interaction",
+                "POST",
+                f"/honeypots/{honeypot_id}/interaction",
+                params={
+                    "source_ip": "198.51.100.201",
+                    "action": "login_attempt",
+                },
+                expected_codes=[200, 201, 422],
+                domain="deception",
+            )
+
+        # SOAR simulation trigger
+        self._request(
+            "soar_trigger_playbook",
+            "POST",
+            "/soar/trigger",
+            json_body={
+                "trigger_type": "threat_detected",
+                "severity": "high",
+                "source_ip": "198.51.100.200",
+                "agent_id": self.artifacts.get("agent_id", "agent-e2e"),
+                "confidence": "0.93",
+                "extra": {"simulation": "multi-domain"},
+            },
+            expected_codes=[200],
+            domain="soar",
+        )
+
+        # Enterprise policy evaluation domain
+        self._request(
+            "enterprise_policy_evaluate",
+            "POST",
+            "/enterprise/policy/evaluate",
+            json_body={
+                "principal": "agent:e2e-agent",
+                "action": "isolate_endpoint",
+                "targets": ["host:finance-workstation-07"],
+                "trust_state": "degraded",
+                "role": "agent",
+                "evidence_confidence": 0.88,
+            },
+            expected_codes=[200],
+            domain="enterprise_policy",
+        )
+
+        # Cloud and container domain
+        self._request(
+            "cspm_scan_trigger",
+            "POST",
+            "/v1/cspm/scan",
+            json_body={
+                "providers": ["aws"],
+                "regions": ["us-east-1"],
+                "resource_types": ["virtual_machine"],
+                "severity_filter": ["high"],
+            },
+            expected_codes=[200],
+            domain="cloud_cspm",
+        )
+        self._request(
+            "container_image_scan",
+            "POST",
+            "/containers/scan",
+            json_body={"image_name": "nginx:latest", "force": False},
+            expected_codes=[200],
+            domain="container_security",
+        )
+
+        # Quantum cryptography domain
+        dilithium_resp = self._request(
+            "quantum_generate_dilithium_keypair",
+            "POST",
+            "/advanced/quantum/keypair/dilithium",
+            expected_codes=[200],
+            domain="quantum_security",
+        )
+        dilithium = dilithium_resp.json() or {}
+        dilithium_key_id = dilithium.get("key_id")
+        signature_id: Optional[str] = None
+        if dilithium_key_id:
+            sign_resp = self._request(
+                "quantum_sign",
+                "POST",
+                "/advanced/quantum/sign",
+                json_body={"key_id": dilithium_key_id, "data": "multi-domain-threat-simulation"},
+                expected_codes=[200],
+                domain="quantum_security",
+            )
+            sign_data = sign_resp.json() or {}
+            signature_id = sign_data.get("signature_id")
+            if signature_id:
+                self._request(
+                    "quantum_verify_stored_signature",
+                    "POST",
+                    "/advanced/quantum/verify/stored",
+                    json_body={"signature_id": signature_id, "data": "multi-domain-threat-simulation"},
+                    expected_codes=[200],
+                    domain="quantum_security",
+                )
+        self._request(
+            "quantum_hash_data",
+            "POST",
+            "/advanced/quantum/hash",
+            json_body={"data": "multi-domain-threat-simulation"},
+            expected_codes=[200],
+            domain="quantum_security",
+        )
+        kyber_resp = self._request(
+            "quantum_generate_kyber_keypair",
+            "POST",
+            "/advanced/quantum/keypair/kyber",
+            expected_codes=[200],
+            domain="quantum_security",
+        )
+        kyber = kyber_resp.json() or {}
+        if kyber.get("public_key"):
+            self._request(
+                "quantum_encrypt_payload",
+                "POST",
+                "/advanced/quantum/encrypt",
+                params={"plaintext": "sensitive-e2e-payload", "recipient_public_key": kyber["public_key"]},
+                expected_codes=[200],
+                domain="quantum_security",
+            )
+
+        # AI defensive action domain
+        self._request(
+            "ai_defense_escalate",
+            "POST",
+            "/ai-threats/defense/escalate",
+            params={
+                "session_id": scenario_session,
+                "escalation_level": "high",
+                "threat_type": "autonomous_agent",
+                "severity": "high",
+            },
+            expected_codes=[200],
+            domain="ai_ml",
+        )
+        self._request(
+            "ai_defense_deploy_decoy",
+            "POST",
+            "/ai-threats/defense/deploy-decoy",
+            json_body=["fake_creds"],
+            params={"host_id": "finance-workstation-07", "decoy_type": "credentials", "placement": "filesystem"},
+            expected_codes=[200],
+            domain="ai_ml",
+        )
+        self._request(
+            "ai_defense_engage_tarpit",
+            "POST",
+            "/ai-threats/defense/engage-tarpit",
+            params={"session_id": scenario_session, "host_id": "finance-workstation-07", "mode": "latency"},
+            expected_codes=[200],
+            domain="ai_ml",
+        )
+
+        # Endpoint/CLI/extension ingest simulation
+        self._request(
+            "agent_event_ingest",
+            "POST",
+            "/agent/event",
+            json_body={
+                "agent_id": self.artifacts.get("agent_id", "agent-e2e"),
+                "agent_name": "E2E Agent",
+                "event_type": "threat_detected",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "data": {"severity": "high", "vector": "lateral_movement"},
+            },
+            expected_codes=[200],
+            domain="endpoint_unified_agent",
+        )
+        self._request(
+            "cli_event_ingest",
+            "POST",
+            "/cli/event",
+            json_body={
+                "host_id": "finance-workstation-07",
+                "session_id": scenario_session,
+                "user": "SYSTEM",
+                "shell_type": "powershell",
+                "command": "vssadmin delete shadows /all /quiet",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+            expected_codes=[200],
+            domain="endpoint_unified_agent",
+        )
+        self._request(
+            "extension_report_alerts",
+            "POST",
+            "/extension/report-alerts",
+            json_body={"alerts": [{"type": "phishing", "severity": "high", "url": "https://evil.invalid"}]},
+            expected_codes=[200],
+            domain="email_web",
+        )
+
+        # Machine-token boundaries should reject user-token requests.
+        self._request(
+            "enterprise_machine_token_boundary",
+            "POST",
+            "/enterprise/telemetry/event",
+            json_body={"event_type": "e2e_boundary_check", "severity": "high", "data": {"source": "e2e"}},
+            expected_codes=[401],
+            domain="enterprise_policy",
+        )
+        self._request(
+            "swarm_cli_machine_token_boundary",
+            "POST",
+            "/swarm/cli/event",
+            json_body={"host_id": "finance-workstation-07", "session_id": scenario_session, "command": "whoami"},
+            expected_codes=[401],
+            domain="endpoint_unified_agent",
+        )
 
     def _validate_feedback_surfaces(self) -> None:
         # Correlation and threat intelligence surfaces
@@ -330,6 +755,7 @@ class ThreatPipelineE2E:
             "POST",
             "/correlation/all-active",
             expected_codes=[200],
+            domain="hunting_correlation",
         )
         corr_payload = corr_resp.json() or {}
         self.artifacts["correlation_summary"] = corr_payload.get("summary")
@@ -340,6 +766,7 @@ class ThreatPipelineE2E:
             "GET",
             "/timelines/recent?limit=25",
             expected_codes=[200],
+            domain="analytics_reporting",
         )
         timeline_payload = timeline_resp.json() or {}
         self.artifacts["timeline_count"] = int(timeline_payload.get("count", 0))
@@ -349,6 +776,7 @@ class ThreatPipelineE2E:
             "GET",
             "/audit/recent?limit=25",
             expected_codes=[200],
+            domain="analytics_reporting",
         )
         try:
             audit_data = audit_resp.json()
@@ -361,6 +789,7 @@ class ThreatPipelineE2E:
             "GET",
             "/mitre/coverage",
             expected_codes=[200],
+            domain="mitre_posture",
         )
         mitre_payload = mitre_resp.json() or {}
         self.artifacts["mitre_snapshot"] = {
@@ -411,6 +840,7 @@ class ThreatPipelineE2E:
         self._register_and_login()
         self._simulate_ingest_and_detection()
         self._simulate_governed_response_pipeline()
+        self._simulate_additional_domain_threats()
         self._validate_feedback_surfaces()
 
         assertion_steps = self._pipeline_assertions()
@@ -432,6 +862,7 @@ class ThreatPipelineE2E:
             "pass_rate": round(pass_rate, 2),
             "avg_latency_ms": round(avg_latency, 2),
             "artifacts": self.artifacts,
+            "domain_summary": self.domain_summary,
             "steps": [asdict(step) for step in self.results],
         }
         return report
@@ -451,6 +882,18 @@ def write_reports(report: Dict[str, Any]) -> None:
         f"- Pass Rate: **{report['pass_rate']}%**",
         f"- Avg Latency: **{report['avg_latency_ms']} ms**",
         "",
+        "## Domain Summary",
+        "",
+        "| Domain | Passed | Total | Pass Rate |",
+        "|---|---:|---:|---:|",
+    ]
+    for domain, stats in sorted((report.get("domain_summary") or {}).items()):
+        total = int(stats.get("total", 0))
+        passed = int(stats.get("passed", 0))
+        rate = (passed / total * 100.0) if total else 0.0
+        lines.append(f"| `{domain}` | {passed} | {total} | {rate:.1f}% |")
+    lines.extend([
+        "",
         "## Pipeline Artifacts",
         "",
         "```json",
@@ -461,7 +904,7 @@ def write_reports(report: Dict[str, Any]) -> None:
         "",
         "| Step | Result | HTTP | Latency (ms) | Details |",
         "|---|---|---:|---:|---|",
-    ]
+    ])
     for step in report.get("steps", []):
         icon = "PASS" if step["passed"] else "FAIL"
         details = (step.get("details") or "").replace("|", "/")
@@ -471,11 +914,149 @@ def write_reports(report: Dict[str, Any]) -> None:
     MD_REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _safe_load_json(path: Path) -> Dict[str, Any]:
+    try:
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def build_system_score(report: Dict[str, Any]) -> Dict[str, Any]:
+    # Pull complementary suite results if available.
+    feature = _safe_load_json(REPORT_DIR / "feature_test_report.json")
+    e2e = _safe_load_json(REPORT_DIR / "e2e_report.json")
+    openapi = _safe_load_json(REPORT_DIR / "openapi_e2e_report.json")
+    mitre = (report.get("artifacts") or {}).get("mitre_snapshot") or {}
+
+    sim_pass_rate = float(report.get("pass_rate") or 0.0)
+    domains = report.get("domain_summary") or {}
+    domain_total = len(domains)
+    domain_full_pass = sum(
+        1 for stats in domains.values() if int(stats.get("total", 0)) > 0 and int(stats.get("failed", 0)) == 0
+    )
+    domain_coverage_rate = (domain_full_pass / domain_total * 100.0) if domain_total else 0.0
+
+    feature_rate = float(feature.get("pass_rate") or 0.0)
+    e2e_rate = float(e2e.get("pass_rate") or 0.0)
+    methods_total = float(openapi.get("methods_total") or 0.0)
+    methods_non_5xx = float(openapi.get("methods_non_5xx") or 0.0)
+    openapi_rate = (methods_non_5xx / methods_total * 100.0) if methods_total else 0.0
+    mitre_gte3 = float(mitre.get("coverage_percent_gte3") or 0.0)
+    mitre_gte4_count = float(mitre.get("covered_score_gte4") or 0.0)
+
+    component_weights = {
+        "threat_simulation_quality": 30.0,
+        "domain_coverage_breadth": 25.0,
+        "full_feature_e2e": 15.0,
+        "system_e2e": 15.0,
+        "openapi_reachability": 10.0,
+        "mitre_operational_posture": 5.0,
+    }
+
+    component_raw = {
+        "threat_simulation_quality": sim_pass_rate,
+        "domain_coverage_breadth": domain_coverage_rate,
+        "full_feature_e2e": feature_rate,
+        "system_e2e": e2e_rate,
+        "openapi_reachability": openapi_rate,
+        # Normalize against enterprise target line; cap to 100.
+        "mitre_operational_posture": min(100.0, (mitre_gte3 / 70.0) * 100.0) if mitre_gte3 else 0.0,
+    }
+
+    weighted_total = 0.0
+    components_scored: Dict[str, Dict[str, float]] = {}
+    for name, weight in component_weights.items():
+        raw = float(component_raw.get(name, 0.0))
+        weighted = (raw / 100.0) * weight
+        weighted_total += weighted
+        components_scored[name] = {"raw_percent": round(raw, 2), "weight": weight, "weighted_points": round(weighted, 2)}
+
+    score_100 = round(weighted_total, 2)
+    score_10 = round(score_100 / 10.0, 2)
+    rating = (
+        "exceptional" if score_10 >= 9.0 else
+        "excellent" if score_10 >= 8.0 else
+        "strong" if score_10 >= 7.0 else
+        "developing"
+    )
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "score_100": score_100,
+        "score_10": score_10,
+        "rating": rating,
+        "domains_simulated": {
+            "total": domain_total,
+            "fully_passing": domain_full_pass,
+            "coverage_rate_percent": round(domain_coverage_rate, 2),
+        },
+        "mitre_snapshot": {
+            "coverage_percent_gte3": mitre_gte3,
+            "covered_score_gte4": mitre_gte4_count,
+        },
+        "components": components_scored,
+        "source_pass_rates": {
+            "threat_pipeline_simulation": round(sim_pass_rate, 2),
+            "full_feature_e2e": round(feature_rate, 2),
+            "system_e2e": round(e2e_rate, 2),
+            "openapi_reachability": round(openapi_rate, 2),
+        },
+    }
+
+
+def write_system_score(score: Dict[str, Any]) -> None:
+    SCORE_JSON_REPORT.write_text(json.dumps(score, indent=2), encoding="utf-8")
+    lines = [
+        "# System Scoring Report (Post Multi-Domain Simulation)",
+        "",
+        f"- Generated: {score.get('generated_at')}",
+        f"- Composite Score: **{score.get('score_100')}/100** (**{score.get('score_10')}/10**, {score.get('rating')})",
+        "",
+        "## Domain Simulation Coverage",
+        "",
+        f"- Domains simulated: **{(score.get('domains_simulated') or {}).get('total', 0)}**",
+        f"- Fully passing domains: **{(score.get('domains_simulated') or {}).get('fully_passing', 0)}**",
+        f"- Domain coverage rate: **{(score.get('domains_simulated') or {}).get('coverage_rate_percent', 0)}%**",
+        "",
+        "## MITRE Snapshot",
+        "",
+        f"- coverage_percent_gte3: **{(score.get('mitre_snapshot') or {}).get('coverage_percent_gte3')}**",
+        f"- covered_score_gte4: **{(score.get('mitre_snapshot') or {}).get('covered_score_gte4')}**",
+        "",
+        "## Weighted Components",
+        "",
+        "| Component | Raw % | Weight | Weighted Points |",
+        "|---|---:|---:|---:|",
+    ]
+    for name, comp in (score.get("components") or {}).items():
+        lines.append(
+            f"| `{name}` | {comp.get('raw_percent')} | {comp.get('weight')} | {comp.get('weighted_points')} |"
+        )
+    SCORE_MD_REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     runner = ThreatPipelineE2E()
     report = runner.run()
     write_reports(report)
-    print(json.dumps({k: report[k] for k in ["total_steps", "passed", "failed", "pass_rate", "avg_latency_ms"]}, indent=2))
+    score = build_system_score(report)
+    write_system_score(score)
+    print(json.dumps(
+        {
+            "total_steps": report["total_steps"],
+            "passed": report["passed"],
+            "failed": report["failed"],
+            "pass_rate": report["pass_rate"],
+            "avg_latency_ms": report["avg_latency_ms"],
+            "score_100": score.get("score_100"),
+            "score_10": score.get("score_10"),
+            "rating": score.get("rating"),
+        },
+        indent=2,
+    ))
     return 0 if report["failed"] == 0 else 1
 
 
