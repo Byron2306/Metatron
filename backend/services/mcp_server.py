@@ -1918,6 +1918,57 @@ class MCPServer:
             except Exception:
                 logger.exception("Failed to emit boundary crossing event for %s", execution.execution_id)
 
+        throttle_threshold = int(str(os.environ.get("MCP_BOUNDARY_THROTTLE_PER_MINUTE", "18")) or "18")
+        crossings_per_minute = int(boundary_pre_observation.get("crossings_per_minute") or 0)
+        if throttle_threshold > 0 and crossings_per_minute >= throttle_threshold:
+            execution.status = "throttled"
+            execution.error = (
+                f"Boundary throttle: {crossings_per_minute} crossings/min "
+                f"(threshold={throttle_threshold})"
+            )
+            execution.output = {
+                "retry_after_seconds": 30,
+                "crossings_per_minute": crossings_per_minute,
+                "threshold": throttle_threshold,
+            }
+            execution.completed_at = datetime.now(timezone.utc).isoformat()
+            execution.audit_hash = hashlib.sha256(
+                json.dumps(asdict(execution), sort_keys=True).encode()
+            ).hexdigest()[:32]
+            await self._emit_mcp_event(
+                event_type="mcp_tool_request_throttled",
+                entity_refs=[execution.execution_id, execution.tool_id, execution.principal],
+                payload={
+                    "status": execution.status,
+                    "execution_id": execution.execution_id,
+                    "trace_id": message.trace_id,
+                    "crossings_per_minute": crossings_per_minute,
+                    "threshold": throttle_threshold,
+                },
+                trigger_triune=True,
+            )
+            await _emit_boundary_crossing_event(
+                mcp_outcome="queued",
+                mcp_reason=execution.error,
+            )
+            return self.create_message(
+                message_type=MCPMessageType.TOOL_RESPONSE,
+                source="mcp_server",
+                destination=message.source,
+                payload={
+                    "execution_id": execution.execution_id,
+                    "status": execution.status,
+                    "output": execution.output,
+                    "error": execution.error,
+                    "audit_hash": execution.audit_hash,
+                    "boundary": {
+                        "pre": boundary_pre_observation,
+                        "post": boundary_post_observation,
+                    },
+                },
+                trace_id=message.trace_id,
+            )
+
         # Mandatory governance boundary: high-impact MCP tools must either have
         # server-validated approved governance context or be newly queued.
         if tool.category in high_impact_categories and not governance_valid:
