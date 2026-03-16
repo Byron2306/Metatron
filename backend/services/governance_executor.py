@@ -413,6 +413,158 @@ class GovernanceExecutorService:
             )
             return {"outcome": "failed", "reason": "domain_operation_exception"}
 
+    async def _execute_tool_runtime_operation(
+        self,
+        *,
+        decision: Dict[str, Any],
+        queue_doc: Dict[str, Any],
+        payload: Dict[str, Any],
+        actor: str,
+    ) -> Dict[str, Any]:
+        decision_id = decision.get("decision_id")
+        related_queue_id = queue_doc.get("queue_id")
+        now = _iso_now()
+        tool = str(payload.get("tool") or "").strip().lower()
+        runtime_target = str(payload.get("runtime_target") or "server").strip().lower()
+        agent_id = str(payload.get("agent_id") or "").strip() or None
+        params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+        params = dict(params or {})
+        # Backward compatibility for legacy payload shapes.
+        if payload.get("domain") and not params.get("domain"):
+            params["domain"] = payload.get("domain")
+        if payload.get("collection_name") and not params.get("collection_name"):
+            params["collection_name"] = payload.get("collection_name")
+        if payload.get("target") and not params.get("target"):
+            params["target"] = payload.get("target")
+        if payload.get("options") and not params.get("options"):
+            params["options"] = payload.get("options")
+
+        governance_context = self._governance_context_for_execution(
+            decision_id=decision_id,
+            queue_id=related_queue_id,
+            action_type="tool_execution",
+        )
+        try:
+            from integrations_manager import run_runtime_tool
+
+            job = await run_runtime_tool(
+                tool=tool,
+                params=params,
+                runtime_target=runtime_target,
+                agent_id=agent_id,
+                actor=actor,
+                governance_context=governance_context,
+            )
+            op_result = {
+                "operation": "tool_execution",
+                "tool": tool,
+                "runtime_target": runtime_target,
+                "agent_id": agent_id,
+                "job_id": job.get("id"),
+                "job_status": job.get("status"),
+                "job_result": job.get("result"),
+            }
+            await self.db.triune_outbound_queue.update_one(
+                {"queue_id": related_queue_id},
+                {
+                    "$set": {
+                        "status": "released_to_execution",
+                        "released_at": now,
+                        "updated_at": now,
+                        "execution_result": op_result,
+                    }
+                },
+            )
+            await self.db.triune_decisions.update_one(
+                {"decision_id": decision_id},
+                {
+                    "$set": {
+                        "execution_status": "executed",
+                        "executed_at": now,
+                        "updated_at": now,
+                        "execution_result": op_result,
+                    }
+                },
+            )
+            if emit_world_event is not None:
+                await emit_world_event(
+                    self.db,
+                    event_type="governance_tool_execution_executed",
+                    entity_refs=[decision_id, related_queue_id, tool, str(job.get("id"))],
+                    payload=op_result,
+                    trigger_triune=False,
+                    source="governance_executor",
+                )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type="tool_execution",
+                outcome="executed",
+                actor=actor,
+                command_id=str(job.get("id") or ""),
+                command_type=f"tool:{tool}",
+                execution_id=str(job.get("id") or f"{tool}:{decision_id}"),
+                trace_id=str(payload.get("trace_id") or ""),
+                targets=[tool, runtime_target, agent_id, related_queue_id],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type="tool_execution",
+                outcome="executed",
+                reason=f"tool:{tool}",
+                command_id=str(job.get("id") or ""),
+                command_type=f"tool:{tool}",
+                execution_id=str(job.get("id") or f"{tool}:{decision_id}"),
+                trace_id=str(payload.get("trace_id") or ""),
+            )
+            return {"outcome": "executed", "result": op_result}
+        except Exception as exc:
+            error_reason = str(exc)
+            logger.exception("Failed tool execution for decision %s: %s", decision_id, exc)
+            await self.db.triune_decisions.update_one(
+                {"decision_id": decision_id},
+                {
+                    "$set": {
+                        "execution_status": "failed",
+                        "execution_error": error_reason,
+                        "updated_at": _iso_now(),
+                    }
+                },
+            )
+            await self.db.triune_outbound_queue.update_one(
+                {"queue_id": related_queue_id},
+                {
+                    "$set": {
+                        "status": "approved_execution_failed",
+                        "updated_at": _iso_now(),
+                    }
+                },
+            )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type="tool_execution",
+                outcome="failed",
+                reason=error_reason,
+                actor=actor,
+                command_type=f"tool:{tool}",
+                execution_id=str(payload.get("command_id") or f"{tool}:{decision_id}"),
+                trace_id=str(payload.get("trace_id") or ""),
+                targets=[tool, runtime_target, agent_id, related_queue_id],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type="tool_execution",
+                outcome="failed",
+                reason=error_reason,
+                command_type=f"tool:{tool}",
+                execution_id=str(payload.get("command_id") or f"{tool}:{decision_id}"),
+                trace_id=str(payload.get("trace_id") or ""),
+            )
+            return {"outcome": "failed", "reason": "tool_execution_exception"}
+
     async def process_approved_decisions(self, *, limit: int = 100) -> Dict[str, Any]:
         cursor = self.db.triune_decisions.find(
             {
@@ -505,6 +657,14 @@ class GovernanceExecutorService:
                 payload=payload,
                 actor=actor,
                 action_type=action_type,
+            )
+
+        if action_type == "tool_execution":
+            return await self._execute_tool_runtime_operation(
+                decision=decision,
+                queue_doc=queue_doc,
+                payload=payload,
+                actor=actor,
             )
 
         if action_type not in self.DISPATCHABLE_ACTIONS:

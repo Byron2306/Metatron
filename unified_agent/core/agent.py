@@ -16682,6 +16682,11 @@ class UnifiedAgent:
                 result['result'] = self._execute_volatility_command(params)
                 if not result['result'].get('success', False):
                     result['status'] = 'failed'
+
+            elif cmd_type == 'integration_runtime':
+                result['result'] = self._execute_integration_runtime(params)
+                if not result['result'].get('success', False):
+                    result['status'] = 'failed'
                 
             else:
                 result['status'] = 'unknown_command'
@@ -16750,6 +16755,109 @@ class UnifiedAgent:
                 'error': str(e),
                 'command': cmd,
             }
+
+    def _execute_integration_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute integration runtimes on endpoint with strict allowlist.
+        This avoids generic shell-command dispatch while still supporting
+        operational launches from the central integration orchestrator.
+        """
+        tool = str(params.get('tool') or '').strip().lower()
+        tool_params = params.get('params') if isinstance(params.get('params'), dict) else {}
+        tool_params = dict(tool_params or {})
+        allowed = {
+            'amass', 'arkime', 'bloodhound', 'spiderfoot',
+            'velociraptor', 'purplesharp', 'sigma', 'atomic',
+        }
+        if tool not in allowed:
+            return {'success': False, 'error': f"Unsupported integration tool '{tool}'", 'tool': tool}
+
+        if tool == 'amass':
+            domain = str(tool_params.get('domain') or '').strip()
+            if not domain:
+                return {'success': False, 'error': 'domain_required', 'tool': tool}
+            out_file = f"/tmp/amass_{domain}_{int(time.time())}.json"
+            cmd = [
+                "docker", "run", "--rm",
+                "caffix/amass:latest",
+                "enum", "-d", domain, "-oJ", out_file,
+            ]
+            res = self._run_external_tool(cmd, timeout=int(tool_params.get('timeout') or 900))
+            res.update({'tool': tool, 'domain': domain, 'output_file': out_file})
+            return res
+
+        if tool == 'spiderfoot':
+            port = int(tool_params.get('port') or 5001)
+            cmd = [
+                "docker", "run", "-d", "--rm",
+                "-p", f"{port}:5001",
+                "spiderfoot/spiderfoot:latest",
+            ]
+            res = self._run_external_tool(cmd, timeout=120)
+            res.update({'tool': tool, 'port': port})
+            return res
+
+        if tool == 'arkime':
+            es_url = str(tool_params.get('es_url') or os.getenv('ARKIME_ES_URL') or 'http://host.docker.internal:9200')
+            cmd = [
+                "docker", "run", "-d", "--rm",
+                "-p", "8005:8005", "-p", "8006:8006",
+                "-e", f"ES_HOSTS={es_url}",
+                "quay.io/arkime/arkime:latest",
+            ]
+            res = self._run_external_tool(cmd, timeout=120)
+            res.update({'tool': tool, 'es_url': es_url})
+            return res
+
+        if tool == 'bloodhound':
+            image = str(tool_params.get('image') or 'specterops/bloodhound:latest')
+            cmd = [
+                "docker", "run", "-d", "--rm",
+                "-p", "7474:7474", "-p", "7687:7687",
+                image,
+            ]
+            res = self._run_external_tool(cmd, timeout=120)
+            res.update({'tool': tool, 'image': image})
+            return res
+
+        if tool == 'velociraptor':
+            collection = str(tool_params.get('collection_name') or '')
+            out_file = f"/tmp/velociraptor_collection_{int(time.time())}.json"
+            cmd = [
+                "docker", "run", "--rm",
+                "-v", "/tmp:/data",
+                "veloci/velociraptor:latest",
+                "velociraptor", "--config", "/config/config.yaml", "collect",
+            ]
+            if collection:
+                cmd.extend(["--collection", collection])
+            cmd.extend(["--output", f"/data/{os.path.basename(out_file)}"])
+            res = self._run_external_tool(cmd, timeout=int(tool_params.get('timeout') or 1200))
+            res.update({'tool': tool, 'collection_name': collection, 'output_file': out_file})
+            return res
+
+        if tool == 'purplesharp':
+            script = tool_params.get('script_path') or '/opt/seraph/unified_agent/integrations/purplesharp/run_purplesharp.sh'
+            cmd = ["bash", str(script)]
+            res = self._run_external_tool(cmd, timeout=int(tool_params.get('timeout') or 300))
+            res.update({'tool': tool, 'script_path': script})
+            return res
+
+        if tool == 'sigma':
+            return {
+                'success': False,
+                'tool': tool,
+                'error': 'sigma runtime is server-side in this architecture',
+            }
+
+        if tool == 'atomic':
+            return {
+                'success': False,
+                'tool': tool,
+                'error': 'atomic runtime is server-side in this architecture',
+            }
+
+        return {'success': False, 'error': 'tool_not_implemented', 'tool': tool}
 
     def _resolve_tool_binary(self, candidates: List[str]) -> Optional[str]:
         for candidate in candidates:
