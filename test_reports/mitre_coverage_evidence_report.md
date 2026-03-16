@@ -1,7 +1,7 @@
 # MITRE Coverage Evidence Report
 
-- Generated: 2026-03-16T15:07:16.863254+00:00
-- Base URL: `http://127.0.0.1:8021/api`
+- Generated: 2026-03-16T18:01:05.340074+00:00
+- Base URL: `http://127.0.0.1:8051/api`
 
 ## Profile Metrics
 
@@ -9,11 +9,11 @@
 |---|---:|---:|---:|
 | coverage_percent_gte2 | 92.13 | 92.13 | 92.13 |
 | coverage_percent_gte3 | 81.94 | 91.67 | 91.67 |
-| coverage_percent_gte4 | 31.48 | 71.3 | 71.3 |
+| coverage_percent_gte4 | 39.81 | 71.76 | 71.76 |
 | covered_score_gte3 | 240 | 284 | 284 |
-| covered_score_gte4 | 79 | 240 | 240 |
+| covered_score_gte4 | 105 | 241 | 241 |
 | enterprise_parents_gte3 | 177 | 198 | 198 |
-| enterprise_parents_gte4 | 68 | 154 | 154 |
+| enterprise_parents_gte4 | 86 | 155 | 155 |
 
 ## Hardened Prerequisites
 
@@ -31,10 +31,10 @@
 |---|---|---:|---:|---:|
 | `implementation_depth_validated` | True | 25 | 25 | 0 |
 | `priority_gap_implementation_depth` | True | 0 | 0 | 0 |
-| `corroborated_catalog` | True | 28 | 0 | 28 |
-| `multi_plane_capability_chain` | True | 37 | 0 | 37 |
+| `corroborated_catalog` | True | 20 | 0 | 20 |
+| `multi_plane_capability_chain` | True | 24 | 0 | 24 |
 | `priority_gap_operational_chain` | True | 0 | 0 | 0 |
-| `hardened_enterprise_score4` | True | 96 | 0 | 96 |
+| `hardened_enterprise_score4` | True | 92 | 0 | 92 |
 | `operational_validation_chain` | True | 0 | 0 | 0 |
 
 ## Delta Summary
@@ -42,9 +42,9 @@
 ```json
 {
   "strict_to_balanced": {
-    "changed_techniques": 180,
+    "changed_techniques": 155,
     "promoted_to_gte3": 44,
-    "promoted_to_gte4": 161,
+    "promoted_to_gte4": 136,
     "regressed_techniques": 0,
     "top_changes": [
       {
@@ -375,39 +375,6 @@
         "implemented_evidence_count_after": 2
       },
       {
-        "technique": "T1547",
-        "from_score": 3,
-        "to_score": 4,
-        "delta": 1,
-        "sources_after": [
-          "atomic_job",
-          "code_sweep",
-          "evidence_fusion_corroborated",
-          "hardened_enterprise_validated",
-          "osquery",
-          "timeline_mitre_catalog"
-        ],
-        "operational_evidence_after": true,
-        "implemented_evidence_count_after": 12
-      },
-      {
-        "technique": "T1027",
-        "from_score": 3,
-        "to_score": 4,
-        "delta": 1,
-        "sources_after": [
-          "atomic_job",
-          "code_sweep",
-          "evidence_fusion_corroborated",
-          "hardened_enterprise_validated",
-          "osquery",
-          "threat_actor_catalog",
-          "timeline_mitre_catalog"
-        ],
-        "operational_evidence_after": true,
-        "implemented_evidence_count_after": 10
-      },
-      {
         "technique": "T1557",
         "from_score": 3,
         "to_score": 4,
@@ -426,23 +393,43 @@
         "implemented_evidence_count_after": 9
       },
       {
-        "technique": "T1053",
+        "technique": "T1566",
         "from_score": 3,
         "to_score": 4,
         "delta": 1,
         "sources_after": [
           "code_sweep",
-          "evidence_fusion_multi_plane_capability",
+          "email_protection_capability_phishing",
+          "evidence_fusion_corroborated",
           "hardened_enterprise_validated",
-          "integration_tool_catalog_velociraptor",
-          "soar_playbook_catalog",
+          "monitor_email_protection_capability_catalog",
+          "threat_actor_catalog",
+          "threat_intel",
           "timeline_mitre_catalog"
         ],
         "operational_evidence_after": true,
         "implemented_evidence_count_after": 8
       },
       {
-        "technique": "T1082",
+        "technique": "T1021.001",
+        "from_score": 3,
+        "to_score": 4,
+        "delta": 1,
+        "sources_after": [
+          "code_sweep",
+          "cspm_scanner_catalog",
+          "evidence_fusion_corroborated",
+          "hardened_enterprise_validated",
+          "monitor_cli_telemetry_capability_catalog",
+          "threat_actor_catalog",
+          "threat_hunting_ruleset",
+          "threat_intel"
+        ],
+        "operational_evidence_after": true,
+        "implemented_evidence_count_after": 7
+      },
+      {
+        "technique": "T1113",
         "from_score": 3,
         "to_score": 4,
         "delta": 1,
@@ -450,12 +437,32 @@
           "code_sweep",
           "evidence_fusion_corroborated",
           "hardened_enterprise_validated",
-          "soar_mapping_catalog",
+          "hypothesis_capability_catalog",
+          "priority_gap_implementation_depth",
+          "priority_gap_operational_chain",
           "threat_hunting_ruleset",
           "timeline_mitre_catalog"
         ],
         "operational_evidence_after": true,
-        "implemented_evidence_count_after": 8
+        "implemented_evidence_count_after": 7
+      },
+      {
+        "technique": "T1530",
+        "from_score": 3,
+        "to_score": 4,
+        "delta": 1,
+        "sources_after": [
+          "code_sweep",
+          "cspm_scanner_catalog",
+          "evidence_fusion_multi_plane_capability",
+          "hardened_enterprise_validated",
+          "hypothesis_capability_catalog",
+          "priority_gap_implementation_depth",
+          "priority_gap_operational_chain",
+          "sigma"
+        ],
+        "operational_evidence_after": true,
+        "implemented_evidence_count_after": 7
       }
     ]
   },
@@ -479,8 +486,8 @@
   "summary": {
     "strict_gte3": 81.94,
     "balanced_gte3": 91.67,
-    "balanced_gte4": 71.3,
-    "hardened_gte4": 71.3
+    "balanced_gte4": 71.76,
+    "hardened_gte4": 71.76
   }
 }
 ```
