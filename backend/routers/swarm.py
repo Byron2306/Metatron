@@ -11,6 +11,7 @@ import os
 import uuid
 import hmac
 import hashlib
+import socket
 
 from .dependencies import get_db, require_machine_token, machine_token_matches
 try:
@@ -173,6 +174,38 @@ def _ensure_device_flags(device: Dict[str, Any]) -> Dict[str, Any]:
     return device
 
 
+def _local_ipv4_addresses() -> set[str]:
+    """
+    Best-effort local IPv4 set used to avoid attempting "remote" deployment
+    against the same host running the server.
+    """
+    ips: set[str] = {"127.0.0.1"}
+
+    try:
+        import psutil  # type: ignore
+
+        for _iface, addrs in (psutil.net_if_addrs() or {}).items():
+            for addr in addrs:
+                if getattr(addr, "family", None) == socket.AF_INET:
+                    value = str(getattr(addr, "address", "") or "").strip()
+                    if value:
+                        ips.add(value)
+    except Exception:
+        pass
+
+    try:
+        hostname = socket.gethostname()
+        for fam, *_rest, sockaddr in socket.getaddrinfo(hostname, None):
+            if fam == socket.AF_INET and sockaddr:
+                value = str(sockaddr[0] or "").strip()
+                if value:
+                    ips.add(value)
+    except Exception:
+        pass
+
+    return ips
+
+
 def _record_swarm_audit(
     *,
     principal: str,
@@ -203,6 +236,8 @@ def _record_swarm_audit(
 
 class ScanNetworkRequest(BaseModel):
     network: Optional[str] = None  # e.g., "192.168.1.0/24"
+    wait_for_completion: Optional[bool] = True
+    auto_deploy: Optional[bool] = False
 
 
 class DeployAgentRequest(BaseModel):
@@ -668,8 +703,10 @@ async def receive_scanner_report(
     
     # Auto-deploy unified agents to deployable devices only when requested
     auto_deploy_queued = 0
+    auto_deploy_skipped_local = 0
     deployment_errors: List[str] = []
     deployment_service = None
+    local_ips = _local_ipv4_addresses()
     if request.auto_deploy_request:
         from services.agent_deployment import get_deployment_service, start_deployment_service
 
@@ -685,6 +722,10 @@ async def receive_scanner_report(
         for device in normalized_devices:
             ip = device.get('ip_address')
             if not ip:
+                continue
+
+            if ip in local_ips:
+                auto_deploy_skipped_local += 1
                 continue
             
             # Only auto-deploy to deployable devices that are not already managed
@@ -729,6 +770,7 @@ async def receive_scanner_report(
             "new_devices": new_devices,
             "updated_devices": updated_devices,
             "auto_deploy_queued": auto_deploy_queued,
+            "auto_deploy_skipped_local": auto_deploy_skipped_local,
             "deployment_errors": len(deployment_errors),
         },
         trigger_triune=None,
@@ -739,6 +781,7 @@ async def receive_scanner_report(
         "new_devices": new_devices,
         "updated_devices": updated_devices,
         "auto_deploy_queued": auto_deploy_queued,
+        "auto_deploy_skipped_local": auto_deploy_skipped_local,
         "deployment_errors": deployment_errors[:10] if deployment_errors else [],
         "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
@@ -810,13 +853,87 @@ async def trigger_network_scan(
                 detail=f"Network discovery service could not be started: {exc}"
             )
     
-    # Run scan in background
-    async def run_scan():
-        await discovery.trigger_manual_scan(request.network)
-    
-    background_tasks.add_task(run_scan)
-    
-    return {"message": "Network scan initiated", "network": request.network or "all"}
+    if not request.wait_for_completion:
+        # Run scan in background when explicitly requested.
+        async def run_scan():
+            await discovery.trigger_manual_scan(request.network)
+
+        background_tasks.add_task(run_scan)
+        return {
+            "message": "Network scan initiated",
+            "network": request.network or "all",
+            "wait_for_completion": False,
+        }
+
+    scanned_devices = await discovery.trigger_manual_scan(request.network)
+    auto_deploy_queued = 0
+    auto_deploy_skipped_local = 0
+    deployment_errors: List[str] = []
+    if request.auto_deploy:
+        from services.agent_deployment import get_deployment_service, start_deployment_service
+
+        service = get_deployment_service()
+        if service is None:
+            try:
+                api_url = os.environ.get("API_URL", "http://localhost:8001")
+                service = await start_deployment_service(db, api_url)
+            except Exception as exc:
+                deployment_errors.append(f"deployment_service_unavailable:{exc}")
+                service = None
+
+        local_ips = _local_ipv4_addresses()
+        for device in scanned_devices:
+            ip = str(device.get("ip_address") or "").strip()
+            if not ip:
+                continue
+            if ip in local_ips:
+                auto_deploy_skipped_local += 1
+                continue
+            normalized = _ensure_device_flags(dict(device))
+            if not normalized.get("deployable", False):
+                continue
+
+            existing_agent = await db.unified_agents.find_one({"ip_address": ip})
+            if existing_agent:
+                continue
+            existing_device = await db.discovered_devices.find_one({"ip_address": ip})
+            if existing_device and existing_device.get("deployment_status") in ["deployed", "deploying", "queued"]:
+                continue
+
+            if service is None:
+                continue
+            try:
+                task_id = await service.queue_deployment(
+                    device_ip=ip,
+                    device_hostname=normalized.get("hostname"),
+                    os_type=normalized.get("os_type", "unknown"),
+                )
+                await db.discovered_devices.update_one(
+                    {"ip_address": ip},
+                    {
+                        "$set": {
+                            "deployment_status": "queued",
+                            "deployment_queued_at": datetime.now(timezone.utc).isoformat(),
+                            "deployment_method": "auto",
+                            "deployment_task_id": task_id,
+                            "agent_type": "unified",
+                        }
+                    },
+                )
+                auto_deploy_queued += 1
+            except Exception as exc:
+                deployment_errors.append(f"{ip}:{exc}")
+
+    return {
+        "message": "Network scan completed",
+        "network": request.network or "all",
+        "wait_for_completion": True,
+        "devices_found": len(scanned_devices),
+        "auto_deploy_requested": bool(request.auto_deploy),
+        "auto_deploy_queued": auto_deploy_queued,
+        "auto_deploy_skipped_local": auto_deploy_skipped_local,
+        "deployment_errors": deployment_errors[:10],
+    }
 
 
 @router.get("/scan/status")
@@ -865,8 +982,10 @@ async def download_agent(platform: str, request: Request, server_url: Optional[s
         scanner_script = """#!/usr/bin/env python3
 import argparse
 import json
+import os
 import socket
 import subprocess
+import time
 from datetime import datetime, timezone
 from ipaddress import IPv4Network
 import requests
@@ -884,6 +1003,26 @@ def local_cidr():
 
 
 def scan_hosts(cidr: str):
+    def infer_os_and_ports(ip: str):
+        ports = []
+        service_map = {22: "ssh", 3389: "rdp", 445: "smb"}
+        for port in service_map:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.25)
+            try:
+                if sock.connect_ex((ip, port)) == 0:
+                    ports.append({"port": port, "service": service_map[port]})
+            except Exception:
+                pass
+            finally:
+                sock.close()
+
+        if any(p["port"] in (3389, 445) for p in ports):
+            return "windows", ports
+        if any(p["port"] == 22 for p in ports):
+            return "linux", ports
+        return "unknown", ports
+
     hosts = []
     net = IPv4Network(cidr, strict=False)
     for host in list(net.hosts())[:254]:
@@ -891,17 +1030,48 @@ def scan_hosts(cidr: str):
         try:
             result = subprocess.run(["ping", "-c", "1", "-W", "1", ip], capture_output=True, timeout=2)
             if result.returncode == 0:
+                os_guess, ports = infer_os_and_ports(ip)
+                deployable = os_guess in {"windows", "linux", "macos"}
                 hosts.append({
                     "ip_address": ip,
                     "hostname": ip,
-                    "os": "unknown",
-                    "device_type": "unknown",
-                    "deployable": False,
+                    "os": os_guess,
+                    "device_type": "workstation" if deployable else "unknown",
+                    "deployable": deployable,
                     "mobile_manageable": False,
+                    "open_ports": ports,
+                    "discovery_method": "icmp_port_probe",
                 })
         except Exception:
             continue
     return hosts
+
+
+def post_report(args):
+    cidr = args.network or local_cidr()
+    devices = scan_hosts(cidr)
+    payload = {
+        "scanner_id": args.scanner_id,
+        "network": cidr,
+        "scan_time": datetime.now(timezone.utc).isoformat(),
+        "devices": devices,
+        "auto_deploy_request": not args.no_auto_deploy,
+    }
+    headers = {}
+    token = args.token or os.environ.get("INTEGRATION_API_KEY") or os.environ.get("SWARM_AGENT_TOKEN") or ""
+    if token:
+        headers["x-internal-token"] = token
+    if args.agent_id and args.agent_token:
+        headers["x-agent-id"] = args.agent_id
+        headers["x-agent-token"] = args.agent_token
+    r = requests.post(f"{args.api_url.rstrip('/')}/api/swarm/scanner/report", json=payload, headers=headers, timeout=90)
+    if r.status_code == 401:
+        raise RuntimeError(
+            "Scanner auth failed (401). Provide --token <INTEGRATION_API_KEY> "
+            "or set INTEGRATION_API_KEY/SWARM_AGENT_TOKEN environment variable."
+        )
+    r.raise_for_status()
+    print(json.dumps(r.json(), indent=2))
 
 
 def main():
@@ -912,27 +1082,16 @@ def main():
     parser.add_argument("--token", default="")
     parser.add_argument("--agent-id", default="")
     parser.add_argument("--agent-token", default="")
+    parser.add_argument("--interval", "-i", type=int, default=60, help="Scan interval in seconds")
+    parser.add_argument("--once", action="store_true", help="Run one scan and exit")
+    parser.add_argument("--no-auto-deploy", action="store_true", help="Disable auto-deploy queue request")
     args = parser.parse_args()
 
-    cidr = args.network or local_cidr()
-    devices = scan_hosts(cidr)
-    payload = {
-        "scanner_id": args.scanner_id,
-        "network": cidr,
-        "scan_time": datetime.now(timezone.utc).isoformat(),
-        "devices": devices,
-        "auto_deploy_request": True,
-    }
-    headers = {}
-    token = args.token or ""
-    if token:
-        headers["x-internal-token"] = token
-    if args.agent_id and args.agent_token:
-        headers["x-agent-id"] = args.agent_id
-        headers["x-agent-token"] = args.agent_token
-    r = requests.post(f"{args.api_url.rstrip('/')}/api/swarm/scanner/report", json=payload, headers=headers, timeout=60)
-    r.raise_for_status()
-    print(json.dumps(r.json(), indent=2))
+    while True:
+        post_report(args)
+        if args.once:
+            break
+        time.sleep(max(5, int(args.interval)))
 
 
 if __name__ == "__main__":
@@ -2853,23 +3012,33 @@ async def scan_and_auto_deploy(
         except Exception as e:
             logger.warning(f"Could not start deployment service: {e}")
     
-    # Step 3: Trigger scan
+    # Step 3: Run scan and wait for completion so newly discovered devices can be queued immediately.
     scan_triggered = False
+    scanned_devices: List[Dict[str, Any]] = []
     if discovery is not None:
         try:
-            background_tasks.add_task(discovery.trigger_manual_scan, request.network)
+            scanned_devices = await discovery.trigger_manual_scan(request.network)
             scan_triggered = True
         except Exception as e:
             logger.error(f"Network scan failed: {e}")
-    
-    # Step 4: Queue existing discovered devices for deployment
-    cursor = db.discovered_devices.find({
+
+    # Step 4: Queue discovered devices for deployment.
+    scanned_ips = [
+        str(d.get("ip_address") or "").strip()
+        for d in scanned_devices
+        if str(d.get("ip_address") or "").strip()
+    ]
+    query: Dict[str, Any] = {
         "deployment_status": {"$in": ["discovered", "failed", None]},
         "$or": [
             {"os_type": {"$regex": "^(windows|linux|macos|darwin)$", "$options": "i"}},
-            {"deployable": True}
-        ]
-    }, {"_id": 0})
+            {"deployable": True},
+        ],
+    }
+    if scanned_ips:
+        query["ip_address"] = {"$in": scanned_ips}
+
+    cursor = db.discovered_devices.find(query, {"_id": 0})
     devices = await cursor.to_list(100)
     
     if service is None:
@@ -2877,9 +3046,15 @@ async def scan_and_auto_deploy(
 
     queued_count = 0
     queued_tasks: List[Dict[str, Any]] = []
+    skipped_local = 0
+    local_ips = _local_ipv4_addresses()
     for device in devices:
         ip = device.get("ip_address")
         if not ip:
+            continue
+
+        if ip in local_ips:
+            skipped_local += 1
             continue
         
         # Check if already has an agent
@@ -2911,7 +3086,9 @@ async def scan_and_auto_deploy(
         "status": "ok",
         "message": "Network scan and auto-deploy initiated",
         "scan_triggered": scan_triggered,
+        "devices_found": len(scanned_devices),
         "devices_queued": queued_count,
+        "devices_skipped_local": skipped_local,
         "queued_tasks": queued_tasks,
         "network": request.network or "all networks"
     }

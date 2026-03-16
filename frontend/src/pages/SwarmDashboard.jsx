@@ -384,14 +384,14 @@ const SwarmDashboard = () => {
                     <div className="space-y-2">
                       <div className="p-2 bg-slate-900 rounded">
                         <span className="text-yellow-400 text-xs font-bold">WINDOWS (PowerShell):</span>
-                        <code className="block text-cyan-400 text-sm mt-1 whitespace-pre-wrap">{`python seraph_network_scanner.py --api-url "${window.location.origin}" --interval 60`}</code>
+                        <code className="block text-cyan-400 text-sm mt-1 whitespace-pre-wrap">{`python seraph_network_scanner.py --api-url "${window.location.origin}" --interval 60 --token "$env:INTEGRATION_API_KEY"`}</code>
                       </div>
                       <div className="p-2 bg-slate-900 rounded">
                         <span className="text-green-400 text-xs font-bold">LINUX/macOS:</span>
-                        <code className="block text-cyan-400 text-sm mt-1 whitespace-pre-wrap">{`sudo python3 seraph_network_scanner.py --api-url ${window.location.origin} --interval 60`}</code>
+                        <code className="block text-cyan-400 text-sm mt-1 whitespace-pre-wrap">{`sudo INTEGRATION_API_KEY=$INTEGRATION_API_KEY python3 seraph_network_scanner.py --api-url ${window.location.origin} --interval 60 --token "$INTEGRATION_API_KEY"`}</code>
                       </div>
                     </div>
-                    <p className="text-slate-400 text-sm">Run as Administrator (Windows) or with sudo (Linux/macOS) for best results</p>
+                    <p className="text-slate-400 text-sm">Run as Administrator (Windows) or with sudo (Linux/macOS) and pass INTEGRATION_API_KEY for scanner ingest auth.</p>
                   </div>
                   
                   <div className="mt-4 space-y-2">
@@ -399,7 +399,7 @@ const SwarmDashboard = () => {
                     <ul className="text-slate-400 text-sm space-y-1">
                       <li><code className="text-cyan-400">--network 192.168.1.0/24</code> - Specify network range</li>
                       <li><code className="text-cyan-400">--once</code> - Single scan and exit</li>
-                      <li><code className="text-cyan-400">--deploy IP --deploy-user root --deploy-pass xxx</code> - Deploy to device</li>
+                      <li><code className="text-cyan-400">--no-auto-deploy</code> - Discovery only, do not queue auto deployment</li>
                     </ul>
                   </div>
                 </div>
@@ -529,9 +529,9 @@ const SwarmDashboard = () => {
                     </code>
                   </div>
                   <div>
-                    <h4 className="text-white font-medium text-sm mb-1">Deploy via SSH (from scanner):</h4>
+                    <h4 className="text-white font-medium text-sm mb-1">Scanner loop (auth + auto-deploy request):</h4>
                     <code className="block p-3 bg-slate-900 rounded text-green-400 text-xs overflow-x-auto">
-                      {`python seraph_network_scanner.py --deploy 192.168.1.100 --deploy-user root --deploy-pass YOUR_PASSWORD --api-url "${window.location.origin}"`}
+                      {`python seraph_network_scanner.py --api-url "${window.location.origin}" --interval 60 --token "$INTEGRATION_API_KEY"`}
                     </code>
                   </div>
                 </div>
