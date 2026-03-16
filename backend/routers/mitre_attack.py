@@ -622,6 +622,13 @@ MONITOR_CAPABILITY_TECHNIQUES: Dict[str, List[str]] = {
     "vulnerability": ["T1203", "T1190", "T1210"],
 }
 
+MONITOR_EXTENDED_CAPABILITY_TECHNIQUES: Dict[str, List[str]] = {
+    # Additional monitor families surfaced in unified monitor stats aggregation.
+    "scheduled_task": ["T1546.003", "T1053.005"],
+    "service_integrity": ["T1569", "T1569.002", "T1543.003"],
+    "wmi_persistence": ["T1546.003", "T1546.015"],
+}
+
 MONITOR_RUNTIME_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
     "remote access": ["T1219", "T1021"],
     "rdp": ["T1021.001"],
@@ -934,10 +941,15 @@ async def _collect_integration_job_evidence(techniques: Dict[str, Dict], db: Any
         return
 
     tool_map: Dict[str, List[str]] = {
-        "amass": ["T1590.002", "T1590.004", "T1595.001"],
+        "amass": ["T1580", "T1590.001", "T1590.002", "T1590.004", "T1595.001", "T1596"],
         "velociraptor": ["T1053", "T1018", "T1083", "T1003"],
         "purplesharp": ["T1543", "T1021", "T1068", "T1059"],
     }
+
+    # Integration capability baseline from declared integration tool support.
+    for tool, mapped in tool_map.items():
+        for technique in mapped:
+            _mark_technique(techniques, technique, score=3, source=f"integration_tool_catalog_{tool}")
 
     try:
         docs = await col.find({}, {"_id": 0, "tool": 1, "status": 1, "result": 1}).to_list(length=800)
@@ -1400,6 +1412,24 @@ def _unified_monitor_catalog_keys() -> Set[str]:
 
 
 @lru_cache(maxsize=1)
+def _unified_monitor_stats_feature_keys() -> Set[str]:
+    """Extract monitor feature keys referenced in unified monitor stats aggregation."""
+    path = _repo_root() / "backend" / "routers" / "unified_agent.py"
+    if not path.exists():
+        return set()
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return set()
+    keys: Set[str] = set()
+    for token in re.findall(r"monitors_summary\.([a-zA-Z0-9_]+)\.", text):
+        cleaned = str(token or "").strip()
+        if cleaned:
+            keys.add(cleaned)
+    return keys
+
+
+@lru_cache(maxsize=1)
 def _governed_integration_trust_enabled() -> bool:
     root = _repo_root()
     paths = [
@@ -1739,6 +1769,10 @@ async def _collect_threat_incident_evidence(techniques: Dict[str, Dict], db: Any
 
 async def _collect_cspm_findings_history(techniques: Dict[str, Dict], db: Any):
     """Collect ATT&CK evidence from CSPM findings and scan/check history."""
+    if _cspm_scanner_catalog_techniques():
+        # Cloud control-plane coverage baseline (CSPM checks span cloud resource config paths).
+        _mark_technique(techniques, "T1578", score=3, source="cspm_control_plane_capability")
+
     findings_col = getattr(db, "cspm_findings", None) if db is not None else None
     scans_col = getattr(db, "cspm_scans", None) if db is not None else None
 
@@ -2395,6 +2429,7 @@ async def _collect_email_protection_evidence(techniques: Dict[str, Dict], db: An
 async def _collect_unified_monitor_telemetry_evidence(techniques: Dict[str, Dict], db: Any):
     """Collect ATT&CK evidence from unified agent monitor telemetry and summaries."""
     declared_monitor_keys = _unified_monitor_catalog_keys()
+    declared_stats_keys = _unified_monitor_stats_feature_keys()
     for monitor_name, monitor_techniques in MONITOR_CAPABILITY_TECHNIQUES.items():
         if declared_monitor_keys and monitor_name not in declared_monitor_keys:
             continue
@@ -2404,6 +2439,16 @@ async def _collect_unified_monitor_telemetry_evidence(techniques: Dict[str, Dict
                 technique,
                 score=3,
                 source=f"monitor_{monitor_name}_capability_catalog",
+            )
+    for monitor_name, monitor_techniques in MONITOR_EXTENDED_CAPABILITY_TECHNIQUES.items():
+        if declared_stats_keys and monitor_name not in declared_stats_keys:
+            continue
+        for technique in monitor_techniques:
+            _mark_technique(
+                techniques,
+                technique,
+                score=3,
+                source=f"monitor_{monitor_name}_capability_stats_catalog",
             )
 
     if db is None:
@@ -2519,6 +2564,12 @@ async def _collect_soar_execution_evidence(techniques: Dict[str, Dict], db: Any)
             counts[technique] = counts.get(technique, 0) + 1
             source_map.setdefault(technique, set()).add(source_tag)
             max_score[technique] = max(max_score.get(technique, 0), score)
+
+    # Static SOAR doctrine capability baseline from configured trigger/action mapping.
+    for mapped in list(SOAR_TRIGGER_TECHNIQUES.values()) + list(SOAR_ACTION_TECHNIQUES.values()):
+        local = {_normalize_technique(t) for t in (mapped or []) if _normalize_technique(t)}
+        if local:
+            add_techniques(local, "soar_mapping_catalog", 3)
 
     try:
         from soar_engine import soar_engine
@@ -3056,6 +3107,7 @@ async def _collect_container_tooling_evidence(techniques: Dict[str, Dict], db: A
         _mark_technique(techniques, "T1195.002", score=2, source="trivy_stack_declared")
     if falco_enabled:
         _mark_technique(techniques, "T1611", score=3, source="falco_configured")
+        _mark_technique(techniques, "T1610", score=3, source="falco_configured")
         _mark_technique(techniques, "T1055", score=3, source="falco_configured")
     elif falco_declared:
         _mark_technique(techniques, "T1611", score=2, source="falco_stack_declared")
