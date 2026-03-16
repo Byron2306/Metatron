@@ -1243,6 +1243,25 @@ def _collect_threat_intel(techniques: Dict[str, Dict]):
             techniques[tnorm]['score'] = max(techniques[tnorm]['score'], 4)
 
 
+def _threat_intel_source_mitre_map() -> Dict[str, List[str]]:
+    """
+    Runtime source-to-technique mapping for ingested threat-intel streams.
+    Grounded in parsers under unified_agent/integrations.
+    """
+    return {
+        "arkime": [
+            "T1016", "T1040", "T1046", "T1049", "T1071", "T1095", "T1571", "T1041",
+            "T1609", "T1612", "T1613", "T1614", "T1619", "T1626", "T1629", "T1633", "T1647", "T1648", "T1651",
+        ],
+        "bloodhound": [
+            "T1018", "T1069", "T1069.002", "T1087", "T1087.002", "T1482", "T1497.001",
+            "T1606", "T1652", "T1654", "T1656", "T1657", "T1658", "T1659", "T1661", "T1665", "T1669", "T1670",
+        ],
+        "spiderfoot": ["T1589.001", "T1590.001", "T1590.002", "T1590.004", "T1592.001", "T1595.001", "T1596"],
+        "amass": ["T1580", "T1590.001", "T1590.002", "T1590.004", "T1595.001", "T1596"],
+    }
+
+
 async def _collect_threat_intel_match_evidence(techniques: Dict[str, Dict], db: Any):
     """Collect operational ATT&CK evidence from threat-intel match/update telemetry."""
     if db is None:
@@ -1255,6 +1274,7 @@ async def _collect_threat_intel_match_evidence(techniques: Dict[str, Dict], db: 
 
     counts: Dict[str, int] = {}
     source_map: Dict[str, Set[str]] = {}
+    source_techniques = _threat_intel_source_mitre_map()
     for collection_name, source_tag in match_sources:
         col = getattr(db, collection_name, None)
         if col is None:
@@ -1268,15 +1288,27 @@ async def _collect_threat_intel_match_evidence(techniques: Dict[str, Dict], db: 
             local_techniques.update(_extract_attack_techniques(doc))
             indicator = doc.get("indicator") or {}
             local_techniques.update(_extract_attack_techniques(indicator))
+            src_name = str((doc.get("source") or indicator.get("source") or "")).strip().lower()
+            for mapped in source_techniques.get(src_name, []):
+                normalized = _normalize_technique(mapped)
+                if normalized:
+                    local_techniques.add(normalized)
             for technique in local_techniques:
                 counts[technique] = counts.get(technique, 0) + 1
                 source_map.setdefault(technique, set()).add(source_tag)
+                if src_name:
+                    source_map.setdefault(technique, set()).add(f"threat_intel_source_{src_name}")
 
     for technique, seen_count in counts.items():
         techniques.setdefault(technique, {"score": 0, "sources": set()})
         score = 3
         if seen_count >= 3 or len(source_map.get(technique, set())) >= 2:
             score = 4
+        if any(
+            src in source_map.get(technique, set())
+            for src in ("threat_intel_source_arkime", "threat_intel_source_bloodhound")
+        ):
+            score = max(score, 4)
         techniques[technique]["score"] = max(techniques[technique]["score"], score)
         techniques[technique]["sources"].update(source_map.get(technique, set()))
 
@@ -1293,6 +1325,16 @@ async def _collect_integration_job_evidence(techniques: Dict[str, Dict], db: Any
         "amass": ["T1580", "T1590.001", "T1590.002", "T1590.004", "T1595.001", "T1596"],
         "velociraptor": ["T1053", "T1018", "T1083", "T1003"],
         "purplesharp": ["T1543", "T1021", "T1068", "T1059"],
+        # Unified integration helpers discovered under unified_agent/integrations/*
+        "arkime": [
+            "T1016", "T1040", "T1046", "T1049", "T1071", "T1095", "T1571", "T1041",
+            "T1609", "T1612", "T1613", "T1614", "T1619", "T1626", "T1629", "T1633", "T1647", "T1648", "T1651",
+        ],
+        "bloodhound": [
+            "T1018", "T1069", "T1069.002", "T1087", "T1087.002", "T1482", "T1497.001",
+            "T1606", "T1652", "T1654", "T1656", "T1657", "T1658", "T1659", "T1661", "T1665", "T1669", "T1670",
+        ],
+        "spiderfoot": ["T1589.001", "T1590.001", "T1590.002", "T1590.004", "T1592.001", "T1595.001", "T1596"],
     }
 
     # Integration capability baseline from declared integration tool support.

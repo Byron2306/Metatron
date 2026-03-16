@@ -1,19 +1,19 @@
 # MITRE Coverage Evidence Report
 
-- Generated: 2026-03-16T06:53:28.700006+00:00
-- Base URL: `http://127.0.0.1:8011/api`
+- Generated: 2026-03-16T15:07:16.863254+00:00
+- Base URL: `http://127.0.0.1:8021/api`
 
 ## Profile Metrics
 
 | Metric | strict | balanced | hardened |
 |---|---:|---:|---:|
-| coverage_percent_gte2 | 81.94 | 81.94 | 81.94 |
-| coverage_percent_gte3 | 71.3 | 81.48 | 81.48 |
-| coverage_percent_gte4 | 27.78 | 61.57 | 61.57 |
-| covered_score_gte3 | 214 | 259 | 259 |
-| covered_score_gte4 | 75 | 216 | 216 |
-| enterprise_parents_gte3 | 154 | 176 | 176 |
-| enterprise_parents_gte4 | 60 | 133 | 133 |
+| coverage_percent_gte2 | 92.13 | 92.13 | 92.13 |
+| coverage_percent_gte3 | 81.94 | 91.67 | 91.67 |
+| coverage_percent_gte4 | 31.48 | 71.3 | 71.3 |
+| covered_score_gte3 | 240 | 284 | 284 |
+| covered_score_gte4 | 79 | 240 | 240 |
+| enterprise_parents_gte3 | 177 | 198 | 198 |
+| enterprise_parents_gte4 | 68 | 154 | 154 |
 
 ## Hardened Prerequisites
 
@@ -29,12 +29,12 @@
 
 | Pass | Enabled | Changed | Promoted >=3 | Promoted >=4 |
 |---|---|---:|---:|---:|
-| `implementation_depth_validated` | True | 26 | 26 | 0 |
+| `implementation_depth_validated` | True | 25 | 25 | 0 |
 | `priority_gap_implementation_depth` | True | 0 | 0 | 0 |
-| `corroborated_catalog` | True | 27 | 0 | 27 |
-| `multi_plane_capability_chain` | True | 23 | 0 | 23 |
+| `corroborated_catalog` | True | 28 | 0 | 28 |
+| `multi_plane_capability_chain` | True | 37 | 0 | 37 |
 | `priority_gap_operational_chain` | True | 0 | 0 | 0 |
-| `hardened_enterprise_score4` | True | 91 | 0 | 91 |
+| `hardened_enterprise_score4` | True | 96 | 0 | 96 |
 | `operational_validation_chain` | True | 0 | 0 | 0 |
 
 ## Delta Summary
@@ -42,9 +42,9 @@
 ```json
 {
   "strict_to_balanced": {
-    "changed_techniques": 160,
-    "promoted_to_gte3": 45,
-    "promoted_to_gte4": 141,
+    "changed_techniques": 180,
+    "promoted_to_gte3": 44,
+    "promoted_to_gte4": 161,
     "regressed_techniques": 0,
     "top_changes": [
       {
@@ -101,19 +101,6 @@
       },
       {
         "technique": "T1055.001",
-        "from_score": 2,
-        "to_score": 4,
-        "delta": 2,
-        "sources_after": [
-          "code_sweep",
-          "hardened_enterprise_validated",
-          "implementation_depth_validated"
-        ],
-        "operational_evidence_after": true,
-        "implemented_evidence_count_after": 2
-      },
-      {
-        "technique": "T1069",
         "from_score": 2,
         "to_score": 4,
         "delta": 2,
@@ -439,6 +426,22 @@
         "implemented_evidence_count_after": 9
       },
       {
+        "technique": "T1053",
+        "from_score": 3,
+        "to_score": 4,
+        "delta": 1,
+        "sources_after": [
+          "code_sweep",
+          "evidence_fusion_multi_plane_capability",
+          "hardened_enterprise_validated",
+          "integration_tool_catalog_velociraptor",
+          "soar_playbook_catalog",
+          "timeline_mitre_catalog"
+        ],
+        "operational_evidence_after": true,
+        "implemented_evidence_count_after": 8
+      },
+      {
         "technique": "T1082",
         "from_score": 3,
         "to_score": 4,
@@ -474,10 +477,10 @@
   "hardened_prerequisites_ready": true,
   "hardened_gte4_not_lower_than_balanced": true,
   "summary": {
-    "strict_gte3": 71.3,
-    "balanced_gte3": 81.48,
-    "balanced_gte4": 61.57,
-    "hardened_gte4": 61.57
+    "strict_gte3": 81.94,
+    "balanced_gte3": 91.67,
+    "balanced_gte4": 71.3,
+    "hardened_gte4": 71.3
   }
 }
 ```

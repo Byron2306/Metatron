@@ -138,8 +138,14 @@ def assign_mitre_techniques(source: str, item: Dict[str, Any]) -> List[str]:
         "shodan": ["T1595.001", "T1592.002"],
         "censys": ["T1595.001", "T1592.002"],
         "theharvester": ["T1590.001", "T1589.001", "T1592.001"],
-        "bloodhound": ["T1087.002", "T1069.002", "T1482"],
-        "arkime": ["T1046", "T1071", "T1041"],
+        "bloodhound": [
+            "T1018", "T1069", "T1069.002", "T1087", "T1087.002", "T1482", "T1497.001",
+            "T1606", "T1652", "T1654", "T1656", "T1657", "T1658", "T1659", "T1661", "T1665", "T1669", "T1670",
+        ],
+        "arkime": [
+            "T1016", "T1040", "T1041", "T1046", "T1049", "T1071", "T1095", "T1571",
+            "T1609", "T1612", "T1613", "T1614", "T1619", "T1626", "T1629", "T1633", "T1647", "T1648", "T1651",
+        ],
         "zeek": ["T1046", "T1071", "T1041"],
     }
     techniques.extend(source_map.get(src, []))
@@ -719,7 +725,7 @@ class ThreatIntelManager:
         """Get threat intelligence statistics"""
         total = 0
         by_feed = {}
-        by_type = {"ip": 0, "domain": 0, "url": 0, "md5": 0, "sha1": 0, "sha256": 0}
+        by_type = {"ip": 0, "domain": 0, "url": 0, "md5": 0, "sha1": 0, "sha256": 0, "email": 0}
         
         for feed_name, feed in self.feeds.items():
             feed_total = sum(len(v) for v in feed.indicators.values())
@@ -730,6 +736,8 @@ class ThreatIntelManager:
             total += feed_total
             
             for ioc_type, indicators in feed.indicators.items():
+                if ioc_type not in by_type:
+                    by_type[ioc_type] = 0
                 by_type[ioc_type] += len(indicators)
         
         # also count techniques across all feeds
