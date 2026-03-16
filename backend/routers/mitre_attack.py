@@ -5,7 +5,7 @@ from collections import deque
 import os
 import json
 import re
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, Tuple
 
 from fastapi import APIRouter, Depends
 
@@ -907,6 +907,93 @@ def _merge_collector_scores(
             score = max(score, 4)
         techniques[technique]["score"] = max(techniques[technique]["score"], score)
         techniques[technique]["sources"].update(source_map.get(technique, set()))
+
+
+CATALOG_BASELINE_SOURCES: Set[str] = {"timeline_mitre_catalog", "threat_actor_catalog"}
+CORROBORATING_SIGNAL_SOURCE_TOKENS: Tuple[str, ...] = (
+    "runtime",
+    "world_event",
+    "detected",
+    "observed",
+    "execution",
+    "validated",
+    "atomic",
+    "osquery",
+    "threat_intel",
+    "threat_hunting",
+    "secure_boot",
+    "edr_",
+    "trivy",
+    "suricata",
+    "falco",
+    "yara",
+    "soar_playbook",
+    "siem_",
+    "honey_token",
+    "honeypot",
+    "supply_chain",
+    "analysis",
+    "prediction",
+    "correlation",
+    "alert",
+    "scan",
+    "monitor",
+)
+HIGH_ASSURANCE_CORROBORATING_SOURCES: Set[str] = {
+    "atomic_job",
+    "osquery",
+    "threat_intel",
+    "threat_hunting_ruleset",
+    "secure_boot_pipeline",
+    "edr_fim_capability",
+    "edr_memory_capability",
+    "trivy_configured",
+    "trivy_policy",
+    "suricata_stack_declared",
+    "siem_stack_declared",
+    "honey_token_catalog_runtime",
+    "supply_chain_image_scanning",
+    "triune_strategy_analysis",
+}
+
+
+def _is_corroborating_signal_source(source: str) -> bool:
+    value = str(source or "").strip().lower()
+    if not value or value in {"code_sweep", *CATALOG_BASELINE_SOURCES}:
+        return False
+    # Exclude static catalogs from confidence promotion unless they carry runtime/observed markers.
+    if "catalog" in value and all(token not in value for token in ("runtime", "observed", "detected", "execution", "world_event")):
+        return False
+    return any(token in value for token in CORROBORATING_SIGNAL_SOURCE_TOKENS)
+
+
+def _promote_corroborated_catalog_techniques(techniques: Dict[str, Dict]) -> None:
+    """
+    Promote S3 techniques to S4 when corroborated by independent controls/signals.
+
+    Promotion is allowed when a technique has corroborating source signals and at least
+    two independent evidence sources, with stronger confidence if a catalog baseline,
+    multiple corroborating signals, or a high-assurance corroborating source exists.
+    """
+    for technique, meta in techniques.items():
+        try:
+            current_score = int(meta.get("score", 0))
+        except Exception:
+            current_score = 0
+        if current_score < 3 or current_score >= 4:
+            continue
+        sources_raw = meta.get("sources", set()) or set()
+        sources = {str(src).strip().lower() for src in sources_raw if str(src).strip()}
+        corroborating = {src for src in sources if _is_corroborating_signal_source(src)}
+        if not corroborating or len(sources) < 2:
+            continue
+
+        has_catalog_baseline = bool(sources & CATALOG_BASELINE_SOURCES)
+        has_multiple_corroborating = len(corroborating) >= 2
+        has_high_assurance_corroboration = bool(corroborating & HIGH_ASSURANCE_CORROBORATING_SOURCES)
+        if not (has_catalog_baseline or has_multiple_corroborating or has_high_assurance_corroboration):
+            continue
+        _mark_technique(techniques, technique, score=4, source="evidence_fusion_corroborated")
 
 
 def _extract_semantic_attack_techniques(value: Any) -> Set[str]:
@@ -3320,6 +3407,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     # Technique update pass #2: secure-boot and firmware integrity techniques
     await _collect_secure_boot(techniques)
     implemented_meta = _merge_implemented_sweep(techniques)
+    # Confidence fusion pass: promote techniques when corroborated by independent signals.
+    _promote_corroborated_catalog_techniques(techniques)
 
     ordered = []
     for technique in sorted(techniques.keys()):
