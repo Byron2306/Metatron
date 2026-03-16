@@ -9,6 +9,7 @@ ingest -> detection -> governance queue -> approval -> executor -> feedback surf
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from dataclasses import dataclass, asdict
@@ -19,7 +20,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 
-BASE_URL = "http://127.0.0.1:8001/api"
+BASE_URL = os.environ.get("E2E_BASE_URL", "http://127.0.0.1:8001/api").rstrip("/")
 REPORT_DIR = Path("test_reports")
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 JSON_REPORT = REPORT_DIR / "threat_pipeline_e2e_report.json"
@@ -748,6 +749,110 @@ class ThreatPipelineE2E:
             domain="endpoint_unified_agent",
         )
 
+    def _simulate_stack_observability_scenarios(self) -> None:
+        # Advanced stack observability checks for IDS/SIEM/sandbox toolchain.
+        falco_status = self._request(
+            "containers_falco_status",
+            "GET",
+            "/containers/falco/status",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        falco_alerts = self._request(
+            "containers_falco_alerts",
+            "GET",
+            "/containers/falco/alerts?limit=10",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        suricata_stats = self._request(
+            "containers_suricata_stats",
+            "GET",
+            "/containers/suricata/stats",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        self._request(
+            "containers_suricata_alerts",
+            "GET",
+            "/containers/suricata/alerts?limit=20",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        zeek_status = self._request(
+            "zeek_status",
+            "GET",
+            "/zeek/status",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        self._request(
+            "zeek_stats",
+            "GET",
+            "/zeek/stats",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        self._request(
+            "zeek_detection_beaconing",
+            "GET",
+            "/zeek/detections/beaconing?min_events=3&limit=10",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        self._request(
+            "zeek_detection_dns_tunneling",
+            "GET",
+            "/zeek/detections/dns-tunneling?min_queries=5&limit=10",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        elastic_status = self._request(
+            "elasticsearch_status",
+            "GET",
+            "/settings/elasticsearch/status",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        kibana_status = self._request(
+            "kibana_status",
+            "GET",
+            "/kibana/status",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        self._request(
+            "kibana_dashboards",
+            "GET",
+            "/kibana/dashboards",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        sandbox_status = self._request(
+            "advanced_sandbox_status",
+            "GET",
+            "/advanced/sandbox/status",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        yara_status = self._request(
+            "containers_yara_status",
+            "GET",
+            "/containers/yara/status",
+            expected_codes=[200],
+            domain="stack_observability",
+        )
+        self.artifacts["advanced_stack_snapshot"] = {
+            "falco_available": bool((falco_status.json() or {}).get("falco_available")),
+            "falco_alert_count": int((falco_alerts.json() or {}).get("count", 0)),
+            "suricata_available": bool((suricata_stats.json() or {}).get("available")),
+            "zeek_available": bool((zeek_status.json() or {}).get("available")),
+            "elasticsearch_connected": bool((elastic_status.json() or {}).get("connected")),
+            "kibana_configured": bool((kibana_status.json() or {}).get("configured")),
+            "sandbox_available": bool((sandbox_status.json() or {}).get("available")),
+            "yara_available": bool((yara_status.json() or {}).get("available")),
+        }
+
     def _validate_feedback_surfaces(self) -> None:
         # Correlation and threat intelligence surfaces
         corr_resp = self._request(
@@ -841,6 +946,7 @@ class ThreatPipelineE2E:
         self._simulate_ingest_and_detection()
         self._simulate_governed_response_pipeline()
         self._simulate_additional_domain_threats()
+        self._simulate_stack_observability_scenarios()
         self._validate_feedback_surfaces()
 
         assertion_steps = self._pipeline_assertions()

@@ -8,7 +8,7 @@ import re
 import shutil
 from typing import Any, Dict, List, Set, Tuple
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from .dependencies import get_current_user, get_db
 try:
@@ -4946,8 +4946,93 @@ def _enterprise_parent_count(techniques: List[Dict[str, Any]], *, min_score: int
     return len(seen)
 
 
+def _resolve_scoring_profile(profile: str) -> Dict[str, Any]:
+    requested = (profile or "balanced").strip().lower()
+    if requested not in {"strict", "balanced", "hardened"}:
+        requested = "balanced"
+
+    jwt_strong = _jwt_secret_is_strong_for_hardening()
+    trivy_available = _trivy_available_for_hardening()
+    hardened_ready = jwt_strong and trivy_available
+    strict_mode = requested == "strict"
+
+    # Keep balanced behavior compatible with historical snapshots:
+    # hardened promotion is allowed whenever prerequisites are satisfied,
+    # unless explicit strict mode is requested.
+    hardened_promotion_enabled = (not strict_mode) and hardened_ready
+
+    return {
+        "requested": requested,
+        "effective": requested,
+        "collect_hypothesis_evidence": not strict_mode,
+        "promote_implementation_depth": not strict_mode,
+        "promote_priority_gap_depth": not strict_mode,
+        "promote_corroborated_catalog": not strict_mode,
+        "promote_multi_plane_chain": not strict_mode,
+        "promote_priority_gap_operational_chain": not strict_mode,
+        "promote_hardened_enterprise": hardened_promotion_enabled,
+        "promote_operational_validation_chain": not strict_mode,
+        "hardened_prerequisites": {
+            "jwt_secret_strong": jwt_strong,
+            "trivy_available": trivy_available,
+            "hardened_mode_ready": hardened_ready,
+        },
+    }
+
+
+def _capture_score_map(techniques: Dict[str, Dict]) -> Dict[str, int]:
+    snapshot: Dict[str, int] = {}
+    for technique, meta in techniques.items():
+        try:
+            snapshot[technique] = int(meta.get("score", 0))
+        except Exception:
+            snapshot[technique] = 0
+    return snapshot
+
+
+def _apply_scoring_pass(
+    trace: List[Dict[str, Any]],
+    techniques: Dict[str, Dict],
+    pass_name: str,
+    enabled: bool,
+    callback,
+) -> None:
+    before = _capture_score_map(techniques)
+    if enabled:
+        callback()
+    after = _capture_score_map(techniques)
+
+    changed = [technique for technique, score in after.items() if score != before.get(technique, 0)]
+    promoted_to_gte3 = [
+        technique
+        for technique in changed
+        if before.get(technique, 0) < 3 and after.get(technique, 0) >= 3
+    ]
+    promoted_to_gte4 = [
+        technique
+        for technique in changed
+        if before.get(technique, 0) < 4 and after.get(technique, 0) >= 4
+    ]
+    trace.append(
+        {
+            "pass": pass_name,
+            "enabled": bool(enabled),
+            "changed_techniques": len(changed),
+            "promoted_to_gte3": len(promoted_to_gte3),
+            "promoted_to_gte4": len(promoted_to_gte4),
+        }
+    )
+
+
 @router.get("/coverage")
-async def mitre_coverage(current_user: dict = Depends(get_current_user)):
+async def mitre_coverage(
+    profile: str = Query(
+        "balanced",
+        description="Scoring profile: strict|balanced|hardened",
+    ),
+    current_user: dict = Depends(get_current_user),
+):
+    scoring_profile = _resolve_scoring_profile(profile)
     techniques: Dict[str, Dict] = {}
     db = get_db()
 
@@ -4967,7 +5052,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     await _collect_ai_threat_mapping_evidence(techniques, db)
     await _collect_ml_prediction_evidence(techniques, db)
     await _collect_strategy_simulation_evidence(techniques, db)
-    await _collect_hypothesis_driven_coverage_evidence(techniques, db)
+    if scoring_profile["collect_hypothesis_evidence"]:
+        await _collect_hypothesis_driven_coverage_evidence(techniques, db)
     await _collect_threat_correlation_telemetry_evidence(techniques, db)
     await _collect_deception_ransomware_evidence(techniques, db)
     _collect_timeline_mitre_catalog_evidence(techniques)
@@ -4997,20 +5083,63 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     # Technique update pass #2: secure-boot and firmware integrity techniques
     await _collect_secure_boot(techniques)
     implemented_meta = _merge_implemented_sweep(techniques)
+    scoring_pass_trace: List[Dict[str, Any]] = []
     # Broad closure pass: elevate mature multi-file implementations from S2->S3.
-    _promote_implementation_depth_validated(techniques, implemented_meta, min_files=2)
+    _apply_scoring_pass(
+        scoring_pass_trace,
+        techniques,
+        "implementation_depth_validated",
+        scoring_profile["promote_implementation_depth"],
+        lambda: _promote_implementation_depth_validated(techniques, implemented_meta, min_files=2),
+    )
     # Priority-gap closure pass: reward deep implemented controls on top of code sweep.
-    _promote_priority_gap_implementation_depth(techniques, implemented_meta)
+    _apply_scoring_pass(
+        scoring_pass_trace,
+        techniques,
+        "priority_gap_implementation_depth",
+        scoring_profile["promote_priority_gap_depth"],
+        lambda: _promote_priority_gap_implementation_depth(techniques, implemented_meta),
+    )
     # Confidence fusion pass: promote techniques when corroborated by independent signals.
-    _promote_corroborated_catalog_techniques(techniques)
+    _apply_scoring_pass(
+        scoring_pass_trace,
+        techniques,
+        "corroborated_catalog",
+        scoring_profile["promote_corroborated_catalog"],
+        lambda: _promote_corroborated_catalog_techniques(techniques),
+    )
     # Depth fusion pass: promote techniques validated across multiple control-plane capabilities.
-    _promote_multi_plane_capability_chain(techniques)
+    _apply_scoring_pass(
+        scoring_pass_trace,
+        techniques,
+        "multi_plane_capability_chain",
+        scoring_profile["promote_multi_plane_chain"],
+        lambda: _promote_multi_plane_capability_chain(techniques),
+    )
     # Targeted uplift pass: priority gaps become S4 only with multi-source runtime evidence.
-    _promote_priority_gap_operational_chain(techniques)
+    _apply_scoring_pass(
+        scoring_pass_trace,
+        techniques,
+        "priority_gap_operational_chain",
+        scoring_profile["promote_priority_gap_operational_chain"],
+        lambda: _promote_priority_gap_operational_chain(techniques),
+    )
     # Hardened uplift pass: enterprise S4 promotion when strong JWT + Trivy are active.
-    _promote_hardened_enterprise_score4(techniques, implemented_meta)
+    _apply_scoring_pass(
+        scoring_pass_trace,
+        techniques,
+        "hardened_enterprise_score4",
+        scoring_profile["promote_hardened_enterprise"],
+        lambda: _promote_hardened_enterprise_score4(techniques, implemented_meta),
+    )
     # Quality fusion pass: promote only when multi-source runtime validation chain exists.
-    _promote_operational_validation_chain(techniques)
+    _apply_scoring_pass(
+        scoring_pass_trace,
+        techniques,
+        "operational_validation_chain",
+        scoring_profile["promote_operational_validation_chain"],
+        lambda: _promote_operational_validation_chain(techniques),
+    )
 
     ordered = []
     for technique in sorted(techniques.keys()):
@@ -5113,6 +5242,7 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
             "roadmap_coverage_percent_gte2": roadmap_coverage_percent_gte2,
             "roadmap_coverage_percent_gte3": roadmap_coverage_percent,
             "roadmap_referenced_percent": roadmap_referenced_percent,
+            "scoring_profile": scoring_profile,
         },
         trigger_triune=False,
     )
@@ -5151,6 +5281,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
         "implemented_coverage_percent_gte2": implemented_coverage_percent_gte2,
         "implemented_covered_score_gte3": implemented_covered_gte3,
         "implemented_coverage_percent_gte3": implemented_coverage_percent,
+        "scoring_profile": scoring_profile,
+        "scoring_pass_trace": scoring_pass_trace,
         "score_distribution": score_dist,
         "tactics": tactics,
         "techniques": ordered,
