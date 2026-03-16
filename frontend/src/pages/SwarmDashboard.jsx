@@ -41,7 +41,7 @@ const SwarmDashboard = () => {
   const [newGroup, setNewGroup] = useState({ name: '', description: '', color: '#06b6d4' });
   const [newTags, setNewTags] = useState('');
 
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   const fetchData = useCallback(async () => {
     try {

@@ -70,7 +70,7 @@ const NAV_SECTIONS = [
     defaultOpen: true,
     items: [
       { path: '/unified-agent', icon: Cpu, label: 'Unified Agent' },
-      { path: '/agent-dashboard', icon: Link, label: 'Agent UI', external: true, url: 'http://localhost:5000' },
+      { path: '/agent-dashboard', icon: Link, label: 'Agent UI', external: true, url: '__AGENT_UI__' },
       { path: '/response-operations', icon: Workflow, label: 'Response Operations' },
       { path: '/deception', icon: Eye, label: 'Deception' },
       { path: '/honey-tokens', icon: Key, label: 'Honey Tokens' },
@@ -190,10 +190,13 @@ const Layout = () => {
 
   const renderNavItem = (item) => {
     if (item.external) {
+      const resolvedExternalUrl = item.url === '__AGENT_UI__'
+        ? `${window.location.protocol}//${window.location.hostname}:5000`
+        : item.url;
       return (
         <a
           key={item.path}
-          href={item.url}
+          href={resolvedExternalUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group seraph-nav-item"

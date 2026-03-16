@@ -2651,7 +2651,28 @@ def create_app() -> Flask:
     """Create and configure the Flask app."""
     template_dir = Path(__file__).resolve().parent / "templates"
     app = Flask(__name__, template_folder=str(template_dir))
-    CORS(app)
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": "*"}},
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+        expose_headers=["Content-Type"],
+    )
+
+    @app.after_request
+    def _set_response_security_headers(resp):
+        # Keep dashboard dependencies loadable on both :3000 and :5000 surfaces.
+        csp = (
+            "default-src 'self' data: blob: https:; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data: blob: https:; "
+            "connect-src 'self' http: https: ws: wss:;"
+        )
+        resp.headers.setdefault("Content-Security-Policy", csp)
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        return resp
 
     # Single global agent bridge
     bridge = WebAgentBridge()

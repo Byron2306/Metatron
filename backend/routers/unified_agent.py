@@ -3716,12 +3716,16 @@ cd "$INSTALL_DIR"
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update -y
   apt-get install -y python3 python3-pip python3-venv curl ca-certificates
+  apt-get install -y wireguard-tools ufw iptables >/dev/null 2>&1 || true
 elif command -v dnf >/dev/null 2>&1; then
   dnf install -y python3 python3-pip curl ca-certificates
+  dnf install -y wireguard-tools firewalld iptables >/dev/null 2>&1 || true
 elif command -v yum >/dev/null 2>&1; then
   yum install -y python3 python3-pip curl ca-certificates
+  yum install -y wireguard-tools firewalld iptables >/dev/null 2>&1 || true
 elif command -v pacman >/dev/null 2>&1; then
   pacman -Sy --noconfirm python python-pip curl ca-certificates
+  pacman -Sy --noconfirm wireguard-tools ufw iptables >/dev/null 2>&1 || true
 fi
 
 curl -fsSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
@@ -3774,6 +3778,44 @@ if [[ -n "$CA_CERT_PATH" ]]; then
 fi
 chmod 600 /etc/default/seraph-agent
 
+# Firewall baseline for dashboard/control surfaces and WireGuard.
+if command -v ufw >/dev/null 2>&1; then
+  ufw allow 3000/tcp >/dev/null 2>&1 || true
+  ufw allow 5000/tcp >/dev/null 2>&1 || true
+  ufw allow 51820/udp >/dev/null 2>&1 || true
+elif command -v firewall-cmd >/dev/null 2>&1; then
+  systemctl enable --now firewalld >/dev/null 2>&1 || true
+  firewall-cmd --permanent --add-port=3000/tcp >/dev/null 2>&1 || true
+  firewall-cmd --permanent --add-port=5000/tcp >/dev/null 2>&1 || true
+  firewall-cmd --permanent --add-port=51820/udp >/dev/null 2>&1 || true
+  firewall-cmd --reload >/dev/null 2>&1 || true
+elif command -v iptables >/dev/null 2>&1; then
+  iptables -C INPUT -p tcp --dport 3000 -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p tcp --dport 3000 -j ACCEPT
+  iptables -C INPUT -p tcp --dport 5000 -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p tcp --dport 5000 -j ACCEPT
+  iptables -C INPUT -p udp --dport 51820 -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p udp --dport 51820 -j ACCEPT
+fi
+
+# WireGuard autostart if a managed config is present.
+VPN_CONF_SOURCE=""
+for candidate in \
+  "/etc/wireguard/metatron-vpn.conf" \
+  "/etc/wireguard/wg0.conf" \
+  "$INSTALL_DIR/vpn/metatron-vpn.conf" \
+  "$INSTALL_DIR/vpn/wg0.conf"; do
+  if [[ -f "$candidate" ]]; then
+    VPN_CONF_SOURCE="$candidate"
+    break
+  fi
+done
+if command -v wg-quick >/dev/null 2>&1 && [[ -n "$VPN_CONF_SOURCE" ]]; then
+  mkdir -p /etc/wireguard
+  cp -f "$VPN_CONF_SOURCE" /etc/wireguard/metatron-vpn.conf
+  chmod 600 /etc/wireguard/metatron-vpn.conf
+  ln -sf /etc/wireguard/metatron-vpn.conf /etc/wireguard/wg0.conf || true
+  systemctl enable wg-quick@metatron-vpn.service >/dev/null 2>&1 || systemctl enable wg-quick@wg0.service >/dev/null 2>&1 || true
+  systemctl restart wg-quick@metatron-vpn.service >/dev/null 2>&1 || systemctl restart wg-quick@wg0.service >/dev/null 2>&1 || true
+fi
+
 cat > /etc/systemd/system/seraph-agent.service <<'EOF'
 [Unit]
 Description=Seraph Unified Agent Core
@@ -3818,6 +3860,7 @@ systemctl enable seraph-agent seraph-agent-dashboard
 systemctl restart seraph-agent seraph-agent-dashboard
 systemctl is-active --quiet seraph-agent
 systemctl is-active --quiet seraph-agent-dashboard
+systemctl is-active --quiet wg-quick@metatron-vpn.service >/dev/null 2>&1 || systemctl is-active --quiet wg-quick@wg0.service >/dev/null 2>&1 || true
 echo "SERAPH_DEPLOY_SUCCESS"
 '''
 
@@ -3862,10 +3905,12 @@ $ProgressPreference = "SilentlyContinue"
 
 $SERAPH_SERVER = "{base_url}"
 $INSTALL_DIR = "C:\\ProgramData\\SeraphAgent"
+$SYSTEM32_DIR = "$env:WINDIR\\System32"
 $ZIP_PATH = "$INSTALL_DIR\\agent.zip"
 $CONFIG_PATH = "$INSTALL_DIR\\agent_config.json"
 $RUNNER_PATH = "$INSTALL_DIR\\run-agent.ps1"
 $DASHBOARD_RUNNER_PATH = "$INSTALL_DIR\\run-dashboard.ps1"
+$VPN_RUNNER_PATH = "$INSTALL_DIR\\run-vpn.ps1"
 $CA_CERT_PATH = "$INSTALL_DIR\\certs\\seraph-agent-ca.pem"
 $EMBEDDED_ENROLLMENT_KEY = "{embedded_enrollment}"
 $EMBEDDED_INTEGRATION_TOKEN = "{embedded_integration}"
@@ -3884,6 +3929,24 @@ function Get-PythonExecutable {{
   if (Get-Command py -ErrorAction SilentlyContinue) {{ return "py -3" }}
   if (Get-Command python -ErrorAction SilentlyContinue) {{ return "python" }}
   return $null
+}}
+
+function Ensure-FirewallRule {{
+  param(
+    [Parameter(Mandatory=$true)][string]$Name,
+    [Parameter(Mandatory=$true)][string]$Protocol,
+    [Parameter(Mandatory=$true)][int]$Port
+  )
+  & netsh advfirewall firewall delete rule name="$Name" | Out-Null
+  & netsh advfirewall firewall add rule name="$Name" dir=in action=allow protocol=$Protocol localport=$Port | Out-Null
+}}
+
+function Install-System32Launcher {{
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][string]$Content
+  )
+  Set-Content -Path $Path -Value $Content -Encoding Ascii
 }}
 
 try {{
@@ -3945,6 +4008,36 @@ if (Test-Path '$CA_CERT_PATH') {{ $env:REQUESTS_CA_BUNDLE = '$CA_CERT_PATH' }}
 "@
   Set-Content -Path $DASHBOARD_RUNNER_PATH -Value $dashboardRunner -Encoding UTF8
 
+  $vpnRunner = @"
+$ErrorActionPreference = 'SilentlyContinue'
+$wgExe = 'C:\\Program Files\\WireGuard\\wireguard.exe'
+if (Test-Path $wgExe) {{
+  $vpnConfigs = @(
+    'C:\\Program Files\\WireGuard\\Data\\Configurations\\metatron-vpn.conf',
+    'C:\\Program Files\\WireGuard\\Data\\Configurations\\wg0.conf',
+    '$INSTALL_DIR\\vpn\\metatron-vpn.conf',
+    '$INSTALL_DIR\\vpn\\wg0.conf'
+  )
+  foreach ($cfg in $vpnConfigs) {{
+    if (Test-Path $cfg) {{
+      & $wgExe /installtunnelservice $cfg | Out-Null
+      break
+    }}
+  }}
+  Start-Service -Name 'WireGuardTunnel$metatron-vpn' -ErrorAction SilentlyContinue
+  Start-Service -Name 'WireGuardTunnel$wg0' -ErrorAction SilentlyContinue
+}}
+"@
+  Set-Content -Path $VPN_RUNNER_PATH -Value $vpnRunner -Encoding UTF8
+
+  Ensure-FirewallRule -Name "Seraph Agent Dashboard 5000" -Protocol "TCP" -Port 5000
+  Ensure-FirewallRule -Name "Seraph Frontend 3000" -Protocol "TCP" -Port 3000
+  Ensure-FirewallRule -Name "Seraph WireGuard 51820" -Protocol "UDP" -Port 51820
+
+  Install-System32Launcher -Path "$SYSTEM32_DIR\\seraph-agent.cmd" -Content "@echo off`r`npowershell.exe -ExecutionPolicy Bypass -File `"$RUNNER_PATH`"`r`n"
+  Install-System32Launcher -Path "$SYSTEM32_DIR\\seraph-dashboard.cmd" -Content "@echo off`r`npowershell.exe -ExecutionPolicy Bypass -File `"$DASHBOARD_RUNNER_PATH`"`r`n"
+  Install-System32Launcher -Path "$SYSTEM32_DIR\\seraph-vpn-start.cmd" -Content "@echo off`r`npowershell.exe -ExecutionPolicy Bypass -File `"$VPN_RUNNER_PATH`"`r`n"
+
   $taskArgs = "-ExecutionPolicy Bypass -File `"$RUNNER_PATH`""
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs -WorkingDirectory $INSTALL_DIR
   $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -3956,6 +4049,11 @@ if (Test-Path '$CA_CERT_PATH') {{ $env:REQUESTS_CA_BUNDLE = '$CA_CERT_PATH' }}
   $dashboardAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $dashboardTaskArgs -WorkingDirectory $INSTALL_DIR
   Register-ScheduledTask -TaskName "SeraphAgentDashboard" -Action $dashboardAction -Trigger $trigger -Principal $principal -Force | Out-Null
   Start-ScheduledTask -TaskName "SeraphAgentDashboard"
+
+  $vpnTaskArgs = "-ExecutionPolicy Bypass -File `"$VPN_RUNNER_PATH`""
+  $vpnAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $vpnTaskArgs -WorkingDirectory $INSTALL_DIR
+  Register-ScheduledTask -TaskName "SeraphAgentVPN" -Action $vpnAction -Trigger $trigger -Principal $principal -Force | Out-Null
+  Start-ScheduledTask -TaskName "SeraphAgentVPN"
 }} catch {{
   Write-Host "INSTALL FAILED: $($_.Exception.Message)" -ForegroundColor Red
   exit 1
@@ -4011,6 +4109,7 @@ SERAPH_SERVER="{base_url}"
 INSTALL_DIR="$HOME/Library/Application Support/SeraphAgent"
 LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/com.seraph.agent.plist"
 DASHBOARD_LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/com.seraph.dashboard.plist"
+VPN_LAUNCH_DAEMON_PATH="/Library/LaunchDaemons/com.seraph.vpn.plist"
 EMBEDDED_ENROLLMENT_KEY="{embedded_enrollment}"
 EMBEDDED_INTEGRATION_TOKEN="{embedded_integration}"
 EMBEDDED_CA_CERT_B64="{embedded_ca_b64}"
@@ -4057,6 +4156,7 @@ pip install flask flask-cors
 echo "Installing YARA..."
 brew install yara 2>/dev/null || true
 pip install yara-python 2>/dev/null || echo "YARA installation skipped (optional)"
+brew install wireguard-tools 2>/dev/null || true
 
 # Download agent
 echo "Downloading agent from server..."
@@ -4158,6 +4258,52 @@ launchctl unload "$LAUNCH_AGENT_PATH" 2>/dev/null || true
 launchctl unload "$DASHBOARD_LAUNCH_AGENT_PATH" 2>/dev/null || true
 launchctl load "$LAUNCH_AGENT_PATH"
 launchctl load "$DASHBOARD_LAUNCH_AGENT_PATH"
+
+# Root-level VPN autostart + firewall allowances (best effort).
+if [[ $EUID -eq 0 ]]; then
+  cat > "$VPN_LAUNCH_DAEMON_PATH" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.seraph.vpn</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>wg-quick up metatron-vpn || wg-quick up wg0 || true</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/var/log/seraph-vpn.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/seraph-vpn-error.log</string>
+</dict>
+</plist>
+EOF
+  chmod 644 "$VPN_LAUNCH_DAEMON_PATH"
+  launchctl unload "$VPN_LAUNCH_DAEMON_PATH" 2>/dev/null || true
+  launchctl load "$VPN_LAUNCH_DAEMON_PATH" 2>/dev/null || true
+
+  cat > /etc/pf.anchors/com.seraph.agent << 'EOF'
+pass in proto tcp from any to any port 3000
+pass in proto tcp from any to any port 5000
+pass in proto udp from any to any port 51820
+EOF
+  if ! grep -q "com.seraph.agent" /etc/pf.conf; then
+    echo "" >> /etc/pf.conf
+    echo "anchor \"com.seraph.agent\"" >> /etc/pf.conf
+    echo "load anchor \"com.seraph.agent\" from \"/etc/pf.anchors/com.seraph.agent\"" >> /etc/pf.conf
+  fi
+  pfctl -f /etc/pf.conf >/dev/null 2>&1 || true
+  pfctl -e >/dev/null 2>&1 || true
+else
+  echo "Skipping root-only VPN/firewall autostart setup on macOS (run installer with sudo to enable)."
+fi
 
 echo ""
 echo "================================================================"
@@ -4476,7 +4622,14 @@ async def get_all_installers(request: Request, server_url: Optional[str] = None)
                 "icon": "🐧",
                 "endpoint": f"{base_url}/api/unified/agent/install-script",
                 "install_command": f"curl -sSL {base_url}/api/unified/agent/install-script | sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash",
-                "requirements": ["Python 3.8+", "Root access", "systemd", "Dashboard exposed on port 5000"]
+                "requirements": [
+                    "Python 3.8+",
+                    "Root access",
+                    "systemd",
+                    "Dashboard exposed on port 5000",
+                    "Firewall rules for 3000/tcp, 5000/tcp, 51820/udp",
+                    "WireGuard autostart (if config present)",
+                ]
             },
             "windows": {
                 "name": "Windows",
@@ -4486,14 +4639,27 @@ async def get_all_installers(request: Request, server_url: Optional[str] = None)
                     f"irm {base_url}/api/unified/agent/install-windows | "
                     "powershell -Command \"$env:SERAPH_ENROLLMENT_KEY='<ENROLLMENT_KEY>'; iex ($input | Out-String)\""
                 ),
-                "requirements": ["Python 3.8+", "Administrator access", "PowerShell 5+", "Dashboard exposed on port 5000"]
+                "requirements": [
+                    "Python 3.8+",
+                    "Administrator access",
+                    "PowerShell 5+",
+                    "Dashboard exposed on port 5000",
+                    "Firewall rules for 3000/tcp, 5000/tcp, 51820/udp",
+                    "System32 launchers (seraph-agent.cmd, seraph-dashboard.cmd, seraph-vpn-start.cmd)",
+                    "WireGuard autostart task (if config present)",
+                ]
             },
             "macos": {
                 "name": "macOS",
                 "icon": "🍎",
                 "endpoint": f"{base_url}/api/unified/agent/install-macos",
                 "install_command": f"curl -sSL {base_url}/api/unified/agent/install-macos | SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash",
-                "requirements": ["Python 3.8+ (via Homebrew)", "User account", "Dashboard exposed on port 5000"]
+                "requirements": [
+                    "Python 3.8+ (via Homebrew)",
+                    "User account",
+                    "Dashboard exposed on port 5000",
+                    "Root required for VPN launch daemon + pf firewall rules",
+                ]
             },
             "android": {
                 "name": "Android",
@@ -4576,6 +4742,8 @@ async def get_agent_bootstrap_manifest(
             "Replace placeholder values before execution.",
             "Do not publish enrollment or integration tokens in docs or tickets.",
             "Installers provision core agent execution and the substantive dashboard on port 5000.",
+            "Installers also apply baseline firewall rules (3000/tcp, 5000/tcp, 51820/udp).",
+            "Windows installer installs System32 launchers and a VPN autostart task.",
         ],
         "requested_by": current_user.get("id") if isinstance(current_user, dict) else None,
     }

@@ -93,7 +93,7 @@ export default function UnifiedAgentPage() {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [activeTab, setActiveTab] = useState("agents");
 
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   // Fetch all data
   const fetchData = useCallback(async () => {
