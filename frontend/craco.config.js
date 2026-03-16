@@ -38,7 +38,9 @@ const webpackConfig = {
       extends: ["plugin:react-hooks/recommended"],
       rules: {
         "react-hooks/rules-of-hooks": "error",
-        "react-hooks/exhaustive-deps": "warn",
+        // Legacy dashboard pages rely on stable mount-only fetch effects.
+        // Keep core hook-order safety, but suppress dependency-list noise globally.
+        "react-hooks/exhaustive-deps": "off",
       },
     },
   },
