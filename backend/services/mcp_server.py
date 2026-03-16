@@ -37,6 +37,24 @@ except Exception:
     except Exception:
         tamper_evident_telemetry = None
 
+try:
+    from services.boundary_control import (
+        boundary_control,
+        build_boundary_contract,
+        contract_to_dict,
+    )
+except Exception:
+    try:
+        from backend.services.boundary_control import (
+            boundary_control,
+            build_boundary_contract,
+            contract_to_dict,
+        )
+    except Exception:
+        boundary_control = None
+        build_boundary_contract = None
+        contract_to_dict = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -1797,6 +1815,32 @@ class MCPServer:
         decision_id = payload.get("decision_id") or payload.get("policy_decision_id")
         queue_id = payload.get("queue_id")
         governance_approved = bool(payload.get("governance_approved"))
+        boundary_pre_observation: Dict[str, Any] = {}
+        boundary_post_observation: Dict[str, Any] = {}
+        boundary_contract = None
+        if build_boundary_contract is not None:
+            decision_context = {
+                "decision_id": decision_id,
+                "queue_id": queue_id,
+                "policy_decision_id": payload.get("policy_decision_id"),
+                "governance_approved": governance_approved,
+            }
+            boundary_contract = build_boundary_contract(
+                principal=message.source,
+                sector_from=payload.get("sector_from") or "governance",
+                sector_to=payload.get("sector_to") or "tool_execution",
+                capability=tool_id,
+                target=payload.get("target") or tool_id,
+                decision_context=decision_context,
+                token=payload.get("token_id"),
+                risk_hint=payload.get("risk_hint") if isinstance(payload.get("risk_hint"), dict) else {},
+                trace_id=message.trace_id,
+            )
+            if boundary_control is not None:
+                try:
+                    boundary_pre_observation = boundary_control.pre_observe(boundary_contract)
+                except Exception:
+                    boundary_pre_observation = {}
         
         # Create execution record
         execution = MCPToolExecution(
@@ -1835,6 +1879,44 @@ class MCPServer:
             or (str(decision_id) if decision_id else "")
         )
         resolved_queue_id = validated_governance_context.get("queue_id") or (str(queue_id) if queue_id else "")
+
+        async def _emit_boundary_crossing_event(mcp_outcome: str, mcp_reason: str = "") -> None:
+            nonlocal boundary_post_observation
+            if boundary_control is None or boundary_contract is None:
+                return
+            try:
+                boundary_post_observation = boundary_control.post_observe(
+                    boundary_contract,
+                    pre_observation=boundary_pre_observation,
+                    mcp_outcome=mcp_outcome,
+                    mcp_reason=mcp_reason,
+                    execution_status=execution.status,
+                )
+                await self._emit_mcp_event(
+                    event_type="boundary_crossing",
+                    entity_refs=[
+                        execution.execution_id,
+                        execution.tool_id,
+                        execution.principal,
+                    ],
+                    payload={
+                        "crossing_outcome": boundary_post_observation.get("world_event_outcome", "allowed"),
+                        "mcp_outcome": str(mcp_outcome or "allowed"),
+                        "mcp_reason": str(mcp_reason or ""),
+                        "execution_status": execution.status,
+                        "policy_decision_id": execution.policy_decision_id,
+                        "governance_decision_id": resolved_decision_id,
+                        "governance_queue_id": resolved_queue_id,
+                        "token_id": execution.token_id,
+                        "trace_id": message.trace_id,
+                        "pre_observation": boundary_pre_observation,
+                        "post_observation": boundary_post_observation,
+                        "boundary_contract": contract_to_dict(boundary_contract) if contract_to_dict else {},
+                    },
+                    trigger_triune=True,
+                )
+            except Exception:
+                logger.exception("Failed to emit boundary crossing event for %s", execution.execution_id)
 
         # Mandatory governance boundary: high-impact MCP tools must either have
         # server-validated approved governance context or be newly queued.
@@ -1898,6 +1980,10 @@ class MCPServer:
                 },
                 trigger_triune=True,
             )
+            await _emit_boundary_crossing_event(
+                mcp_outcome="queued" if execution.status == "queued_for_triune_approval" else "denied",
+                mcp_reason=execution.error or governance_error,
+            )
             return self.create_message(
                 message_type=MCPMessageType.TOOL_RESPONSE,
                 source="mcp_server",
@@ -1908,6 +1994,10 @@ class MCPServer:
                     "output": execution.output,
                     "error": execution.error,
                     "audit_hash": execution.audit_hash,
+                    "boundary": {
+                        "pre": boundary_pre_observation,
+                        "post": boundary_post_observation,
+                    },
                 },
                 trace_id=message.trace_id,
             )
@@ -1961,6 +2051,10 @@ class MCPServer:
                     },
                     trigger_triune=True,
                 )
+                await _emit_boundary_crossing_event(
+                    mcp_outcome="token-invalid",
+                    mcp_reason=execution.error or token_message,
+                )
                 return self.create_message(
                     message_type=MCPMessageType.TOOL_RESPONSE,
                     source="mcp_server",
@@ -1971,6 +2065,10 @@ class MCPServer:
                         "output": execution.output,
                         "error": execution.error,
                         "audit_hash": execution.audit_hash,
+                        "boundary": {
+                            "pre": boundary_pre_observation,
+                            "post": boundary_post_observation,
+                        },
                     },
                     trace_id=message.trace_id,
                 )
@@ -2048,6 +2146,10 @@ class MCPServer:
             },
             trigger_triune=execution.status in {"failed", "timeout"},
         )
+        await _emit_boundary_crossing_event(
+            mcp_outcome="allowed" if execution.status != "denied" else "denied",
+            mcp_reason=execution.error or "",
+        )
         
         # Create response
         return self.create_message(
@@ -2059,7 +2161,11 @@ class MCPServer:
                 "status": execution.status,
                 "output": execution.output,
                 "error": execution.error,
-                "audit_hash": execution.audit_hash
+                "audit_hash": execution.audit_hash,
+                "boundary": {
+                    "pre": boundary_pre_observation,
+                    "post": boundary_post_observation,
+                },
             },
             trace_id=message.trace_id
         )
@@ -2193,12 +2299,19 @@ class MCPServer:
     
     def get_server_status(self) -> Dict:
         """Get MCP server status"""
+        boundary_status = {}
+        if boundary_control is not None:
+            try:
+                boundary_status = boundary_control.get_boundary_status()
+            except Exception:
+                boundary_status = {}
         return {
             "tools_registered": len(self.tools),
             "handlers_registered": len(self.tool_handlers),
             "pending_requests": len(self.pending_requests),
             "message_history_size": len(self.message_history),
-            "total_executions": len(self.executions)
+            "total_executions": len(self.executions),
+            "boundary_status": boundary_status,
         }
 
 

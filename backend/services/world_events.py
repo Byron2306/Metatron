@@ -17,6 +17,7 @@ EVENT_CLASS_ACTION_CRITICAL_RECOMPUTE = "action_critical_recompute"
 
 _ACTION_CRITICAL_MARKERS = (
     "outbound_gate",
+    "boundary_crossing",
     "gated",
     "approval",
     "command_created",
