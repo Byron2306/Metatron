@@ -205,6 +205,8 @@ class TrivyScanner:
     https://github.com/aquasecurity/trivy
     """
     
+    _missing_trivy_warned = False
+
     def __init__(self):
         self.trivy_path = self._find_trivy()
         self.scan_cache: Dict[str, ImageScanResult] = {}
@@ -224,7 +226,9 @@ class TrivyScanner:
                     return path
             except Exception:
                 continue
-        logger.warning("Trivy not found - using degraded container metadata scan mode")
+        if not TrivyScanner._missing_trivy_warned:
+            logger.warning("Trivy not found - using degraded container metadata scan mode")
+            TrivyScanner._missing_trivy_warned = True
         return None
 
     @staticmethod
