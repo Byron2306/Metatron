@@ -146,6 +146,8 @@ TECHNIQUE_TO_TACTIC = {
     "T1595.002": "TA0043",
     "T1592.002": "TA0043",
     "T1573": "TA0011",
+    "T1589": "TA0043",
+    "T1591": "TA0043",
     "T1595.001": "TA0043",
     "T1016": "TA0007",
     "T1082": "TA0007",
@@ -394,6 +396,63 @@ SIMULATION_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
     "monte carlo": ["T1595.001", "T1046"],
     "predicted_next": ["T1021", "T1570"],
     "choke point": ["T1046", "T1016"],
+}
+
+DECEPTION_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "honeypot": ["T1595.001", "T1190"],
+    "honey token": ["T1552.001", "T1555", "T1078"],
+    "honeytoken": ["T1552.001", "T1555", "T1078"],
+    "canary": ["T1486", "T1490", "T1565.001"],
+    "decoy": ["T1552.001", "T1555", "T1078"],
+    "trap": ["T1595.001", "T1190"],
+    "tarpit": ["T1595.001", "T1190"],
+    "credential bait": ["T1552.001", "T1555"],
+    "fake aws key": ["T1552.005", "T1078.004"],
+    "api key": ["T1528", "T1552.001"],
+    "jwt token": ["T1528", "T1552.001"],
+    "oauth token": ["T1528", "T1078"],
+}
+
+RANSOMWARE_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "ransomware": ["T1486", "T1490"],
+    "encrypt": ["T1486"],
+    "encrypted": ["T1486"],
+    "mass_encryption": ["T1486"],
+    "locked": ["T1486"],
+    "shadow copy": ["T1490"],
+    "vssadmin": ["T1490"],
+    "backup_service_stop": ["T1490", "T1562.001"],
+    "event_log_shadow_deletion": ["T1490", "T1070"],
+    "protected_folder_access": ["T1486", "T1005"],
+    "suspicious_rename": ["T1565.001", "T1070"],
+    "canary_triggered": ["T1486", "T1490"],
+}
+
+DECEPTION_EVENT_TECHNIQUES: Dict[str, List[str]] = {
+    "deception.honey_token.accessed": ["T1552.001", "T1555", "T1078"],
+    "honey_token_checked": ["T1552.001", "T1555", "T1078"],
+    "honey_token_created": ["T1552.001"],
+    "deception_interaction": ["T1595.001", "T1190", "T1552.001"],
+    "deception_decoy_deployed": ["T1552.001", "T1555"],
+    "cli_deception_hit_ingested": ["T1552.001", "T1550.003", "T1078"],
+    "honeypot_alert_created": ["T1595.001", "T1190"],
+    "honeypot_interaction_recorded": ["T1595.001", "T1190"],
+    "ransomware_canaries_checked": ["T1486", "T1490"],
+    "ransomware_canaries_deployed": ["T1486", "T1490"],
+    "ransomware_protection_started": ["T1486", "T1490"],
+    "advanced_vns_canary_ip_gated": ["T1595.001", "T1071"],
+    "advanced_vns_canary_domain_gated": ["T1595.001", "T1071.004"],
+}
+
+HONEY_TOKEN_TYPE_TECHNIQUES: Dict[str, List[str]] = {
+    "api_key": ["T1528", "T1552.001"],
+    "password": ["T1555", "T1078"],
+    "aws_key": ["T1552.005", "T1078.004"],
+    "database_cred": ["T1552.001", "T1555"],
+    "ssh_key": ["T1552.001", "T1078"],
+    "jwt_token": ["T1528", "T1078"],
+    "oauth_token": ["T1528", "T1078"],
+    "webhook_url": ["T1071", "T1041"],
 }
 
 
@@ -2646,6 +2705,328 @@ async def _collect_threat_correlation_telemetry_evidence(techniques: Dict[str, D
     )
 
 
+def _deception_event_local_techniques(event_type: str, payload: Any) -> Set[str]:
+    local: Set[str] = set()
+    normalized_event_type = str(event_type or "").strip().lower()
+    for event_key, mapped in DECEPTION_EVENT_TECHNIQUES.items():
+        if event_key in normalized_event_type:
+            for technique in mapped:
+                normalized = _normalize_technique(technique)
+                if normalized:
+                    local.add(normalized)
+
+    local.update(_extract_keyword_techniques(payload, DECEPTION_KEYWORD_TECHNIQUES))
+    local.update(_extract_keyword_techniques(payload, RANSOMWARE_KEYWORD_TECHNIQUES))
+    local.update(_extract_semantic_attack_techniques(payload))
+    local.update(_extract_attack_techniques(payload))
+
+    payload_dict = payload if isinstance(payload, dict) else {}
+    action = str(payload_dict.get("action") or "").strip().lower()
+    if action == "login_attempt":
+        local.add("T1110.003")
+    elif action == "command":
+        local.add("T1059")
+    elif action == "file_access":
+        local.update({"T1005", "T1486"})
+    elif action == "connection":
+        local.add("T1046")
+
+    decoy_type = str(payload_dict.get("decoy_type") or "").strip().lower()
+    if decoy_type == "honeypot":
+        local.update({"T1595.001", "T1190"})
+    elif decoy_type in {"honey_token", "token"}:
+        local.update({"T1552.001", "T1555", "T1078"})
+    elif decoy_type == "canary":
+        local.update({"T1486", "T1490"})
+
+    return {t for t in local if t}
+
+
+async def _collect_deception_ransomware_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from deception, honeypots, honey tokens, canaries, and ransomware telemetry."""
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    def mark(local: Set[str], source: str, score: int, extra_sources: Set[str] | None = None) -> None:
+        local = {_normalize_technique(t) for t in local if _normalize_technique(t)}
+        if not local:
+            return
+        tags = set(extra_sources or set())
+        tags.add(source)
+        for technique in local:
+            counts[technique] = counts.get(technique, 0) + 1
+            source_map.setdefault(technique, set()).update(tags)
+            max_score[technique] = max(max_score.get(technique, 0), score)
+
+    # Runtime deception engine telemetry.
+    try:
+        try:
+            from deception_engine import deception_engine
+        except Exception:
+            from backend.deception_engine import deception_engine
+    except Exception:
+        deception_engine = None
+
+    if deception_engine is not None:
+        try:
+            status = deception_engine.get_status() if hasattr(deception_engine, "get_status") else {}
+        except Exception:
+            status = {}
+        campaign_total = _safe_int((status.get("campaigns") or {}).get("total"))
+        recent_events = _safe_int(status.get("recent_events"))
+        if campaign_total > 0 or recent_events > 0:
+            base_score = 4 if recent_events > 0 else 3
+            _mark_technique(techniques, "T1595.001", score=base_score, source="deception_engine_runtime")
+            _mark_technique(techniques, "T1552.001", score=base_score, source="deception_engine_runtime")
+
+        try:
+            events = deception_engine.get_events(limit=1200) if hasattr(deception_engine, "get_events") else []
+        except Exception:
+            events = []
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            local = _deception_event_local_techniques(event.get("event_type"), event)
+            risk_score = _safe_int(event.get("risk_score"))
+            route = str(event.get("route_decision") or "").strip().lower()
+            score = 4 if risk_score >= 70 or route in {"trap_sink", "honeypot"} else 3
+            mark(local, "deception_runtime_event", score, extra_sources={f"deception_route_{route}" if route else "deception_route_unknown"})
+
+        try:
+            campaigns = deception_engine.get_campaigns(min_events=1, limit=500) if hasattr(deception_engine, "get_campaigns") else []
+        except Exception:
+            campaigns = []
+        for campaign in campaigns:
+            if not isinstance(campaign, dict):
+                continue
+            local = {"T1595.001"}
+            if _safe_int(campaign.get("decoy_interactions")) > 0:
+                local.update({"T1552.001", "T1555"})
+            if _safe_int(campaign.get("trap_events")) > 0:
+                local.update({"T1190", "T1046"})
+            score = 4 if _safe_int(campaign.get("total_events")) >= 8 or _safe_int(campaign.get("trap_events")) > 0 else 3
+            mark(local, "deception_campaign_runtime", score)
+
+    # Runtime honey token telemetry.
+    try:
+        try:
+            from honey_tokens import honey_token_manager
+        except Exception:
+            from backend.honey_tokens import honey_token_manager
+    except Exception:
+        honey_token_manager = None
+
+    if honey_token_manager is not None:
+        try:
+            token_stats = honey_token_manager.get_stats() if hasattr(honey_token_manager, "get_stats") else {}
+        except Exception:
+            token_stats = {}
+        total_tokens = _safe_int(token_stats.get("total_tokens"))
+        total_accesses = _safe_int(token_stats.get("total_accesses"))
+        if total_tokens > 0:
+            _mark_technique(techniques, "T1552.001", score=3, source="honey_token_catalog_runtime")
+            _mark_technique(techniques, "T1555", score=3, source="honey_token_catalog_runtime")
+            _mark_technique(techniques, "T1078", score=3, source="honey_token_catalog_runtime")
+        if total_accesses > 0:
+            _mark_technique(techniques, "T1552.001", score=4, source="honey_token_access_runtime")
+            _mark_technique(techniques, "T1555", score=4, source="honey_token_access_runtime")
+            _mark_technique(techniques, "T1078", score=4, source="honey_token_access_runtime")
+
+        try:
+            accesses = honey_token_manager.get_accesses(limit=800) if hasattr(honey_token_manager, "get_accesses") else []
+        except Exception:
+            accesses = []
+        for access in accesses:
+            local = _deception_event_local_techniques("deception.honey_token.accessed", access)
+            score = 4
+            mark(local, "honey_token_access_runtime_detail", score)
+
+    # Runtime ransomware telemetry.
+    try:
+        try:
+            from ransomware_protection import ransomware_protection
+        except Exception:
+            from backend.ransomware_protection import ransomware_protection
+    except Exception:
+        ransomware_protection = None
+
+    if ransomware_protection is not None:
+        try:
+            r_status = ransomware_protection.get_status() if hasattr(ransomware_protection, "get_status") else {}
+        except Exception:
+            r_status = {}
+
+        config_state = r_status.get("config") or {}
+        canary_state = r_status.get("canary_status") or {}
+        behavioral_state = r_status.get("behavioral_status") or {}
+        folder_state = r_status.get("protected_folders_status") or {}
+        shadow_state = r_status.get("shadow_copy_status") or {}
+
+        if bool(config_state.get("canary_enabled")):
+            _mark_technique(techniques, "T1486", score=3, source="ransomware_canary_capability")
+            _mark_technique(techniques, "T1490", score=3, source="ransomware_canary_capability")
+
+        triggered_canaries = _safe_int(canary_state.get("triggered_canaries"))
+        suspicious_renames = _safe_int(behavioral_state.get("suspicious_renames"))
+        blocked_attempts = _safe_int(folder_state.get("blocked_attempts"))
+        shadow_detections = _safe_int(shadow_state.get("detections"))
+        if triggered_canaries > 0:
+            _mark_technique(techniques, "T1486", score=4, source="ransomware_canary_triggered_runtime")
+            _mark_technique(techniques, "T1490", score=4, source="ransomware_canary_triggered_runtime")
+        if suspicious_renames > 0:
+            _mark_technique(techniques, "T1565.001", score=4, source="ransomware_behavior_rename_runtime")
+            _mark_technique(techniques, "T1070", score=4, source="ransomware_behavior_rename_runtime")
+        if blocked_attempts > 0:
+            _mark_technique(techniques, "T1486", score=4, source="ransomware_folder_violation_runtime")
+            _mark_technique(techniques, "T1005", score=3, source="ransomware_folder_violation_runtime")
+        if shadow_detections > 0:
+            _mark_technique(techniques, "T1490", score=4, source="ransomware_shadowcopy_runtime")
+            _mark_technique(techniques, "T1562.001", score=4, source="ransomware_shadowcopy_runtime")
+
+        try:
+            shadow_alerts = ransomware_protection.get_shadow_copy_alerts(limit=600) if hasattr(ransomware_protection, "get_shadow_copy_alerts") else []
+        except Exception:
+            shadow_alerts = []
+        for alert in shadow_alerts:
+            if not isinstance(alert, dict):
+                continue
+            local = _deception_event_local_techniques("ransomware_shadow_alert", alert)
+            local.update(_extract_keyword_techniques(alert, RANSOMWARE_KEYWORD_TECHNIQUES))
+            local.update({"T1490", "T1562.001"})
+            mark(local, "ransomware_shadow_alert_runtime", 4)
+
+        try:
+            folder_violations = ransomware_protection.get_folder_violations(limit=600) if hasattr(ransomware_protection, "get_folder_violations") else []
+        except Exception:
+            folder_violations = []
+        for violation in folder_violations:
+            if not isinstance(violation, dict):
+                continue
+            local = _deception_event_local_techniques("ransomware_folder_violation", violation)
+            local.update(_extract_keyword_techniques(violation, RANSOMWARE_KEYWORD_TECHNIQUES))
+            local.update({"T1486"})
+            mark(local, "ransomware_folder_violation_runtime_detail", 4)
+
+    # Persistent DB and world-event evidence.
+    if db is not None:
+        collection_specs = [
+            ("deception_hits", "deception_hits_collection"),
+            ("honeypot_interactions", "honeypot_interactions_collection"),
+            ("honeypot_alerts", "honeypot_alerts_collection"),
+            ("honeypots", "honeypot_catalog_collection"),
+            ("honey_tokens", "honey_token_catalog_collection"),
+        ]
+        for collection_name, source_tag in collection_specs:
+            col = getattr(db, collection_name, None)
+            if col is None:
+                continue
+            try:
+                docs = await col.find({}, {"_id": 0}).to_list(length=1500)
+            except Exception:
+                docs = []
+            for doc in docs:
+                local = _extract_attack_techniques(doc)
+                local.update(_extract_keyword_techniques(doc, DECEPTION_KEYWORD_TECHNIQUES))
+                local.update(_extract_keyword_techniques(doc, RANSOMWARE_KEYWORD_TECHNIQUES))
+                local.update(_extract_semantic_attack_techniques(doc))
+
+                if collection_name == "honeypot_interactions":
+                    action = str(doc.get("action") or "").strip().lower()
+                    if action == "login_attempt":
+                        local.add("T1110.003")
+                    elif action == "command":
+                        local.add("T1059")
+                    elif action == "file_access":
+                        local.update({"T1005", "T1486"})
+                    elif action == "connection":
+                        local.add("T1046")
+                    local.update({"T1595.001", "T1190"})
+                elif collection_name == "deception_hits":
+                    local.update({"T1552.001", "T1550.003", "T1078"})
+                elif collection_name == "honey_tokens":
+                    token_type = str(doc.get("token_type") or "").strip().lower()
+                    for technique in HONEY_TOKEN_TYPE_TECHNIQUES.get(token_type, []):
+                        normalized = _normalize_technique(technique)
+                        if normalized:
+                            local.add(normalized)
+                    if _safe_int(doc.get("access_count")) > 0:
+                        local.update({"T1552.001", "T1555", "T1078"})
+
+                severity = str(doc.get("severity") or "").lower()
+                score = 4 if severity in {"critical", "high"} else 3
+                if collection_name == "honeypot_interactions" and str(doc.get("threat_level") or "").lower() in {"high", "critical"}:
+                    score = 4
+                mark(local, source_tag, score)
+
+        try:
+            event_docs = await db.world_events.find(
+                {},
+                {"_id": 0, "event_type": 1, "type": 1, "payload": 1, "entity_refs": 1},
+            ).sort("created", -1).to_list(length=4000)
+        except Exception:
+            event_docs = []
+        for event in event_docs:
+            event_type = str(event.get("event_type") or event.get("type") or "").strip().lower()
+            if not event_type:
+                continue
+            if not any(token in event_type for token in ["deception", "honeypot", "honey_token", "canary", "ransomware"]):
+                payload_blob = str(event.get("payload") or "").lower()
+                if not any(token in payload_blob for token in ["deception", "honeypot", "honey", "canary", "ransomware"]):
+                    continue
+            payload = event.get("payload") or {}
+            local = _deception_event_local_techniques(event_type, event)
+            local.update(_extract_keyword_techniques(event, DECEPTION_KEYWORD_TECHNIQUES))
+            local.update(_extract_keyword_techniques(event, RANSOMWARE_KEYWORD_TECHNIQUES))
+            if "honeypot" in event_type and not local:
+                local.update({"T1595.001", "T1190"})
+            if "honey_token" in event_type and not local:
+                local.update({"T1552.001", "T1555", "T1078"})
+            if "canary" in event_type and not local:
+                local.update({"T1486", "T1490"})
+            if "ransomware" in event_type and not local:
+                local.update({"T1486", "T1490"})
+
+            score = 3
+            if event_type.endswith("recorded") or event_type.endswith("ingested") or event_type.endswith("checked"):
+                score = 4
+            if _safe_int(payload.get("triggered_count")) > 0 or _safe_int(payload.get("risk_score")) >= 70:
+                score = 4
+            if bool(payload.get("campaign_tracking")):
+                score = 4
+            mark(local, "deception_ransomware_world_event", score, extra_sources={f"event_{event_type}"})
+
+        try:
+            threat_docs = await db.threats.find(
+                {"type": {"$in": ["honeypot", "ransomware"]}},
+                {"_id": 0},
+            ).to_list(length=600)
+        except Exception:
+            threat_docs = []
+        for threat in threat_docs:
+            local = _extract_attack_techniques(threat)
+            local.update(_extract_keyword_techniques(threat, DECEPTION_KEYWORD_TECHNIQUES))
+            local.update(_extract_keyword_techniques(threat, RANSOMWARE_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(threat))
+            threat_type = str(threat.get("type") or "").lower()
+            if threat_type == "honeypot":
+                local.update({"T1595.001", "T1190"})
+            elif threat_type == "ransomware":
+                local.update({"T1486", "T1490"})
+            severity = str(threat.get("severity") or "").lower()
+            score = 4 if severity in {"critical", "high"} else 3
+            mark(local, "deception_ransomware_threat_record", score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
 async def _collect_supply_chain(techniques: Dict[str, Dict], db: Any):
     """Collect supply-chain ATT&CK depth for T1195/T1195.002/T1553.006."""
     # Baseline: policy controls configured in runtime environment.
@@ -2834,6 +3215,7 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     await _collect_ml_prediction_evidence(techniques, db)
     await _collect_strategy_simulation_evidence(techniques, db)
     await _collect_threat_correlation_telemetry_evidence(techniques, db)
+    await _collect_deception_ransomware_evidence(techniques, db)
     await _collect_cspm_findings_history(techniques, db)
     await _collect_unified_monitor_telemetry_evidence(techniques, db)
     await _collect_soar_execution_evidence(techniques, db)
