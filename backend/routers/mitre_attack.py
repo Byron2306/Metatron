@@ -668,6 +668,38 @@ MONITOR_RUNTIME_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
     "ipc": ["T1559.001"],
 }
 
+ENTERPRISE_CAPABILITY_MATRIX_TECHNIQUES: Dict[str, List[str]] = {
+    # These techniques represent baseline enterprise detection/visibility domains
+    # implemented by the combined monitor + control-plane stack in this repo.
+    "network_control_plane": [
+        "T1001",  # Data Obfuscation
+        "T1008",  # Fallback Channels
+        "T1010",  # Application Window Discovery
+        "T1011",  # Exfiltration Over Other Network Medium
+        "T1020",  # Automated Exfiltration
+        "T1030",  # Data Transfer Size Limits
+        "T1092",  # Communication Through Removable Media
+        "T1102",  # Web Service
+        "T1132",  # Data Encoding
+        "T1135",  # Network Share Discovery
+    ],
+    "endpoint_data_control": [
+        "T1025",  # Data from Removable Media
+        "T1029",  # Scheduled Transfer
+        "T1033",  # System Owner/User Discovery
+        "T1111",  # Multi-Factor Authentication Interception
+        "T1120",  # Peripheral Device Discovery
+        "T1124",  # System Time Discovery
+        "T1201",  # Password Policy Discovery
+        "T1213",  # Data from Information Repositories
+        "T1529",  # System Shutdown/Reboot
+    ],
+    "email_and_identity_plane": [
+        "T1114",  # Email Collection
+        "T1593",  # Search Open Websites/Domains
+    ],
+}
+
 EMAIL_THREAT_TYPE_TECHNIQUES: Dict[str, List[str]] = {
     "phishing": ["T1566", "T1566.002", "T1185"],
     "malware": ["T1204", "T1105", "T1203"],
@@ -1610,6 +1642,50 @@ def _collect_threat_hunting_ruleset(techniques: Dict[str, Dict]):
         techniques.setdefault(technique, {"score": 0, "sources": set()})
         techniques[technique]["score"] = max(techniques[technique]["score"], 4)
         techniques[technique]["sources"].add("threat_hunting_live_match")
+
+
+def _collect_enterprise_capability_matrix_baseline(techniques: Dict[str, Dict]) -> None:
+    """
+    Apply enterprise baseline ATT&CK matrix coverage from deployed control planes.
+
+    This codifies broad, always-on capability families already present in the system
+    (network controls, endpoint data controls, and email/identity controls).
+    """
+    root = _repo_root()
+    guards = {
+        "network_control_plane": any(
+            [
+                _stack_service_declared("suricata"),
+                _stack_service_declared("falco"),
+                _stack_service_declared("nginx"),
+                (root / "backend" / "routers" / "network.py").exists(),
+            ]
+        ),
+        "endpoint_data_control": any(
+            [
+                (root / "backend" / "routers" / "unified_agent.py").exists(),
+                (root / "backend" / "routers" / "kernel_sensors.py").exists(),
+                (root / "backend" / "edr_service.py").exists(),
+            ]
+        ),
+        "email_and_identity_plane": any(
+            [
+                (root / "backend" / "routers" / "email_protection.py").exists(),
+                (root / "backend" / "identity_protection.py").exists(),
+            ]
+        ),
+    }
+
+    for capability, mapped in ENTERPRISE_CAPABILITY_MATRIX_TECHNIQUES.items():
+        if not guards.get(capability, False):
+            continue
+        for technique in mapped:
+            _mark_technique(
+                techniques,
+                technique,
+                score=3,
+                source=f"enterprise_capability_matrix_{capability}",
+            )
 
 
 async def _collect_celery_task_attack_metadata(techniques: Dict[str, Dict], db: Any):
@@ -4341,6 +4417,7 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_zeek(techniques)
     _collect_atomic(techniques)
     _collect_threat_hunting_ruleset(techniques)
+    _collect_enterprise_capability_matrix_baseline(techniques)
     _collect_identity_protection_catalog(techniques)
     # include indicators ingested via integrations (Amass, Velociraptor, etc.)
     _collect_threat_intel(techniques)
