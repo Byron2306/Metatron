@@ -7,6 +7,7 @@ Generated: 2026-03-16 (UTC)
 1. **High-level threat simulation pipeline**
    - Script: `backend/scripts/e2e_threat_pipeline_test.py`
    - Report: `test_reports/threat_pipeline_e2e_report.json`
+   - Score report: `test_reports/system_scoring_report.json`
 2. **Broad feature-domain E2E**
    - Script: `full_feature_test.py`
    - Report: `test_reports/feature_test_report.json`
@@ -23,10 +24,19 @@ Generated: 2026-03-16 (UTC)
 
 | Suite | Passed | Total | Pass Rate |
 |---|---:|---:|---:|
-| Threat pipeline simulation | 24 | 24 | 100.0% |
+| Threat pipeline simulation (multi-domain) | 60 | 60 | 100.0% |
 | Full feature E2E | 76 | 76 | 100.0% |
 | Comprehensive system E2E | 80 | 80 | 100.0% |
 | OpenAPI sweep (non-5xx reachability) | 706 | 706 | 100.0% |
+
+### Composite system score (refreshed)
+
+- **100.0 / 100** (**10.0 / 10**, exceptional)
+- Domains simulated: **20**
+- Fully passing domains: **20/20** (100%)
+- MITRE snapshot during scoring run:
+  - `coverage_percent_gte3`: `71.3`
+  - `covered_score_gte4`: `118`
 
 ---
 
@@ -54,7 +64,23 @@ Feedback surface checks:
 - MITRE coverage snapshot available:
   - `coverage_percent_gte3`: `71.3`
   - `covered_score_gte3`: `214`
-  - `covered_score_gte4`: `115`
+  - `covered_score_gte4`: `118`
+
+### Additional simulated threat domains (new)
+
+- Zero Trust: device registration + access/trust-score evaluation
+- VPN: peer add/start/stop through governance approvals
+- Threat Response: block-IP action queue + approval
+- Deception: risk assessment + decoy interaction
+- Honey Tokens / Honeypots: token creation/toggle + interaction recording
+- SOAR: trigger-based playbook execution path
+- Enterprise Policy: policy evaluation path
+- Cloud/CSPM: scan trigger path
+- Container Security: image scan path
+- Quantum Security: Dilithium key/sign/verify + Kyber key/encrypt + hashing
+- AI Defense actions: escalate, deploy decoy, engage tarpit
+- Agent/CLI/Extension ingest: event + command ingest/report flow
+- Boundary controls: machine-token protected endpoints verified to reject user tokens (`401`)
 
 ---
 
