@@ -604,16 +604,22 @@ MOBILE_SECURITY_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
 
 MONITOR_CAPABILITY_TECHNIQUES: Dict[str, List[str]] = {
     # User-facing monitor domains in unified agent telemetry.
+    "registry": ["T1012", "T1112"],
+    "process_tree": ["T1106", "T1559.001"],
+    "lolbin": ["T1127", "T1197", "T1202"],
+    "memory": ["T1106", "T1140"],
+    "dlp": ["T1005", "T1119", "T1533"],
+    "identity": ["T1482", "T1078.004"],
     "email_protection": ["T1566", "T1566.001", "T1566.002", "T1185"],
-    "firewall": ["T1562.004", "T1568", "T1571", "T1572", "T1573", "T1499"],
+    "firewall": ["T1562.004", "T1568", "T1571", "T1572", "T1573", "T1499", "T1049", "T1090"],
     "hidden_file": ["T1564.001", "T1564.004"],
     "priv_escalation": ["T1068", "T1548", "T1134.005"],
     "alias_rename": ["T1036.003", "T1036.005", "T1202"],
-    "cli_telemetry": ["T1219", "T1021.001", "T1021.002", "T1021.006"],
+    "cli_telemetry": ["T1219", "T1021.001", "T1021.002", "T1021.006", "T1563.002"],
     "whitelist": ["T1204", "T1140"],
     "webview2": ["T1189", "T1176", "T1059.007"],
     "mobile_security": ["T1660", "T1439", "T1465", "T1557"],
-    "vulnerability": ["T1203", "T1190"],
+    "vulnerability": ["T1203", "T1190", "T1210"],
 }
 
 MONITOR_RUNTIME_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
@@ -643,6 +649,27 @@ MONITOR_RUNTIME_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
     "proxy": ["T1090", "T1573"],
     "beacon": ["T1071", "T1571"],
     "privilege escalation": ["T1068", "T1548"],
+    "registry query": ["T1012"],
+    "registry run key": ["T1112", "T1547.001"],
+    "automated collection": ["T1119", "T1005"],
+    "service create": ["T1569", "T1543.003"],
+    "service start": ["T1569.002"],
+    "remote shell": ["T1563.002", "T1021"],
+    "network share": ["T1021.002", "T1049"],
+    "exploit": ["T1203", "T1210"],
+    "native api": ["T1106"],
+    "ipc": ["T1559.001"],
+}
+
+EMAIL_THREAT_TYPE_TECHNIQUES: Dict[str, List[str]] = {
+    "phishing": ["T1566", "T1566.002", "T1185"],
+    "malware": ["T1204", "T1105", "T1203"],
+    "impersonation": ["T1185", "T1566.002", "T1585"],
+    "business_email_compromise": ["T1566.002", "T1591"],
+    "data_exfiltration": ["T1041", "T1567.002", "T1119", "T1005"],
+    "spoofing": ["T1585", "T1566.002"],
+    "suspicious_attachment": ["T1204", "T1203", "T1140"],
+    "credential_harvesting": ["T1185", "T1555", "T1566.002"],
 }
 
 
@@ -2164,6 +2191,120 @@ async def _collect_mobile_security_evidence(techniques: Dict[str, Dict], db: Any
             severity = str(payload.get("severity") or payload.get("level") or "").lower()
             score = 4 if severity in {"critical", "high"} or "threat_detected" in event_type else 3
             add_techniques(local, "mobile_mdm_world_event", score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_email_protection_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from email protection runtime + world-event telemetry."""
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    def add_techniques(local: Set[str], source_tag: str, score: int) -> None:
+        for technique in local:
+            normalized = _normalize_technique(technique)
+            if not normalized:
+                continue
+            counts[normalized] = counts.get(normalized, 0) + 1
+            source_map.setdefault(normalized, set()).add(source_tag)
+            max_score[normalized] = max(max_score.get(normalized, 0), score)
+
+    try:
+        try:
+            from email_protection import email_protection_service
+        except Exception:
+            from backend.email_protection import email_protection_service
+    except Exception:
+        email_protection_service = None
+
+    if email_protection_service is not None:
+        try:
+            stats = email_protection_service.get_stats() or {}
+        except Exception:
+            stats = {}
+        if isinstance(stats, dict):
+            features = stats.get("features") or {}
+            if bool(features.get("phishing_detection")):
+                add_techniques({"T1566", "T1566.002", "T1185"}, "email_protection_capability_phishing", 3)
+            if bool(features.get("attachment_scanning")):
+                add_techniques({"T1204", "T1203", "T1140", "T1105"}, "email_protection_capability_attachment", 3)
+            if bool(features.get("impersonation_protection")):
+                add_techniques({"T1185", "T1585", "T1591"}, "email_protection_capability_impersonation", 3)
+            if bool(features.get("dlp")):
+                add_techniques({"T1119", "T1005", "T1533"}, "email_protection_capability_dlp", 3)
+            if bool(features.get("url_analysis")):
+                add_techniques({"T1189", "T1568", "T1571"}, "email_protection_capability_url_analysis", 3)
+
+        try:
+            assessments = list((getattr(email_protection_service, "assessments", {}) or {}).values())
+        except Exception:
+            assessments = []
+        for assessment in assessments:
+            local: Set[str] = set()
+            local.update(_extract_attack_techniques(assessment))
+            local.update(_extract_keyword_techniques(str(assessment), BROWSER_SECURITY_KEYWORD_TECHNIQUES))
+            local.update(_extract_keyword_techniques(str(assessment), MONITOR_RUNTIME_KEYWORD_TECHNIQUES))
+            for threat in getattr(assessment, "threat_types", []) or []:
+                local.update(_extract_keyword_techniques(str(getattr(threat, "value", threat)), EMAIL_THREAT_TYPE_TECHNIQUES))
+            if getattr(assessment, "dlp_analysis", None) and getattr(assessment.dlp_analysis, "has_sensitive_data", False):
+                local.update({"T1119", "T1005"})
+            for att in getattr(assessment, "attachment_analysis", []) or []:
+                if bool(getattr(att, "is_macro_enabled", False)) or bool(getattr(att, "is_executable", False)):
+                    local.update({"T1204", "T1203"})
+                if bool(getattr(att, "is_encrypted", False)):
+                    local.update({"T1140", "T1027"})
+            for url in getattr(assessment, "url_analysis", []) or []:
+                if bool(getattr(url, "is_ip_based", False)):
+                    local.add("T1566.002")
+                if bool(getattr(url, "is_shortened", False)):
+                    local.add("T1568")
+            if getattr(assessment, "impersonation_analysis", None) and getattr(assessment.impersonation_analysis, "is_impersonation", False):
+                local.update({"T1185", "T1585"})
+            if not local:
+                continue
+            risk = str(getattr(getattr(assessment, "overall_risk", ""), "value", getattr(assessment, "overall_risk", ""))).lower()
+            action = str(getattr(assessment, "recommended_action", "")).lower()
+            score = 4 if risk in {"critical", "high"} or action in {"block", "quarantine"} else 3
+            add_techniques(local, "email_protection_runtime_assessment", score)
+
+    if db is not None:
+        try:
+            docs = await db.world_events.find(
+                {"event_type": {"$regex": r"^email_protection_", "$options": "i"}},
+                {"_id": 0, "event_type": 1, "payload": 1},
+            ).to_list(length=1200)
+        except Exception:
+            docs = []
+        for doc in docs:
+            local = _extract_attack_techniques(doc)
+            local.update(_extract_keyword_techniques(doc, EMAIL_THREAT_TYPE_TECHNIQUES))
+            local.update(_extract_keyword_techniques(doc, MONITOR_RUNTIME_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(doc))
+            event_type = str(doc.get("event_type") or "").lower()
+            payload = doc.get("payload") or {}
+            if "email_analyzed" in event_type:
+                local.update({"T1566", "T1185"})
+            if "quarantine" in event_type:
+                local.update({"T1204", "T1203"})
+            if "blocked_sender" in event_type:
+                local.update({"T1566.002", "T1585"})
+            if not local:
+                continue
+            risk = str(payload.get("overall_risk") or payload.get("risk_level") or "").lower()
+            threat_types = [str(v).lower() for v in (payload.get("threat_types") or [])]
+            if any(t in {"malware", "phishing", "business_email_compromise"} for t in threat_types):
+                score = 4
+            else:
+                score = 4 if risk in {"critical", "high"} else 3
+            add_techniques(local, "email_protection_world_event", score)
 
     _merge_collector_scores(
         techniques,
@@ -4077,6 +4218,7 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     await _collect_defense_evasion_signal_evidence(techniques, db)
     await _collect_browser_security_evidence(techniques, db)
     await _collect_mobile_security_evidence(techniques, db)
+    await _collect_email_protection_evidence(techniques, db)
     await _collect_unified_monitor_telemetry_evidence(techniques, db)
     await _collect_soar_execution_evidence(techniques, db)
     await _collect_network_scan_evidence(techniques, db)
