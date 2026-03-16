@@ -698,6 +698,14 @@ ENTERPRISE_CAPABILITY_MATRIX_TECHNIQUES: Dict[str, List[str]] = {
         "T1114",  # Email Collection
         "T1593",  # Search Open Websites/Domains
     ],
+    "recon_threat_intel_plane": [
+        "T1016",      # System Network Configuration Discovery
+        "T1580",      # Cloud Infrastructure Discovery
+        "T1590.001",  # Gather Victim Network Information: DNS
+        "T1590.002",  # Gather Victim Network Information: Network Topology
+        "T1590.004",  # Gather Victim Network Information: Network Trust Dependencies
+        "T1596",      # Search Open Technical Databases
+    ],
 }
 
 # Hypothesis-driven expansion for enterprise ATT&CK breadth:
@@ -1875,6 +1883,13 @@ def _collect_enterprise_capability_matrix_baseline(techniques: Dict[str, Dict]) 
             [
                 (root / "backend" / "routers" / "email_protection.py").exists(),
                 (root / "backend" / "identity_protection.py").exists(),
+            ]
+        ),
+        "recon_threat_intel_plane": any(
+            [
+                (root / "backend" / "routers" / "threat_intel.py").exists(),
+                (root / "backend" / "services" / "network_discovery.py").exists(),
+                (root / "backend" / "tasks" / "integrations_tasks.py").exists(),
             ]
         ),
     }
