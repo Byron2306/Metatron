@@ -224,6 +224,11 @@ TECHNIQUE_TO_TACTIC = {
     "T1590.002": "TA0043",
     "T1590.004": "TA0043",
     "T1596": "TA0043",
+    "T1398": "TA0005",
+    "T1439": "TA0011",
+    "T1444": "TA0002",
+    "T1465": "TA0001",
+    "T1660": "TA0001",
 }
 
 PRIORITY_GAPS = [
@@ -559,6 +564,40 @@ DEFENSE_EVASION_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
     "obfuscat": ["T1027"],
     "indirect command": ["T1202"],
     "signed binary proxy": ["T1218"],
+}
+
+BROWSER_SECURITY_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "browser isolation": ["T1189"],
+    "drive-by": ["T1189", "T1204"],
+    "download": ["T1204", "T1105"],
+    "malicious download": ["T1204", "T1105"],
+    "script": ["T1059.007", "T1189"],
+    "javascript": ["T1059.007", "T1189"],
+    "credential phish": ["T1185", "T1660"],
+    "ssl certificate": ["T1557"],
+    "self-signed": ["T1557"],
+    "hostname mismatch": ["T1557"],
+    "phishing": ["T1185", "T1660", "T1566.002"],
+}
+
+MOBILE_SECURITY_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "mobile": ["T1660"],
+    "jailbreak": ["T1398"],
+    "rooted": ["T1398"],
+    "malicious app": ["T1444", "T1204"],
+    "sideload": ["T1444", "T1204"],
+    "phishing": ["T1660", "T1566.002"],
+    "network attack": ["T1439", "T1557"],
+    "mitm": ["T1557", "T1439"],
+    "man in the middle": ["T1557", "T1439"],
+    "rogue wifi": ["T1465", "T1439"],
+    "data leakage": ["T1533", "T1041"],
+    "mdm": ["T1078.004", "T1199"],
+    "intune": ["T1078.004", "T1199"],
+    "jamf": ["T1078.004", "T1199"],
+    "workspace one": ["T1078.004", "T1199"],
+    "google workspace": ["T1078.004", "T1199"],
+    "compliance": ["T1078.004", "T1552.001"],
 }
 
 
@@ -1812,6 +1851,255 @@ async def _collect_defense_evasion_signal_evidence(techniques: Dict[str, Dict], 
                 counts[normalized] = counts.get(normalized, 0) + 1
                 source_map.setdefault(normalized, set()).add(f"{collection_name}_defense_evasion")
                 max_score[normalized] = max(max_score.get(normalized, 0), score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_browser_security_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from browser isolation runtime + telemetry."""
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    def add_techniques(local: Set[str], source_tag: str, score: int) -> None:
+        for technique in local:
+            normalized = _normalize_technique(technique)
+            if not normalized:
+                continue
+            counts[normalized] = counts.get(normalized, 0) + 1
+            source_map.setdefault(normalized, set()).add(source_tag)
+            max_score[normalized] = max(max_score.get(normalized, 0), score)
+
+    try:
+        try:
+            from browser_isolation import browser_isolation_service
+        except Exception:
+            from backend.browser_isolation import browser_isolation_service
+    except Exception:
+        browser_isolation_service = None
+
+    if browser_isolation_service is not None:
+        try:
+            stats = browser_isolation_service.get_stats() or {}
+        except Exception:
+            stats = {}
+
+        features = stats.get("enterprise_features") if isinstance(stats, dict) else {}
+        if isinstance(features, dict):
+            if bool(features.get("ssl_validation")):
+                add_techniques({"T1557"}, "browser_ssl_validation_capability", 3)
+            if bool(features.get("file_scanning")):
+                add_techniques({"T1204", "T1105"}, "browser_download_scanning_capability", 3)
+            if bool(features.get("safe_browsing_enabled")) or bool(features.get("virustotal_enabled")):
+                add_techniques({"T1189", "T1660"}, "browser_threat_intel_capability", 3)
+
+        try:
+            sessions = list((getattr(browser_isolation_service, "sessions", {}) or {}).values())
+        except Exception:
+            sessions = []
+        for session in sessions:
+            local: Set[str] = {"T1189"}
+            threat_level = str(getattr(session, "threat_level", "")).lower()
+            scripts_blocked = _safe_int(getattr(session, "scripts_blocked", 0))
+            downloads_blocked = _safe_int(getattr(session, "downloads_blocked", 0))
+            if scripts_blocked > 0:
+                local.update({"T1059.007", "T1189"})
+            if downloads_blocked > 0:
+                local.update({"T1204", "T1105"})
+            cert_info = getattr(session, "certificate_info", {}) or {}
+            cert_status = str(cert_info.get("status") or "").lower() if isinstance(cert_info, dict) else ""
+            if cert_status in {"self_signed", "hostname_mismatch", "untrusted", "error"}:
+                local.add("T1557")
+            score = 4 if threat_level in {"high", "malicious"} or scripts_blocked > 0 or downloads_blocked > 0 else 3
+            add_techniques(local, "browser_isolation_runtime_session", score)
+
+        try:
+            downloads = list((getattr(browser_isolation_service, "download_cache", {}) or {}).values())
+        except Exception:
+            downloads = []
+        for item in downloads:
+            detections = _safe_int(getattr(item, "detections", 0))
+            is_safe = bool(getattr(item, "is_safe", True))
+            local: Set[str] = {"T1204", "T1105"}
+            score = 4 if (detections > 0 or not is_safe) else 3
+            add_techniques(local, "browser_download_runtime_scan", score)
+
+        try:
+            cert_entries = list((getattr(browser_isolation_service, "certificate_cache", {}) or {}).values())
+        except Exception:
+            cert_entries = []
+        for cert in cert_entries:
+            status = str(getattr(cert, "status", "")).lower()
+            if any(token in status for token in ["self_signed", "hostname_mismatch", "untrusted", "error", "expired"]):
+                add_techniques({"T1557"}, "browser_certificate_runtime", 4)
+
+    if db is not None:
+        try:
+            docs = await db.world_events.find(
+                {"event_type": {"$regex": r"^browser_isolation_", "$options": "i"}},
+                {"_id": 0, "event_type": 1, "payload": 1},
+            ).to_list(length=1000)
+        except Exception:
+            docs = []
+        for doc in docs:
+            local = _extract_attack_techniques(doc)
+            local.update(_extract_keyword_techniques(doc, BROWSER_SECURITY_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(doc))
+            event_type = str(doc.get("event_type") or "").lower()
+            payload = doc.get("payload") or {}
+            if "blocked" in event_type:
+                local.update({"T1189", "T1660"})
+            if "download" in event_type:
+                local.update({"T1204", "T1105"})
+            if "sanitize" in event_type:
+                local.update({"T1059.007", "T1189"})
+            if not local:
+                continue
+            threat_level = str(payload.get("threat_level") or "").lower()
+            detections = _safe_int(payload.get("detections"))
+            score = 4 if threat_level in {"high", "malicious"} or detections > 0 or "blocked" in event_type else 3
+            add_techniques(local, "browser_world_event", score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_mobile_security_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence from mobile security + MDM runtime telemetry."""
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    def add_techniques(local: Set[str], source_tag: str, score: int) -> None:
+        for technique in local:
+            normalized = _normalize_technique(technique)
+            if not normalized:
+                continue
+            counts[normalized] = counts.get(normalized, 0) + 1
+            source_map.setdefault(normalized, set()).add(source_tag)
+            max_score[normalized] = max(max_score.get(normalized, 0), score)
+
+    try:
+        try:
+            from mobile_security import mobile_security_service
+        except Exception:
+            from backend.mobile_security import mobile_security_service
+    except Exception:
+        mobile_security_service = None
+
+    try:
+        try:
+            from mdm_connectors import mdm_manager
+        except Exception:
+            from backend.mdm_connectors import mdm_manager
+    except Exception:
+        mdm_manager = None
+
+    if mobile_security_service is not None:
+        try:
+            stats = mobile_security_service.get_stats() or {}
+        except Exception:
+            stats = {}
+        if isinstance(stats, dict):
+            features = stats.get("features") or {}
+            if bool(features.get("threat_detection")):
+                add_techniques({"T1398", "T1444", "T1439", "T1465", "T1660", "T1533", "T1557"}, "mobile_threat_detection_capability", 3)
+            if bool(features.get("compliance_monitoring")):
+                add_techniques({"T1078.004", "T1552.001"}, "mobile_compliance_capability", 3)
+
+        try:
+            threats = list((getattr(mobile_security_service, "threats", {}) or {}).values())
+        except Exception:
+            threats = []
+        for threat in threats:
+            local: Set[str] = set()
+            mapped = _normalize_technique(str(getattr(threat, "mitre_technique", "") or ""))
+            if mapped:
+                local.add(mapped)
+            local.update(_extract_keyword_techniques(str(threat), MOBILE_SECURITY_KEYWORD_TECHNIQUES))
+            severity = str(getattr(threat, "severity", "")).lower()
+            is_resolved = bool(getattr(threat, "is_resolved", False))
+            if not local:
+                continue
+            score = 4 if severity in {"critical", "high"} and not is_resolved else 3
+            add_techniques(local, "mobile_runtime_threat", score)
+
+        try:
+            analyses = list((getattr(mobile_security_service, "app_analyses", {}) or {}).values())
+        except Exception:
+            analyses = []
+        for analysis in analyses:
+            local: Set[str] = set()
+            if bool(getattr(analysis, "is_sideloaded", False)):
+                local.update({"T1444", "T1204"})
+            if bool(getattr(analysis, "is_debuggable", False)):
+                local.add("T1036")
+            dangerous_permissions = getattr(analysis, "dangerous_permissions", []) or []
+            if len(dangerous_permissions) >= 5:
+                local.update({"T1533", "T1552.001"})
+            local.update(_extract_keyword_techniques(str(analysis), MOBILE_SECURITY_KEYWORD_TECHNIQUES))
+            if not local:
+                continue
+            risk_level = str(getattr(analysis, "risk_level", "")).lower()
+            score = 4 if risk_level in {"high", "critical"} else 3
+            add_techniques(local, "mobile_runtime_app_analysis", score)
+
+    if mdm_manager is not None:
+        try:
+            connector_status = mdm_manager.get_connector_status() if hasattr(mdm_manager, "get_connector_status") else {}
+        except Exception:
+            connector_status = {}
+        if isinstance(connector_status, dict) and connector_status:
+            add_techniques({"T1078.004", "T1199"}, "mdm_connector_catalog_runtime", 3)
+            connected_count = sum(1 for row in connector_status.values() if bool((row or {}).get("connected")))
+            if connected_count > 0:
+                add_techniques({"T1078.004", "T1199"}, "mdm_connector_runtime_connected", 4)
+
+        try:
+            all_devices = list((getattr(mdm_manager, "all_devices", {}) or {}).values())
+        except Exception:
+            all_devices = []
+        if all_devices:
+            add_techniques({"T1078.004"}, "mdm_device_inventory_runtime", 3)
+
+    if db is not None:
+        try:
+            docs = await db.world_events.find(
+                {"event_type": {"$regex": r"^(mobile_|mdm_)", "$options": "i"}},
+                {"_id": 0, "event_type": 1, "payload": 1},
+            ).to_list(length=1200)
+        except Exception:
+            docs = []
+        for doc in docs:
+            local = _extract_attack_techniques(doc)
+            local.update(_extract_keyword_techniques(doc, MOBILE_SECURITY_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(doc))
+            event_type = str(doc.get("event_type") or "").lower()
+            payload = doc.get("payload") or {}
+            if "threat_detected" in event_type:
+                local.update({"T1444", "T1398", "T1439", "T1660"})
+            if "device_action" in event_type and str(payload.get("action") or "").lower() in {"wipe", "retire", "lock"}:
+                local.update({"T1078.004", "T1199"})
+            if "compliance" in event_type:
+                local.update({"T1078.004", "T1552.001"})
+            if not local:
+                continue
+            severity = str(payload.get("severity") or payload.get("level") or "").lower()
+            score = 4 if severity in {"critical", "high"} or "threat_detected" in event_type else 3
+            add_techniques(local, "mobile_mdm_world_event", score)
 
     _merge_collector_scores(
         techniques,
@@ -3709,6 +3997,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     await _collect_cspm_findings_history(techniques, db)
     await _collect_cloud_identity_relationship_evidence(techniques, db)
     await _collect_defense_evasion_signal_evidence(techniques, db)
+    await _collect_browser_security_evidence(techniques, db)
+    await _collect_mobile_security_evidence(techniques, db)
     await _collect_unified_monitor_telemetry_evidence(techniques, db)
     await _collect_soar_execution_evidence(techniques, db)
     await _collect_network_scan_evidence(techniques, db)
