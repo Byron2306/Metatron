@@ -175,6 +175,11 @@ class WorldModelService:
         # choose seeds: provided or top hotspots
         if not seed_ids:
             seeds = [e.id for e in await self.list_hotspots(limit=3)]
+            if not seeds and hasattr(self, "entities") and self.entities is not None:
+                # Fallback for fresh deployments where risk scores are absent:
+                # start from the most recently observed entities so the graph remains informative.
+                cursor = self.entities.find({}, {"_id": 0, "id": 1}, sort=[("last_seen", -1)], limit=8)
+                seeds = [doc.get("id") async for doc in cursor if doc.get("id")]
         else:
             seeds = seed_ids
         nodes = {}

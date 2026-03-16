@@ -10,20 +10,67 @@ const API = rawBackendUrl ? `${rawBackendUrl}/api` : '/api';
 
 const toNodeId = (value) => (value && typeof value === 'object' ? value.id : value);
 
+const ensureArray = (value) => (Array.isArray(value) ? value : []);
+
+const normalizeRiskScore = (value) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+  if (value <= 1) return Math.round(value * 100);
+  return Math.max(0, Math.min(100, Math.round(value)));
+};
+
+const inferNodeColor = (riskScore) => {
+  if (riskScore >= 85) return '#ef4444';
+  if (riskScore >= 65) return '#f97316';
+  if (riskScore >= 40) return '#f59e0b';
+  return '#22c55e';
+};
+
 const mapStateToGraph = (state) => {
   const payload = state || {};
-  const entities = Array.isArray(payload.entities) ? payload.entities : [];
-  const relationships = Array.isArray(payload.relationships) ? payload.relationships : [];
-  const nodes = entities.map((entity, idx) => ({
-    id: entity.id || entity._id || `ent:${idx}`,
-    name: entity.name || entity.type || entity.id || `node-${idx}`,
-    type: entity.type || 'entity',
-  }));
-  const links = relationships.map((rel) => ({
-    source: rel.source || rel.from || rel.src,
-    target: rel.target || rel.to || rel.dst,
-    value: rel.score || rel.weight || 1,
-  }));
+  const attackPath = payload.attack_path || {};
+  const entities = ensureArray(payload.entities);
+  const hotspots = ensureArray(payload.hotspots);
+  const attackNodes = ensureArray(attackPath.nodes);
+  const baseNodes = entities.length ? entities : attackNodes.length ? attackNodes : hotspots;
+
+  const nodes = baseNodes.map((entity, idx) => {
+    const attributes = entity?.attributes || {};
+    const riskScore = normalizeRiskScore(
+      entity?.risk_score ?? attributes?.risk_score ?? attributes?.risk ?? 0,
+    );
+    return {
+      id: entity.id || entity._id || `ent:${idx}`,
+      name:
+        entity.name ||
+        attributes.hostname ||
+        attributes.host ||
+        entity.type ||
+        entity.id ||
+        `node-${idx}`,
+      type: entity.type || attributes.entity_type || 'entity',
+      riskScore,
+      color: inferNodeColor(riskScore),
+    };
+  });
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const relationships = ensureArray(payload.relationships).length
+    ? ensureArray(payload.relationships)
+    : ensureArray(attackPath.edges);
+
+  const links = relationships
+    .map((rel) => {
+      const source = toNodeId(rel.source || rel.from || rel.src);
+      const target = toNodeId(rel.target || rel.to || rel.dst);
+      return {
+        source,
+        target,
+        relation: rel.relation || rel.type || 'related_to',
+        value: rel.score || rel.weight || 1,
+      };
+    })
+    .filter((rel) => rel.source && rel.target && nodeIds.has(rel.source) && nodeIds.has(rel.target));
+
   return { nodes, links };
 };
 
@@ -182,7 +229,7 @@ export default function GraphWorld({ initialState = null, embedded = false }) {
               ref={fgRef}
               graphData={filteredGraph}
               nodeLabel={(node) => `${node.name} (${node.type})`}
-              nodeAutoColorBy="type"
+              nodeColor={(node) => node.color || '#38bdf8'}
               linkDirectionalParticles={1}
               linkDirectionalParticleSpeed={(link) => 0.01 + (link.value || 1) * 0.02}
               onNodeClick={(node) => {
@@ -197,7 +244,7 @@ export default function GraphWorld({ initialState = null, embedded = false }) {
                 ctx.fillStyle =
                   selected && selected.id === node.id
                     ? 'rgba(14,165,164,0.95)'
-                    : 'rgba(10,10,12,0.6)';
+                    : `${node.color || 'rgba(10,10,12,0.6)'}99`;
                 ctx.fillRect(
                   node.x - dimensions[0] / 2,
                   node.y - dimensions[1] / 2,
@@ -209,6 +256,11 @@ export default function GraphWorld({ initialState = null, embedded = false }) {
                 ctx.fillText(label, node.x, node.y);
               }}
             />
+          </div>
+        ) : null}
+        {!loading && !error && filteredGraph.nodes.length === 0 ? (
+          <div className="mt-3 p-3 rounded-md border border-slate-700 bg-slate-900/60 text-sm text-slate-300">
+            No world graph entities are available yet. As telemetry arrives, nodes and attack paths will appear here automatically.
           </div>
         ) : null}
       </div>
@@ -231,6 +283,9 @@ export default function GraphWorld({ initialState = null, embedded = false }) {
               </div>
               <div>
                 <strong>Type:</strong> {selected.type}
+              </div>
+              <div>
+                <strong>Risk:</strong> {selected.riskScore ?? 0}
               </div>
               <div style={{ marginTop: 8 }}>
                 <strong>Connected to:</strong>

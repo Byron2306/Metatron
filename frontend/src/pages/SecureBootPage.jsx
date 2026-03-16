@@ -72,7 +72,15 @@ const SecureBootPage = () => {
       
       setStatus(statusRes.data);
       setBootChain(chainRes.data);
-      setAlerts(alertsRes.data.alerts || []);
+      setAlerts(
+        (alertsRes.data.alerts || []).map((alert, idx) => ({
+          ...alert,
+          id: alert.alert_id || alert.id || `alert-${idx}`,
+          message: alert.message || alert.description || 'Boot security alert',
+          endpoint: alert.endpoint || alert.component || 'local-endpoint',
+          timestamp: alert.timestamp || alert.detected_at || alert.created_at || new Date().toISOString(),
+        })),
+      );
       
     } catch (error) {
       console.error('Failed to fetch secure boot data:', error);
