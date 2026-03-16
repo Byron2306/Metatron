@@ -160,6 +160,70 @@ TECHNIQUE_TO_TACTIC = {
     "T1136": "TA0003",
     "T1548": "TA0004",
     "T1560": "TA0009",
+    "T1014": "TA0005",
+    "T1021": "TA0008",
+    "T1039": "TA0009",
+    "T1053": "TA0003",
+    "T1056": "TA0009",
+    "T1080": "TA0008",
+    "T1189": "TA0001",
+    "T1205": "TA0011",
+    "T1491": "TA0040",
+    "T1491.002": "TA0040",
+    "T1495": "TA0040",
+    "T1505.003": "TA0003",
+    "T1534": "TA0001",
+    "T1537": "TA0010",
+    "T1539": "TA0006",
+    "T1542": "TA0003",
+    "T1542.001": "TA0003",
+    "T1542.002": "TA0003",
+    "T1542.003": "TA0003",
+    "T1557": "TA0006",
+    "T1583": "TA0042",
+    "T1587": "TA0042",
+    "T1598": "TA0043",
+    "T1598.003": "TA0043",
+    "T1601": "TA0005",
+    "T1601.001": "TA0005",
+    "T1012": "TA0007",
+    "T1049": "TA0007",
+    "T1056.001": "TA0009",
+    "T1069": "TA0007",
+    "T1081": "TA0007",
+    "T1106": "TA0002",
+    "T1110": "TA0006",
+    "T1110.001": "TA0006",
+    "T1127": "TA0005",
+    "T1127.001": "TA0005",
+    "T1140": "TA0005",
+    "T1176": "TA0005",
+    "T1185": "TA0009",
+    "T1197": "TA0005",
+    "T1202": "TA0005",
+    "T1210": "TA0008",
+    "T1219": "TA0011",
+    "T1222": "TA0005",
+    "T1482": "TA0007",
+    "T1484": "TA0004",
+    "T1497": "TA0005",
+    "T1533": "TA0009",
+    "T1538": "TA0009",
+    "T1553": "TA0005",
+    "T1556": "TA0006",
+    "T1559.001": "TA0002",
+    "T1563": "TA0008",
+    "T1563.002": "TA0008",
+    "T1564": "TA0005",
+    "T1564.004": "TA0005",
+    "T1569": "TA0002",
+    "T1569.002": "TA0002",
+    "T1572": "TA0011",
+    "T1580": "TA0043",
+    "T1590.001": "TA0043",
+    "T1590.002": "TA0043",
+    "T1590.004": "TA0043",
+    "T1596": "TA0043",
 }
 
 PRIORITY_GAPS = [
@@ -457,6 +521,44 @@ HONEY_TOKEN_TYPE_TECHNIQUES: Dict[str, List[str]] = {
     "jwt_token": ["T1528", "T1078"],
     "oauth_token": ["T1528", "T1078"],
     "webhook_url": ["T1071", "T1041"],
+}
+
+CLOUD_RELATIONSHIP_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "trusted relationship": ["T1199"],
+    "third-party": ["T1199"],
+    "supply partner": ["T1199"],
+    "integration": ["T1199"],
+    "oauth": ["T1528", "T1078.004"],
+    "oauth token": ["T1528", "T1078.004"],
+    "jwt": ["T1528", "T1078.004"],
+    "api key": ["T1528", "T1552.005"],
+    "service account": ["T1078.004", "T1528"],
+    "assume role": ["T1078.004", "T1528"],
+    "sts": ["T1078.004", "T1528"],
+    "metadata service": ["T1528", "T1552.005"],
+    "169.254.169.254": ["T1528", "T1552.005"],
+    "cloud storage": ["T1530", "T1567.002"],
+    "bucket": ["T1530", "T1567.002"],
+    "blob": ["T1530", "T1567.002"],
+    "s3://": ["T1530", "T1567.002"],
+    "gs://": ["T1530", "T1567.002"],
+}
+
+DEFENSE_EVASION_KEYWORD_TECHNIQUES: Dict[str, List[str]] = {
+    "clear log": ["T1070.004", "T1070"],
+    "delete log": ["T1070.004", "T1070"],
+    "event log cleared": ["T1070.004", "T1070"],
+    "timestomp": ["T1070.006", "T1070"],
+    "timestamp tamper": ["T1070.006", "T1070"],
+    "masquerad": ["T1036", "T1036.003", "T1036.005"],
+    "renamed binary": ["T1036.003", "T1036.005"],
+    "alias abuse": ["T1036.003", "T1202"],
+    "hidden file": ["T1564.001", "T1564.004"],
+    "disable logging": ["T1562.001", "T1562.008"],
+    "disable security": ["T1562.001"],
+    "obfuscat": ["T1027"],
+    "indirect command": ["T1202"],
+    "signed binary proxy": ["T1218"],
 }
 
 
@@ -1057,6 +1159,58 @@ def _identity_detector_catalog() -> List[str]:
     return sorted(techniques)
 
 
+@lru_cache(maxsize=4)
+def _python_catalog_attack_techniques(relative_paths: Tuple[str, ...], attribute: str = "mitre_techniques") -> List[str]:
+    """Extract ATT&CK techniques declared in python catalogs (e.g. CSPM checks)."""
+    root = _repo_root()
+    block_re = re.compile(
+        rf"{re.escape(attribute)}\s*=\s*\[(.*?)\]",
+        re.IGNORECASE | re.DOTALL,
+    )
+    techniques: Set[str] = set()
+    for rel_path in relative_paths:
+        path = root / rel_path
+        if not path.exists():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        for block in block_re.findall(text):
+            techniques.update(_extract_attack_techniques(block))
+    return sorted(techniques)
+
+
+@lru_cache(maxsize=1)
+def _cspm_scanner_catalog_techniques() -> List[str]:
+    return _python_catalog_attack_techniques(
+        (
+            "backend/cspm_aws_scanner.py",
+            "backend/cspm_azure_scanner.py",
+            "backend/cspm_gcp_scanner.py",
+        ),
+        "mitre_techniques",
+    )
+
+
+@lru_cache(maxsize=1)
+def _governed_integration_trust_enabled() -> bool:
+    root = _repo_root()
+    paths = [
+        root / "backend" / "integrations_manager.py",
+        root / "backend" / "tasks" / "integrations_tasks.py",
+    ]
+    joined = ""
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            joined += "\n" + path.read_text(encoding="utf-8", errors="ignore").lower()
+        except Exception:
+            continue
+    return all(token in joined for token in ["assert_governance_context", "integration_job"])
+
+
 def _collect_identity_protection_catalog(techniques: Dict[str, Dict]):
     """Collect ATT&CK depth from identity protection detector coverage."""
     for technique in _identity_detector_catalog():
@@ -1506,6 +1660,169 @@ async def _collect_cspm_findings_history(techniques: Dict[str, Dict], db: Any):
         techniques[technique]["sources"].update(source_map.get(technique, set()))
 
 
+async def _collect_cloud_identity_relationship_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence for cloud identity/token abuse and trusted relationships."""
+    # Explicit CSPM scanner checks define cloud identity/storage ATT&CK coverage.
+    for technique in _cspm_scanner_catalog_techniques():
+        _mark_technique(techniques, technique, score=3, source="cspm_scanner_catalog")
+
+    # Token broker supports scoped secret/token workflows for cloud/app tokens.
+    try:
+        try:
+            from services.token_broker import token_broker
+        except Exception:
+            from backend.services.token_broker import token_broker
+    except Exception:
+        token_broker = None
+
+    if token_broker is not None:
+        for technique in ["T1528", "T1078.004", "T1552.005", "T1552.001"]:
+            _mark_technique(techniques, technique, score=3, source="token_broker_secret_catalog")
+
+        secret_type_map: Dict[str, List[str]] = {
+            "oauth_refresh": ["T1528", "T1078.004"],
+            "api_key": ["T1528", "T1552.005"],
+            "password": ["T1078", "T1555"],
+            "private_key": ["T1552.004", "T1552.005"],
+        }
+        for entry in (getattr(token_broker, "secrets", {}) or {}).values():
+            if isinstance(entry, dict):
+                secret_type = str(entry.get("secret_type") or "").lower()
+            else:
+                secret_type = str(getattr(entry, "secret_type", "") or "").lower()
+            local = {t for t in secret_type_map.get(secret_type, []) if _normalize_technique(t)}
+            for technique in local:
+                _mark_technique(techniques, technique, score=4, source="token_broker_runtime_secret")
+
+    if _governed_integration_trust_enabled():
+        _mark_technique(techniques, "T1199", score=3, source="governed_integration_trust_catalog")
+
+    if db is None:
+        return
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    collection_specs = [
+        ("integrations_jobs", {}, {"_id": 0}),
+        (
+            "world_events",
+            {"event_type": {"$regex": r"(integration|token|oauth|identity|cloud|iam|sts|trusted)", "$options": "i"}},
+            {"_id": 0, "event_type": 1, "payload": 1, "source": 1},
+        ),
+    ]
+    for collection_name, query, projection in collection_specs:
+        col = getattr(db, collection_name, None)
+        if col is None:
+            continue
+        try:
+            docs = await col.find(query, projection).to_list(length=1200)
+        except Exception:
+            docs = []
+        for doc in docs:
+            local = _extract_attack_techniques(doc)
+            local.update(_extract_keyword_techniques(doc, CLOUD_RELATIONSHIP_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(doc))
+            text = str(doc).lower()
+            if any(token in text for token in ["trusted relationship", "third-party", "integration", "federation"]):
+                local.add("T1199")
+            if any(token in text for token in ["oauth", "jwt", "service account", "assume role", "sts", "metadata service", "169.254.169.254"]):
+                local.update({"T1528", "T1078.004"})
+            if any(token in text for token in ["cloud storage", "bucket", "blob", "s3://", "gs://", "azure storage"]):
+                local.add("T1530")
+            if not local:
+                continue
+
+            status = str(doc.get("status") or "").lower()
+            payload = doc.get("payload") or {}
+            severity = str(payload.get("severity") or payload.get("level") or doc.get("severity") or "").lower()
+            score = 4 if status in {"completed", "success"} or severity in {"critical", "high"} else 3
+
+            for technique in local:
+                normalized = _normalize_technique(technique)
+                if not normalized:
+                    continue
+                counts[normalized] = counts.get(normalized, 0) + 1
+                source_map.setdefault(normalized, set()).add(f"{collection_name}_cloud_identity")
+                max_score[normalized] = max(max_score.get(normalized, 0), score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
+async def _collect_defense_evasion_signal_evidence(techniques: Dict[str, Dict], db: Any):
+    """Collect ATT&CK evidence for defense-evasion controls and runtime telemetry."""
+    if "alias_rename" in MONITOR_TECHNIQUES:
+        _mark_technique(techniques, "T1036.003", score=3, source="monitor_alias_rename_catalog")
+        _mark_technique(techniques, "T1036.005", score=3, source="monitor_alias_rename_catalog")
+        _mark_technique(techniques, "T1202", score=3, source="monitor_alias_rename_catalog")
+    if "hidden_file" in MONITOR_TECHNIQUES:
+        _mark_technique(techniques, "T1564.004", score=3, source="monitor_hidden_file_catalog")
+
+    if db is None:
+        return
+
+    counts: Dict[str, int] = {}
+    source_map: Dict[str, Set[str]] = {}
+    max_score: Dict[str, int] = {}
+
+    collection_specs = [
+        ("world_events", {}, {"_id": 0, "event_type": 1, "payload": 1}),
+        ("audit_logs", {}, {"_id": 0}),
+        ("fim_events", {}, {"_id": 0}),
+        ("agent_monitor_telemetry", {}, {"_id": 0}),
+    ]
+    for collection_name, query, projection in collection_specs:
+        col = getattr(db, collection_name, None)
+        if col is None:
+            continue
+        try:
+            docs = await col.find(query, projection).to_list(length=1200)
+        except Exception:
+            docs = []
+        for doc in docs:
+            local = _extract_attack_techniques(doc)
+            local.update(_extract_keyword_techniques(doc, DEFENSE_EVASION_KEYWORD_TECHNIQUES))
+            local.update(_extract_semantic_attack_techniques(doc))
+            text = str(doc).lower()
+            if any(token in text for token in ["clear log", "delete log", "event log", "log tamper"]):
+                local.update({"T1070", "T1070.004"})
+            if any(token in text for token in ["timestomp", "timestamp", "backdate"]):
+                local.update({"T1070", "T1070.006"})
+            if any(token in text for token in ["masquerad", "renamed binary", "rename to system", "signed binary proxy"]):
+                local.update({"T1036.003", "T1036.005", "T1218"})
+            if not local:
+                continue
+
+            severity = str((doc.get("payload") or {}).get("severity") or doc.get("severity") or "").lower()
+            event_type = str(doc.get("event_type") or "").lower()
+            score = 4 if severity in {"critical", "high"} or "blocked" in event_type or "detected" in event_type else 3
+
+            for technique in local:
+                normalized = _normalize_technique(technique)
+                if not normalized:
+                    continue
+                counts[normalized] = counts.get(normalized, 0) + 1
+                source_map.setdefault(normalized, set()).add(f"{collection_name}_defense_evasion")
+                max_score[normalized] = max(max_score.get(normalized, 0), score)
+
+    _merge_collector_scores(
+        techniques,
+        counts=counts,
+        source_map=source_map,
+        max_score=max_score,
+        promote_count=2,
+        promote_sources=2,
+    )
+
+
 async def _collect_unified_monitor_telemetry_evidence(techniques: Dict[str, Dict], db: Any):
     """Collect ATT&CK evidence from unified agent monitor telemetry and summaries."""
     if db is None:
@@ -1937,6 +2254,8 @@ async def _collect_edr_evidence(techniques: Dict[str, Dict], db: Any):
     fim_status = (edr_status or {}).get("fim") or {}
     if bool(fim_status.get("enabled")):
         _mark_technique(techniques, "T1070", score=3, source="edr_fim_capability")
+        _mark_technique(techniques, "T1070.004", score=3, source="edr_fim_capability")
+        _mark_technique(techniques, "T1070.006", score=3, source="edr_fim_capability")
         _mark_technique(techniques, "T1565.001", score=3, source="edr_fim_capability")
     mem_status = (edr_status or {}).get("memory_forensics") or {}
     if bool(mem_status.get("volatility_installed")):
@@ -3388,6 +3707,8 @@ async def mitre_coverage(current_user: dict = Depends(get_current_user)):
     _collect_timeline_mitre_catalog_evidence(techniques)
     await _collect_threat_actor_catalog_evidence(techniques, db)
     await _collect_cspm_findings_history(techniques, db)
+    await _collect_cloud_identity_relationship_evidence(techniques, db)
+    await _collect_defense_evasion_signal_evidence(techniques, db)
     await _collect_unified_monitor_telemetry_evidence(techniques, db)
     await _collect_soar_execution_evidence(techniques, db)
     await _collect_network_scan_evidence(techniques, db)
