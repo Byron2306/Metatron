@@ -251,6 +251,83 @@ async def start_atomic(req: ToolRunRequest, user: dict = Depends(check_permissio
     )
 
 
+@router.post('/falco/run')
+async def start_falco(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="falco",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/yara/run')
+async def start_yara(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="yara",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/suricata/run')
+async def start_suricata(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="suricata",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/trivy/run')
+async def start_trivy(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="trivy",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/cuckoo/run')
+async def start_cuckoo(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="cuckoo",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/osquery/run')
+async def start_osquery(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="osquery",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/zeek/run')
+async def start_zeek(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="zeek",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
 class HostLogIngestRequest(BaseModel):
     source: str
     raw: str

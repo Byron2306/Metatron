@@ -32,6 +32,7 @@ const ThreatIntelPage = () => {
   const [agents, setAgents] = useState([]);
   const [supportedTools, setSupportedTools] = useState([]);
   const [toolInputFile, setToolInputFile] = useState('');
+  const [toolParamsJson, setToolParamsJson] = useState('{}');
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -97,8 +98,6 @@ const ThreatIntelPage = () => {
     setAmassDomain('');
   };
 
-  const [hostRaw, setHostRaw] = useState('');
-
   const handleUploadHostLogs = async (file) => {
     if (!file) return toast.error('Select a log file');
     setLoading(true);
@@ -130,9 +129,19 @@ const ThreatIntelPage = () => {
     }
     setJobStarting(true);
     try {
+      let parsedParams = {};
+      if (toolParamsJson && toolParamsJson.trim()) {
+        try {
+          parsedParams = JSON.parse(toolParamsJson);
+        } catch (e) {
+          toast.error('Custom params JSON is invalid');
+          setJobStarting(false);
+          return;
+        }
+      }
       const payload = {
         tool,
-        params,
+        params: { ...(parsedParams || {}), ...(params || {}) },
         runtime_target: runtimeTarget,
         agent_id: runtimeTarget === 'server' ? null : selectedAgentId,
       };
@@ -439,7 +448,7 @@ const ThreatIntelPage = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
             <div className="flex flex-col gap-1">
               <span className="text-xs text-slate-400">Runtime target</span>
               <select
@@ -477,6 +486,15 @@ const ThreatIntelPage = () => {
                 className="bg-slate-800 border-slate-700 text-white"
               />
             </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-slate-400">Optional custom params JSON</span>
+              <textarea
+                value={toolParamsJson}
+                onChange={(e) => setToolParamsJson(e.target.value)}
+                className="bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2 min-h-[42px]"
+                placeholder='{"action":"status"}'
+              />
+            </div>
           </div>
 
           <div className="flex gap-2 items-center mb-4">
@@ -490,20 +508,41 @@ const ThreatIntelPage = () => {
             <Button onClick={handleStartPurpleSharp} disabled={jobStarting} data-testid="run-purplesharp-btn">
               {jobStarting ? 'Starting...' : 'Run PurpleSharp'}
             </Button>
-            <Button onClick={() => launchIntegration('arkime', toolInputFile ? { input_file: toolInputFile } : {})} disabled={jobStarting}>
+            <Button onClick={() => launchIntegration('arkime', toolInputFile ? { input_file: toolInputFile } : { action: 'status' })} disabled={jobStarting}>
               Run Arkime
             </Button>
-            <Button onClick={() => launchIntegration('bloodhound', toolInputFile ? { input_file: toolInputFile } : {})} disabled={jobStarting}>
+            <Button onClick={() => launchIntegration('bloodhound', toolInputFile ? { input_file: toolInputFile } : { action: 'status' })} disabled={jobStarting}>
               Run BloodHound
             </Button>
-            <Button onClick={() => launchIntegration('spiderfoot', toolInputFile ? { input_file: toolInputFile } : {})} disabled={jobStarting}>
+            <Button onClick={() => launchIntegration('spiderfoot', toolInputFile ? { input_file: toolInputFile } : { action: 'status' })} disabled={jobStarting}>
               Run SpiderFoot
             </Button>
             <Button onClick={() => launchIntegration('sigma', { action: 'reload' })} disabled={jobStarting}>
               Run Sigma
             </Button>
-            <Button onClick={() => launchIntegration('atomic', {})} disabled={jobStarting}>
+            <Button onClick={() => launchIntegration('atomic', { action: 'status' })} disabled={jobStarting}>
               Run Atomic
+            </Button>
+            <Button onClick={() => launchIntegration('trivy', { action: 'status' })} disabled={jobStarting}>
+              Run Trivy
+            </Button>
+            <Button onClick={() => launchIntegration('falco', { action: 'status' })} disabled={jobStarting}>
+              Run Falco
+            </Button>
+            <Button onClick={() => launchIntegration('suricata', { action: 'status' })} disabled={jobStarting}>
+              Run Suricata
+            </Button>
+            <Button onClick={() => launchIntegration('yara', { action: 'status' })} disabled={jobStarting}>
+              Run YARA
+            </Button>
+            <Button onClick={() => launchIntegration('cuckoo', { action: 'status' })} disabled={jobStarting}>
+              Run Cuckoo
+            </Button>
+            <Button onClick={() => launchIntegration('osquery', { action: 'status' })} disabled={jobStarting}>
+              Run Osquery
+            </Button>
+            <Button onClick={() => launchIntegration('zeek', { action: 'status' })} disabled={jobStarting}>
+              Run Zeek
             </Button>
             <Button onClick={fetchJobs} variant="outline">Refresh Jobs</Button>
           </div>

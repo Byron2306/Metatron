@@ -16768,6 +16768,7 @@ class UnifiedAgent:
         allowed = {
             'amass', 'arkime', 'bloodhound', 'spiderfoot',
             'velociraptor', 'purplesharp', 'sigma', 'atomic',
+            'trivy', 'falco', 'suricata', 'yara', 'osquery', 'zeek', 'cuckoo',
         }
         if tool not in allowed:
             return {'success': False, 'error': f"Unsupported integration tool '{tool}'", 'tool': tool}
@@ -16779,8 +16780,9 @@ class UnifiedAgent:
             out_file = f"/tmp/amass_{domain}_{int(time.time())}.json"
             cmd = [
                 "docker", "run", "--rm",
+                "-v", "/tmp:/data",
                 "caffix/amass:latest",
-                "enum", "-d", domain, "-oJ", out_file,
+                "enum", "-d", domain, "-oJ", f"/data/{os.path.basename(out_file)}",
             ]
             res = self._run_external_tool(cmd, timeout=int(tool_params.get('timeout') or 900))
             res.update({'tool': tool, 'domain': domain, 'output_file': out_file})
@@ -16837,25 +16839,80 @@ class UnifiedAgent:
             return res
 
         if tool == 'purplesharp':
-            script = tool_params.get('script_path') or '/opt/seraph/unified_agent/integrations/purplesharp/run_purplesharp.sh'
+            script = (
+                tool_params.get('script_path')
+                or os.environ.get('PURPLESHARP_SCRIPT_PATH')
+                or '/workspace/unified_agent/integrations/purplesharp/run_purplesharp.sh'
+            )
             cmd = ["bash", str(script)]
+            if tool_params.get('target'):
+                cmd.extend(['--target', str(tool_params.get('target'))])
+            if tool_params.get('mode'):
+                cmd.extend(['--mode', str(tool_params.get('mode'))])
+            if tool_params.get('host'):
+                cmd.extend(['--host', str(tool_params.get('host'))])
+            if tool_params.get('username'):
+                cmd.extend(['--username', str(tool_params.get('username'))])
+            if tool_params.get('password'):
+                cmd.extend(['--password', str(tool_params.get('password'))])
             res = self._run_external_tool(cmd, timeout=int(tool_params.get('timeout') or 300))
             res.update({'tool': tool, 'script_path': script})
             return res
 
         if tool == 'sigma':
-            return {
-                'success': False,
-                'tool': tool,
-                'error': 'sigma runtime is server-side in this architecture',
-            }
+            sigma_bin = self._resolve_tool_binary(['sigma', 'sigmac', 'sigma-cli'])
+            if not sigma_bin:
+                return {'success': False, 'tool': tool, 'error': 'sigma-cli not installed on endpoint'}
+            res = self._run_external_tool([sigma_bin, '--help'], timeout=int(tool_params.get('timeout') or 30))
+            res.update({'tool': tool, 'mode': 'status'})
+            return res
 
         if tool == 'atomic':
+            atomic_root = str(tool_params.get('atomic_root') or os.environ.get('ATOMIC_RED_TEAM_PATH') or '/opt/atomic-red-team')
+            runner = self._resolve_tool_binary(['pwsh', 'powershell'])
             return {
-                'success': False,
+                'success': bool(runner and os.path.exists(atomic_root)),
                 'tool': tool,
-                'error': 'atomic runtime is server-side in this architecture',
+                'runner': runner,
+                'atomic_root': atomic_root,
+                'mode': 'status',
+                'error': None if (runner and os.path.exists(atomic_root)) else 'atomic_runner_or_root_missing',
             }
+
+        if tool == 'trivy':
+            result = self._execute_trivy_scan(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'falco':
+            result = self._execute_falco_status(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'suricata':
+            result = self._execute_suricata_status(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'yara':
+            result = self._execute_yara_runtime(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'osquery':
+            result = self._execute_osquery_runtime(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'zeek':
+            result = self._execute_zeek_runtime(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'cuckoo':
+            result = self._execute_cuckoo_runtime(tool_params)
+            result.update({'tool': tool})
+            return result
 
         return {'success': False, 'error': 'tool_not_implemented', 'tool': tool}
 
@@ -16941,6 +16998,76 @@ class UnifiedAgent:
             'running': running,
             'version': version,
         }
+
+    def _execute_yara_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run YARA status/scan with bounded args."""
+        yara_bin = self._resolve_tool_binary(['yara'])
+        if not yara_bin:
+            return {'success': False, 'error': 'yara not installed on endpoint'}
+        action = str(params.get('action') or 'status').lower().strip()
+        if action == 'scan':
+            rules_path = str(params.get('rules_path') or '/workspace/yara_rules')
+            target_path = str(params.get('target_path') or '/tmp')
+            timeout = int(params.get('timeout') or 120)
+            scan = self._run_external_tool([yara_bin, '-r', rules_path, target_path], timeout=timeout)
+            scan['mode'] = 'scan'
+            scan['rules_path'] = rules_path
+            scan['target_path'] = target_path
+            if scan.get('return_code') in (0, 1):
+                scan['success'] = True
+            return scan
+        status = self._run_external_tool([yara_bin, '--version'], timeout=int(params.get('timeout') or 30))
+        status['mode'] = 'status'
+        return status
+
+    def _execute_osquery_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run osquery status or a bounded live query."""
+        osquery_bin = self._resolve_tool_binary(['osqueryi', 'osqueryd'])
+        if not osquery_bin:
+            return {'success': False, 'error': 'osquery not installed on endpoint'}
+        action = str(params.get('action') or 'status').lower().strip()
+        timeout = int(params.get('timeout') or 60)
+        if action in {'live_query', 'query'}:
+            sql = str(params.get('sql') or 'select name, pid from processes limit 10;').strip()
+            # osqueryd does not support interactive query mode like osqueryi.
+            if os.path.basename(osquery_bin).startswith('osqueryd'):
+                return {'success': False, 'error': 'osqueryi required for live_query', 'binary': osquery_bin}
+            return self._run_external_tool([osquery_bin, '--json', sql], timeout=timeout)
+        return self._run_external_tool([osquery_bin, '--version'], timeout=timeout)
+
+    def _execute_zeek_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Check Zeek runtime and optionally tail a log file."""
+        action = str(params.get('action') or 'status').lower().strip()
+        zeek_bin = self._resolve_tool_binary(['zeek', 'bro'])
+        log_dir = str(params.get('log_dir') or '/var/log/zeek/current')
+        if action == 'log':
+            log_type = str(params.get('log_type') or 'conn')
+            log_path = os.path.join(log_dir, f'{log_type}.log')
+            if not os.path.exists(log_path):
+                return {'success': False, 'error': f'log_not_found:{log_path}'}
+            try:
+                with open(log_path, 'r', encoding='utf-8', errors='ignore') as fh:
+                    lines = fh.readlines()[-int(params.get('limit') or 120):]
+                return {'success': True, 'mode': 'log', 'log_type': log_type, 'records': [l.strip() for l in lines if l.strip()]}
+            except Exception as exc:
+                return {'success': False, 'error': str(exc)}
+        if not zeek_bin:
+            return {'success': False, 'error': 'zeek not installed on endpoint', 'log_dir_exists': os.path.exists(log_dir)}
+        status = self._run_external_tool([zeek_bin, '--version'], timeout=int(params.get('timeout') or 30))
+        status['log_dir_exists'] = os.path.exists(log_dir)
+        return status
+
+    def _execute_cuckoo_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Cuckoo integration status from endpoint perspective."""
+        api_url = str(params.get('api_url') or os.environ.get('CUCKOO_API_URL') or '').strip()
+        if not api_url:
+            return {'success': False, 'error': 'cuckoo_api_url_not_configured'}
+        curl_bin = self._resolve_tool_binary(['curl'])
+        if curl_bin:
+            probe = self._run_external_tool([curl_bin, '-fsS', f'{api_url}/cuckoo/status'], timeout=int(params.get('timeout') or 20))
+            probe['api_url'] = api_url
+            return probe
+        return {'success': True, 'api_url': api_url, 'message': 'configured (curl unavailable for active probe)'}
 
     def _execute_volatility_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Run volatility status or lightweight plugin command when an image is provided."""

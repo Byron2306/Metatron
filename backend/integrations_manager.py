@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Dict, Any, List
 import os
 import re
+import shutil
+from collections import deque
 
 from routers.dependencies import get_db
 
@@ -44,6 +46,13 @@ SUPPORTED_RUNTIME_TOOLS = {
     "purplesharp",
     "sigma",
     "atomic",
+    "falco",
+    "yara",
+    "suricata",
+    "trivy",
+    "cuckoo",
+    "osquery",
+    "zeek",
 }
 
 
@@ -192,6 +201,26 @@ async def _extract_indicators_from_json_file(path: str, source: str) -> List[Dic
         seen.add(key)
         deduped.append(item)
     return deduped
+
+
+def _tail_lines(path: Path, limit: int = 200) -> List[str]:
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            return list(deque(fh, maxlen=max(1, int(limit))))
+    except Exception:
+        return []
+
+
+def _tool_binary(name: str) -> str:
+    return shutil.which(name) or ""
+
+
+async def _new_running_job(tool: str, params: Dict[str, Any]) -> str:
+    job_id = await _new_job(tool, params)
+    await _persist_job(job_id, status="running")
+    return job_id
 
 
 def _agent_command_for_tool(tool: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -598,21 +627,37 @@ async def run_purplesharp(
     options: Dict[str, Any] = None,
     governance_context: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
-    """Run PurpleSharp scaffold locally and ingest extracted indicators."""
+    """Run PurpleSharp with local/winrm execution modes and ingest indicators."""
     assert_governance_context(governance_context, action="integrations.run_purplesharp")
-    params = {"target": target, "options": options or {}}
-    job_id = await _new_job("purplesharp", params)
-    await _persist_job(job_id, status="running")
+    opts = dict(options or {})
+    params = {"target": target, "options": opts}
+    job_id = await _new_running_job("purplesharp", params)
     script = Path(__file__).resolve().parent.parent / "unified_agent" / "integrations" / "purplesharp" / "run_purplesharp.sh"
     if not script.exists():
         await _persist_job(job_id, status="failed", result={"error": f"missing_script:{script}"})
         return _jobs[job_id]
     env = dict(os.environ)
     env["OUTDIR"] = str(INTEGRATIONS_DIR)
+    if target:
+        env["PURPLESHARP_TARGET"] = str(target)
+    if opts:
+        env["PURPLESHARP_OPTIONS_JSON"] = json.dumps(opts)
     try:
+        cmd = ["bash", str(script)]
+        if target:
+            cmd.extend(["--target", str(target)])
+        if opts.get("mode"):
+            cmd.extend(["--mode", str(opts.get("mode"))])
+        if opts.get("host"):
+            cmd.extend(["--host", str(opts.get("host"))])
+        if opts.get("username"):
+            cmd.extend(["--username", str(opts.get("username"))])
+        if opts.get("password"):
+            cmd.extend(["--password", str(opts.get("password"))])
+        if opts.get("powershell"):
+            cmd.extend(["--powershell", str(opts.get("powershell"))])
         proc = await asyncio.create_subprocess_exec(
-            "bash",
-            str(script),
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
@@ -621,7 +666,11 @@ async def run_purplesharp(
         out = (stdout.decode(errors="ignore") or "").strip()
         err = (stderr.decode(errors="ignore") or "").strip()
         if proc.returncode != 0:
-            await _persist_job(job_id, status="failed", result={"rc": proc.returncode, "stderr": err})
+            await _persist_job(
+                job_id,
+                status="failed",
+                result={"rc": proc.returncode, "stderr": err, "stdout": out[-4000:]},
+            )
             return _jobs[job_id]
         outfile = out.splitlines()[-1].strip() if out else ""
         indicators = []
@@ -637,6 +686,7 @@ async def run_purplesharp(
                 "artifacts": [Path(outfile).name] if outfile else [],
                 "stdout": out[-4000:],
                 "stderr": err[-2000:],
+                "execution_mode": opts.get("mode") or "auto",
             },
         )
         return _jobs[job_id]
@@ -774,9 +824,10 @@ async def run_sigma(governance_context: Dict[str, Any] = None, params: Dict[str,
 async def run_atomic(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
     assert_governance_context(governance_context, action="integrations.run_atomic")
     payload = params or {}
+    action = str(payload.get("action") or "run").lower().strip()
     dry_run = bool(payload.get("dry_run", False))
     selected_job = str(payload.get("job_id") or "").strip()
-    job_id = await _new_job("atomic", {"job_id": selected_job, "dry_run": dry_run})
+    job_id = await _new_job("atomic", {"action": action, "job_id": selected_job, "dry_run": dry_run})
     await _persist_job(job_id, status="running")
     try:
         import importlib
@@ -784,6 +835,14 @@ async def run_atomic(governance_context: Dict[str, Any] = None, params: Dict[str
         atomic_module = importlib.import_module("atomic_validation")
         manager = getattr(atomic_module, "atomic_validation")
         manager.set_db(get_db())
+        if action == "status":
+            result = {
+                "status": manager.get_status(),
+                "jobs": manager.list_jobs(),
+                "runs": manager.list_runs(limit=25),
+            }
+            await _persist_job(job_id, status="completed", result=result)
+            return _jobs[job_id]
         if not selected_job:
             all_jobs = manager.list_jobs() or []
             if not all_jobs:
@@ -796,6 +855,275 @@ async def run_atomic(governance_context: Dict[str, Any] = None, params: Dict[str
         return _jobs[job_id]
     except Exception as exc:
         await _persist_job(job_id, status="failed", result={"error": str(exc)})
+        return _jobs[job_id]
+
+
+async def run_trivy(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    assert_governance_context(governance_context, action="integrations.run_trivy")
+    payload = params or {}
+    action = str(payload.get("action") or "status").lower().strip()
+    job_id = await _new_running_job("trivy", {"action": action, "params": payload})
+    try:
+        from container_security import container_security
+
+        if action == "scan_image":
+            image_name = str(payload.get("image_name") or "").strip()
+            if not image_name:
+                await _persist_job(job_id, status="failed", result={"error": "image_name_required"})
+                return _jobs[job_id]
+            result = await container_security.scan_image(image_name, bool(payload.get("force", False)))
+        elif action == "scan_all":
+            result = await container_security.scan_all_images()
+        else:
+            result = container_security.get_stats()
+        await _persist_job(job_id, status="completed", result={"action": action, "result": result})
+        return _jobs[job_id]
+    except Exception as exc:
+        await _persist_job(job_id, status="failed", result={"action": action, "error": str(exc)})
+        return _jobs[job_id]
+
+
+async def run_falco(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    assert_governance_context(governance_context, action="integrations.run_falco")
+    payload = params or {}
+    action = str(payload.get("action") or "status").lower().strip()
+    job_id = await _new_running_job("falco", {"action": action, "params": payload})
+    try:
+        from container_security import container_security
+
+        if action == "alerts":
+            limit = int(payload.get("limit") or 100)
+            alerts = container_security.falco.get_alerts(limit=limit)
+            result = {"alerts": alerts, "count": len(alerts)}
+        elif action == "escape_attempts":
+            limit = int(payload.get("limit") or 100)
+            attempts = container_security.falco.get_escape_attempts(limit=limit)
+            result = {"attempts": attempts, "count": len(attempts)}
+        else:
+            result = await container_security.get_runtime_security_status()
+        await _persist_job(job_id, status="completed", result={"action": action, "result": result})
+        return _jobs[job_id]
+    except Exception as exc:
+        await _persist_job(job_id, status="failed", result={"action": action, "error": str(exc)})
+        return _jobs[job_id]
+
+
+async def run_suricata(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    assert_governance_context(governance_context, action="integrations.run_suricata")
+    payload = params or {}
+    action = str(payload.get("action") or "status").lower().strip()
+    eve_path = Path(str(payload.get("eve_path") or "/var/log/suricata/eve.json"))
+    stats_path = Path(str(payload.get("stats_path") or "/var/log/suricata/stats.log"))
+    job_id = await _new_running_job("suricata", {"action": action, "eve_path": str(eve_path), "stats_path": str(stats_path)})
+    try:
+        if action == "alerts":
+            alerts = []
+            for line in reversed(_tail_lines(eve_path, limit=int(payload.get("limit") or 400))):
+                raw = line.strip()
+                if not raw:
+                    continue
+                try:
+                    item = json.loads(raw)
+                except Exception:
+                    continue
+                if item.get("event_type") == "alert":
+                    alerts.append(item)
+            result = {"available": eve_path.exists(), "alert_count": len(alerts), "alerts": alerts[: int(payload.get("return_limit") or 120)]}
+        else:
+            alert_count = 0
+            for line in _tail_lines(eve_path, limit=4000):
+                if '"event_type":"alert"' in line or '"event_type": "alert"' in line:
+                    alert_count += 1
+            result = {
+                "available": eve_path.exists() or stats_path.exists(),
+                "eve_json_exists": eve_path.exists(),
+                "stats_log_exists": stats_path.exists(),
+                "recent_alert_count": alert_count,
+            }
+        await _persist_job(job_id, status="completed", result={"action": action, "result": result})
+        return _jobs[job_id]
+    except Exception as exc:
+        await _persist_job(job_id, status="failed", result={"action": action, "error": str(exc)})
+        return _jobs[job_id]
+
+
+async def run_yara(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    assert_governance_context(governance_context, action="integrations.run_yara")
+    payload = params or {}
+    action = str(payload.get("action") or "status").lower().strip()
+    job_id = await _new_running_job("yara", {"action": action, "params": payload})
+    try:
+        yara_bin = _tool_binary("yara")
+        if action == "scan":
+            rules_path = str(payload.get("rules_path") or "/app/yara_rules")
+            target_path = str(payload.get("target_path") or "/tmp")
+            if not yara_bin:
+                await _persist_job(job_id, status="failed", result={"error": "yara_binary_not_found"})
+                return _jobs[job_id]
+            cmd = [yara_bin, "-r", rules_path, target_path]
+            rc, out, err = await _run_subprocess(cmd, timeout=int(payload.get("timeout") or 180))
+            result = {
+                "return_code": rc,
+                "success": rc in {0, 1},
+                "stdout": out[-12000:],
+                "stderr": err[-4000:],
+                "rules_path": rules_path,
+                "target_path": target_path,
+            }
+            await _persist_job(job_id, status="completed" if rc in {0, 1} else "failed", result=result)
+            return _jobs[job_id]
+
+        # status
+        rule_dirs = [
+            Path("/app/yara_rules"),
+            Path("/etc/yara/rules"),
+            Path("/var/lib/seraph-ai/yara_rules"),
+        ]
+        rule_count = 0
+        for directory in rule_dirs:
+            if directory.exists():
+                rule_count += sum(1 for _ in directory.glob("**/*.yar")) + sum(1 for _ in directory.glob("**/*.yara"))
+        version = ""
+        if yara_bin:
+            rc, out, _ = await _run_subprocess([yara_bin, "--version"], timeout=10)
+            if rc == 0:
+                version = (out or "").strip()
+        result = {"available": bool(yara_bin), "version": version, "rule_count": rule_count}
+        await _persist_job(job_id, status="completed", result={"action": action, "result": result})
+        return _jobs[job_id]
+    except Exception as exc:
+        await _persist_job(job_id, status="failed", result={"action": action, "error": str(exc)})
+        return _jobs[job_id]
+
+
+async def run_osquery(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    assert_governance_context(governance_context, action="integrations.run_osquery")
+    payload = params or {}
+    action = str(payload.get("action") or "status").lower().strip()
+    job_id = await _new_running_job("osquery", {"action": action, "params": payload})
+    try:
+        from osquery_fleet import osquery_fleet
+
+        if action == "live_query":
+            sql = str(payload.get("sql") or "").strip()
+            result = osquery_fleet.run_live_query(sql, selected=payload.get("selected") or {})
+        elif action == "queries":
+            result = osquery_fleet.list_queries(limit=int(payload.get("limit") or 50), query=str(payload.get("query") or ""))
+        elif action == "results":
+            result = osquery_fleet.get_results(limit=int(payload.get("limit") or 100))
+        elif action == "stats":
+            result = osquery_fleet.get_stats()
+        else:
+            result = osquery_fleet.get_status()
+        ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+        await _persist_job(job_id, status="completed" if ok else "failed", result={"action": action, "result": result})
+        return _jobs[job_id]
+    except Exception as exc:
+        await _persist_job(job_id, status="failed", result={"action": action, "error": str(exc)})
+        return _jobs[job_id]
+
+
+async def run_zeek(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    assert_governance_context(governance_context, action="integrations.run_zeek")
+    payload = params or {}
+    action = str(payload.get("action") or "status").lower().strip()
+    zeek_dir = Path(str(payload.get("log_dir") or "/var/log/zeek/current"))
+    job_id = await _new_running_job("zeek", {"action": action, "log_dir": str(zeek_dir)})
+    try:
+        if action == "log":
+            log_type = str(payload.get("log_type") or "conn")
+            log_path = zeek_dir / f"{log_type}.log"
+            rows = [line.strip() for line in _tail_lines(log_path, limit=int(payload.get("limit") or 150)) if line.strip()]
+            result = {"available": log_path.exists(), "log_type": log_type, "count": len(rows), "records": rows}
+        elif action == "stats":
+            conn_lines = _tail_lines(zeek_dir / "conn.log", limit=2000)
+            dns_lines = _tail_lines(zeek_dir / "dns.log", limit=2000)
+            notice_lines = _tail_lines(zeek_dir / "notice.log", limit=400)
+            result = {
+                "available": zeek_dir.exists(),
+                "conn_events": len([l for l in conn_lines if l and not l.startswith("#")]),
+                "dns_events": len([l for l in dns_lines if l and not l.startswith("#")]),
+                "notice_events": len([l for l in notice_lines if l and not l.startswith("#")]),
+            }
+        else:
+            logs = sorted([p.stem for p in zeek_dir.glob("*.log")]) if zeek_dir.exists() else []
+            result = {"available": zeek_dir.exists(), "log_dir": str(zeek_dir), "log_types": logs, "log_count": len(logs)}
+        await _persist_job(job_id, status="completed", result={"action": action, "result": result})
+        return _jobs[job_id]
+    except Exception as exc:
+        await _persist_job(job_id, status="failed", result={"action": action, "error": str(exc)})
+        return _jobs[job_id]
+
+
+async def run_cuckoo(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    assert_governance_context(governance_context, action="integrations.run_cuckoo")
+    payload = params or {}
+    action = str(payload.get("action") or "status").lower().strip()
+    job_id = await _new_running_job("cuckoo", {"action": action, "params": payload})
+    try:
+        try:
+            from services.cuckoo_sandbox import cuckoo_sandbox
+        except Exception:
+            from backend.services.cuckoo_sandbox import cuckoo_sandbox
+
+        cuckoo_sandbox.set_db(get_db())
+        if action == "submit_file":
+            file_path = str(payload.get("file_path") or "").strip()
+            if not file_path:
+                await _persist_job(job_id, status="failed", result={"error": "file_path_required"})
+                return _jobs[job_id]
+            result = await asyncio.to_thread(cuckoo_sandbox.submit_file, file_path, payload.get("options") or {})
+        elif action == "submit_url":
+            url = str(payload.get("url") or "").strip()
+            if not url:
+                await _persist_job(job_id, status="failed", result={"error": "url_required"})
+                return _jobs[job_id]
+            result = await asyncio.to_thread(cuckoo_sandbox.submit_url, url, payload.get("options") or {})
+        elif action == "task_status":
+            task_id = str(payload.get("task_id") or "").strip()
+            result = await asyncio.to_thread(cuckoo_sandbox.get_task_status, task_id)
+        elif action == "report":
+            task_id = str(payload.get("task_id") or "").strip()
+            result = await asyncio.to_thread(cuckoo_sandbox.get_report, task_id)
+        else:
+            result = await asyncio.to_thread(cuckoo_sandbox.get_status)
+        ok = bool(result.get("success", True)) if isinstance(result, dict) else True
+        await _persist_job(job_id, status="completed" if ok else "failed", result={"action": action, "result": result})
+        return _jobs[job_id]
+    except Exception as exc:
+        await _persist_job(job_id, status="failed", result={"action": action, "error": str(exc)})
+        return _jobs[job_id]
+
+
+async def _run_tool_status_probe(tool: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Non-destructive readiness probe for integration tooling."""
+    payload = params or {}
+    job_id = await _new_running_job(tool, {"action": "status", "params": payload})
+    try:
+        docker_bin = _tool_binary("docker")
+        if tool == "amass":
+            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "caffix/amass:latest"}
+        elif tool == "velociraptor":
+            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "veloci/velociraptor:latest"}
+        elif tool == "purplesharp":
+            script = Path(__file__).resolve().parent.parent / "unified_agent" / "integrations" / "purplesharp" / "run_purplesharp.sh"
+            result = {
+                "available": script.exists(),
+                "script_path": str(script),
+                "pwsh_available": bool(_tool_binary("pwsh") or _tool_binary("powershell")),
+            }
+        elif tool == "arkime":
+            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "quay.io/arkime/arkime:latest"}
+        elif tool == "bloodhound":
+            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "specterops/bloodhound:latest"}
+        elif tool == "spiderfoot":
+            result = {"available": bool(docker_bin), "docker_available": bool(docker_bin), "image": "spiderfoot/spiderfoot:latest"}
+        else:
+            result = {"available": True}
+        await _persist_job(job_id, status="completed", result={"action": "status", "result": result})
+        return _jobs[job_id]
+    except Exception as exc:
+        await _persist_job(job_id, status="failed", result={"action": "status", "error": str(exc)})
         return _jobs[job_id]
 
 
@@ -819,6 +1147,7 @@ async def run_runtime_tool(
         raise ValueError(f"Unsupported tool '{tool}'. Supported: {sorted(SUPPORTED_RUNTIME_TOOLS)}")
     rt = str(runtime_target or "server").strip().lower()
     payload = params or {}
+    action = str(payload.get("action") or "").strip().lower()
     context = governance_context or {
         "approved": True,
         "decision_id": "integration-runtime-direct",
@@ -849,6 +1178,9 @@ async def run_runtime_tool(
             agent_id=resolved_agent_id,
         )
 
+    if action == "status" and t in {"amass", "velociraptor", "purplesharp", "arkime", "bloodhound", "spiderfoot"}:
+        return await _run_tool_status_probe(t, payload)
+
     if t == "amass":
         domain = str(payload.get("domain") or "").strip()
         if not domain:
@@ -870,6 +1202,20 @@ async def run_runtime_tool(
         return await run_sigma(governance_context=context, params=payload)
     if t == "atomic":
         return await run_atomic(governance_context=context, params=payload)
+    if t == "trivy":
+        return await run_trivy(governance_context=context, params=payload)
+    if t == "falco":
+        return await run_falco(governance_context=context, params=payload)
+    if t == "suricata":
+        return await run_suricata(governance_context=context, params=payload)
+    if t == "yara":
+        return await run_yara(governance_context=context, params=payload)
+    if t == "osquery":
+        return await run_osquery(governance_context=context, params=payload)
+    if t == "zeek":
+        return await run_zeek(governance_context=context, params=payload)
+    if t == "cuckoo":
+        return await run_cuckoo(governance_context=context, params=payload)
     raise ValueError(f"Unsupported tool '{tool}'")
 
 

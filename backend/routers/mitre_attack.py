@@ -1314,7 +1314,7 @@ async def _collect_threat_intel_match_evidence(techniques: Dict[str, Dict], db: 
 
 
 async def _collect_integration_job_evidence(techniques: Dict[str, Dict], db: Any):
-    """Collect ATT&CK evidence from integration job lifecycle (Amass/Velociraptor/PurpleSharp)."""
+    """Collect ATT&CK evidence from integration job lifecycle across runtime tools."""
     if db is None:
         return
     col = getattr(db, "integrations_jobs", None)
@@ -1335,6 +1335,15 @@ async def _collect_integration_job_evidence(techniques: Dict[str, Dict], db: Any
             "T1606", "T1652", "T1654", "T1656", "T1657", "T1658", "T1659", "T1661", "T1665", "T1669", "T1670",
         ],
         "spiderfoot": ["T1589.001", "T1590.001", "T1590.002", "T1590.004", "T1592.001", "T1595.001", "T1596"],
+        "trivy": ["T1190", "T1195.002", "T1552.001", "T1611"],
+        "falco": ["T1611", "T1610", "T1055", "T1562.001"],
+        "suricata": ["T1046", "T1071", "T1041", "T1562.001"],
+        "yara": ["T1204", "T1059", "T1027", "T1055"],
+        "osquery": ["T1046", "T1018", "T1057", "T1082", "T1547.001"],
+        "zeek": ["T1046", "T1071", "T1041", "T1568", "T1071.004"],
+        "cuckoo": ["T1204", "T1059", "T1027", "T1105", "T1071", "T1041", "T1486"],
+        "atomic": ["T1059", "T1547.001", "T1562.001", "T1027", "T1055"],
+        "sigma": ["T1059", "T1027", "T1547.001", "T1562.001"],
     }
 
     # Integration capability baseline from declared integration tool support.
@@ -1554,6 +1563,9 @@ CORROBORATING_SIGNAL_SOURCE_TOKENS: Tuple[str, ...] = (
     "alert",
     "scan",
     "monitor",
+    "integration_job",
+    "zeek",
+    "cuckoo",
 )
 HIGH_ASSURANCE_CORROBORATING_SOURCES: Set[str] = {
     "atomic_job",
@@ -1570,6 +1582,20 @@ HIGH_ASSURANCE_CORROBORATING_SOURCES: Set[str] = {
     "honey_token_catalog_runtime",
     "supply_chain_image_scanning",
     "triune_strategy_analysis",
+    "integration_job_arkime_completed",
+    "integration_job_bloodhound_completed",
+    "integration_job_spiderfoot_completed",
+    "integration_job_velociraptor_completed",
+    "integration_job_purplesharp_completed",
+    "integration_job_trivy_completed",
+    "integration_job_falco_completed",
+    "integration_job_suricata_completed",
+    "integration_job_yara_completed",
+    "integration_job_osquery_completed",
+    "integration_job_zeek_completed",
+    "integration_job_cuckoo_completed",
+    "integration_job_sigma_completed",
+    "integration_job_atomic_completed",
 }
 
 
