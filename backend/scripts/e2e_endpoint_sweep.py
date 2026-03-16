@@ -23,7 +23,7 @@ SETUP_TOKEN = os.environ.get("SETUP_TOKEN", "change-me-setup-token")
 ADMIN_EMAIL = os.environ.get("E2E_ADMIN_EMAIL", "admin@local")
 ADMIN_PASSWORD = os.environ.get("E2E_ADMIN_PASSWORD", "ChangeMe123!")
 ADMIN_NAME = os.environ.get("E2E_ADMIN_NAME", "Administrator")
-OUT_PATH = os.environ.get("E2E_REPORT_PATH", "/tmp/backend_e2e_report.json")
+OUT_PATH = os.environ.get("E2E_REPORT_PATH", "test_reports/openapi_e2e_report.json")
 
 
 def _safe_json(resp: requests.Response) -> Dict[str, Any]:
@@ -150,6 +150,28 @@ def _ensure_token(session: requests.Session) -> Optional[str]:
                 return token
     except Exception:
         pass
+
+    # Fallback: register a dedicated temporary E2E user, then login.
+    suffix = str(int(os.times().elapsed * 1000))
+    e2e_email = f"openapi-e2e-{suffix}@local"
+    e2e_password = "ChangeMe123!"
+    try:
+        session.post(
+            f"{BASE_URL}/api/auth/register",
+            json={"email": e2e_email, "password": e2e_password, "name": "OpenAPI E2E"},
+            timeout=TIMEOUT_S,
+        )
+        login = session.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": e2e_email, "password": e2e_password},
+            timeout=TIMEOUT_S,
+        )
+        if login.status_code == 200:
+            token = (_safe_json(login) or {}).get("access_token")
+            if isinstance(token, str) and token:
+                return token
+    except Exception:
+        pass
     return None
 
 
@@ -218,6 +240,9 @@ def run() -> int:
         "methods_failed_5xx_or_transport": len(failures),
         "failures": failures[:300],
     }
+    out_dir = os.path.dirname(OUT_PATH)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     with open(OUT_PATH, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2)
 
