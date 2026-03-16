@@ -743,7 +743,9 @@ export default function UnifiedAgentPage() {
             <Card className="bg-slate-900/50 border-slate-800">
               <CardHeader>
                 <CardTitle className="text-white">Quick Install by Platform</CardTitle>
-                <CardDescription>Click to download or copy install command</CardDescription>
+                <CardDescription>
+                  Click to download or copy install command (substantive dashboard binds to port 5000)
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {[

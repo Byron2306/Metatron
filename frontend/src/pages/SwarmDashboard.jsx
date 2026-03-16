@@ -492,10 +492,11 @@ const SwarmDashboard = () => {
                 <div className="mt-4 space-y-2">
                   <p className="text-slate-400 text-sm">
                     Desktop agents require Python 3.8+ and will automatically register with the server.
+                    Canonical local dashboard is exposed on port 5000.
                   </p>
                   <div className="p-2 bg-slate-900 rounded">
                     <span className="text-yellow-400 text-xs font-bold">WINDOWS (PowerShell):</span>
-                    <code className="block text-green-400 text-xs mt-1">{`python seraph_defender.py --api-url "${window.location.origin}" --monitor`}</code>
+                    <code className="block text-green-400 text-xs mt-1">{`$env:SERAPH_ENROLLMENT_KEY="<ENROLLMENT_KEY>"; irm ${window.location.origin}/api/unified/agent/install-windows | iex`}</code>
                   </div>
                   <div className="p-2 bg-slate-900 rounded">
                     <span className="text-green-400 text-xs font-bold">LINUX/macOS:</span>

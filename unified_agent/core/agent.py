@@ -16954,9 +16954,10 @@ class UnifiedAgent:
         """Start the agent"""
         self.running = True
 
-        # Start the built-in local web UI first so the URL is available
-        # before we register with the server.
-        if self.config.local_ui_enabled:
+        # Minimal in-core UI is fallback only. Canonical dashboard surface is
+        # unified_agent/ui/web/app.py on port 5000.
+        allow_minimal_ui = os.getenv("SERAPH_ALLOW_MINIMAL_UI", "").strip().lower() in {"1", "true", "yes", "on"}
+        if self.config.local_ui_enabled and allow_minimal_ui:
             self.local_ui_server = LocalWebUIServer(self, self.config.local_ui_port)
             bound_port = self.local_ui_server.start()
             if bound_port:
@@ -16966,6 +16967,11 @@ class UnifiedAgent:
                     local_ip = "localhost"
                 self._local_ui_url = f"http://{local_ip}:{bound_port}"
                 logger.info(f"Local Web UI: {self._local_ui_url}")
+        elif self.config.local_ui_enabled:
+            logger.info(
+                "Built-in minimal UI disabled by policy; use web dashboard on port 5000 "
+                "(set SERAPH_ALLOW_MINIMAL_UI=1 only for diagnostics)."
+            )
 
         self.register()
         

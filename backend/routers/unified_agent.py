@@ -3736,6 +3736,8 @@ if [[ -f "requirements.txt" ]]; then
 else
   pip install psutil requests netifaces watchdog pyyaml cryptography
 fi
+# Ensure substantive web dashboard dependencies are available.
+pip install flask flask-cors >/dev/null 2>&1 || true
 
 mkdir -p "$INSTALL_DIR/certs"
 CA_CERT_PATH=""
@@ -3774,7 +3776,7 @@ chmod 600 /etc/default/seraph-agent
 
 cat > /etc/systemd/system/seraph-agent.service <<'EOF'
 [Unit]
-Description=Seraph Unified Agent
+Description=Seraph Unified Agent Core
 After=network.target
 
 [Service]
@@ -3791,10 +3793,31 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
+cat > /etc/systemd/system/seraph-agent-dashboard.service <<'EOF'
+[Unit]
+Description=Seraph Unified Agent Web Dashboard (port 5000)
+After=network.target seraph-agent.service
+Requires=seraph-agent.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/seraph-agent
+EnvironmentFile=-/etc/default/seraph-agent
+Environment=PATH=/opt/seraph-agent/venv/bin
+ExecStart=/opt/seraph-agent/venv/bin/python /opt/seraph-agent/ui/web/app.py --host 0.0.0.0 --port 5000
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
-systemctl enable seraph-agent
-systemctl restart seraph-agent
+systemctl enable seraph-agent seraph-agent-dashboard
+systemctl restart seraph-agent seraph-agent-dashboard
 systemctl is-active --quiet seraph-agent
+systemctl is-active --quiet seraph-agent-dashboard
 echo "SERAPH_DEPLOY_SUCCESS"
 '''
 
@@ -3842,6 +3865,7 @@ $INSTALL_DIR = "C:\\ProgramData\\SeraphAgent"
 $ZIP_PATH = "$INSTALL_DIR\\agent.zip"
 $CONFIG_PATH = "$INSTALL_DIR\\agent_config.json"
 $RUNNER_PATH = "$INSTALL_DIR\\run-agent.ps1"
+$DASHBOARD_RUNNER_PATH = "$INSTALL_DIR\\run-dashboard.ps1"
 $CA_CERT_PATH = "$INSTALL_DIR\\certs\\seraph-agent-ca.pem"
 $EMBEDDED_ENROLLMENT_KEY = "{embedded_enrollment}"
 $EMBEDDED_INTEGRATION_TOKEN = "{embedded_integration}"
@@ -3896,6 +3920,7 @@ try {{
   }} else {{
     cmd /c "$pythonCmd -m pip install psutil requests netifaces watchdog pyyaml cryptography"
   }}
+  cmd /c "$pythonCmd -m pip install flask flask-cors"
 
   $config = @{{
     server_url = $SERAPH_SERVER
@@ -3913,12 +3938,24 @@ if (Test-Path '$CA_CERT_PATH') {{ $env:REQUESTS_CA_BUNDLE = '$CA_CERT_PATH' }}
 "@
   Set-Content -Path $RUNNER_PATH -Value $runner -Encoding UTF8
 
+  $dashboardRunner = @"
+$ErrorActionPreference = 'Stop'
+if (Test-Path '$CA_CERT_PATH') {{ $env:REQUESTS_CA_BUNDLE = '$CA_CERT_PATH' }}
+& cmd /c "$pythonCmd ui\\web\\app.py --host 0.0.0.0 --port 5000"
+"@
+  Set-Content -Path $DASHBOARD_RUNNER_PATH -Value $dashboardRunner -Encoding UTF8
+
   $taskArgs = "-ExecutionPolicy Bypass -File `"$RUNNER_PATH`""
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs -WorkingDirectory $INSTALL_DIR
   $trigger = New-ScheduledTaskTrigger -AtStartup
   $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
   Register-ScheduledTask -TaskName "SeraphAgent" -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
   Start-ScheduledTask -TaskName "SeraphAgent"
+
+  $dashboardTaskArgs = "-ExecutionPolicy Bypass -File `"$DASHBOARD_RUNNER_PATH`""
+  $dashboardAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $dashboardTaskArgs -WorkingDirectory $INSTALL_DIR
+  Register-ScheduledTask -TaskName "SeraphAgentDashboard" -Action $dashboardAction -Trigger $trigger -Principal $principal -Force | Out-Null
+  Start-ScheduledTask -TaskName "SeraphAgentDashboard"
 }} catch {{
   Write-Host "INSTALL FAILED: $($_.Exception.Message)" -ForegroundColor Red
   exit 1
@@ -3973,6 +4010,7 @@ set -euo pipefail
 SERAPH_SERVER="{base_url}"
 INSTALL_DIR="$HOME/Library/Application Support/SeraphAgent"
 LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/com.seraph.agent.plist"
+DASHBOARD_LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/com.seraph.dashboard.plist"
 EMBEDDED_ENROLLMENT_KEY="{embedded_enrollment}"
 EMBEDDED_INTEGRATION_TOKEN="{embedded_integration}"
 EMBEDDED_CA_CERT_B64="{embedded_ca_b64}"
@@ -4013,6 +4051,7 @@ source venv/bin/activate
 # Install dependencies
 pip install --upgrade pip
 pip install psutil requests netifaces watchdog pyyaml scapy cryptography
+pip install flask flask-cors
 
 # Install YARA (optional, for malware scanning)
 echo "Installing YARA..."
@@ -4081,8 +4120,44 @@ cat > "$LAUNCH_AGENT_PATH" << EOF
 </plist>
 EOF
 
-# Load the launch agent
+cat > "$DASHBOARD_LAUNCH_AGENT_PATH" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.seraph.dashboard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$INSTALL_DIR/venv/bin/python</string>
+        <string>$INSTALL_DIR/ui/web/app.py</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>5000</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>REQUESTS_CA_BUNDLE</key>
+        <string>$INSTALL_DIR/certs/seraph-agent-ca.pem</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$INSTALL_DIR/dashboard.log</string>
+    <key>StandardErrorPath</key>
+    <string>$INSTALL_DIR/dashboard-error.log</string>
+</dict>
+</plist>
+EOF
+
+# Load launch agents (core + dashboard)
+launchctl unload "$LAUNCH_AGENT_PATH" 2>/dev/null || true
+launchctl unload "$DASHBOARD_LAUNCH_AGENT_PATH" 2>/dev/null || true
 launchctl load "$LAUNCH_AGENT_PATH"
+launchctl load "$DASHBOARD_LAUNCH_AGENT_PATH"
 
 echo ""
 echo "================================================================"
@@ -4400,22 +4475,25 @@ async def get_all_installers(request: Request, server_url: Optional[str] = None)
                 "name": "Linux",
                 "icon": "🐧",
                 "endpoint": f"{base_url}/api/unified/agent/install-script",
-                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-script | sudo bash",
-                "requirements": ["Python 3.8+", "Root access", "systemd"]
+                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-script | sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash",
+                "requirements": ["Python 3.8+", "Root access", "systemd", "Dashboard exposed on port 5000"]
             },
             "windows": {
                 "name": "Windows",
                 "icon": "🪟",
                 "endpoint": f"{base_url}/api/unified/agent/install-windows",
-                "install_command": f"Invoke-WebRequest -Uri {base_url}/api/unified/agent/install-windows | Invoke-Expression",
-                "requirements": ["Python 3.8+", "Administrator access", "PowerShell 5+"]
+                "install_command": (
+                    f"irm {base_url}/api/unified/agent/install-windows | "
+                    "powershell -Command \"$env:SERAPH_ENROLLMENT_KEY='<ENROLLMENT_KEY>'; iex ($input | Out-String)\""
+                ),
+                "requirements": ["Python 3.8+", "Administrator access", "PowerShell 5+", "Dashboard exposed on port 5000"]
             },
             "macos": {
                 "name": "macOS",
                 "icon": "🍎",
                 "endpoint": f"{base_url}/api/unified/agent/install-macos",
-                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-macos | bash",
-                "requirements": ["Python 3.8+ (via Homebrew)", "User account"]
+                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-macos | SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash",
+                "requirements": ["Python 3.8+ (via Homebrew)", "User account", "Dashboard exposed on port 5000"]
             },
             "android": {
                 "name": "Android",
@@ -4432,6 +4510,74 @@ async def get_all_installers(request: Request, server_url: Optional[str] = None)
                 "requirements": ["Pythonista 3 app OR Xcode + Apple Developer account"]
             }
         }
+    }
+
+
+@router.get("/agent/bootstrap-manifest")
+async def get_agent_bootstrap_manifest(
+    request: Request,
+    server_url: Optional[str] = None,
+    current_user: dict = Depends(check_permission("admin")),
+):
+    """Return secret-free bootstrap command templates for fleet installs."""
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    proto = forwarded_proto or request.url.scheme or "http"
+    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+
+    linux_cmd = (
+        f"curl -sSL {base_url}/api/unified/agent/install-script | "
+        "sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> "
+        "[SERAPH_INTEGRATION_TOKEN=<INTEGRATION_TOKEN>] "
+        "[SERAPH_CA_CERT_PEM_B64=<BASE64_CA_PEM>] bash"
+    )
+    windows_cmd = (
+        f"irm {base_url}/api/unified/agent/install-windows | "
+        "powershell -Command "
+        "\"$env:SERAPH_ENROLLMENT_KEY='<ENROLLMENT_KEY>'; "
+        "$env:SERAPH_INTEGRATION_TOKEN='<INTEGRATION_TOKEN>'; "
+        "$env:SERAPH_CA_CERT_PEM_B64='<BASE64_CA_PEM>'; "
+        "iex ($input | Out-String)\""
+    )
+    macos_cmd = (
+        f"curl -sSL {base_url}/api/unified/agent/install-macos | "
+        "SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> "
+        "[SERAPH_INTEGRATION_TOKEN=<INTEGRATION_TOKEN>] "
+        "[SERAPH_CA_CERT_PEM_B64=<BASE64_CA_PEM>] bash"
+    )
+
+    return {
+        "server_url": base_url,
+        "security": {
+            "secret_free": True,
+            "admin_only": True,
+            "required_env": ["SERAPH_ENROLLMENT_KEY"],
+            "optional_env": ["SERAPH_INTEGRATION_TOKEN", "SERAPH_CA_CERT_PEM_B64"],
+        },
+        "dashboard_contract": {
+            "canonical_port": 5000,
+            "surface": "unified_agent/ui/web/app.py",
+            "minimal_ui_disabled": True,
+        },
+        "platforms": {
+            "linux": {
+                "script_endpoint": f"{base_url}/api/unified/agent/install-script",
+                "command_template": linux_cmd,
+            },
+            "windows": {
+                "script_endpoint": f"{base_url}/api/unified/agent/install-windows",
+                "command_template": windows_cmd,
+            },
+            "macos": {
+                "script_endpoint": f"{base_url}/api/unified/agent/install-macos",
+                "command_template": macos_cmd,
+            },
+        },
+        "notes": [
+            "Replace placeholder values before execution.",
+            "Do not publish enrollment or integration tokens in docs or tickets.",
+            "Installers provision core agent execution and the substantive dashboard on port 5000.",
+        ],
+        "requested_by": current_user.get("id") if isinstance(current_user, dict) else None,
     }
 
 
