@@ -16074,6 +16074,10 @@ class UnifiedAgent:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "telemetry": asdict(self.telemetry),
                     "monitors": self._build_monitors_payload(),
+                    "endpoint_fortress": {
+                        "enabled": bool(getattr(self.config, "endpoint_fortress_enabled", True)),
+                        "beacon": self.local_execution_broker.vns.get_beacon_snapshot() if hasattr(self, "local_execution_broker") else {},
+                    },
                     "edm_hits": outbound_hits,
                     "local_ui_url": self._local_ui_url,
                 },
@@ -16207,16 +16211,28 @@ class UnifiedAgent:
         return []
 
     def _extract_command_decision_context(self, command: Dict[str, Any]) -> Dict[str, Any]:
+        nested = command.get("decision_context") if isinstance(command.get("decision_context"), dict) else {}
         return {
-            "decision_id": command.get("decision_id") or command.get("policy_decision_id"),
-            "queue_id": command.get("queue_id"),
-            "approved": bool(command.get("approved", False) or command.get("released_to_execution", False)),
+            "decision_id": nested.get("decision_id") or command.get("decision_id") or command.get("policy_decision_id"),
+            "queue_id": nested.get("queue_id") or command.get("queue_id"),
+            "approved": bool(
+                nested.get("approved", False)
+                or command.get("approved", False)
+                or command.get("released_to_execution", False)
+                or nested.get("released_to_execution", False)
+            ),
         }
 
     def _extract_command_token(self, command: Dict[str, Any], params: Dict[str, Any]) -> Any:
+        authority = command.get("authority_context") if isinstance(command.get("authority_context"), dict) else {}
+        auth_token = authority.get("token")
+        if isinstance(auth_token, dict) and auth_token:
+            return auth_token
         token = command.get("token")
         if token:
             return token
+        if authority.get("token_id"):
+            return {"token_id": authority.get("token_id")}
         if command.get("token_id"):
             return {"token_id": command.get("token_id")}
         if params.get("token"):

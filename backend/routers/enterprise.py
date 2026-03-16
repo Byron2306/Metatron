@@ -59,6 +59,111 @@ verify_enterprise_machine_token = require_machine_token(
 ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
 
 
+def _extract_endpoint_boundary_context(event_data: Dict[str, Any], fallback_agent_id: Optional[str]) -> Dict[str, Any]:
+    payload = event_data if isinstance(event_data, dict) else {}
+    post = payload.get("post_observation") if isinstance(payload.get("post_observation"), dict) else {}
+    gate = payload.get("gate_decision") if isinstance(payload.get("gate_decision"), dict) else {}
+    boundary = payload.get("boundary") if isinstance(payload.get("boundary"), dict) else {}
+    decision_context = payload.get("decision_context")
+    if not isinstance(decision_context, dict):
+        decision_context = boundary.get("decision_context") if isinstance(boundary.get("decision_context"), dict) else {}
+    beacon = post.get("beacon") if isinstance(post.get("beacon"), dict) else {}
+    outcome = str(payload.get("outcome") or payload.get("crossing_outcome") or post.get("world_event_outcome") or "").lower().strip()
+    if not outcome:
+        gate_outcome = str(post.get("gate_outcome") or gate.get("decision") or "").lower().strip()
+        if gate_outcome in {"deny", "denied"}:
+            outcome = "denied"
+        elif gate_outcome in {"queue", "queued", "throttle", "throttled"}:
+            outcome = "queued"
+        elif gate_outcome == "token-invalid":
+            outcome = "token-invalid"
+        elif gate_outcome in {"quarantine", "quarantined"}:
+            outcome = "anomalous"
+        else:
+            outcome = "allowed"
+
+    agent_id = str(payload.get("agent_id") or fallback_agent_id or "").strip()
+    return {
+        "agent_id": agent_id,
+        "command_id": str(payload.get("command_id") or "").strip(),
+        "outcome": outcome,
+        "decision_context": decision_context,
+        "beacon": beacon,
+        "boundary": boundary,
+        "pre_observation": payload.get("pre_observation") if isinstance(payload.get("pre_observation"), dict) else {},
+        "post_observation": post,
+        "gate_decision": gate,
+        "trace_id": str(payload.get("trace_id") or "").strip(),
+    }
+
+
+def _endpoint_boundary_trigger_triune(context: Dict[str, Any]) -> bool:
+    outcome = str(context.get("outcome") or "").lower()
+    beacon_state = str((context.get("beacon") or {}).get("state") or "").lower()
+    return outcome in {"denied", "queued", "token-invalid", "anomalous", "decoy-hit"} or beacon_state in {"amber", "red"}
+
+
+async def _project_endpoint_posture(
+    db_handle: Any,
+    *,
+    agent_id: str,
+    beacon: Dict[str, Any],
+    outcome: str,
+    trace_id: str,
+) -> None:
+    if not agent_id or db_handle is None:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    beacon_state = str((beacon or {}).get("state") or "Green")
+    beacon_state_lower = beacon_state.lower()
+    trust_state = "trusted"
+    if beacon_state_lower == "red":
+        trust_state = "compromised"
+    elif beacon_state_lower in {"amber", "yellow"}:
+        trust_state = "degraded"
+
+    posture = {
+        "agent_id": agent_id,
+        "beacon_state": beacon_state,
+        "beacon_score": int((beacon or {}).get("score") or 0),
+        "classification": (beacon or {}).get("classification"),
+        "last_boundary_outcome": outcome,
+        "trace_id": trace_id,
+        "updated_at": now,
+    }
+
+    if hasattr(db_handle, "endpoint_posture"):
+        try:
+            await db_handle.endpoint_posture.update_one(
+                {"agent_id": agent_id},
+                {"$set": posture},
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("Failed to update endpoint_posture for %s", agent_id)
+
+    if hasattr(db_handle, "world_entities"):
+        try:
+            await db_handle.world_entities.update_one(
+                {"id": agent_id},
+                {
+                    "$set": {
+                        "id": agent_id,
+                        "type": "agent",
+                        "updated": now,
+                        "attributes.endpoint_beacon_state": beacon_state,
+                        "attributes.endpoint_beacon_score": int((beacon or {}).get("score") or 0),
+                        "attributes.endpoint_boundary_outcome": outcome,
+                        "attributes.trust_state": trust_state,
+                        "attributes.endpoint_trace_id": trace_id,
+                    }
+                },
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("Failed to project endpoint posture to world_entities for %s", agent_id)
+
+
 # =============================================================================
 # MODELS
 # =============================================================================
@@ -633,6 +738,63 @@ async def ingest_event(
         trace_id=request.trace_id
     )
     await emit_world_event(get_db(), event_type="enterprise_telemetry_event_ingested", entity_refs=[event.event_id], payload={"event_type": request.event_type, "severity": request.severity}, trigger_triune=False)
+
+    # Promote endpoint fortress boundary events into canonical boundary world events.
+    event_type_lower = str(request.event_type or "").strip().lower()
+    if event_type_lower == "endpoint_boundary_crossing":
+        context = _extract_endpoint_boundary_context(request.data or {}, request.agent_id)
+        refs = [context.get("agent_id"), context.get("command_id"), context.get("decision_context", {}).get("queue_id"), context.get("decision_context", {}).get("decision_id")]
+        refs = [str(r) for r in refs if r]
+        await emit_world_event(
+            get_db(),
+            event_type="boundary_crossing",
+            entity_refs=refs or [event.event_id],
+            payload={
+                "source": "enterprise_telemetry_ingest",
+                "crossing_outcome": context.get("outcome"),
+                "agent_id": context.get("agent_id"),
+                "command_id": context.get("command_id"),
+                "decision_context": context.get("decision_context"),
+                "boundary": context.get("boundary"),
+                "pre_observation": context.get("pre_observation"),
+                "post_observation": context.get("post_observation"),
+                "gate_decision": context.get("gate_decision"),
+                "trace_id": context.get("trace_id") or request.trace_id,
+                "severity": request.severity,
+            },
+            trigger_triune=_endpoint_boundary_trigger_triune(context),
+        )
+        await _project_endpoint_posture(
+            get_db(),
+            agent_id=str(context.get("agent_id") or request.agent_id or ""),
+            beacon=context.get("beacon") or {},
+            outcome=str(context.get("outcome") or ""),
+            trace_id=str(context.get("trace_id") or request.trace_id or ""),
+        )
+    elif event_type_lower == "endpoint_vns_monitor_signal":
+        signal = request.data or {}
+        beacon = signal.get("signal", {}).get("beacon") if isinstance(signal.get("signal"), dict) else {}
+        beacon_state = str((beacon or {}).get("state") or "").lower()
+        await emit_world_event(
+            get_db(),
+            event_type="endpoint_beacon_state_changed",
+            entity_refs=[str(signal.get("agent_id") or request.agent_id or ""), event.event_id],
+            payload={
+                "source": "enterprise_telemetry_ingest",
+                "signal_type": signal.get("threat_type") or signal.get("signal_type"),
+                "beacon": beacon,
+                "trace_id": request.trace_id,
+                "severity": request.severity,
+            },
+            trigger_triune=beacon_state in {"amber", "red"},
+        )
+        await _project_endpoint_posture(
+            get_db(),
+            agent_id=str(signal.get("agent_id") or request.agent_id or ""),
+            beacon=beacon if isinstance(beacon, dict) else {},
+            outcome="signal",
+            trace_id=str(request.trace_id or ""),
+        )
     
     return {
         "event_id": event.event_id,

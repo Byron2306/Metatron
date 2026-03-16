@@ -657,6 +657,7 @@ class AgentHeartbeatModel(BaseModel):
     edm_hits: List[EDMHitTelemetryModel] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
+    endpoint_fortress: Optional[Dict[str, Any]] = None
     local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
 
 
@@ -933,6 +934,8 @@ async def agent_heartbeat(
     # Persist local UI URL when provided
     if heartbeat.local_ui_url:
         update_data["local_ui_url"] = heartbeat.local_ui_url
+    if isinstance(heartbeat.endpoint_fortress, dict):
+        update_data["endpoint_fortress"] = heartbeat.endpoint_fortress
     
     monitors_summary: Dict[str, Dict[str, Any]] = {}
     # Store monitor summary in agent document for quick access.
@@ -984,6 +987,22 @@ async def agent_heartbeat(
         
         # Run threat hunting on telemetry
         await _hunt_telemetry(heartbeat.telemetry)
+
+    if isinstance(heartbeat.endpoint_fortress, dict):
+        beacon = heartbeat.endpoint_fortress.get("beacon") if isinstance(heartbeat.endpoint_fortress.get("beacon"), dict) else {}
+        beacon_state = str(beacon.get("state") or "").lower()
+        await emit_world_event(
+            get_db(),
+            event_type="endpoint_beacon_state_reported",
+            entity_refs=[agent_id],
+            payload={
+                "beacon_state": beacon.get("state"),
+                "beacon_score": beacon.get("score"),
+                "classification": beacon.get("classification"),
+                "endpoint_fortress": heartbeat.endpoint_fortress,
+            },
+            trigger_triune=beacon_state in {"amber", "red"},
+        )
     
     # Store structured monitor telemetry separately.
     if heartbeat.monitors:
@@ -1222,6 +1241,119 @@ _REMEDIATION_ACTION_COMMAND_MAP: Dict[str, str] = {
     "quarantine_file": "quarantine_file",
 }
 
+_HIGH_IMPACT_AGENT_COMMAND_TYPES = {
+    "kill_process",
+    "block_ip",
+    "quarantine_file",
+    "update_config",
+    "collect_forensics",
+    "run_command",
+    "shell_command",
+    "powershell_command",
+    "vpn_connect",
+    "vpn_disconnect",
+}
+
+
+def _command_scope_for_type(command_type: str) -> Dict[str, str]:
+    ctype = str(command_type or "").lower().strip()
+    if ctype in {"block_ip", "block_connection", "vpn_connect", "vpn_disconnect"}:
+        return {"zone_from": "governance", "zone_to": "network_egress_zone"}
+    if ctype in {"quarantine_file"}:
+        return {"zone_from": "governance", "zone_to": "browser_email_document_zone"}
+    if ctype in {"run_command", "shell_command", "powershell_command", "kill_process", "collect_forensics", "update_config"}:
+        return {"zone_from": "governance", "zone_to": "admin_tooling_zone"}
+    return {"zone_from": "governance", "zone_to": "agent_control_zone"}
+
+
+def _resolve_command_target(command_type: str, parameters: Dict[str, Any], agent_id: str) -> str:
+    params = parameters or {}
+    ctype = str(command_type or "").lower().strip()
+    if ctype == "kill_process":
+        return str(params.get("pid") or params.get("name") or f"agent:{agent_id}")
+    if ctype in {"block_ip", "block_connection"}:
+        return str(params.get("ip") or f"agent:{agent_id}")
+    if ctype == "quarantine_file":
+        return str(params.get("filepath") or f"agent:{agent_id}")
+    if ctype in {"run_command", "shell_command", "powershell_command"}:
+        return str(params.get("command") or f"agent:{agent_id}")[:240]
+    return str(params.get("target") or f"agent:{agent_id}")
+
+
+def _extract_token_for_contract(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    params = parameters or {}
+    token = params.get("token")
+    if isinstance(token, dict):
+        token_payload = dict(token)
+        if "token_id" not in token_payload and params.get("token_id"):
+            token_payload["token_id"] = params.get("token_id")
+        return token_payload
+    if params.get("token_id"):
+        return {"token_id": str(params.get("token_id"))}
+    return {}
+
+
+def _build_authority_context(
+    *,
+    command_type: str,
+    parameters: Dict[str, Any],
+    issued_by: str,
+    agent_id: str,
+) -> Dict[str, Any]:
+    token_payload = _extract_token_for_contract(parameters)
+    target = _resolve_command_target(command_type, parameters, agent_id)
+    return {
+        "principal": issued_by,
+        "capability": command_type,
+        "target": target,
+        "scope": _command_scope_for_type(command_type),
+        "token": token_payload,
+        "token_id": str(token_payload.get("token_id") or ""),
+        "requires_token": command_type in _HIGH_IMPACT_AGENT_COMMAND_TYPES,
+        "requires_decision_context": command_type in _HIGH_IMPACT_AGENT_COMMAND_TYPES,
+        "contract_version": "endpoint-boundary.v1",
+    }
+
+
+def _serialize_agent_command_for_delivery(command_doc: Dict[str, Any]) -> Dict[str, Any]:
+    command_doc = dict(command_doc or {})
+    command_type = str(command_doc.get("command_type") or command_doc.get("type") or "")
+    parameters = command_doc.get("parameters") or {}
+    authority_context = command_doc.get("authority_context")
+    if not isinstance(authority_context, dict):
+        authority_context = _build_authority_context(
+            command_type=command_type,
+            parameters=parameters if isinstance(parameters, dict) else {},
+            issued_by=str(command_doc.get("issued_by") or command_doc.get("created_by") or "system"),
+            agent_id=str(command_doc.get("agent_id") or ""),
+        )
+    decision_context = command_doc.get("decision_context")
+    if not isinstance(decision_context, dict):
+        decision_context = {
+            "decision_id": command_doc.get("decision_id"),
+            "queue_id": command_doc.get("queue_id") or command_doc.get("outbound_queue_id"),
+            "approved": bool(command_doc.get("approved", False)),
+            "released_to_execution": bool(
+                command_doc.get("released_to_execution", False)
+                or str(command_doc.get("status") or "").lower() in {"pending", "queued", "delivered", "sent"}
+            ),
+        }
+
+    return {
+        "command_id": command_doc.get("command_id"),
+        "command_type": command_type,
+        "parameters": parameters,
+        "priority": command_doc.get("priority", "normal"),
+        "timestamp": command_doc.get("timestamp") or command_doc.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        "decision_id": decision_context.get("decision_id"),
+        "queue_id": decision_context.get("queue_id"),
+        "decision_context": decision_context,
+        "authority_context": authority_context,
+        "principal": authority_context.get("principal"),
+        "token_id": authority_context.get("token_id"),
+        "token": authority_context.get("token"),
+    }
+
 
 @router.post("/agents/{agent_id}/commands/tooling/{tool_name}")
 async def send_agent_tooling_command(
@@ -1263,6 +1395,12 @@ async def _dispatch_agent_command(
 ) -> Dict[str, Any]:
     """Queue command through outbound gate before any execution path."""
     command_id = secrets.token_hex(8)
+    authority_context = _build_authority_context(
+        command_type=command_type,
+        parameters=parameters or {},
+        issued_by=issued_by,
+        agent_id=agent_id,
+    )
     command_data = {
         "command_id": command_id,
         "type": "command",
@@ -1271,6 +1409,13 @@ async def _dispatch_agent_command(
         "priority": priority,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "issued_by": issued_by,
+        "authority_context": authority_context,
+        "decision_context": {
+            "decision_id": None,
+            "queue_id": None,
+            "approved": False,
+            "released_to_execution": False,
+        },
     }
 
     action_type = "cross_sector_hardening" if command_type in {"remediate_compliance", "remove_persistence"} else "agent_command"
@@ -1305,6 +1450,7 @@ async def _dispatch_agent_command(
         "status": "queued_for_approval",
         "queue_id": queued.get("queue_id"),
         "decision_id": queued.get("decision_id"),
+        "authority_context": authority_context,
         "message": "Command queued for triune approval; execution awaits outbound gate decision",
     }
 
@@ -1572,30 +1718,93 @@ async def _transition_unified_deployment_state(
     return getattr(result, "matched_count", 0) > 0
 
 
+def _extract_boundary_crossing_from_command_result(
+    *,
+    agent_id: str,
+    command_id: str,
+    result: Dict[str, Any],
+) -> Dict[str, Any]:
+    fortress = result.get("fortress")
+    if not isinstance(fortress, dict):
+        return {}
+
+    pre = fortress.get("pre") if isinstance(fortress.get("pre"), dict) else {}
+    post = fortress.get("post") if isinstance(fortress.get("post"), dict) else {}
+    gate = fortress.get("gate") if isinstance(fortress.get("gate"), dict) else {}
+    boundary = fortress.get("boundary") if isinstance(fortress.get("boundary"), dict) else {}
+    decision_context = boundary.get("decision_context") if isinstance(boundary.get("decision_context"), dict) else {}
+
+    gate_outcome = str(post.get("gate_outcome") or gate.get("decision") or "").lower().strip()
+    world_outcome = str(post.get("world_event_outcome") or "").lower().strip()
+    if not world_outcome:
+        if gate_outcome in {"deny", "denied"}:
+            world_outcome = "denied"
+        elif gate_outcome in {"queue", "queued", "throttle", "throttled"}:
+            world_outcome = "queued"
+        elif gate_outcome in {"quarantine", "quarantined"}:
+            world_outcome = "anomalous"
+        elif gate_outcome == "token-invalid":
+            world_outcome = "token-invalid"
+        else:
+            world_outcome = "allowed"
+
+    beacon = post.get("beacon") if isinstance(post.get("beacon"), dict) else {}
+    beacon_state = str(beacon.get("state") or "").lower()
+    trigger_triune = world_outcome in {"denied", "queued", "token-invalid", "anomalous", "decoy-hit"} or beacon_state in {"amber", "red"}
+
+    refs = [agent_id, command_id, str(decision_context.get("queue_id") or ""), str(decision_context.get("decision_id") or "")]
+    refs = [r for r in refs if r]
+    return {
+        "event_type": "boundary_crossing",
+        "entity_refs": refs,
+        "payload": {
+            "source": "endpoint_fortress_command_result",
+            "agent_id": agent_id,
+            "command_id": command_id,
+            "crossing_outcome": world_outcome,
+            "decision_context": decision_context,
+            "boundary": boundary,
+            "pre_observation": pre,
+            "gate_decision": gate,
+            "post_observation": post,
+        },
+        "trigger_triune": trigger_triune,
+        "world_outcome": world_outcome,
+    }
+
+
 async def _finalize_agent_command_result(
     command_id: str,
     status: str,
     result_payload: Dict[str, Any],
     transition_actor: str = "agent",
     transition_reason: str = "command result received",
+    fortress_payload: Optional[Dict[str, Any]] = None,
+    boundary_outcome: Optional[str] = None,
 ) -> Dict[str, Any]:
     normalized_status = str(status or "completed").lower().strip()
     if normalized_status not in {"completed", "failed"}:
         normalized_status = "completed"
 
     now = datetime.now(timezone.utc).isoformat()
+    set_doc: Dict[str, Any] = {
+        "status": normalized_status,
+        "result": result_payload,
+        "completed_at": now,
+        "updated_at": now,
+    }
+    if isinstance(fortress_payload, dict) and fortress_payload:
+        set_doc["endpoint_fortress"] = fortress_payload
+    if boundary_outcome:
+        set_doc["boundary_outcome"] = str(boundary_outcome)
+
     update_result = await db.agent_commands.update_one(
         {
             "command_id": command_id,
             "status": {"$in": ["queued", "sent", "delivered", "in_progress", "running"]},
         },
         {
-            "$set": {
-                "status": normalized_status,
-                "result": result_payload,
-                "completed_at": now,
-                "updated_at": now,
-            },
+            "$set": set_doc,
             "$inc": {"state_version": 1},
             "$push": {
                 "state_transition_log": {
@@ -2732,14 +2941,13 @@ async def get_agent_commands(
             }
         )
     
-    # Combine and return
-    all_commands = queued + [{
-        "command_id": c["command_id"],
-        "command_type": c["command_type"],
-        "parameters": c.get("parameters", {}),
-        "priority": c.get("priority", "normal"),
-        "timestamp": c.get("timestamp") or c.get("created_at") or datetime.now(timezone.utc).isoformat()
-    } for c in db_commands]
+    # Combine and return with full authority contract for endpoint-local MCP/VNS gate.
+    serialized_queued = [
+        _serialize_agent_command_for_delivery(c if isinstance(c, dict) else {})
+        for c in queued
+    ]
+    serialized_db = [_serialize_agent_command_for_delivery(c) for c in db_commands]
+    all_commands = serialized_queued + serialized_db
     
     return {"commands": all_commands, "count": len(all_commands)}
 
@@ -2760,6 +2968,14 @@ async def report_command_result(
     command_id = result.get("command_id")
     if not command_id:
         raise HTTPException(status_code=400, detail="Missing command_id")
+
+    fortress_payload = result.get("fortress") if isinstance(result.get("fortress"), dict) else {}
+    boundary_event = _extract_boundary_crossing_from_command_result(
+        agent_id=agent_id,
+        command_id=command_id,
+        result=result if isinstance(result, dict) else {},
+    )
+    boundary_outcome = boundary_event.get("world_outcome")
     
     finalize = await _finalize_agent_command_result(
         command_id=command_id,
@@ -2767,6 +2983,8 @@ async def report_command_result(
         result_payload=result.get("result", {}),
         transition_actor=f"agent:{agent_id}",
         transition_reason="agent reported command result",
+        fortress_payload=fortress_payload,
+        boundary_outcome=str(boundary_outcome) if boundary_outcome else None,
     )
     
     # Store full result in command_results collection
@@ -2776,11 +2994,41 @@ async def report_command_result(
         "command_type": result.get("command_type"),
         "status": result.get("status", "completed"),
         "result": result.get("result", {}),
+        "fortress": fortress_payload if fortress_payload else None,
+        "boundary_outcome": boundary_outcome,
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
     
     logger.info(f"Command result received: {command_id} from {agent_id} - {finalize.get('status')}")
-    await emit_world_event(get_db(), event_type="unified_agent_command_result_received", entity_refs=[agent_id, command_id], payload={"status": finalize.get("status")}, trigger_triune=False)
+    _record_unified_audit(
+        principal=f"agent:{agent_id}",
+        action="unified_agent_command_result_ingest",
+        targets=[agent_id, command_id],
+        result="success",
+        constraints={
+            "boundary_outcome": boundary_outcome,
+            "fortress_present": bool(fortress_payload),
+        },
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="unified_agent_command_result_received",
+        entity_refs=[agent_id, command_id],
+        payload={
+            "status": finalize.get("status"),
+            "boundary_outcome": boundary_outcome,
+            "fortress_present": bool(fortress_payload),
+        },
+        trigger_triune=boundary_outcome in {"denied", "queued", "token-invalid", "anomalous", "decoy-hit"},
+    )
+    if boundary_event:
+        await emit_world_event(
+            get_db(),
+            event_type=boundary_event["event_type"],
+            entity_refs=boundary_event["entity_refs"],
+            payload=boundary_event["payload"],
+            trigger_triune=bool(boundary_event.get("trigger_triune")),
+        )
     return {"status": "received", "command_id": command_id}
 
 
@@ -3196,13 +3444,28 @@ async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
                 # Store command result
                 result = data.get("data", {})
                 try:
+                    boundary_event = _extract_boundary_crossing_from_command_result(
+                        agent_id=agent_id,
+                        command_id=str(result.get("command_id") or ""),
+                        result=result if isinstance(result, dict) else {},
+                    )
                     await _finalize_agent_command_result(
                         command_id=result.get("command_id"),
                         status=result.get("status", "completed"),
-                        result_payload=result,
+                        result_payload=result.get("result", {}) if isinstance(result, dict) else {},
                         transition_actor=f"agent:{agent_id}",
                         transition_reason="websocket command_result",
+                        fortress_payload=result.get("fortress") if isinstance(result, dict) and isinstance(result.get("fortress"), dict) else None,
+                        boundary_outcome=str(boundary_event.get("world_outcome") or "") if boundary_event else None,
                     )
+                    if boundary_event:
+                        await emit_world_event(
+                            get_db(),
+                            event_type=boundary_event["event_type"],
+                            entity_refs=boundary_event["entity_refs"],
+                            payload=boundary_event["payload"],
+                            trigger_triune=bool(boundary_event.get("trigger_triune")),
+                        )
                 except HTTPException:
                     # Commands can race with API completion; keep WS loop resilient.
                     pass

@@ -71,6 +71,20 @@ class GovernedDispatchService:
             ]
         persisted["queue_id"] = queued.get("queue_id")
         persisted["decision_id"] = queued.get("decision_id")
+        persisted["decision_context"] = {
+            "decision_id": queued.get("decision_id"),
+            "queue_id": queued.get("queue_id"),
+            "approved": False,
+            "released_to_execution": False,
+        }
+        if "authority_context" not in persisted:
+            persisted["authority_context"] = {
+                "principal": actor,
+                "capability": persisted.get("command_type"),
+                "token_id": (persisted.get("parameters") or {}).get("token_id"),
+                "scope": {"zone_from": "governance", "zone_to": "agent_control_zone"},
+                "contract_version": "endpoint-boundary.v1",
+            }
         persisted["gate"] = {
             "queue_id": queued.get("queue_id"),
             "decision_id": queued.get("decision_id"),

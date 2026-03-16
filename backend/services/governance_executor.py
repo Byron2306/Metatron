@@ -608,7 +608,24 @@ class GovernanceExecutorService:
                     ]
                 },
                 {
-                    "$set": {"status": "pending", "updated_at": now},
+                    "$set": {
+                        "status": "pending",
+                        "updated_at": now,
+                        "decision_context": {
+                            "decision_id": decision_id,
+                            "queue_id": related_queue_id,
+                            "approved": True,
+                            "released_to_execution": True,
+                        },
+                        "authority_context": {
+                            "principal": actor,
+                            "capability": command_type,
+                            "target": str((parameters or {}).get("target") or agent_id),
+                            "token_id": str(payload.get("token_id") or (parameters or {}).get("token_id") or ""),
+                            "scope": {"zone_from": "governance", "zone_to": "agent_control_zone"},
+                            "contract_version": "endpoint-boundary.v1",
+                        },
+                    },
                     "$inc": {"state_version": 1},
                     "$push": {
                         "state_transition_log": {
