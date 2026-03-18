@@ -17,7 +17,13 @@ from enum import Enum
 import logging
 import uuid
 
-from routers.dependencies import get_current_user, get_db
+from routers.dependencies import (
+    get_current_user,
+    get_optional_current_user,
+    has_permission,
+    optional_machine_token,
+    get_db,
+)
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -26,6 +32,11 @@ except Exception:
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/cli", tags=["CLI Events"])
 deception_router = APIRouter(prefix="/deception-hits", tags=["Deception Hit Events"])
+verify_cli_ingest_machine_token = optional_machine_token(
+    env_keys=["CLI_INGEST_TOKEN", "INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-cli-token", "x-internal-token", "x-agent-token"],
+    subject="cli ingest",
+)
 
 
 # =============================================================================
@@ -150,7 +161,8 @@ class DeceptionHitEvent(BaseModel):
 async def ingest_cli_command(
     event: CLICommandEvent,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
+    machine_auth: Optional[dict] = Depends(verify_cli_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """
     Ingest a raw CLI command event from an agent.
@@ -158,6 +170,13 @@ async def ingest_cli_command(
     """
     db = get_db()
     
+    if machine_auth is None:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(current_user, "write"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: write or machine token")
+
+    actor = current_user.get("email", "system") if isinstance(current_user, dict) else "machine"
     event_doc = {
         "event_id": str(uuid.uuid4()),
         "event_type": "cli.command",
@@ -172,7 +191,7 @@ async def ingest_cli_command(
         "exit_code": event.exit_code,
         "duration_ms": event.duration_ms,
         "ingested_at": datetime.now(timezone.utc).isoformat(),
-        "ingested_by": current_user.get("email", "system")
+        "ingested_by": actor
     }
     
     await db.cli_commands.insert_one(event_doc)
@@ -206,7 +225,8 @@ async def ingest_cli_command(
 async def ingest_session_summary(
     summary: CLISessionSummary,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
+    machine_auth: Optional[dict] = Depends(verify_cli_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """
     Ingest a CLI session summary (from CCE worker or external source).
@@ -214,12 +234,19 @@ async def ingest_session_summary(
     """
     db = get_db()
     
+    if machine_auth is None:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(current_user, "write"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: write or machine token")
+
+    actor = current_user.get("email", "system") if isinstance(current_user, dict) else "machine"
     summary_doc = {
         "event_id": str(uuid.uuid4()),
         "event_type": "cli.session_summary",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         **summary.model_dump(),
-        "ingested_by": current_user.get("email", "system")
+        "ingested_by": actor
     }
     
     await db.cli_session_summaries.insert_one(summary_doc)
@@ -319,7 +346,8 @@ async def get_session_summaries(
 async def ingest_deception_hit(
     event: DeceptionHitEvent,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
+    machine_auth: Optional[dict] = Depends(verify_cli_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """
     Ingest a deception/honey token hit event.
@@ -327,6 +355,13 @@ async def ingest_deception_hit(
     """
     db = get_db()
     
+    if machine_auth is None:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(current_user, "write"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: write or machine token")
+
+    actor = current_user.get("email", "system") if isinstance(current_user, dict) else "machine"
     event_doc = {
         "event_id": str(uuid.uuid4()),
         "event_type": "deception.hit",
@@ -337,7 +372,7 @@ async def ingest_deception_hit(
         "suspect_pid": event.suspect_pid,
         "context": event.context or {},
         "ingested_at": datetime.now(timezone.utc).isoformat(),
-        "ingested_by": current_user.get("email", "system")
+        "ingested_by": actor
     }
     
     await db.deception_hits.insert_one(event_doc)

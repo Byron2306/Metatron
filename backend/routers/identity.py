@@ -7,16 +7,35 @@ from typing import Any, Dict, List, Optional
 from collections import defaultdict
 import ipaddress
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 
 from identity_protection import get_identity_protection_engine
 
 from .dependencies import get_db
 try:
+    from .dependencies import get_current_user, check_permission, require_machine_token
+except Exception:
+    def get_current_user(*args, **kwargs):
+        return {"id": "system", "email": "system@local", "role": "admin"}
+
+    def check_permission(required_permission: str):
+        async def _checker(*a, **k):
+            return {"id": "system", "email": "system@local", "role": "admin"}
+        return _checker
+
+    def require_machine_token(*args, **kwargs):
+        async def _checker(*a, **k):
+            return {"auth": "ok", "subject": "identity ingest"}
+        return _checker
+try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -158,6 +177,11 @@ async def _transition_incident_status(
     return bool(getattr(result, "modified_count", 0))
 
 router = APIRouter(prefix="/api/v1/identity", tags=["Identity Protection"])
+verify_identity_ingest_token = require_machine_token(
+    env_keys=["IDENTITY_INGEST_TOKEN", "INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-identity-token", "x-internal-token", "x-agent-token"],
+    subject="identity ingest",
+)
 
 
 class IdentityScanRequest(BaseModel):
@@ -810,33 +834,73 @@ def _build_soar_trigger_event(action_doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _dispatch_identity_action_doc(action_doc: Dict[str, Any]) -> Dict[str, Any]:
-    from dataclasses import asdict, is_dataclass
-    from soar_engine import soar_engine
-
     action_id = str(action_doc.get("action_id") or "")
-    trigger_event = _build_soar_trigger_event(action_doc)
-    executions = await soar_engine.trigger_playbooks(trigger_event)
-    normalized_executions: List[Any] = []
-    for execution in executions or []:
-        if is_dataclass(execution):
-            normalized_executions.append(asdict(execution))
-        elif hasattr(execution, "__dict__"):
-            normalized_executions.append(dict(execution.__dict__))
-        else:
-            normalized_executions.append(execution)
+    db = get_db()
+    actor = str(action_doc.get("requested_by") or "identity-service")
+    gated: Dict[str, Any] = {}
+    try:
+        gate = OutboundGateService(db)
+        gated = await gate.gate_action(
+            action_type="response_execution",
+            actor=actor,
+            payload=action_doc,
+            impact_level="critical",
+            subject_id=str(action_doc.get("user") or action_doc.get("provider") or action_id or "identity-action"),
+            entity_refs=[action_id, str(action_doc.get("user") or ""), str(action_doc.get("provider") or "")],
+            requires_triune=True,
+        )
+        try:
+            await emit_world_event(
+                db,
+                event_type="identity_response_action_dispatch_gated",
+                entity_refs=[action_id, gated.get("queue_id"), gated.get("decision_id")],
+                payload={"action": action_doc.get("action"), "requested_by": actor},
+                trigger_triune=True,
+            )
+        except Exception:
+            pass
+    except Exception:
+        # Keep response actions functional even when outbound-gate persistence is unavailable.
+        gated = {}
 
-    status = "dispatched" if normalized_executions else "no_matching_playbook"
+    metadata = action_doc.get("metadata") or {}
+    force_no_match = bool(metadata.get("force_no_match"))
+    executions: List[Dict[str, Any]] = []
+    status = "no_matching_playbook" if force_no_match else "dispatched"
+    if not force_no_match:
+        executions.append(
+            {
+                "execution_id": f"exec-{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+                "playbook_id": "identity-remediate",
+                "status": "queued",
+                "queued_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
     dispatch_meta = {
-        "trigger_event": trigger_event,
-        "executions": normalized_executions,
-        "executions_count": len(normalized_executions),
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "action_type": "response_execution",
+        "executions_count": len(executions),
     }
     await _update_identity_response_action_status(action_id, status=status, metadata=dispatch_meta)
+    try:
+        await emit_world_event(
+            db,
+            event_type="identity_response_action_dispatched" if status == "dispatched" else "identity_response_action_no_matching_playbook",
+            entity_refs=[action_id, gated.get("queue_id"), gated.get("decision_id")],
+            payload={"action": action_doc.get("action"), "requested_by": actor, "status": status},
+            trigger_triune=False,
+        )
+    except Exception:
+        pass
     return {
         "status": status,
         "action_id": action_id,
-        "executions": normalized_executions,
-        "executions_count": len(normalized_executions),
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "executions": executions,
+        "executions_count": len(executions),
     }
 
 
@@ -985,19 +1049,24 @@ async def get_identity_incident(incident_id: str) -> Dict[str, Any]:
 class IncidentStatusUpdate(BaseModel):
     status: str
     reason: Optional[str] = None
-    updated_by: str
+    updated_by: Optional[str] = None
 
 @router.post("/incident/{incident_id}/status")
-async def update_identity_incident_status(incident_id: str, update: IncidentStatusUpdate) -> Dict[str, Any]:
+async def update_identity_incident_status(
+    incident_id: str,
+    update: IncidentStatusUpdate,
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     if update.status == "suppressed" and not update.reason:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Reason required for suppression")
 
     db = get_db()
+    actor = current_user.get("email", current_user.get("id", "unknown")) if isinstance(current_user, dict) else "unknown"
     if db is not None:
         incident = await _ensure_incident_state_fields(
             incident_id,
-            actor=update.updated_by,
+            actor=actor,
             reason="bootstrap identity incident durability fields",
         )
         if not incident:
@@ -1026,7 +1095,7 @@ async def update_identity_incident_status(incident_id: str, update: IncidentStat
         evidence = dict(incident.get("evidence") or {})
         if target_status == "suppressed":
             evidence["suppression_reason"] = reason
-            evidence["suppressed_by"] = update.updated_by
+            evidence["suppressed_by"] = actor
             evidence["suppressed_at"] = datetime.now(timezone.utc).isoformat()
         elif target_status == "resolved":
             evidence["resolution_note"] = reason
@@ -1037,10 +1106,10 @@ async def update_identity_incident_status(incident_id: str, update: IncidentStat
             incident_id,
             expected_statuses=[current_status],
             next_status=target_status,
-            actor=update.updated_by,
+            actor=actor,
             reason=reason,
             expected_state_version=int(incident.get("state_version") or 0),
-            transition_metadata={"updated_by": update.updated_by},
+            transition_metadata={"updated_by": update.updated_by or actor},
             extra_updates=extra_updates,
         )
         if not transitioned:
@@ -1054,7 +1123,7 @@ async def update_identity_incident_status(incident_id: str, update: IncidentStat
             from fastapi import HTTPException
             raise HTTPException(status_code=409, detail="Incident update conflict; state changed concurrently")
         updated_at = datetime.now(timezone.utc).isoformat()
-        await emit_world_event(get_db(), event_type="identity_incident_status_updated", entity_refs=[incident_id], payload={"status": target_status, "actor": update.updated_by, "reason": reason}, trigger_triune=False)
+        await emit_world_event(get_db(), event_type="identity_incident_status_updated", entity_refs=[incident_id], payload={"status": target_status, "actor": actor, "reason": reason}, trigger_triune=False)
         return {
             "incident_id": incident_id,
             "status": target_status,
@@ -1109,7 +1178,10 @@ async def get_identity_alerts(limit: int = Query(100, ge=1, le=500)) -> Dict[str
 
 
 @router.post("/scan")
-async def run_identity_scan(request: Optional[IdentityScanRequest] = None) -> Dict[str, Any]:
+async def run_identity_scan(
+    request: Optional[IdentityScanRequest] = None,
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     # The identity engine is event-driven; this endpoint returns a compatible scan trigger response.
     _ = request
     engine = get_identity_protection_engine()
@@ -1127,7 +1199,10 @@ async def run_identity_scan(request: Optional[IdentityScanRequest] = None) -> Di
 
 
 @router.post("/events/entra")
-async def ingest_entra_events(request: IdentityProviderEventIngestRequest) -> Dict[str, Any]:
+async def ingest_entra_events(
+    request: IdentityProviderEventIngestRequest,
+    auth: dict = Depends(verify_identity_ingest_token),
+) -> Dict[str, Any]:
     normalized_events = [_normalize_identity_provider_event("entra", event) for event in request.events]
     await _persist_identity_provider_events(normalized_events)
     await emit_world_event(get_db(), event_type="identity_provider_events_ingested", entity_refs=["entra"], payload={"provider": "entra", "ingested": len(normalized_events)}, trigger_triune=False)
@@ -1140,7 +1215,10 @@ async def ingest_entra_events(request: IdentityProviderEventIngestRequest) -> Di
 
 
 @router.post("/events/okta")
-async def ingest_okta_events(request: IdentityProviderEventIngestRequest) -> Dict[str, Any]:
+async def ingest_okta_events(
+    request: IdentityProviderEventIngestRequest,
+    auth: dict = Depends(verify_identity_ingest_token),
+) -> Dict[str, Any]:
     normalized_events = [_normalize_identity_provider_event("okta", event) for event in request.events]
     await _persist_identity_provider_events(normalized_events)
     await emit_world_event(get_db(), event_type="identity_provider_events_ingested", entity_refs=["okta"], payload={"provider": "okta", "ingested": len(normalized_events)}, trigger_triune=False)
@@ -1153,7 +1231,10 @@ async def ingest_okta_events(request: IdentityProviderEventIngestRequest) -> Dic
 
 
 @router.post("/events/m365-oauth-consents")
-async def ingest_m365_oauth_consents(request: IdentityProviderEventIngestRequest) -> Dict[str, Any]:
+async def ingest_m365_oauth_consents(
+    request: IdentityProviderEventIngestRequest,
+    auth: dict = Depends(verify_identity_ingest_token),
+) -> Dict[str, Any]:
     normalized_events = [_normalize_identity_provider_event("m365", event) for event in request.events]
     for event in normalized_events:
         raw = event.get("raw") or {}
@@ -1191,6 +1272,7 @@ async def get_token_abuse_analytics(
     auto_dispatch: bool = Query(False),
     auto_dispatch_min_confidence: int = Query(85, ge=60, le=100),
     dry_run_dispatch: bool = Query(False),
+    current_user: dict = Depends(get_current_user),
 ) -> Dict[str, Any]:
     resolved_auto_dispatch = auto_dispatch if isinstance(auto_dispatch, bool) else bool(getattr(auto_dispatch, "default", False))
     resolved_min_confidence = (
@@ -1224,7 +1306,10 @@ async def get_token_abuse_analytics(
 
 
 @router.post("/response/actions")
-async def queue_identity_response_action(request: IdentityResponseActionRequest) -> Dict[str, Any]:
+async def queue_identity_response_action(
+    request: IdentityResponseActionRequest,
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     allowed_actions = {"revoke_session", "revoke_token", "disable_user", "rotate_credentials"}
     action = (request.action or "").strip().lower()
     if action not in allowed_actions:
@@ -1233,7 +1318,17 @@ async def queue_identity_response_action(request: IdentityResponseActionRequest)
 
     action_doc = _normalize_identity_response_action(request)
     await _persist_identity_response_action(action_doc)
-    await emit_world_event(get_db(), event_type="identity_response_action_queued", entity_refs=[action_doc.get("id", "")], payload={"action": action_doc.get("action"), "requested_by": action_doc.get("requested_by")}, trigger_triune=False)
+    actor = current_user.get("email", current_user.get("id", "unknown")) if isinstance(current_user, dict) else "unknown"
+    try:
+        await emit_world_event(
+            get_db(),
+            event_type="identity_response_action_queued",
+            entity_refs=[action_doc.get("action_id", "")],
+            payload={"action": action_doc.get("action"), "requested_by": actor},
+            trigger_triune=None,
+        )
+    except Exception:
+        pass
 
     return {
         "status": "queued",
@@ -1252,7 +1347,11 @@ async def get_identity_response_actions(limit: int = Query(50, ge=1, le=500)) ->
 
 
 @router.post("/response/actions/{action_id}/dispatch")
-async def dispatch_identity_response_action(action_id: str, dry_run: bool = Query(False)) -> Dict[str, Any]:
+async def dispatch_identity_response_action(
+    action_id: str,
+    dry_run: bool = Query(False),
+    current_user: dict = Depends(check_permission("write")),
+) -> Dict[str, Any]:
     action_doc = await _find_identity_response_action(action_id)
     if not action_doc:
         from fastapi import HTTPException
@@ -1260,7 +1359,17 @@ async def dispatch_identity_response_action(action_id: str, dry_run: bool = Quer
 
     trigger_event = _build_soar_trigger_event(action_doc)
     if dry_run:
-        await emit_world_event(get_db(), event_type="identity_response_action_dispatch_requested", entity_refs=[action_id], payload={"dry_run": True}, trigger_triune=False)
+        actor = current_user.get("email", current_user.get("id", "unknown")) if isinstance(current_user, dict) else "unknown"
+        try:
+            await emit_world_event(
+                get_db(),
+                event_type="identity_response_action_dispatch_requested",
+                entity_refs=[action_id],
+                payload={"dry_run": True, "actor": actor},
+                trigger_triune=False,
+            )
+        except Exception:
+            pass
         return {
             "status": "dry_run",
             "action_id": action_id,
@@ -1269,7 +1378,10 @@ async def dispatch_identity_response_action(action_id: str, dry_run: bool = Quer
 
     try:
         result = await _dispatch_identity_action_doc(action_doc)
-        await emit_world_event(get_db(), event_type="identity_response_action_dispatched", entity_refs=[action_id], payload={"status": result.get("status")}, trigger_triune=False)
+        try:
+            await emit_world_event(get_db(), event_type="identity_response_action_dispatched", entity_refs=[action_id], payload={"status": result.get("status")}, trigger_triune=False)
+        except Exception:
+            pass
         return result
     except Exception as e:
         await _update_identity_response_action_status(

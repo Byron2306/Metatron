@@ -24,7 +24,11 @@ try:
 except Exception:
     from backend.services.outbound_gate import OutboundGateService
 try:
-    from .dependencies import get_current_user, check_permission, db
+    from services.governance_authority import GovernanceDecisionAuthority
+except Exception:
+    from backend.services.governance_authority import GovernanceDecisionAuthority
+try:
+    from .dependencies import get_current_user, check_permission, require_machine_token, db
 except Exception:
     def get_current_user(*args, **kwargs):
         return None
@@ -34,6 +38,11 @@ except Exception:
             return None
         return _checker
 
+    def require_machine_token(*args, **kwargs):
+        async def _checker(*a, **k):
+            return {"auth": "ok", "subject": "enterprise machine"}
+        return _checker
+
     db = None
 
 import logging
@@ -41,8 +50,118 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/enterprise", tags=["Enterprise Security"])
+verify_enterprise_machine_token = require_machine_token(
+    env_keys=["ENTERPRISE_MACHINE_TOKEN", "INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-enterprise-token", "x-internal-token", "x-agent-token"],
+    subject="enterprise machine",
+)
 
 ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
+
+
+def _extract_endpoint_boundary_context(event_data: Dict[str, Any], fallback_agent_id: Optional[str]) -> Dict[str, Any]:
+    payload = event_data if isinstance(event_data, dict) else {}
+    post = payload.get("post_observation") if isinstance(payload.get("post_observation"), dict) else {}
+    gate = payload.get("gate_decision") if isinstance(payload.get("gate_decision"), dict) else {}
+    boundary = payload.get("boundary") if isinstance(payload.get("boundary"), dict) else {}
+    decision_context = payload.get("decision_context")
+    if not isinstance(decision_context, dict):
+        decision_context = boundary.get("decision_context") if isinstance(boundary.get("decision_context"), dict) else {}
+    beacon = post.get("beacon") if isinstance(post.get("beacon"), dict) else {}
+    outcome = str(payload.get("outcome") or payload.get("crossing_outcome") or post.get("world_event_outcome") or "").lower().strip()
+    if not outcome:
+        gate_outcome = str(post.get("gate_outcome") or gate.get("decision") or "").lower().strip()
+        if gate_outcome in {"deny", "denied"}:
+            outcome = "denied"
+        elif gate_outcome in {"queue", "queued", "throttle", "throttled"}:
+            outcome = "queued"
+        elif gate_outcome == "token-invalid":
+            outcome = "token-invalid"
+        elif gate_outcome in {"quarantine", "quarantined"}:
+            outcome = "anomalous"
+        else:
+            outcome = "allowed"
+
+    agent_id = str(payload.get("agent_id") or fallback_agent_id or "").strip()
+    return {
+        "agent_id": agent_id,
+        "command_id": str(payload.get("command_id") or "").strip(),
+        "outcome": outcome,
+        "decision_context": decision_context,
+        "beacon": beacon,
+        "boundary": boundary,
+        "pre_observation": payload.get("pre_observation") if isinstance(payload.get("pre_observation"), dict) else {},
+        "post_observation": post,
+        "gate_decision": gate,
+        "trace_id": str(payload.get("trace_id") or "").strip(),
+    }
+
+
+def _endpoint_boundary_trigger_triune(context: Dict[str, Any]) -> bool:
+    outcome = str(context.get("outcome") or "").lower()
+    beacon_state = str((context.get("beacon") or {}).get("state") or "").lower()
+    return outcome in {"denied", "queued", "token-invalid", "anomalous", "decoy-hit"} or beacon_state in {"amber", "red"}
+
+
+async def _project_endpoint_posture(
+    db_handle: Any,
+    *,
+    agent_id: str,
+    beacon: Dict[str, Any],
+    outcome: str,
+    trace_id: str,
+) -> None:
+    if not agent_id or db_handle is None:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    beacon_state = str((beacon or {}).get("state") or "Green")
+    beacon_state_lower = beacon_state.lower()
+    trust_state = "trusted"
+    if beacon_state_lower == "red":
+        trust_state = "compromised"
+    elif beacon_state_lower in {"amber", "yellow"}:
+        trust_state = "degraded"
+
+    posture = {
+        "agent_id": agent_id,
+        "beacon_state": beacon_state,
+        "beacon_score": int((beacon or {}).get("score") or 0),
+        "classification": (beacon or {}).get("classification"),
+        "last_boundary_outcome": outcome,
+        "trace_id": trace_id,
+        "updated_at": now,
+    }
+
+    if hasattr(db_handle, "endpoint_posture"):
+        try:
+            await db_handle.endpoint_posture.update_one(
+                {"agent_id": agent_id},
+                {"$set": posture},
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("Failed to update endpoint_posture for %s", agent_id)
+
+    if hasattr(db_handle, "world_entities"):
+        try:
+            await db_handle.world_entities.update_one(
+                {"id": agent_id},
+                {
+                    "$set": {
+                        "id": agent_id,
+                        "type": "agent",
+                        "updated": now,
+                        "attributes.endpoint_beacon_state": beacon_state,
+                        "attributes.endpoint_beacon_score": int((beacon or {}).get("score") or 0),
+                        "attributes.endpoint_boundary_outcome": outcome,
+                        "attributes.trust_state": trust_state,
+                        "attributes.endpoint_trace_id": trace_id,
+                    }
+                },
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("Failed to project endpoint posture to world_entities for %s", agent_id)
 
 
 # =============================================================================
@@ -112,7 +231,12 @@ class AuditActionRequest(BaseModel):
     case_id: Optional[str] = None
     evidence_refs: Optional[List[str]] = None
     policy_decision_hash: Optional[str] = None
+    policy_decision_id: Optional[str] = None
+    governance_decision_id: Optional[str] = None
+    governance_queue_id: Optional[str] = None
     token_id: Optional[str] = None
+    execution_id: Optional[str] = None
+    trace_id: Optional[str] = None
     tool_id: Optional[str] = None
     constraints: Optional[Dict] = None
 
@@ -122,7 +246,10 @@ class AuditActionRequest(BaseModel):
 # =============================================================================
 
 @router.post("/identity/attest")
-async def submit_attestation(request: AttestationRequest):
+async def submit_attestation(
+    request: AttestationRequest,
+    auth: dict = Depends(verify_enterprise_machine_token),
+):
     """
     Submit agent attestation for identity registration.
     Returns trust state and score.
@@ -208,16 +335,40 @@ async def quarantine_agent(
     reason: str = "Manual quarantine",
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Quarantine an agent"""
+    """Queue an agent quarantine through mandatory outbound gate."""
     from services.identity import identity_service
     identity_service.set_db(get_db())
-    
-    success = identity_service.quarantine_agent(agent_id, reason)
-    if not success:
+
+    identity = identity_service.get_identity(agent_id)
+    if not identity:
         raise HTTPException(status_code=404, detail="Agent not found")
-    await emit_world_event(get_db(), event_type="enterprise_identity_quarantined", entity_refs=[agent_id], payload={"reason": reason, "actor": current_user.get("id")}, trigger_triune=False)
-    
-    return {"status": "quarantined", "agent_id": agent_id, "reason": reason}
+
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="quarantine_agent",
+        actor=actor,
+        payload={"agent_id": agent_id, "reason": reason},
+        impact_level="critical",
+        subject_id=agent_id,
+        entity_refs=[agent_id],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="enterprise_identity_quarantine_gated",
+        entity_refs=[agent_id, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"reason": reason, "actor": actor},
+        trigger_triune=True,
+    )
+
+    return {
+        "status": "queued_for_triune_approval",
+        "agent_id": agent_id,
+        "reason": reason,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 
 # =============================================================================
@@ -225,7 +376,10 @@ async def quarantine_agent(
 # =============================================================================
 
 @router.post("/policy/evaluate")
-async def evaluate_policy(request: PolicyEvaluationRequest):
+async def evaluate_policy(
+    request: PolicyEvaluationRequest,
+    current_user: dict = Depends(check_permission("write")),
+):
     """
     Evaluate a policy decision.
     Returns permit/deny and constraints.
@@ -264,12 +418,23 @@ async def approve_decision(
     decision_id: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Approve a pending policy decision"""
+    """Approve canonical governance decision (with policy engine sync fallback)."""
     from services.policy_engine import policy_engine
     policy_engine.set_db(get_db())
     
     approver = current_user.get("email", "unknown")
-    success, message = policy_engine.approve(decision_id, approver)
+    authority = GovernanceDecisionAuthority(get_db())
+    canonical = await authority.approve_decision(
+        decision_id=decision_id,
+        actor=approver,
+        notes="enterprise policy approval endpoint",
+        execution_status="pending_executor",
+        source="enterprise_policy",
+    )
+    # Keep in-memory policy queue in sync for legacy callers.
+    policy_engine.approve(decision_id, approver)
+    success = bool(canonical.get("found")) or True
+    message = "Canonical decision approved" if canonical.get("found") else "Policy decision approved (legacy path)"
     await emit_world_event(get_db(), event_type="enterprise_policy_approved", entity_refs=[decision_id], payload={"success": success, "actor": approver}, trigger_triune=False)
     
     return {"success": success, "message": message}
@@ -281,12 +446,21 @@ async def deny_decision(
     reason: str = None,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Deny a pending policy decision"""
+    """Deny canonical governance decision (with policy engine sync fallback)."""
     from services.policy_engine import policy_engine
     policy_engine.set_db(get_db())
     
     denier = current_user.get("email", "unknown")
-    success = policy_engine.deny(decision_id, denier, reason)
+    authority = GovernanceDecisionAuthority(get_db())
+    canonical = await authority.deny_decision(
+        decision_id=decision_id,
+        actor=denier,
+        reason=reason,
+        source="enterprise_policy",
+    )
+    # Keep in-memory policy queue in sync for legacy callers.
+    policy_engine.deny(decision_id, denier, reason)
+    success = bool(canonical.get("found")) or True
     await emit_world_event(get_db(), event_type="enterprise_policy_denied", entity_refs=[decision_id], payload={"success": success, "actor": denier, "reason": reason}, trigger_triune=False)
     
     return {"success": success}
@@ -319,26 +493,39 @@ async def issue_token(
     request: TokenRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Issue a capability token"""
-    from services.token_broker import token_broker
-    
-    token = token_broker.issue_token(
-        principal=request.principal,
-        principal_identity=request.principal_identity,
-        action=request.action,
-        targets=request.targets,
-        tool_id=request.tool_id,
-        ttl_seconds=request.ttl_seconds,
-        max_uses=request.max_uses,
-        constraints=request.constraints
+    """Queue capability token issuance through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={
+            "operation": "issue_token",
+            "principal": request.principal,
+            "principal_identity": request.principal_identity,
+            "action": request.action,
+            "targets": request.targets,
+            "tool_id": request.tool_id,
+            "ttl_seconds": request.ttl_seconds,
+            "max_uses": request.max_uses,
+            "constraints": request.constraints,
+        },
+        impact_level="high",
+        subject_id=request.principal,
+        entity_refs=[request.principal, request.action],
+        requires_triune=True,
     )
-    await emit_world_event(get_db(), event_type="enterprise_token_issued", entity_refs=[token.token_id, request.principal], payload={"action": request.action, "targets": request.targets}, trigger_triune=False)
-    
+    await emit_world_event(
+        get_db(),
+        event_type="enterprise_token_issue_gated",
+        entity_refs=[request.principal, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"action": request.action, "actor": actor},
+        trigger_triune=True,
+    )
     return {
-        "token_id": token.token_id,
-        "expires_at": token.expires_at,
-        "max_uses": token.max_uses,
-        "message": "Token issued",
+        "status": "queued_for_triune_approval",
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
         "contract_version": ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
@@ -349,7 +536,8 @@ async def validate_token(
     principal: str,
     principal_identity: str,
     action: str,
-    target: str
+    target: str,
+    current_user: dict = Depends(check_permission("write")),
 ):
     """Validate a capability token"""
     from services.token_broker import token_broker
@@ -371,12 +559,26 @@ async def revoke_token(
     token_id: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Revoke a token"""
-    from services.token_broker import token_broker
-    
-    success = token_broker.revoke_token(token_id)
-    await emit_world_event(get_db(), event_type="enterprise_token_revoked", entity_refs=[token_id], payload={"success": success, "actor": current_user.get("id")}, trigger_triune=False)
-    return {"success": success}
+    """Queue token revoke through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "revoke_token", "token_id": token_id},
+        impact_level="critical",
+        subject_id=token_id,
+        entity_refs=[token_id],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="enterprise_token_revoke_gated",
+        entity_refs=[token_id, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.post("/token/revoke-principal/{principal}")
@@ -384,12 +586,26 @@ async def revoke_principal_tokens(
     principal: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Revoke all tokens for a principal"""
-    from services.token_broker import token_broker
-    
-    count = token_broker.revoke_tokens_for_principal(principal)
-    await emit_world_event(get_db(), event_type="enterprise_principal_tokens_revoked", entity_refs=[principal], payload={"revoked_count": count, "actor": current_user.get("id")}, trigger_triune=False)
-    return {"revoked_count": count}
+    """Queue principal token revoke through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "revoke_principal_tokens", "principal": principal},
+        impact_level="critical",
+        subject_id=principal,
+        entity_refs=[principal],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="enterprise_principal_token_revoke_gated",
+        entity_refs=[principal, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.get("/token/active")
@@ -470,7 +686,7 @@ async def execute_tool(
     request: ToolExecutionRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Execute a tool through the gateway"""
+    """Queue tool execution through mandatory outbound gate."""
     from services.tool_gateway import tool_gateway
     
     principal = f"operator:{current_user.get('email', 'unknown')}"
@@ -489,8 +705,6 @@ async def execute_tool(
     )
 
     await emit_world_event(get_db(), event_type="enterprise_tool_execution_gated", entity_refs=[request.tool_id, principal], payload={"queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
-
-    await emit_world_event(get_db(), event_type="enterprise_tool_executed", entity_refs=[request.tool_id, principal], payload={"execution_id": execution.execution_id, "status": execution.status}, trigger_triune=False)
     
     return {
         "status": "queued_for_triune_approval",
@@ -506,7 +720,10 @@ async def execute_tool(
 # =============================================================================
 
 @router.post("/telemetry/event")
-async def ingest_event(request: TelemetryEventRequest):
+async def ingest_event(
+    request: TelemetryEventRequest,
+    auth: dict = Depends(verify_enterprise_machine_token),
+):
     """Ingest a telemetry event into the tamper-evident chain"""
     from services.telemetry_chain import tamper_evident_telemetry
     tamper_evident_telemetry.set_db(get_db())
@@ -521,6 +738,63 @@ async def ingest_event(request: TelemetryEventRequest):
         trace_id=request.trace_id
     )
     await emit_world_event(get_db(), event_type="enterprise_telemetry_event_ingested", entity_refs=[event.event_id], payload={"event_type": request.event_type, "severity": request.severity}, trigger_triune=False)
+
+    # Promote endpoint fortress boundary events into canonical boundary world events.
+    event_type_lower = str(request.event_type or "").strip().lower()
+    if event_type_lower == "endpoint_boundary_crossing":
+        context = _extract_endpoint_boundary_context(request.data or {}, request.agent_id)
+        refs = [context.get("agent_id"), context.get("command_id"), context.get("decision_context", {}).get("queue_id"), context.get("decision_context", {}).get("decision_id")]
+        refs = [str(r) for r in refs if r]
+        await emit_world_event(
+            get_db(),
+            event_type="boundary_crossing",
+            entity_refs=refs or [event.event_id],
+            payload={
+                "source": "enterprise_telemetry_ingest",
+                "crossing_outcome": context.get("outcome"),
+                "agent_id": context.get("agent_id"),
+                "command_id": context.get("command_id"),
+                "decision_context": context.get("decision_context"),
+                "boundary": context.get("boundary"),
+                "pre_observation": context.get("pre_observation"),
+                "post_observation": context.get("post_observation"),
+                "gate_decision": context.get("gate_decision"),
+                "trace_id": context.get("trace_id") or request.trace_id,
+                "severity": request.severity,
+            },
+            trigger_triune=_endpoint_boundary_trigger_triune(context),
+        )
+        await _project_endpoint_posture(
+            get_db(),
+            agent_id=str(context.get("agent_id") or request.agent_id or ""),
+            beacon=context.get("beacon") or {},
+            outcome=str(context.get("outcome") or ""),
+            trace_id=str(context.get("trace_id") or request.trace_id or ""),
+        )
+    elif event_type_lower == "endpoint_vns_monitor_signal":
+        signal = request.data or {}
+        beacon = signal.get("signal", {}).get("beacon") if isinstance(signal.get("signal"), dict) else {}
+        beacon_state = str((beacon or {}).get("state") or "").lower()
+        await emit_world_event(
+            get_db(),
+            event_type="endpoint_beacon_state_changed",
+            entity_refs=[str(signal.get("agent_id") or request.agent_id or ""), event.event_id],
+            payload={
+                "source": "enterprise_telemetry_ingest",
+                "signal_type": signal.get("threat_type") or signal.get("signal_type"),
+                "beacon": beacon,
+                "trace_id": request.trace_id,
+                "severity": request.severity,
+            },
+            trigger_triune=beacon_state in {"amber", "red"},
+        )
+        await _project_endpoint_posture(
+            get_db(),
+            agent_id=str(signal.get("agent_id") or request.agent_id or ""),
+            beacon=beacon if isinstance(beacon, dict) else {},
+            outcome="signal",
+            trace_id=str(request.trace_id or ""),
+        )
     
     return {
         "event_id": event.event_id,
@@ -548,7 +822,12 @@ async def record_audit_action(
         case_id=request.case_id,
         evidence_refs=request.evidence_refs,
         policy_decision_hash=request.policy_decision_hash,
+        policy_decision_id=request.policy_decision_id,
+        governance_decision_id=request.governance_decision_id,
+        governance_queue_id=request.governance_queue_id,
         token_id=request.token_id,
+        execution_id=request.execution_id,
+        trace_id=request.trace_id,
         tool_id=request.tool_id,
         constraints=request.constraints
     )

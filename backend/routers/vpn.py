@@ -11,6 +11,10 @@ try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 
 # Import VPN service
 from vpn_integration import vpn_manager, VPNManager
@@ -19,6 +23,36 @@ router = APIRouter(prefix="/vpn", tags=["VPN"])
 
 class AddPeerRequest(BaseModel):
     name: str
+
+
+async def _queue_vpn_governed_action(
+    *,
+    action_type: str,
+    actor: str,
+    payload: dict,
+    subject_id: Optional[str] = None,
+    impact_level: str = "critical",
+) -> dict:
+    db = get_db()
+    gate = OutboundGateService(db)
+    refs = [subject_id] if subject_id else []
+    gated = await gate.gate_action(
+        action_type=action_type,
+        actor=actor,
+        payload=payload,
+        impact_level=impact_level,
+        subject_id=subject_id,
+        entity_refs=refs,
+        requires_triune=True,
+    )
+    await emit_world_event(
+        db,
+        event_type="vpn_action_gated",
+        entity_refs=refs + [gated.get("queue_id"), gated.get("decision_id")],
+        payload={"action_type": action_type, "actor": actor},
+        trigger_triune=True,
+    )
+    return gated
 
 @router.get("/status")
 async def get_vpn_status(current_user: dict = Depends(get_current_user)):
@@ -33,24 +67,39 @@ async def get_vpn_status(current_user: dict = Depends(get_current_user)):
 
 @router.post("/initialize")
 async def initialize_vpn(current_user: dict = Depends(check_permission("write"))):
-    """Initialize VPN server (generates keys and config)"""
-    result = await vpn_manager.initialize()
-    await emit_world_event(get_db(), event_type="vpn_initialized", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
-    return result
+    """Queue VPN initialization through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await _queue_vpn_governed_action(
+        action_type="vpn_initialize",
+        actor=actor,
+        payload={"operation": "initialize"},
+        impact_level="high",
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 @router.post("/start")
 async def start_vpn(current_user: dict = Depends(check_permission("write"))):
-    """Start VPN server"""
-    result = await vpn_manager.start()
-    await emit_world_event(get_db(), event_type="vpn_started", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
-    return result
+    """Queue VPN start through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await _queue_vpn_governed_action(
+        action_type="vpn_start",
+        actor=actor,
+        payload={"operation": "start"},
+        impact_level="critical",
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 @router.post("/stop")
 async def stop_vpn(current_user: dict = Depends(check_permission("write"))):
-    """Stop VPN server"""
-    result = await vpn_manager.stop()
-    await emit_world_event(get_db(), event_type="vpn_stopped", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
-    return result
+    """Queue VPN stop through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await _queue_vpn_governed_action(
+        action_type="vpn_stop",
+        actor=actor,
+        payload={"operation": "stop"},
+        impact_level="critical",
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 @router.get("/peers")
 async def get_peers(current_user: dict = Depends(get_current_user)):
@@ -60,15 +109,21 @@ async def get_peers(current_user: dict = Depends(get_current_user)):
 
 @router.post("/peers")
 async def add_peer(request: AddPeerRequest, current_user: dict = Depends(check_permission("write"))):
-    """Add a new VPN peer/client"""
-    peer = await vpn_manager.add_peer(request.name)
-    # ingest peer into world model
-    from services.world_model import WorldModelService, WorldEntity
-    db = get_db()
-    wm = WorldModelService(db)
-    await wm.upsert_entity(WorldEntity(id=peer.get("id"), type="agent", attributes={"name": peer.get("name"), "vpn": True}))
-    await emit_world_event(db, event_type="vpn_peer_added", entity_refs=[peer.get("id")], payload=peer, trigger_triune=False)
-    return {"message": "Peer added", "peer": peer}
+    """Queue VPN peer creation through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await _queue_vpn_governed_action(
+        action_type="vpn_peer_add",
+        actor=actor,
+        payload={"peer_name": request.name},
+        subject_id=request.name,
+        impact_level="high",
+    )
+    return {
+        "status": "queued_for_triune_approval",
+        "peer_name": request.name,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 @router.get("/peers/{peer_id}/config")
 async def get_peer_config(peer_id: str, current_user: dict = Depends(get_current_user)):
@@ -80,17 +135,21 @@ async def get_peer_config(peer_id: str, current_user: dict = Depends(get_current
 
 @router.delete("/peers/{peer_id}")
 async def remove_peer(peer_id: str, current_user: dict = Depends(check_permission("write"))):
-    """Remove a VPN peer"""
-    success = await vpn_manager.remove_peer(peer_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Peer not found")
-    # update world model
-    from services.world_model import WorldModelService
-    db = get_db()
-    wm = WorldModelService(db)
-    await wm.entities.update_one({"id": peer_id}, {"$set": {"attributes.removed": True}})
-    await emit_world_event(db, event_type="vpn_peer_removed", entity_refs=[peer_id], payload={"removed": True}, trigger_triune=False)
-    return {"message": "Peer removed"}
+    """Queue VPN peer removal through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await _queue_vpn_governed_action(
+        action_type="vpn_peer_remove",
+        actor=actor,
+        payload={"peer_id": peer_id},
+        subject_id=peer_id,
+        impact_level="critical",
+    )
+    return {
+        "status": "queued_for_triune_approval",
+        "peer_id": peer_id,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 @router.get("/kill-switch")
 async def get_kill_switch_status(current_user: dict = Depends(get_current_user)):
@@ -99,14 +158,24 @@ async def get_kill_switch_status(current_user: dict = Depends(get_current_user))
 
 @router.post("/kill-switch/enable")
 async def enable_kill_switch(current_user: dict = Depends(check_permission("manage_users"))):
-    """Enable VPN kill switch"""
-    result = await vpn_manager.kill_switch.enable()
-    await emit_world_event(get_db(), event_type="vpn_kill_switch_enabled", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
-    return result
+    """Queue kill switch enable through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await _queue_vpn_governed_action(
+        action_type="vpn_kill_switch_enable",
+        actor=actor,
+        payload={"operation": "kill_switch_enable"},
+        impact_level="critical",
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 @router.post("/kill-switch/disable")
 async def disable_kill_switch(current_user: dict = Depends(check_permission("manage_users"))):
-    """Disable VPN kill switch"""
-    result = await vpn_manager.kill_switch.disable()
-    await emit_world_event(get_db(), event_type="vpn_kill_switch_disabled", entity_refs=[], payload={"actor": current_user.get("id")}, trigger_triune=False)
-    return result
+    """Queue kill switch disable through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await _queue_vpn_governed_action(
+        action_type="vpn_kill_switch_disable",
+        actor=actor,
+        payload={"operation": "kill_switch_disable"},
+        impact_level="critical",
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}

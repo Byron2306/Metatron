@@ -19,7 +19,7 @@ const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl ===
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
 const ContainerSecurityPage = () => {
-  const { token } = useAuth();
+  const { token, getAuthHeaders } = useAuth();
   const [stats, setStats] = useState(null);
   const [containers, setContainers] = useState([]);
   const [scanResults, setScanResults] = useState([]);
@@ -30,7 +30,7 @@ const ContainerSecurityPage = () => {
   const [falcoAlerts, setFalcoAlerts] = useState([]);
   const [suricataAlerts, setSuricataAlerts] = useState([]);
 
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = getAuthHeaders();
 
   useEffect(() => {
     fetchStats();

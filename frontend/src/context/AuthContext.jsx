@@ -90,9 +90,14 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  const getAuthHeaders = () => ({
-    Authorization: `Bearer ${token}`
-  });
+  const getAuthHeaders = () => {
+    if (!token) {
+      return {};
+    }
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+  };
 
   return (
     <AuthContext.Provider value={{ user, token, loading, login, register, logout, getAuthHeaders }}>

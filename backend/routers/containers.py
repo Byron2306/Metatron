@@ -20,6 +20,80 @@ class ScanImageRequest(BaseModel):
     image_name: str
     force: bool = False
 
+
+def _normalized_container_doc(raw: dict, fallback_agent: Optional[str] = None, fallback_host: Optional[str] = None) -> Optional[dict]:
+    if not isinstance(raw, dict):
+        return None
+    container_id = raw.get("container_id") or raw.get("id") or raw.get("ContainerID")
+    name = raw.get("name") or raw.get("container_name") or raw.get("Name")
+    image = raw.get("image") or raw.get("image_name") or raw.get("Image")
+    status = raw.get("status") or raw.get("state") or raw.get("State") or "unknown"
+    if not (container_id or name or image):
+        return None
+    return {
+        "container_id": container_id or f"derived-{hash(str(raw)) & 0xffffffff:x}",
+        "name": name or container_id or image or "unknown",
+        "image": image or "unknown",
+        "status": status,
+        "source": "endpoint_agent",
+        "source_agent_id": fallback_agent,
+        "host": fallback_host,
+        "derived": True,
+    }
+
+
+async def _collect_agent_derived_containers(db, limit: int = 500) -> list:
+    if db is None:
+        return []
+    derived = []
+    cursor = db.unified_agents.find(
+        {},
+        {
+            "_id": 0,
+            "agent_id": 1,
+            "hostname": 1,
+            "container_inventory": 1,
+            "system_info.containers": 1,
+            "monitors_summary.containers": 1,
+        },
+    ).limit(limit)
+    docs = await cursor.to_list(limit)
+    for doc in docs:
+        agent_id = doc.get("agent_id")
+        host = doc.get("hostname")
+        inv = doc.get("container_inventory")
+        if isinstance(inv, list):
+            for item in inv:
+                normalized = _normalized_container_doc(item, fallback_agent=agent_id, fallback_host=host)
+                if normalized:
+                    derived.append(normalized)
+        sys_cont = (doc.get("system_info") or {}).get("containers")
+        if isinstance(sys_cont, list):
+            for item in sys_cont:
+                normalized = _normalized_container_doc(item, fallback_agent=agent_id, fallback_host=host)
+                if normalized:
+                    derived.append(normalized)
+        summary_cont = (doc.get("monitors_summary") or {}).get("containers")
+        if isinstance(summary_cont, dict):
+            count = int(summary_cont.get("count", 0) or 0)
+            for idx in range(count):
+                derived.append(
+                    {
+                        "container_id": f"{agent_id}-summary-{idx}",
+                        "name": f"endpoint-container-{idx + 1}",
+                        "image": summary_cont.get("top_image") or "unknown",
+                        "status": summary_cont.get("status") or "unknown",
+                        "source": "endpoint_agent_summary",
+                        "source_agent_id": agent_id,
+                        "host": host,
+                        "derived": True,
+                    }
+                )
+    deduped = {}
+    for c in derived:
+        deduped[c["container_id"]] = c
+    return list(deduped.values())
+
 @router.get("/stats")
 async def get_container_stats(current_user: dict = Depends(get_current_user)):
     """Get container security statistics"""
@@ -31,6 +105,8 @@ async def get_container_stats(current_user: dict = Depends(get_current_user)):
     # Also get from database
     total_scans = await db.container_scans.count_documents({})
     total_containers = await db.containers.count_documents({})
+    if total_containers == 0:
+        total_containers = len(await _collect_agent_derived_containers(db, limit=300))
     total_events = await db.container_runtime_events.count_documents({})
     
     # Count vulnerabilities from scans
@@ -58,6 +134,8 @@ async def get_containers(current_user: dict = Depends(get_current_user)):
     # If empty, get from database (sample data)
     if not containers:
         containers = await db.containers.find({}, {"_id": 0}).to_list(100)
+    if not containers:
+        containers = await _collect_agent_derived_containers(db, limit=300)
     
     return {"containers": containers, "count": len(containers)}
 
@@ -89,7 +167,6 @@ async def scan_container_image(request: ScanImageRequest, current_user: dict = D
             "total_vulnerabilities": result.get("total_vulnerabilities"),
         },
         trigger_triune=(result.get("critical_count", 0) > 0),
-        trigger_triune=False,
     )
     
     return result
@@ -109,7 +186,6 @@ async def scan_all_images(current_user: dict = Depends(check_permission("write")
         entity_refs=[],
         payload={"images_scanned": len(results), "total_vulnerabilities": total_vulns, "critical_count": critical},
         trigger_triune=(critical > 0),
-        trigger_triune=False,
     )
     
     return {

@@ -45,6 +45,27 @@ services:
       retries: 5
       start_period: 60s
 
+  # ==========================================================================
+  # Redis (Celery broker / result backend)
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: seraph-redis
+    restart: unless-stopped
+    ports:
+      - "${BIND_REDIS_HOST:-127.0.0.1}:6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - seraph-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
 
     # ==========================================================================
     # Frontend React App
@@ -65,6 +86,9 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}   # set to debug for troubleshooting crashes
       - MONGO_URL=mongodb://mongodb:27017
       - DB_NAME=seraph_ai_defense
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       - REMOTE_ADMIN_ONLY=${REMOTE_ADMIN_ONLY:-true}
       - REMOTE_ADMIN_EMAILS=${REMOTE_ADMIN_EMAILS:-}
@@ -104,6 +128,8 @@ services:
     depends_on:
       mongodb:
         condition: service_started
+      redis:
+        condition: service_healthy
       elasticsearch:
         condition: service_started
       ollama:
@@ -132,6 +158,68 @@ services:
       timeout: 10s
       retries: 3
       start_period: 180s
+
+  # ==========================================================================
+  # Celery Worker
+  # ==========================================================================
+  celery-worker:
+    container_name: seraph-celery-worker
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A backend.celery_app.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=seraph_ai_defense
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      - INTEGRATION_API_KEY=${INTEGRATION_API_KEY:-}
+    depends_on:
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - seraph-network
+    volumes:
+      - ./backend/playbooks:/app/playbooks:ro
+      - ./unified_agent:/app/unified_agent:ro
+      - atomic_validation_reports:/var/lib/seraph-ai/atomic-validation
+      - ./atomic-red-team:/opt/atomic-red-team:ro
+
+  # ==========================================================================
+  # Celery Beat Scheduler
+  # ==========================================================================
+  celery-beat:
+    container_name: seraph-celery-beat
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A backend.celery_app.celery_app beat --loglevel=info
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=seraph_ai_defense
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      - INTEGRATION_API_KEY=${INTEGRATION_API_KEY:-}
+    depends_on:
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - seraph-network
+    volumes:
+      - ./backend/playbooks:/app/playbooks:ro
+      - ./unified_agent:/app/unified_agent:ro
+      - atomic_validation_reports:/var/lib/seraph-ai/atomic-validation
+      - ./atomic-red-team:/opt/atomic-red-team:ro
 
   # ==========================================================================
   # Elasticsearch (local SIEM store)
@@ -488,6 +576,8 @@ networks:
     driver: bridge
 
 volumes:
+  redis_data:
+    driver: local
   mongodb_data:
     driver: local
   mongodb_config:

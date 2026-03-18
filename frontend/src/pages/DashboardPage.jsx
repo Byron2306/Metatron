@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -116,14 +116,12 @@ const DashboardPage = () => {
   const { getAuthHeaders } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [seedingDemo, setSeedingDemo] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Seed data first
-        await axios.post(`${API}/dashboard/seed`, {}, { headers: getAuthHeaders() }).catch(() => {});
-        
-        // Fetch dashboard stats
+        // Fetch live dashboard stats
         const response = await axios.get(`${API}/dashboard/stats`, {
           headers: getAuthHeaders()
         });
@@ -141,13 +139,19 @@ const DashboardPage = () => {
     return () => clearInterval(interval);
   }, [getAuthHeaders]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-blue-500 font-mono animate-pulse">Loading threat data...</div>
-      </div>
-    );
-  }
+  const seedDemoData = async () => {
+    try {
+      setSeedingDemo(true);
+      await axios.post(`${API}/dashboard/seed`, {}, { headers: getAuthHeaders() });
+      const response = await axios.get(`${API}/dashboard/stats`, { headers: getAuthHeaders() });
+      setStats(response.data);
+      toast.success('Demo data loaded');
+    } catch (error) {
+      toast.error('Unable to seed demo data');
+    } finally {
+      setSeedingDemo(false);
+    }
+  };
 
   // Chart data
   const threatTypeData = Object.entries(stats?.threats_by_type || {}).map(([name, value]) => ({
@@ -162,12 +166,41 @@ const DashboardPage = () => {
 
   const COLORS = ['#EF4444', '#F59E0B', '#FBBF24', '#10B981'];
 
-  // Simulated time series data for the area chart
-  const timeSeriesData = Array.from({ length: 24 }, (_, i) => ({
-    time: `${String(i).padStart(2, '0')}:00`,
-    threats: Math.floor(Math.random() * 15) + 5,
-    blocked: Math.floor(Math.random() * 12) + 3,
-  }));
+  const timeSeriesData = useMemo(() => {
+    const now = new Date();
+    const buckets = Array.from({ length: 24 }, (_, offset) => {
+      const hour = new Date(now);
+      hour.setMinutes(0, 0, 0);
+      hour.setHours(now.getHours() - (23 - offset));
+      return {
+        key: `${hour.getFullYear()}-${hour.getMonth()}-${hour.getDate()}-${hour.getHours()}`,
+        time: `${String(hour.getHours()).padStart(2, '0')}:00`,
+        threats: 0,
+        blocked: 0,
+      };
+    });
+    const indexByKey = new Map(buckets.map((bucket, idx) => [bucket.key, idx]));
+    (stats?.recent_threats || []).forEach((threat) => {
+      const created = new Date(threat.created_at);
+      if (Number.isNaN(created.getTime())) return;
+      const key = `${created.getFullYear()}-${created.getMonth()}-${created.getDate()}-${created.getHours()}`;
+      const bucketIdx = indexByKey.get(key);
+      if (bucketIdx === undefined) return;
+      buckets[bucketIdx].threats += 1;
+      if (threat.status !== 'active') {
+        buckets[bucketIdx].blocked += 1;
+      }
+    });
+    return buckets;
+  }, [stats?.recent_threats]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-blue-500 font-mono animate-pulse">Loading threat data...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 lg:p-8 space-y-6" data-testid="dashboard-page">
@@ -178,6 +211,14 @@ const DashboardPage = () => {
           <p className="text-slate-400 text-sm mt-1">Real-time security monitoring and threat intelligence</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="border-slate-700 text-slate-300 hover:bg-slate-800"
+            onClick={seedDemoData}
+            disabled={seedingDemo}
+          >
+            {seedingDemo ? 'Seeding...' : 'Load Demo Data'}
+          </Button>
           <div className="flex items-center gap-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded">
             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             <span className="text-xs font-mono text-green-400">LIVE</span>
@@ -238,7 +279,7 @@ const DashboardPage = () => {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-mono font-semibold text-white">Threat Activity</h3>
-              <p className="text-xs text-slate-400">24-hour threat detection timeline</p>
+              <p className="text-xs text-slate-400">24-hour timeline from recorded threat events</p>
             </div>
             <div className="flex items-center gap-4 text-xs">
               <div className="flex items-center gap-2">

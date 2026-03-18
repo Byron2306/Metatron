@@ -8,7 +8,7 @@ Provides cross-platform agent registration, heartbeat, deployment, and monitorin
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect, Request, Header
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime, timezone, timedelta
 import secrets
 import logging
@@ -21,7 +21,7 @@ import socket
 import ipaddress
 
 # Outbound gating: ensure potentially impactful agent commands are queued for triune approval
-from backend.services.outbound_gate import OutboundGateService
+from backend.services.governed_dispatch import GovernedDispatchService
 
 
 class EDMHitTelemetryModel(BaseModel):
@@ -43,7 +43,11 @@ try:
 except Exception:
     from backend.services.world_events import emit_world_event
 try:
-    from .dependencies import get_current_user, check_permission, db
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
+try:
+    from .dependencies import get_current_user, check_permission, db, verify_websocket_machine_token
 except Exception:
     def get_current_user(*args, **kwargs):
         return None
@@ -55,10 +59,208 @@ except Exception:
 
     db = None
 
+    def verify_websocket_machine_token(*args, **kwargs):
+        return {"auth": "ok"}
+
 logger = logging.getLogger('seraph.unified_agent')
 
 router = APIRouter(prefix="/unified", tags=["Unified Agent"])
 ALERT_STATUSES = {"unacknowledged", "acknowledged"}
+MONITOR_TELEMETRY_KEYS = [
+    "registry",
+    "process_tree",
+    "lolbin",
+    "code_signing",
+    "dns",
+    "memory",
+    "whitelist",
+    "dlp",
+    "vulnerability",
+    "amsi",
+    "firewall",
+    "ransomware",
+    "rootkit",
+    "kernel_security",
+    "self_protection",
+    "identity",
+    "auto_throttle",
+    "cli_telemetry",
+    "hidden_file",
+    "alias_rename",
+    "priv_escalation",
+    "email_protection",
+    "mobile_security",
+    "webview2",
+]
+
+
+def _record_unified_audit(
+    *,
+    principal: str,
+    action: str,
+    targets: List[str],
+    result: str,
+    result_details: Optional[str] = None,
+    constraints: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            constraints=constraints or {},
+            result=result,
+            result_details=result_details,
+        )
+    except Exception:
+        logger.exception("Failed to record unified audit action: %s", action)
+
+
+def _coerce_monitor_payload(monitor_data: Any) -> Dict[str, Any]:
+    if monitor_data is None:
+        return {}
+    if isinstance(monitor_data, dict):
+        return dict(monitor_data)
+    if hasattr(monitor_data, "model_dump"):
+        try:
+            return monitor_data.model_dump()
+        except Exception:
+            return {}
+    return {}
+
+
+def _extract_telemetry_threat_count(telemetry: Optional[Dict[str, Any]]) -> int:
+    if not isinstance(telemetry, dict):
+        return 0
+    direct_count = telemetry.get("threat_count")
+    if isinstance(direct_count, (int, float)):
+        return max(0, int(direct_count))
+    threats = telemetry.get("threats")
+    if isinstance(threats, list):
+        return len(threats)
+    detections = telemetry.get("detections")
+    if isinstance(detections, list):
+        return len(detections)
+    return 0
+
+
+def _build_monitor_summary(monitors: Any) -> Dict[str, Dict[str, Any]]:
+    if not monitors:
+        return {}
+    summary: Dict[str, Dict[str, Any]] = {}
+    for monitor_name in MONITOR_TELEMETRY_KEYS:
+        payload = _coerce_monitor_payload(getattr(monitors, monitor_name, None))
+        if not payload:
+            continue
+        threats_found = payload.get("threats_found")
+        if not isinstance(threats_found, (int, float)):
+            threats_found = 0
+        condensed = {
+            "last_run": payload.get("last_run"),
+            "threats_found": int(threats_found),
+            "status": "active",
+        }
+        # Preserve numeric/boolean detail fields so downstream analytics can aggregate.
+        for key, value in payload.items():
+            if key in condensed:
+                continue
+            if isinstance(value, (int, float, bool, str)):
+                condensed[key] = value
+        summary[monitor_name] = condensed
+    return summary
+
+
+async def _project_unified_state_snapshot(
+    *,
+    agent_id: str,
+    source: str,
+    status: Optional[str],
+    telemetry: Optional[Dict[str, Any]] = None,
+    monitors_summary: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> None:
+    db_handle = get_db()
+    if db_handle is None or not hasattr(db_handle, "world_entities"):
+        return
+    monitors_summary = monitors_summary or {}
+    monitor_threat_total = sum(int((item or {}).get("threats_found") or 0) for item in monitors_summary.values())
+    telemetry_threat_count = _extract_telemetry_threat_count(telemetry if isinstance(telemetry, dict) else {})
+    hot_monitors = [
+        name for name, item in monitors_summary.items()
+        if int((item or {}).get("threats_found") or 0) > 0
+    ][:12]
+    trust_state = "trusted"
+    if monitor_threat_total >= 8 or telemetry_threat_count >= 8:
+        trust_state = "compromised"
+    elif monitor_threat_total > 0 or telemetry_threat_count > 0:
+        trust_state = "degraded"
+
+    now = datetime.now(timezone.utc).isoformat()
+    attributes = {
+        "agent_status": status or "unknown",
+        "trust_state": trust_state,
+        "last_projection_source": source,
+        "monitor_summary": monitors_summary,
+        "monitor_threat_total": monitor_threat_total,
+        "telemetry_threat_count": telemetry_threat_count,
+        "hot_monitors": hot_monitors,
+        "updated_at": now,
+    }
+    if isinstance(telemetry, dict):
+        attributes["telemetry_overview"] = {
+            "cpu_usage": telemetry.get("cpu_usage"),
+            "memory_usage": telemetry.get("memory_usage"),
+            "disk_usage": telemetry.get("disk_usage"),
+            "network_connections": telemetry.get("network_connections"),
+            "process_count": telemetry.get("process_count"),
+        }
+    try:
+        await db_handle.world_entities.update_one(
+            {"id": agent_id},
+            {
+                "$set": {
+                    "id": agent_id,
+                    "type": "agent",
+                    "updated": now,
+                    "attributes": attributes,
+                }
+            },
+            upsert=True,
+        )
+    except Exception:
+        logger.exception("Failed to project unified agent state for %s", agent_id)
+        return
+
+    trigger_triune = (monitor_threat_total + telemetry_threat_count) >= 3
+    try:
+        await emit_world_event(
+            db_handle,
+            event_type="unified_agent_world_state_projected",
+            entity_refs=[agent_id],
+            payload={
+                "source": source,
+                "trust_state": trust_state,
+                "monitor_threat_total": monitor_threat_total,
+                "telemetry_threat_count": telemetry_threat_count,
+                "hot_monitors": hot_monitors,
+            },
+            trigger_triune=trigger_triune,
+        )
+        _record_unified_audit(
+            principal=f"agent:{agent_id}",
+            action="unified_agent_world_state_projection",
+            targets=[agent_id],
+            result="success",
+            constraints={
+                "source": source,
+                "monitor_threat_total": monitor_threat_total,
+                "telemetry_threat_count": telemetry_threat_count,
+                "trust_state": trust_state,
+            },
+        )
+    except Exception:
+        logger.exception("Failed to emit world-state projection event for %s", agent_id)
 
 
 def _alert_transition_entry(
@@ -195,6 +397,10 @@ TRUSTED_NETWORKS = [
     "::1/128",          # IPv6 localhost
     "fe80::/10",        # IPv6 link-local
 ]
+ALLOW_TRUSTED_NETWORK_FALLBACK = os.environ.get(
+    "UNIFIED_AGENT_ALLOW_TRUSTED_NETWORK_AUTH",
+    "false",
+).strip().lower() in {"1", "true", "yes", "on"}
 
 # Server's own IPs - populated at startup
 SERVER_IPS: set = set()
@@ -305,8 +511,8 @@ async def verify_agent_auth(
             raise HTTPException(status_code=404, detail="Agent not registered")
         raise HTTPException(status_code=401, detail="Invalid agent token")
     
-    # Allow from trusted networks for backwards compatibility (with warning)
-    if is_trusted_network:
+    # Optional compatibility fallback (disabled by default).
+    if is_trusted_network and ALLOW_TRUSTED_NETWORK_FALLBACK:
         logger.warning(f"Agent request from {client_ip} without auth - allowed from trusted network")
         return {"type": "trusted_network", "ip": client_ip, "trusted": True}
     
@@ -411,6 +617,7 @@ class AMSIMonitorTelemetry(MonitorTelemetry):
 
 class MonitorsTelemetry(BaseModel):
     """Aggregated telemetry from all monitors"""
+    model_config = ConfigDict(extra="allow")
     registry: Optional[RegistryMonitorTelemetry] = None
     process_tree: Optional[ProcessTreeMonitorTelemetry] = None
     lolbin: Optional[LOLBinMonitorTelemetry] = None
@@ -421,6 +628,20 @@ class MonitorsTelemetry(BaseModel):
     dlp: Optional[DLPMonitorTelemetry] = None
     vulnerability: Optional[VulnerabilityScannerTelemetry] = None
     amsi: Optional[AMSIMonitorTelemetry] = None
+    firewall: Optional[Dict[str, Any]] = None
+    ransomware: Optional[Dict[str, Any]] = None
+    rootkit: Optional[Dict[str, Any]] = None
+    kernel_security: Optional[Dict[str, Any]] = None
+    self_protection: Optional[Dict[str, Any]] = None
+    identity: Optional[Dict[str, Any]] = None
+    auto_throttle: Optional[Dict[str, Any]] = None
+    cli_telemetry: Optional[Dict[str, Any]] = None
+    hidden_file: Optional[Dict[str, Any]] = None
+    alias_rename: Optional[Dict[str, Any]] = None
+    priv_escalation: Optional[Dict[str, Any]] = None
+    email_protection: Optional[Dict[str, Any]] = None
+    mobile_security: Optional[Dict[str, Any]] = None
+    webview2: Optional[Dict[str, Any]] = None
 
 
 class AgentHeartbeatModel(BaseModel):
@@ -436,6 +657,7 @@ class AgentHeartbeatModel(BaseModel):
     edm_hits: List[EDMHitTelemetryModel] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
+    endpoint_fortress: Optional[Dict[str, Any]] = None
     local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
 
 
@@ -461,6 +683,15 @@ class ToolingCommandModel(BaseModel):
     """Payload for explicit endpoint tooling commands (Trivy/Falco/Suricata/Volatility)."""
     parameters: Dict[str, Any] = {}
     priority: str = "normal"
+
+
+class RemediationProposalModel(BaseModel):
+    """Agent-submitted remediation proposal for governance gating."""
+    action: str
+    parameters: Dict[str, Any] = {}
+    priority: str = "critical"
+    reason: Optional[str] = None
+    threat: Optional[Dict[str, Any]] = None
 
 
 class EDMDatasetCommandModel(BaseModel):
@@ -703,19 +934,13 @@ async def agent_heartbeat(
     # Persist local UI URL when provided
     if heartbeat.local_ui_url:
         update_data["local_ui_url"] = heartbeat.local_ui_url
+    if isinstance(heartbeat.endpoint_fortress, dict):
+        update_data["endpoint_fortress"] = heartbeat.endpoint_fortress
     
-    # Store monitor summary in agent document for quick access (include firewall)
+    monitors_summary: Dict[str, Dict[str, Any]] = {}
+    # Store monitor summary in agent document for quick access.
     if heartbeat.monitors:
-        monitors_summary = {}
-        for monitor_name in ['registry', 'process_tree', 'lolbin', 'code_signing', 
-                            'dns', 'memory', 'whitelist', 'dlp', 'vulnerability', 'amsi', 'firewall']:
-            monitor_data = getattr(heartbeat.monitors, monitor_name, None)
-            if monitor_data:
-                monitors_summary[monitor_name] = {
-                    "last_run": monitor_data.last_run,
-                    "threats_found": monitor_data.threats_found,
-                    "status": "active"
-                }
+        monitors_summary = _build_monitor_summary(heartbeat.monitors)
         update_data["monitors_summary"] = monitors_summary
     
     await db.unified_agents.update_one(
@@ -742,23 +967,89 @@ async def agent_heartbeat(
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "telemetry": heartbeat.telemetry
         })
+        await emit_world_event(
+            get_db(),
+            event_type="unified_agent_telemetry_ingested",
+            entity_refs=[agent_id],
+            payload={
+                "source": "heartbeat",
+                "telemetry_keys": len(heartbeat.telemetry.keys()) if isinstance(heartbeat.telemetry, dict) else None,
+            },
+            trigger_triune=False,
+        )
+        _record_unified_audit(
+            principal=f"agent:{agent_id}",
+            action="unified_agent_telemetry_ingest",
+            targets=[agent_id],
+            result="success",
+            constraints={"source": "heartbeat"},
+        )
         
         # Run threat hunting on telemetry
         await _hunt_telemetry(heartbeat.telemetry)
+
+    if isinstance(heartbeat.endpoint_fortress, dict):
+        beacon = heartbeat.endpoint_fortress.get("beacon") if isinstance(heartbeat.endpoint_fortress.get("beacon"), dict) else {}
+        beacon_state = str(beacon.get("state") or "").lower()
+        await emit_world_event(
+            get_db(),
+            event_type="endpoint_beacon_state_reported",
+            entity_refs=[agent_id],
+            payload={
+                "beacon_state": beacon.get("state"),
+                "beacon_score": beacon.get("score"),
+                "classification": beacon.get("classification"),
+                "endpoint_fortress": heartbeat.endpoint_fortress,
+            },
+            trigger_triune=beacon_state in {"amber", "red"},
+        )
     
-    # Store structured monitor telemetry separately (include firewall)
+    # Store structured monitor telemetry separately.
     if heartbeat.monitors:
         monitor_doc = {
             "agent_id": agent_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        for monitor_name in ['registry', 'process_tree', 'lolbin', 'code_signing', 
-                            'dns', 'memory', 'whitelist', 'dlp', 'vulnerability', 'amsi', 'firewall']:
-            monitor_data = getattr(heartbeat.monitors, monitor_name, None)
-            if monitor_data:
-                monitor_doc[monitor_name] = monitor_data.model_dump()
+        for monitor_name in MONITOR_TELEMETRY_KEYS:
+            monitor_payload = _coerce_monitor_payload(getattr(heartbeat.monitors, monitor_name, None))
+            if monitor_payload:
+                monitor_doc[monitor_name] = monitor_payload
         
         await db.agent_monitor_telemetry.insert_one(monitor_doc)
+        await emit_world_event(
+            get_db(),
+            event_type="unified_agent_monitor_telemetry_ingested",
+            entity_refs=[agent_id],
+            payload={
+                "source": "heartbeat",
+                "monitor_count": len(monitors_summary),
+                "monitor_threat_total": sum(
+                    int((item or {}).get("threats_found") or 0) for item in monitors_summary.values()
+                ),
+                "hot_monitors": [
+                    name for name, item in monitors_summary.items()
+                    if int((item or {}).get("threats_found") or 0) > 0
+                ][:12],
+            },
+            trigger_triune=sum(
+                int((item or {}).get("threats_found") or 0) for item in monitors_summary.values()
+            ) >= 3,
+        )
+        _record_unified_audit(
+            principal=f"agent:{agent_id}",
+            action="unified_agent_monitor_telemetry_ingest",
+            targets=[agent_id],
+            result="success",
+            constraints={"source": "heartbeat", "monitor_count": len(monitors_summary)},
+        )
+    if heartbeat.telemetry or heartbeat.monitors:
+        await _project_unified_state_snapshot(
+            agent_id=agent_id,
+            source="heartbeat",
+            status=heartbeat.status,
+            telemetry=heartbeat.telemetry if isinstance(heartbeat.telemetry, dict) else {},
+            monitors_summary=monitors_summary,
+        )
     
     # Get queued commands for this agent
     commands = agent_ws_manager.get_queued_commands(agent_id)
@@ -804,6 +1095,127 @@ async def list_unified_agents(
         "total": len(agents),
         "online": len([a for a in agents if a.get("status") == "online"]),
         "offline": len([a for a in agents if a.get("status") == "offline"])
+    }
+
+
+@router.get("/fleet/endpoint-posture-map")
+async def get_fleet_endpoint_posture_map(
+    limit: int = 1000,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Fleet posture map for dashboard consumption.
+    Returns per-agent beacon posture, trust state, and last boundary outcome.
+    """
+    safe_limit = max(1, min(int(limit or 1000), 5000))
+    agents = await db.unified_agents.find({}, {"_id": 0}).limit(safe_limit).to_list(safe_limit)
+    agent_ids = [str(a.get("agent_id") or "").strip() for a in agents if str(a.get("agent_id") or "").strip()]
+
+    posture_by_agent: Dict[str, Dict[str, Any]] = {}
+    if hasattr(db, "endpoint_posture"):
+        try:
+            cursor = db.endpoint_posture.find(
+                {"agent_id": {"$in": agent_ids}} if agent_ids else {},
+                {"_id": 0},
+            )
+            for row in await cursor.to_list(safe_limit):
+                aid = str(row.get("agent_id") or "").strip()
+                if aid:
+                    posture_by_agent[aid] = row
+        except Exception:
+            logger.exception("Failed to load endpoint_posture collection")
+
+    latest_boundary_by_agent: Dict[str, Dict[str, Any]] = {}
+    if hasattr(db, "agent_commands"):
+        try:
+            pipeline = [
+                {"$match": {"boundary_outcome": {"$exists": True, "$ne": None}}},
+                {"$sort": {"completed_at": -1, "updated_at": -1, "created_at": -1}},
+                {
+                    "$group": {
+                        "_id": "$agent_id",
+                        "boundary_outcome": {"$first": "$boundary_outcome"},
+                        "boundary_updated_at": {"$first": "$updated_at"},
+                        "command_id": {"$first": "$command_id"},
+                    }
+                },
+            ]
+            rows = await db.agent_commands.aggregate(pipeline).to_list(safe_limit)
+            for row in rows:
+                aid = str(row.get("_id") or "").strip()
+                if aid:
+                    latest_boundary_by_agent[aid] = row
+        except Exception:
+            logger.exception("Failed to aggregate boundary outcomes from agent_commands")
+
+    entries: List[Dict[str, Any]] = []
+    for agent in agents:
+        agent_id = str(agent.get("agent_id") or "").strip()
+        if not agent_id:
+            continue
+        posture = posture_by_agent.get(agent_id, {})
+        fortress = agent.get("endpoint_fortress") if isinstance(agent.get("endpoint_fortress"), dict) else {}
+        fortress_beacon = fortress.get("beacon") if isinstance(fortress.get("beacon"), dict) else {}
+        boundary = latest_boundary_by_agent.get(agent_id, {})
+
+        beacon_state = (
+            posture.get("beacon_state")
+            or fortress_beacon.get("state")
+            or "Green"
+        )
+        beacon_score = int(
+            posture.get("beacon_score")
+            or fortress_beacon.get("score")
+            or 0
+        )
+        trust_state = "trusted"
+        state_lower = str(beacon_state or "green").lower()
+        if state_lower == "red":
+            trust_state = "compromised"
+        elif state_lower in {"amber", "yellow"}:
+            trust_state = "degraded"
+
+        last_boundary_outcome = (
+            posture.get("last_boundary_outcome")
+            or boundary.get("boundary_outcome")
+            or "unknown"
+        )
+        entries.append(
+            {
+                "agent_id": agent_id,
+                "hostname": agent.get("hostname"),
+                "platform": agent.get("platform"),
+                "ip_address": agent.get("ip_address"),
+                "status": agent.get("status", "unknown"),
+                "beacon_state": beacon_state,
+                "beacon_score": beacon_score,
+                "trust_state": trust_state,
+                "last_boundary_outcome": last_boundary_outcome,
+                "last_boundary_at": posture.get("updated_at") or boundary.get("boundary_updated_at"),
+            }
+        )
+
+    severity_rank = {"red": 4, "amber": 3, "yellow": 2, "green": 1}
+    entries.sort(
+        key=lambda e: (
+            severity_rank.get(str(e.get("beacon_state") or "").lower(), 0),
+            int(e.get("beacon_score") or 0),
+            str(e.get("last_boundary_at") or ""),
+        ),
+        reverse=True,
+    )
+    return {
+        "entries": entries,
+        "total": len(entries),
+        "summary": {
+            "green": sum(1 for e in entries if str(e.get("beacon_state") or "").lower() == "green"),
+            "yellow": sum(1 for e in entries if str(e.get("beacon_state") or "").lower() == "yellow"),
+            "amber": sum(1 for e in entries if str(e.get("beacon_state") or "").lower() == "amber"),
+            "red": sum(1 for e in entries if str(e.get("beacon_state") or "").lower() == "red"),
+            "degraded_or_worse": sum(
+                1 for e in entries if str(e.get("trust_state") or "").lower() in {"degraded", "compromised"}
+            ),
+        },
     }
 
 
@@ -943,6 +1355,125 @@ _TOOLING_COMMAND_MAP: Dict[str, str] = {
     "suricata": "suricata_status",
     "volatility": "volatility_status",
 }
+_REMEDIATION_ACTION_COMMAND_MAP: Dict[str, str] = {
+    "kill_process": "kill_process",
+    "block_ip": "block_ip",
+    "block_connection": "block_ip",
+    "quarantine_file": "quarantine_file",
+}
+
+_HIGH_IMPACT_AGENT_COMMAND_TYPES = {
+    "kill_process",
+    "block_ip",
+    "quarantine_file",
+    "update_config",
+    "collect_forensics",
+    "run_command",
+    "shell_command",
+    "powershell_command",
+    "vpn_connect",
+    "vpn_disconnect",
+}
+
+
+def _command_scope_for_type(command_type: str) -> Dict[str, str]:
+    ctype = str(command_type or "").lower().strip()
+    if ctype in {"block_ip", "block_connection", "vpn_connect", "vpn_disconnect"}:
+        return {"zone_from": "governance", "zone_to": "network_egress_zone"}
+    if ctype in {"quarantine_file"}:
+        return {"zone_from": "governance", "zone_to": "browser_email_document_zone"}
+    if ctype in {"run_command", "shell_command", "powershell_command", "kill_process", "collect_forensics", "update_config"}:
+        return {"zone_from": "governance", "zone_to": "admin_tooling_zone"}
+    return {"zone_from": "governance", "zone_to": "agent_control_zone"}
+
+
+def _resolve_command_target(command_type: str, parameters: Dict[str, Any], agent_id: str) -> str:
+    params = parameters or {}
+    ctype = str(command_type or "").lower().strip()
+    if ctype == "kill_process":
+        return str(params.get("pid") or params.get("name") or f"agent:{agent_id}")
+    if ctype in {"block_ip", "block_connection"}:
+        return str(params.get("ip") or f"agent:{agent_id}")
+    if ctype == "quarantine_file":
+        return str(params.get("filepath") or f"agent:{agent_id}")
+    if ctype in {"run_command", "shell_command", "powershell_command"}:
+        return str(params.get("command") or f"agent:{agent_id}")[:240]
+    return str(params.get("target") or f"agent:{agent_id}")
+
+
+def _extract_token_for_contract(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    params = parameters or {}
+    token = params.get("token")
+    if isinstance(token, dict):
+        token_payload = dict(token)
+        if "token_id" not in token_payload and params.get("token_id"):
+            token_payload["token_id"] = params.get("token_id")
+        return token_payload
+    if params.get("token_id"):
+        return {"token_id": str(params.get("token_id"))}
+    return {}
+
+
+def _build_authority_context(
+    *,
+    command_type: str,
+    parameters: Dict[str, Any],
+    issued_by: str,
+    agent_id: str,
+) -> Dict[str, Any]:
+    token_payload = _extract_token_for_contract(parameters)
+    target = _resolve_command_target(command_type, parameters, agent_id)
+    return {
+        "principal": issued_by,
+        "capability": command_type,
+        "target": target,
+        "scope": _command_scope_for_type(command_type),
+        "token": token_payload,
+        "token_id": str(token_payload.get("token_id") or ""),
+        "requires_token": command_type in _HIGH_IMPACT_AGENT_COMMAND_TYPES,
+        "requires_decision_context": command_type in _HIGH_IMPACT_AGENT_COMMAND_TYPES,
+        "contract_version": "endpoint-boundary.v1",
+    }
+
+
+def _serialize_agent_command_for_delivery(command_doc: Dict[str, Any]) -> Dict[str, Any]:
+    command_doc = dict(command_doc or {})
+    command_type = str(command_doc.get("command_type") or command_doc.get("type") or "")
+    parameters = command_doc.get("parameters") or {}
+    authority_context = command_doc.get("authority_context")
+    if not isinstance(authority_context, dict):
+        authority_context = _build_authority_context(
+            command_type=command_type,
+            parameters=parameters if isinstance(parameters, dict) else {},
+            issued_by=str(command_doc.get("issued_by") or command_doc.get("created_by") or "system"),
+            agent_id=str(command_doc.get("agent_id") or ""),
+        )
+    decision_context = command_doc.get("decision_context")
+    if not isinstance(decision_context, dict):
+        decision_context = {
+            "decision_id": command_doc.get("decision_id"),
+            "queue_id": command_doc.get("queue_id") or command_doc.get("outbound_queue_id"),
+            "approved": bool(command_doc.get("approved", False)),
+            "released_to_execution": bool(
+                command_doc.get("released_to_execution", False)
+                or str(command_doc.get("status") or "").lower() in {"pending", "queued", "delivered", "sent"}
+            ),
+        }
+
+    return {
+        "command_id": command_doc.get("command_id"),
+        "command_type": command_type,
+        "parameters": parameters,
+        "priority": command_doc.get("priority", "normal"),
+        "timestamp": command_doc.get("timestamp") or command_doc.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        "decision_id": decision_context.get("decision_id"),
+        "queue_id": decision_context.get("queue_id"),
+        "decision_context": decision_context,
+        "authority_context": authority_context,
+        "principal": authority_context.get("principal"),
+        "token_id": authority_context.get("token_id"),
+        "token": authority_context.get("token"),
+    }
 
 
 @router.post("/agents/{agent_id}/commands/tooling/{tool_name}")
@@ -983,8 +1514,14 @@ async def _dispatch_agent_command(
     priority: str,
     issued_by: str,
 ) -> Dict[str, Any]:
-    """Queue or immediately dispatch a command to a unified agent."""
+    """Queue command through outbound gate before any execution path."""
     command_id = secrets.token_hex(8)
+    authority_context = _build_authority_context(
+        command_type=command_type,
+        parameters=parameters or {},
+        issued_by=issued_by,
+        agent_id=agent_id,
+    )
     command_data = {
         "command_id": command_id,
         "type": "command",
@@ -993,69 +1530,134 @@ async def _dispatch_agent_command(
         "priority": priority,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "issued_by": issued_by,
+        "authority_context": authority_context,
+        "decision_context": {
+            "decision_id": None,
+            "queue_id": None,
+            "approved": False,
+            "released_to_execution": False,
+        },
     }
 
-    # Decide whether this command requires triune approval before dispatch.
-    sensitive_keywords = ("update", "reload", "execute", "publish")
-    requires_approval = any(k in (command_type or "").lower() for k in sensitive_keywords)
-
-    if requires_approval:
-        # Enqueue for triune approval instead of immediate dispatch
-        gate = OutboundGateService(db)
-        queued = await gate.enqueue_command_for_approval(agent_id, command_data)
-
-        # Record the command as queued and link to decision
-        await db.agent_commands.insert_one({
+    action_type = "cross_sector_hardening" if command_type in {"remediate_compliance", "remove_persistence"} else "agent_command"
+    dispatch = GovernedDispatchService(db)
+    queued_result = await dispatch.queue_gated_agent_command(
+        action_type=action_type,
+        actor=issued_by,
+        agent_id=agent_id,
+        command_doc={
             **command_data,
-            "agent_id": agent_id,
-            "status": "queued_for_approval",
-            "queue_id": queued.get("queue_id"),
-            "decision_id": queued.get("decision_id"),
             "state_version": 1,
             "state_transition_log": [
                 {
                     "from_status": None,
-                    "to_status": "queued_for_approval",
+                    "to_status": "gated_pending_approval",
                     "actor": issued_by,
                     "reason": "queued for triune approval",
                     "timestamp": command_data["timestamp"],
                     "metadata": {"delivery_mode": "triune_queue"},
                 }
             ],
-        })
+        },
+        impact_level="high",
+        entity_refs=[agent_id, command_id],
+        requires_triune=True,
+    )
+    queued = queued_result.get("queued", {})
 
-        logger.info(f"Command {command_type} queued for triune approval for agent {agent_id}")
-        return {
-            "command_id": command_id,
-            "status": "queued_for_approval",
-            "decision_id": queued.get("decision_id"),
-            "message": "Command queued for triune approval; will be dispatched after Metatron decision",
-        }
-
-    # Non-sensitive: attempt immediate websocket dispatch (existing behavior)
-    sent = await agent_ws_manager.send_command(agent_id, command_data)
-    await db.agent_commands.insert_one({
-        **command_data,
-        "agent_id": agent_id,
-        "status": "sent" if sent else "queued",
-        "state_version": 1,
-        "state_transition_log": [
-            {
-                "from_status": None,
-                "to_status": "sent" if sent else "queued",
-                "actor": issued_by,
-                "reason": "command dispatched",
-                "timestamp": command_data["timestamp"],
-                "metadata": {"delivery_mode": "websocket" if sent else "queue"},
-            }
-        ],
-    })
-
-    logger.info(f"Command {command_type} sent to {agent_id}: {'immediate' if sent else 'queued'}")
+    logger.info("Command %s queued for triune approval for %s", command_type, agent_id)
     return {
         "command_id": command_id,
-        "status": "sent" if sent else "queued",
-        "message": f"Command {'sent immediately' if sent else 'queued for delivery'}",
+        "status": "queued_for_approval",
+        "queue_id": queued.get("queue_id"),
+        "decision_id": queued.get("decision_id"),
+        "authority_context": authority_context,
+        "message": "Command queued for triune approval; execution awaits outbound gate decision",
+    }
+
+
+@router.post("/agents/{agent_id}/remediation/propose")
+async def propose_agent_remediation(
+    agent_id: str,
+    proposal: RemediationProposalModel,
+    request: Request,
+    auth: Dict = Depends(verify_agent_auth),
+):
+    """
+    Allow endpoint agents to submit high-impact remediation proposals into
+    governed dispatch instead of executing local actions immediately.
+    """
+    if auth.get("agent_id") and auth["agent_id"] != agent_id:
+        raise HTTPException(status_code=403, detail="Agent ID mismatch")
+
+    action = (proposal.action or "").strip().lower()
+    command_type = _REMEDIATION_ACTION_COMMAND_MAP.get(action)
+    if not command_type:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported remediation action '{proposal.action}'. Supported: {sorted(_REMEDIATION_ACTION_COMMAND_MAP.keys())}",
+        )
+
+    agent = await db.unified_agents.find_one({"agent_id": agent_id}, {"_id": 0, "agent_id": 1})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    parameters = dict(proposal.parameters or {})
+    threat = proposal.threat or {}
+    evidence = threat.get("evidence") or {}
+    if command_type == "kill_process":
+        if not parameters.get("pid") and evidence.get("pid"):
+            parameters["pid"] = evidence.get("pid")
+        if not parameters.get("name") and (evidence.get("name") or threat.get("process_name")):
+            parameters["name"] = evidence.get("name") or threat.get("process_name")
+    elif command_type == "block_ip":
+        if not parameters.get("ip"):
+            remote = evidence.get("remote") or evidence.get("remote_ip")
+            if isinstance(remote, str) and remote:
+                parameters["ip"] = remote.split(":")[0]
+    elif command_type == "quarantine_file":
+        if not parameters.get("filepath"):
+            parameters["filepath"] = evidence.get("path") or evidence.get("filepath")
+
+    if proposal.reason:
+        parameters.setdefault("reason", proposal.reason)
+    if threat:
+        parameters.setdefault(
+            "threat_context",
+            {
+                "threat_id": threat.get("threat_id"),
+                "severity": threat.get("severity"),
+                "title": threat.get("title"),
+                "source": threat.get("source"),
+            },
+        )
+
+    dispatch_result = await _dispatch_agent_command(
+        agent_id=agent_id,
+        command_type=command_type,
+        parameters=parameters,
+        priority=proposal.priority,
+        issued_by=f"agent:{agent_id}",
+    )
+
+    await emit_world_event(
+        get_db(),
+        event_type="unified_agent_remediation_proposed",
+        entity_refs=[agent_id, dispatch_result.get("command_id"), dispatch_result.get("queue_id"), dispatch_result.get("decision_id")],
+        payload={
+            "action": action,
+            "command_type": command_type,
+            "proposal_reason": proposal.reason,
+            "auth_type": auth.get("type"),
+        },
+        trigger_triune=True,
+    )
+
+    return {
+        **dispatch_result,
+        "status": "queued_for_triune_approval",
+        "remediation_action": action,
+        "command_type": command_type,
     }
 
 
@@ -1237,30 +1839,93 @@ async def _transition_unified_deployment_state(
     return getattr(result, "matched_count", 0) > 0
 
 
+def _extract_boundary_crossing_from_command_result(
+    *,
+    agent_id: str,
+    command_id: str,
+    result: Dict[str, Any],
+) -> Dict[str, Any]:
+    fortress = result.get("fortress")
+    if not isinstance(fortress, dict):
+        return {}
+
+    pre = fortress.get("pre") if isinstance(fortress.get("pre"), dict) else {}
+    post = fortress.get("post") if isinstance(fortress.get("post"), dict) else {}
+    gate = fortress.get("gate") if isinstance(fortress.get("gate"), dict) else {}
+    boundary = fortress.get("boundary") if isinstance(fortress.get("boundary"), dict) else {}
+    decision_context = boundary.get("decision_context") if isinstance(boundary.get("decision_context"), dict) else {}
+
+    gate_outcome = str(post.get("gate_outcome") or gate.get("decision") or "").lower().strip()
+    world_outcome = str(post.get("world_event_outcome") or "").lower().strip()
+    if not world_outcome:
+        if gate_outcome in {"deny", "denied"}:
+            world_outcome = "denied"
+        elif gate_outcome in {"queue", "queued", "throttle", "throttled"}:
+            world_outcome = "queued"
+        elif gate_outcome in {"quarantine", "quarantined"}:
+            world_outcome = "anomalous"
+        elif gate_outcome == "token-invalid":
+            world_outcome = "token-invalid"
+        else:
+            world_outcome = "allowed"
+
+    beacon = post.get("beacon") if isinstance(post.get("beacon"), dict) else {}
+    beacon_state = str(beacon.get("state") or "").lower()
+    trigger_triune = world_outcome in {"denied", "queued", "token-invalid", "anomalous", "decoy-hit"} or beacon_state in {"amber", "red"}
+
+    refs = [agent_id, command_id, str(decision_context.get("queue_id") or ""), str(decision_context.get("decision_id") or "")]
+    refs = [r for r in refs if r]
+    return {
+        "event_type": "boundary_crossing",
+        "entity_refs": refs,
+        "payload": {
+            "source": "endpoint_fortress_command_result",
+            "agent_id": agent_id,
+            "command_id": command_id,
+            "crossing_outcome": world_outcome,
+            "decision_context": decision_context,
+            "boundary": boundary,
+            "pre_observation": pre,
+            "gate_decision": gate,
+            "post_observation": post,
+        },
+        "trigger_triune": trigger_triune,
+        "world_outcome": world_outcome,
+    }
+
+
 async def _finalize_agent_command_result(
     command_id: str,
     status: str,
     result_payload: Dict[str, Any],
     transition_actor: str = "agent",
     transition_reason: str = "command result received",
+    fortress_payload: Optional[Dict[str, Any]] = None,
+    boundary_outcome: Optional[str] = None,
 ) -> Dict[str, Any]:
     normalized_status = str(status or "completed").lower().strip()
     if normalized_status not in {"completed", "failed"}:
         normalized_status = "completed"
 
     now = datetime.now(timezone.utc).isoformat()
+    set_doc: Dict[str, Any] = {
+        "status": normalized_status,
+        "result": result_payload,
+        "completed_at": now,
+        "updated_at": now,
+    }
+    if isinstance(fortress_payload, dict) and fortress_payload:
+        set_doc["endpoint_fortress"] = fortress_payload
+    if boundary_outcome:
+        set_doc["boundary_outcome"] = str(boundary_outcome)
+
     update_result = await db.agent_commands.update_one(
         {
             "command_id": command_id,
             "status": {"$in": ["queued", "sent", "delivered", "in_progress", "running"]},
         },
         {
-            "$set": {
-                "status": normalized_status,
-                "result": result_payload,
-                "completed_at": now,
-                "updated_at": now,
-            },
+            "$set": set_doc,
             "$inc": {"state_version": 1},
             "$push": {
                 "state_transition_log": {
@@ -2363,10 +3028,12 @@ async def get_agent_commands(
     queued = agent_ws_manager.get_queued_commands(agent_id)
     
     # Also check database for queued commands
-    db_commands = await db.agent_commands.find({
-        "agent_id": agent_id,
-        "status": "queued"
-    }).sort("timestamp", 1).limit(10).to_list(length=10)
+    db_commands = await db.agent_commands.find(
+        {
+            "agent_id": agent_id,
+            "status": {"$in": ["pending", "queued"]},
+        }
+    ).sort("created_at", 1).limit(10).to_list(length=10)
     
     # Mark as delivered
     if db_commands:
@@ -2374,7 +3041,7 @@ async def get_agent_commands(
         await db.agent_commands.update_many(
             {
                 "command_id": {"$in": command_ids},
-                "status": "queued",
+                "status": {"$in": ["pending", "queued"]},
             },
             {
                 "$set": {
@@ -2385,7 +3052,7 @@ async def get_agent_commands(
                 "$inc": {"state_version": 1},
                 "$push": {
                     "state_transition_log": {
-                        "from_status": "queued",
+                        "from_status": ["pending", "queued"],
                         "to_status": "delivered",
                         "actor": f"agent:{agent_id}",
                         "reason": "agent polled commands",
@@ -2395,14 +3062,13 @@ async def get_agent_commands(
             }
         )
     
-    # Combine and return
-    all_commands = queued + [{
-        "command_id": c["command_id"],
-        "command_type": c["command_type"],
-        "parameters": c.get("parameters", {}),
-        "priority": c.get("priority", "normal"),
-        "timestamp": c["timestamp"]
-    } for c in db_commands]
+    # Combine and return with full authority contract for endpoint-local MCP/VNS gate.
+    serialized_queued = [
+        _serialize_agent_command_for_delivery(c if isinstance(c, dict) else {})
+        for c in queued
+    ]
+    serialized_db = [_serialize_agent_command_for_delivery(c) for c in db_commands]
+    all_commands = serialized_queued + serialized_db
     
     return {"commands": all_commands, "count": len(all_commands)}
 
@@ -2423,6 +3089,14 @@ async def report_command_result(
     command_id = result.get("command_id")
     if not command_id:
         raise HTTPException(status_code=400, detail="Missing command_id")
+
+    fortress_payload = result.get("fortress") if isinstance(result.get("fortress"), dict) else {}
+    boundary_event = _extract_boundary_crossing_from_command_result(
+        agent_id=agent_id,
+        command_id=command_id,
+        result=result if isinstance(result, dict) else {},
+    )
+    boundary_outcome = boundary_event.get("world_outcome")
     
     finalize = await _finalize_agent_command_result(
         command_id=command_id,
@@ -2430,6 +3104,8 @@ async def report_command_result(
         result_payload=result.get("result", {}),
         transition_actor=f"agent:{agent_id}",
         transition_reason="agent reported command result",
+        fortress_payload=fortress_payload,
+        boundary_outcome=str(boundary_outcome) if boundary_outcome else None,
     )
     
     # Store full result in command_results collection
@@ -2439,11 +3115,41 @@ async def report_command_result(
         "command_type": result.get("command_type"),
         "status": result.get("status", "completed"),
         "result": result.get("result", {}),
+        "fortress": fortress_payload if fortress_payload else None,
+        "boundary_outcome": boundary_outcome,
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
     
     logger.info(f"Command result received: {command_id} from {agent_id} - {finalize.get('status')}")
-    await emit_world_event(get_db(), event_type="unified_agent_command_result_received", entity_refs=[agent_id, command_id], payload={"status": finalize.get("status")}, trigger_triune=False)
+    _record_unified_audit(
+        principal=f"agent:{agent_id}",
+        action="unified_agent_command_result_ingest",
+        targets=[agent_id, command_id],
+        result="success",
+        constraints={
+            "boundary_outcome": boundary_outcome,
+            "fortress_present": bool(fortress_payload),
+        },
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="unified_agent_command_result_received",
+        entity_refs=[agent_id, command_id],
+        payload={
+            "status": finalize.get("status"),
+            "boundary_outcome": boundary_outcome,
+            "fortress_present": bool(fortress_payload),
+        },
+        trigger_triune=boundary_outcome in {"denied", "queued", "token-invalid", "anomalous", "decoy-hit"},
+    )
+    if boundary_event:
+        await emit_world_event(
+            get_db(),
+            event_type=boundary_event["event_type"],
+            entity_refs=boundary_event["entity_refs"],
+            payload=boundary_event["payload"],
+            trigger_triune=bool(boundary_event.get("trigger_triune")),
+        )
     return {"status": "received", "command_id": command_id}
 
 
@@ -2569,7 +3275,10 @@ async def get_deployment(
 # ============================================================
 
 @router.post("/alerts")
-async def create_alert(alert: AlertModel):
+async def create_alert(
+    alert: AlertModel,
+    auth: Dict = Depends(verify_agent_auth),
+):
     """Create an alert from an agent"""
     
     alert_id = secrets.token_hex(8)
@@ -2765,6 +3474,12 @@ async def get_unified_stats(current_user: dict = Depends(get_current_user)):
 @router.websocket("/ws/agent/{agent_id}")
 async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
     """WebSocket endpoint for real-time agent communication"""
+    verify_websocket_machine_token(
+        websocket,
+        env_keys=["UNIFIED_AGENT_WS_TOKEN", "SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY"],
+        header_names=["x-agent-token", "x-internal-token"],
+        subject="unified agent websocket",
+    )
     
     await agent_ws_manager.connect(agent_id, websocket)
     
@@ -2819,6 +3534,30 @@ async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "telemetry": telemetry
                 })
+                await emit_world_event(
+                    get_db(),
+                    event_type="unified_agent_telemetry_ingested",
+                    entity_refs=[agent_id],
+                    payload={
+                        "source": "websocket",
+                        "telemetry_keys": len(telemetry.keys()) if isinstance(telemetry, dict) else None,
+                    },
+                    trigger_triune=False,
+                )
+                _record_unified_audit(
+                    principal=f"agent:{agent_id}",
+                    action="unified_agent_telemetry_ingest",
+                    targets=[agent_id],
+                    result="success",
+                    constraints={"source": "websocket"},
+                )
+                await _project_unified_state_snapshot(
+                    agent_id=agent_id,
+                    source="websocket",
+                    status="online",
+                    telemetry=telemetry if isinstance(telemetry, dict) else {},
+                    monitors_summary={},
+                )
                 # Run threat hunting
                 await _hunt_telemetry(telemetry)
             
@@ -2826,13 +3565,28 @@ async def websocket_agent_endpoint(websocket: WebSocket, agent_id: str):
                 # Store command result
                 result = data.get("data", {})
                 try:
+                    boundary_event = _extract_boundary_crossing_from_command_result(
+                        agent_id=agent_id,
+                        command_id=str(result.get("command_id") or ""),
+                        result=result if isinstance(result, dict) else {},
+                    )
                     await _finalize_agent_command_result(
                         command_id=result.get("command_id"),
                         status=result.get("status", "completed"),
-                        result_payload=result,
+                        result_payload=result.get("result", {}) if isinstance(result, dict) else {},
                         transition_actor=f"agent:{agent_id}",
                         transition_reason="websocket command_result",
+                        fortress_payload=result.get("fortress") if isinstance(result, dict) and isinstance(result.get("fortress"), dict) else None,
+                        boundary_outcome=str(boundary_event.get("world_outcome") or "") if boundary_event else None,
                     )
+                    if boundary_event:
+                        await emit_world_event(
+                            get_db(),
+                            event_type=boundary_event["event_type"],
+                            entity_refs=boundary_event["entity_refs"],
+                            payload=boundary_event["payload"],
+                            trigger_triune=bool(boundary_event.get("trigger_triune")),
+                        )
                 except HTTPException:
                     # Commands can race with API completion; keep WS loop resilient.
                     pass
@@ -2912,74 +3666,168 @@ async def download_agent_package_windows():
 
 
 @router.get("/agent/install-script")
-async def get_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
-    """Get the agent installation script"""
-    
-    # Use explicit query param first; otherwise infer from request/proxy headers
+async def get_install_script(
+    request: Request,
+    server_url: Optional[str] = None,
+    format: Optional[str] = None,
+    enrollment_key: Optional[str] = None,
+    integration_token: Optional[str] = None,
+    ca_cert_pem_b64: Optional[str] = None,
+    noninteractive: Optional[bool] = False,
+):
+    """Get an auth/cert aware Linux agent installation script."""
+
     forwarded_proto = request.headers.get("x-forwarded-proto")
     proto = forwarded_proto or request.url.scheme or "http"
     base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
-    
-    script = f'''#!/bin/bash
-# Seraph AI Unified Agent Installer
-# Automatically generated for: {base_url}
+    embedded_enrollment = (enrollment_key or "").strip()
+    embedded_integration = (integration_token or "").strip()
+    embedded_ca_b64 = (ca_cert_pem_b64 or "").strip()
+    noninteractive_flag = "1" if bool(noninteractive) else "0"
 
-set -e
+    script = f'''#!/bin/bash
+# Seraph AI Unified Agent Installer (auth + cert aware)
+set -euo pipefail
 
 SERAPH_SERVER="{base_url}"
 INSTALL_DIR="/opt/seraph-agent"
+EMBEDDED_ENROLLMENT_KEY="{embedded_enrollment}"
+EMBEDDED_INTEGRATION_TOKEN="{embedded_integration}"
+EMBEDDED_CA_CERT_B64="{embedded_ca_b64}"
+SERAPH_NONINTERACTIVE="${{SERAPH_NONINTERACTIVE:-{noninteractive_flag}}}"
 
-echo "================================================================"
-echo "  SERAPH AI UNIFIED AGENT INSTALLER"
-echo "  Target Server: $SERAPH_SERVER"
-echo "================================================================"
+SERAPH_ENROLLMENT_KEY="${{SERAPH_ENROLLMENT_KEY:-$EMBEDDED_ENROLLMENT_KEY}}"
+SERAPH_INTEGRATION_TOKEN="${{SERAPH_INTEGRATION_TOKEN:-$EMBEDDED_INTEGRATION_TOKEN}}"
+SERAPH_CA_CERT_PEM_B64="${{SERAPH_CA_CERT_PEM_B64:-$EMBEDDED_CA_CERT_B64}}"
 
-# Check root
 if [[ $EUID -ne 0 ]]; then
-    echo "This script must be run as root (use sudo)"
-    exit 1
+  echo "This installer must run as root (use sudo)."
+  exit 1
 fi
 
-# Create installation directory
+if [[ -z "${{SERAPH_ENROLLMENT_KEY}}" ]]; then
+  echo "Missing enrollment key. Export SERAPH_ENROLLMENT_KEY before install."
+  exit 2
+fi
+
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Install Python dependencies
-echo "Installing Python and dependencies..."
-apt-get update
-apt-get install -y python3 python3-pip python3-venv curl
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update -y
+  apt-get install -y python3 python3-pip python3-venv curl ca-certificates
+  apt-get install -y wireguard-tools ufw iptables >/dev/null 2>&1 || true
+elif command -v dnf >/dev/null 2>&1; then
+  dnf install -y python3 python3-pip curl ca-certificates
+  dnf install -y wireguard-tools firewalld iptables >/dev/null 2>&1 || true
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y python3 python3-pip curl ca-certificates
+  yum install -y wireguard-tools firewalld iptables >/dev/null 2>&1 || true
+elif command -v pacman >/dev/null 2>&1; then
+  pacman -Sy --noconfirm python python-pip curl ca-certificates
+  pacman -Sy --noconfirm wireguard-tools ufw iptables >/dev/null 2>&1 || true
+fi
 
-# Create virtual environment
+curl -fsSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
+tar -xzf agent.tar.gz
+rm -f agent.tar.gz
+
 python3 -m venv venv
 source venv/bin/activate
-
-# Install required packages
 pip install --upgrade pip
-pip install psutil requests netifaces scapy watchdog python-nmap aiohttp pyyaml cryptography
+if [[ -f "requirements.txt" ]]; then
+  pip install -r requirements.txt
+else
+  pip install psutil requests netifaces watchdog pyyaml cryptography
+fi
+# Ensure substantive web dashboard dependencies are available.
+pip install flask flask-cors >/dev/null 2>&1 || true
 
-# Install YARA (optional, for malware scanning)
-echo "Installing YARA..."
-apt-get install -y yara libyara-dev 2>/dev/null || true
-pip install yara-python 2>/dev/null || echo "YARA installation skipped (optional)"
+mkdir -p "$INSTALL_DIR/certs"
+CA_CERT_PATH=""
+if [[ -n "${{SERAPH_CA_CERT_PEM_B64}}" ]]; then
+  CA_CERT_PATH="$INSTALL_DIR/certs/seraph-agent-ca.pem"
+  SERAPH_CA_CERT_PEM_B64="$SERAPH_CA_CERT_PEM_B64" CA_CERT_PATH="$CA_CERT_PATH" python3 - <<'PY'
+import base64, os, pathlib
+payload = os.environ.get("SERAPH_CA_CERT_PEM_B64", "").strip()
+target = os.environ.get("CA_CERT_PATH", "").strip()
+if payload and target:
+    pathlib.Path(target).write_bytes(base64.b64decode(payload.encode()))
+PY
+  chmod 600 "$CA_CERT_PATH"
+fi
 
-# Download agent package
-echo "Downloading agent from server..."
-curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
-tar -xzf agent.tar.gz
-rm agent.tar.gz
+cat > "$INSTALL_DIR/agent_config.json" <<EOF
+{{
+  "server_url": "$SERAPH_SERVER",
+  "enrollment_key": "$SERAPH_ENROLLMENT_KEY",
+  "auth_token": "",
+  "integration_api_key": "$SERAPH_INTEGRATION_TOKEN",
+  "local_ui_enabled": false
+}}
+EOF
+chmod 600 "$INSTALL_DIR/agent_config.json"
 
-# Create systemd service
-cat > /etc/systemd/system/seraph-agent.service << EOF
+cat > /etc/default/seraph-agent <<EOF
+SERAPH_ENROLLMENT_KEY=$SERAPH_ENROLLMENT_KEY
+SERAPH_INTEGRATION_TOKEN=$SERAPH_INTEGRATION_TOKEN
+SERAPH_NONINTERACTIVE=$SERAPH_NONINTERACTIVE
+EOF
+if [[ -n "$CA_CERT_PATH" ]]; then
+  echo "REQUESTS_CA_BUNDLE=$CA_CERT_PATH" >> /etc/default/seraph-agent
+fi
+chmod 600 /etc/default/seraph-agent
+
+# Firewall baseline for dashboard/control surfaces and WireGuard.
+if command -v ufw >/dev/null 2>&1; then
+  ufw allow 3000/tcp >/dev/null 2>&1 || true
+  ufw allow 5000/tcp >/dev/null 2>&1 || true
+  ufw allow 51820/udp >/dev/null 2>&1 || true
+elif command -v firewall-cmd >/dev/null 2>&1; then
+  systemctl enable --now firewalld >/dev/null 2>&1 || true
+  firewall-cmd --permanent --add-port=3000/tcp >/dev/null 2>&1 || true
+  firewall-cmd --permanent --add-port=5000/tcp >/dev/null 2>&1 || true
+  firewall-cmd --permanent --add-port=51820/udp >/dev/null 2>&1 || true
+  firewall-cmd --reload >/dev/null 2>&1 || true
+elif command -v iptables >/dev/null 2>&1; then
+  iptables -C INPUT -p tcp --dport 3000 -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p tcp --dport 3000 -j ACCEPT
+  iptables -C INPUT -p tcp --dport 5000 -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p tcp --dport 5000 -j ACCEPT
+  iptables -C INPUT -p udp --dport 51820 -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p udp --dport 51820 -j ACCEPT
+fi
+
+# WireGuard autostart if a managed config is present.
+VPN_CONF_SOURCE=""
+for candidate in \
+  "/etc/wireguard/metatron-vpn.conf" \
+  "/etc/wireguard/wg0.conf" \
+  "$INSTALL_DIR/vpn/metatron-vpn.conf" \
+  "$INSTALL_DIR/vpn/wg0.conf"; do
+  if [[ -f "$candidate" ]]; then
+    VPN_CONF_SOURCE="$candidate"
+    break
+  fi
+done
+if command -v wg-quick >/dev/null 2>&1 && [[ -n "$VPN_CONF_SOURCE" ]]; then
+  mkdir -p /etc/wireguard
+  cp -f "$VPN_CONF_SOURCE" /etc/wireguard/metatron-vpn.conf
+  chmod 600 /etc/wireguard/metatron-vpn.conf
+  ln -sf /etc/wireguard/metatron-vpn.conf /etc/wireguard/wg0.conf || true
+  systemctl enable wg-quick@metatron-vpn.service >/dev/null 2>&1 || systemctl enable wg-quick@wg0.service >/dev/null 2>&1 || true
+  systemctl restart wg-quick@metatron-vpn.service >/dev/null 2>&1 || systemctl restart wg-quick@wg0.service >/dev/null 2>&1 || true
+fi
+
+cat > /etc/systemd/system/seraph-agent.service <<'EOF'
 [Unit]
-Description=Seraph AI Unified Agent
+Description=Seraph Unified Agent Core
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=$INSTALL_DIR
-Environment="PATH=$INSTALL_DIR/venv/bin"
-ExecStart=$INSTALL_DIR/venv/bin/python core/agent.py --server $SERAPH_SERVER
+WorkingDirectory=/opt/seraph-agent
+EnvironmentFile=-/etc/default/seraph-agent
+Environment=PATH=/opt/seraph-agent/venv/bin
+ExecStart=/opt/seraph-agent/venv/bin/python /opt/seraph-agent/core/agent.py --config /opt/seraph-agent/agent_config.json --no-ui
 Restart=always
 RestartSec=10
 
@@ -2987,22 +3835,39 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-# Enable and start service
-systemctl daemon-reload
-systemctl enable seraph-agent
-systemctl start seraph-agent
+cat > /etc/systemd/system/seraph-agent-dashboard.service <<'EOF'
+[Unit]
+Description=Seraph Unified Agent Web Dashboard (port 5000)
+After=network.target seraph-agent.service
+Requires=seraph-agent.service
 
-echo ""
-echo "================================================================"
-echo "  INSTALLATION COMPLETE"
-echo "================================================================"
-echo "Agent installed to: $INSTALL_DIR"
-echo "Service status: systemctl status seraph-agent"
-echo "Service logs: journalctl -u seraph-agent -f"
-echo ""
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/seraph-agent
+EnvironmentFile=-/etc/default/seraph-agent
+Environment=PATH=/opt/seraph-agent/venv/bin
+ExecStart=/opt/seraph-agent/venv/bin/python /opt/seraph-agent/ui/web/app.py --host 0.0.0.0 --port 5000
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable seraph-agent seraph-agent-dashboard
+systemctl restart seraph-agent seraph-agent-dashboard
+systemctl is-active --quiet seraph-agent
+systemctl is-active --quiet seraph-agent-dashboard
+systemctl is-active --quiet wg-quick@metatron-vpn.service >/dev/null 2>&1 || systemctl is-active --quiet wg-quick@wg0.service >/dev/null 2>&1 || true
+echo "SERAPH_DEPLOY_SUCCESS"
 '''
-    
-    usage = f"curl -sSL {base_url}/api/unified/agent/install-script | sudo bash"
+
+    usage = (
+        f"curl -sSL {base_url}/api/unified/agent/install-script | "
+        "sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash"
+    )
     if (format or "").lower() == "json":
         return {"script": script, "usage": usage}
 
@@ -3015,120 +3880,195 @@ echo ""
 
 
 @router.get("/agent/install-windows")
-async def get_windows_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
-    """Get the Windows agent installation script (PowerShell)"""
-    
+async def get_windows_install_script(
+    request: Request,
+    server_url: Optional[str] = None,
+    format: Optional[str] = None,
+    enrollment_key: Optional[str] = None,
+    integration_token: Optional[str] = None,
+    ca_cert_pem_b64: Optional[str] = None,
+    noninteractive: Optional[bool] = False,
+):
+    """Get an auth/cert aware Windows installer script."""
+
     forwarded_proto = request.headers.get("x-forwarded-proto")
     proto = forwarded_proto or request.url.scheme or "http"
     base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
-    
-    script = f'''# Seraph AI Unified Agent - Windows Installer
-# Run as Administrator
+    embedded_enrollment = (enrollment_key or "").strip()
+    embedded_integration = (integration_token or "").strip()
+    embedded_ca_b64 = (ca_cert_pem_b64 or "").strip()
+    noninteractive_flag = "$true" if bool(noninteractive) else "$false"
 
+    script = f'''# Seraph Unified Agent Installer (Windows)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $SERAPH_SERVER = "{base_url}"
 $INSTALL_DIR = "C:\\ProgramData\\SeraphAgent"
+$SYSTEM32_DIR = "$env:WINDIR\\System32"
 $ZIP_PATH = "$INSTALL_DIR\\agent.zip"
-$LOG_PATH = "$INSTALL_DIR\\install.log"
-
-Write-Host "================================================================" -ForegroundColor Cyan
-Write-Host "  SERAPH AI UNIFIED AGENT INSTALLER (Windows)" -ForegroundColor Cyan
-Write-Host "  Target Server: $SERAPH_SERVER" -ForegroundColor Cyan
-Write-Host "================================================================" -ForegroundColor Cyan
+$CONFIG_PATH = "$INSTALL_DIR\\agent_config.json"
+$RUNNER_PATH = "$INSTALL_DIR\\run-agent.ps1"
+$DASHBOARD_RUNNER_PATH = "$INSTALL_DIR\\run-dashboard.ps1"
+$VPN_RUNNER_PATH = "$INSTALL_DIR\\run-vpn.ps1"
+$CA_CERT_PATH = "$INSTALL_DIR\\certs\\seraph-agent-ca.pem"
+$EMBEDDED_ENROLLMENT_KEY = "{embedded_enrollment}"
+$EMBEDDED_INTEGRATION_TOKEN = "{embedded_integration}"
+$EMBEDDED_CA_CERT_B64 = "{embedded_ca_b64}"
+$NONINTERACTIVE = {noninteractive_flag}
 
 function Assert-Admin {{
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {{
-        if ($PSCommandPath) {{
-            Write-Host "Re-launching installer with Administrator privileges..." -ForegroundColor Yellow
-            $argList = @(
-                "-ExecutionPolicy", "Bypass",
-                "-NoExit",
-                "-File", "`"$PSCommandPath`""
-            )
-            Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $argList
-            exit 0
-        }}
-        throw "This installer must be run as Administrator."
-    }}
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+  if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {{
+    throw "Installer must run as Administrator."
+  }}
 }}
 
 function Get-PythonExecutable {{
-    if (Get-Command py -ErrorAction SilentlyContinue) {{ return "py -3" }}
-    if (Get-Command python -ErrorAction SilentlyContinue) {{ return "python" }}
-    return $null
+  if (Get-Command py -ErrorAction SilentlyContinue) {{ return "py -3" }}
+  if (Get-Command python -ErrorAction SilentlyContinue) {{ return "python" }}
+  return $null
+}}
+
+function Ensure-FirewallRule {{
+  param(
+    [Parameter(Mandatory=$true)][string]$Name,
+    [Parameter(Mandatory=$true)][string]$Protocol,
+    [Parameter(Mandatory=$true)][int]$Port
+  )
+  & netsh advfirewall firewall delete rule name="$Name" | Out-Null
+  & netsh advfirewall firewall add rule name="$Name" dir=in action=allow protocol=$Protocol localport=$Port | Out-Null
+}}
+
+function Install-System32Launcher {{
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][string]$Content
+  )
+  Set-Content -Path $Path -Value $Content -Encoding Ascii
 }}
 
 try {{
-    Assert-Admin
+  Assert-Admin
+  New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+  New-Item -ItemType Directory -Force -Path "$INSTALL_DIR\\certs" | Out-Null
+  Set-Location $INSTALL_DIR
 
-    New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
-    Start-Transcript -Path $LOG_PATH -Append | Out-Null
+  $enrollment = $env:SERAPH_ENROLLMENT_KEY
+  if (-not $enrollment) {{ $enrollment = $EMBEDDED_ENROLLMENT_KEY }}
+  if (-not $enrollment) {{ throw "Missing SERAPH_ENROLLMENT_KEY" }}
 
-    # Create installation directory
-    New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
-    Set-Location $INSTALL_DIR
+  $integration = $env:SERAPH_INTEGRATION_TOKEN
+  if (-not $integration) {{ $integration = $EMBEDDED_INTEGRATION_TOKEN }}
 
-    # Download agent (Windows ZIP variant)
-    Write-Host "Downloading agent package..."
-    Invoke-WebRequest -UseBasicParsing -Uri "$SERAPH_SERVER/api/unified/agent/download/windows" -OutFile $ZIP_PATH
+  $caCertB64 = $env:SERAPH_CA_CERT_PEM_B64
+  if (-not $caCertB64) {{ $caCertB64 = $EMBEDDED_CA_CERT_B64 }}
+  if ($caCertB64) {{
+    [IO.File]::WriteAllBytes($CA_CERT_PATH, [Convert]::FromBase64String($caCertB64))
+  }}
 
-    # Extract
-    Write-Host "Extracting package..."
-    Expand-Archive -Path $ZIP_PATH -DestinationPath $INSTALL_DIR -Force
-    Remove-Item $ZIP_PATH -Force
+  Invoke-WebRequest -UseBasicParsing -Uri "$SERAPH_SERVER/api/unified/agent/download/windows" -OutFile $ZIP_PATH
+  Expand-Archive -Path $ZIP_PATH -DestinationPath $INSTALL_DIR -Force
+  Remove-Item $ZIP_PATH -Force
 
-    # Resolve Python executable
-    $pythonCmd = Get-PythonExecutable
-    if (-not $pythonCmd) {{
-        throw "Python 3 not found. Install Python 3 (with PATH enabled) and re-run installer."
-    }}
+  $pythonCmd = Get-PythonExecutable
+  if (-not $pythonCmd) {{
+    throw "Python 3 not found. Install Python 3 and rerun installer."
+  }}
 
-    Write-Host "Installing Python dependencies..."
-    cmd /c "$pythonCmd -m pip install --upgrade pip"
+  cmd /c "$pythonCmd -m pip install --upgrade pip"
+  if (Test-Path "$INSTALL_DIR\\requirements.txt") {{
+    cmd /c "$pythonCmd -m pip install -r $INSTALL_DIR\\requirements.txt"
+  }} else {{
     cmd /c "$pythonCmd -m pip install psutil requests netifaces watchdog pyyaml cryptography"
-    
-    # Install YARA (optional, for malware scanning)
-    Write-Host "Installing YARA (optional)..."
-    try {{
-        cmd /c "$pythonCmd -m pip install yara-python"
-    }} catch {{
-        Write-Host "YARA installation skipped (optional)" -ForegroundColor Yellow
+  }}
+  cmd /c "$pythonCmd -m pip install flask flask-cors"
+
+  $config = @{{
+    server_url = $SERAPH_SERVER
+    enrollment_key = $enrollment
+    auth_token = ""
+    integration_api_key = $integration
+    local_ui_enabled = $false
+  }} | ConvertTo-Json -Depth 6
+  Set-Content -Path $CONFIG_PATH -Value $config -Encoding UTF8
+
+  $runner = @"
+$ErrorActionPreference = 'Stop'
+if (Test-Path '$CA_CERT_PATH') {{ $env:REQUESTS_CA_BUNDLE = '$CA_CERT_PATH' }}
+& cmd /c "$pythonCmd core\\agent.py --config `"$CONFIG_PATH`" --no-ui"
+"@
+  Set-Content -Path $RUNNER_PATH -Value $runner -Encoding UTF8
+
+  $dashboardRunner = @"
+$ErrorActionPreference = 'Stop'
+if (Test-Path '$CA_CERT_PATH') {{ $env:REQUESTS_CA_BUNDLE = '$CA_CERT_PATH' }}
+& cmd /c "$pythonCmd ui\\web\\app.py --host 0.0.0.0 --port 5000"
+"@
+  Set-Content -Path $DASHBOARD_RUNNER_PATH -Value $dashboardRunner -Encoding UTF8
+
+  $vpnRunner = @"
+$ErrorActionPreference = 'SilentlyContinue'
+$wgExe = 'C:\\Program Files\\WireGuard\\wireguard.exe'
+if (Test-Path $wgExe) {{
+  $vpnConfigs = @(
+    'C:\\Program Files\\WireGuard\\Data\\Configurations\\metatron-vpn.conf',
+    'C:\\Program Files\\WireGuard\\Data\\Configurations\\wg0.conf',
+    '$INSTALL_DIR\\vpn\\metatron-vpn.conf',
+    '$INSTALL_DIR\\vpn\\wg0.conf'
+  )
+  foreach ($cfg in $vpnConfigs) {{
+    if (Test-Path $cfg) {{
+      & $wgExe /installtunnelservice $cfg | Out-Null
+      break
     }}
+  }}
+  Start-Service -Name 'WireGuardTunnel$metatron-vpn' -ErrorAction SilentlyContinue
+  Start-Service -Name 'WireGuardTunnel$wg0' -ErrorAction SilentlyContinue
+}}
+"@
+  Set-Content -Path $VPN_RUNNER_PATH -Value $vpnRunner -Encoding UTF8
 
-    # Create scheduled task to run at startup
-    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c $pythonCmd core\\agent.py --server $SERAPH_SERVER" -WorkingDirectory $INSTALL_DIR
-    $trigger = New-ScheduledTaskTrigger -AtStartup
-    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
-    Register-ScheduledTask -TaskName "SeraphAgent" -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+  Ensure-FirewallRule -Name "Seraph Agent Dashboard 5000" -Protocol "TCP" -Port 5000
+  Ensure-FirewallRule -Name "Seraph Frontend 3000" -Protocol "TCP" -Port 3000
+  Ensure-FirewallRule -Name "Seraph WireGuard 51820" -Protocol "UDP" -Port 51820
 
-    # Start agent
-    Write-Host "Starting agent..."
-    Start-ScheduledTask -TaskName "SeraphAgent"
+  Install-System32Launcher -Path "$SYSTEM32_DIR\\seraph-agent.cmd" -Content "@echo off`r`npowershell.exe -ExecutionPolicy Bypass -File `"$RUNNER_PATH`"`r`n"
+  Install-System32Launcher -Path "$SYSTEM32_DIR\\seraph-dashboard.cmd" -Content "@echo off`r`npowershell.exe -ExecutionPolicy Bypass -File `"$DASHBOARD_RUNNER_PATH`"`r`n"
+  Install-System32Launcher -Path "$SYSTEM32_DIR\\seraph-vpn-start.cmd" -Content "@echo off`r`npowershell.exe -ExecutionPolicy Bypass -File `"$VPN_RUNNER_PATH`"`r`n"
 
-    try {{ Stop-Transcript | Out-Null }} catch {{ }}
+  $taskArgs = "-ExecutionPolicy Bypass -File `"$RUNNER_PATH`""
+  $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs -WorkingDirectory $INSTALL_DIR
+  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
+  Register-ScheduledTask -TaskName "SeraphAgent" -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+  Start-ScheduledTask -TaskName "SeraphAgent"
+
+  $dashboardTaskArgs = "-ExecutionPolicy Bypass -File `"$DASHBOARD_RUNNER_PATH`""
+  $dashboardAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $dashboardTaskArgs -WorkingDirectory $INSTALL_DIR
+  Register-ScheduledTask -TaskName "SeraphAgentDashboard" -Action $dashboardAction -Trigger $trigger -Principal $principal -Force | Out-Null
+  Start-ScheduledTask -TaskName "SeraphAgentDashboard"
+
+  $vpnTaskArgs = "-ExecutionPolicy Bypass -File `"$VPN_RUNNER_PATH`""
+  $vpnAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $vpnTaskArgs -WorkingDirectory $INSTALL_DIR
+  Register-ScheduledTask -TaskName "SeraphAgentVPN" -Action $vpnAction -Trigger $trigger -Principal $principal -Force | Out-Null
+  Start-ScheduledTask -TaskName "SeraphAgentVPN"
 }} catch {{
-    try {{ Stop-Transcript | Out-Null }} catch {{ }}
-    Write-Host "INSTALL FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "See log: $LOG_PATH" -ForegroundColor Yellow
-    Read-Host "Press Enter to close"
-    exit 1
+  Write-Host "INSTALL FAILED: $($_.Exception.Message)" -ForegroundColor Red
+  exit 1
 }}
 
-Write-Host ""
-Write-Host "================================================================" -ForegroundColor Green
-Write-Host "  INSTALLATION COMPLETE" -ForegroundColor Green
-Write-Host "================================================================" -ForegroundColor Green
-Write-Host "Agent installed to: $INSTALL_DIR"
-Write-Host "Check status: Get-ScheduledTask -TaskName SeraphAgent"
-Write-Host "Install log: $LOG_PATH"
-Read-Host "Press Enter to close"
+Write-Host "SERAPH_DEPLOY_SUCCESS" -ForegroundColor Green
+if (-not $NONINTERACTIVE) {{
+  Write-Host "Agent installed to: $INSTALL_DIR"
+}}
 '''
-    
-    usage = f"irm {base_url}/api/unified/agent/install-windows | iex"
+
+    usage = (
+        f"irm {base_url}/api/unified/agent/install-windows | "
+        "powershell -Command \"$env:SERAPH_ENROLLMENT_KEY='<ENROLLMENT_KEY>'; iex ($input | Out-String)\""
+    )
     if (format or "").lower() == "json":
         return {"script": script, "usage": usage}
 
@@ -3141,26 +4081,52 @@ Read-Host "Press Enter to close"
 
 
 @router.get("/agent/install-macos")
-async def get_macos_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
+async def get_macos_install_script(
+    request: Request,
+    server_url: Optional[str] = None,
+    format: Optional[str] = None,
+    enrollment_key: Optional[str] = None,
+    integration_token: Optional[str] = None,
+    ca_cert_pem_b64: Optional[str] = None,
+    noninteractive: Optional[bool] = False,
+):
     """Get the macOS agent installation script"""
     
     forwarded_proto = request.headers.get("x-forwarded-proto")
     proto = forwarded_proto or request.url.scheme or "http"
     base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    embedded_enrollment = (enrollment_key or "").strip()
+    embedded_integration = (integration_token or "").strip()
+    embedded_ca_b64 = (ca_cert_pem_b64 or "").strip()
+    noninteractive_flag = "1" if bool(noninteractive) else "0"
     
     script = f'''#!/bin/bash
 # Seraph AI Unified Agent - macOS Installer
 
-set -e
+set -euo pipefail
 
 SERAPH_SERVER="{base_url}"
 INSTALL_DIR="$HOME/Library/Application Support/SeraphAgent"
 LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/com.seraph.agent.plist"
+DASHBOARD_LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/com.seraph.dashboard.plist"
+VPN_LAUNCH_DAEMON_PATH="/Library/LaunchDaemons/com.seraph.vpn.plist"
+EMBEDDED_ENROLLMENT_KEY="{embedded_enrollment}"
+EMBEDDED_INTEGRATION_TOKEN="{embedded_integration}"
+EMBEDDED_CA_CERT_B64="{embedded_ca_b64}"
+SERAPH_NONINTERACTIVE="${{SERAPH_NONINTERACTIVE:-{noninteractive_flag}}}"
+SERAPH_ENROLLMENT_KEY="${{SERAPH_ENROLLMENT_KEY:-$EMBEDDED_ENROLLMENT_KEY}}"
+SERAPH_INTEGRATION_TOKEN="${{SERAPH_INTEGRATION_TOKEN:-$EMBEDDED_INTEGRATION_TOKEN}}"
+SERAPH_CA_CERT_PEM_B64="${{SERAPH_CA_CERT_PEM_B64:-$EMBEDDED_CA_CERT_B64}}"
 
 echo "================================================================"
 echo "  SERAPH AI UNIFIED AGENT INSTALLER (macOS)"
 echo "  Target Server: $SERAPH_SERVER"
 echo "================================================================"
+
+if [[ -z "${{SERAPH_ENROLLMENT_KEY}}" ]]; then
+    echo "Missing enrollment key. Export SERAPH_ENROLLMENT_KEY before install."
+    exit 2
+fi
 
 # Create installation directory
 mkdir -p "$INSTALL_DIR"
@@ -3184,17 +4150,41 @@ source venv/bin/activate
 # Install dependencies
 pip install --upgrade pip
 pip install psutil requests netifaces watchdog pyyaml scapy cryptography
+pip install flask flask-cors
 
 # Install YARA (optional, for malware scanning)
 echo "Installing YARA..."
 brew install yara 2>/dev/null || true
 pip install yara-python 2>/dev/null || echo "YARA installation skipped (optional)"
+brew install wireguard-tools 2>/dev/null || true
 
 # Download agent
 echo "Downloading agent from server..."
 curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
 tar -xzf agent.tar.gz
 rm agent.tar.gz
+
+# Optional custom CA bundle for TLS trust
+mkdir -p "$INSTALL_DIR/certs"
+if [[ -n "${{SERAPH_CA_CERT_PEM_B64}}" ]]; then
+    SERAPH_CA_CERT_PEM_B64="$SERAPH_CA_CERT_PEM_B64" python3 - <<'PY'
+import base64, os, pathlib
+payload = os.environ.get("SERAPH_CA_CERT_PEM_B64", "").strip()
+if payload:
+    pathlib.Path("certs/seraph-agent-ca.pem").write_bytes(base64.b64decode(payload.encode()))
+PY
+fi
+
+# Persist auth/bootstrap configuration
+cat > "$INSTALL_DIR/agent_config.json" <<EOF
+{{
+  "server_url": "$SERAPH_SERVER",
+  "enrollment_key": "$SERAPH_ENROLLMENT_KEY",
+  "auth_token": "",
+  "integration_api_key": "$SERAPH_INTEGRATION_TOKEN",
+  "local_ui_enabled": false
+}}
+EOF
 
 # Create LaunchAgent plist for auto-start
 mkdir -p "$HOME/Library/LaunchAgents"
@@ -3209,9 +4199,15 @@ cat > "$LAUNCH_AGENT_PATH" << EOF
     <array>
         <string>$INSTALL_DIR/venv/bin/python</string>
         <string>$INSTALL_DIR/core/agent.py</string>
-        <string>--server</string>
-        <string>$SERAPH_SERVER</string>
+        <string>--config</string>
+        <string>$INSTALL_DIR/agent_config.json</string>
+        <string>--no-ui</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>REQUESTS_CA_BUNDLE</key>
+        <string>$INSTALL_DIR/certs/seraph-agent-ca.pem</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -3224,8 +4220,90 @@ cat > "$LAUNCH_AGENT_PATH" << EOF
 </plist>
 EOF
 
-# Load the launch agent
+cat > "$DASHBOARD_LAUNCH_AGENT_PATH" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.seraph.dashboard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$INSTALL_DIR/venv/bin/python</string>
+        <string>$INSTALL_DIR/ui/web/app.py</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>5000</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>REQUESTS_CA_BUNDLE</key>
+        <string>$INSTALL_DIR/certs/seraph-agent-ca.pem</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$INSTALL_DIR/dashboard.log</string>
+    <key>StandardErrorPath</key>
+    <string>$INSTALL_DIR/dashboard-error.log</string>
+</dict>
+</plist>
+EOF
+
+# Load launch agents (core + dashboard)
+launchctl unload "$LAUNCH_AGENT_PATH" 2>/dev/null || true
+launchctl unload "$DASHBOARD_LAUNCH_AGENT_PATH" 2>/dev/null || true
 launchctl load "$LAUNCH_AGENT_PATH"
+launchctl load "$DASHBOARD_LAUNCH_AGENT_PATH"
+
+# Root-level VPN autostart + firewall allowances (best effort).
+if [[ $EUID -eq 0 ]]; then
+  cat > "$VPN_LAUNCH_DAEMON_PATH" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.seraph.vpn</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>wg-quick up metatron-vpn || wg-quick up wg0 || true</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/var/log/seraph-vpn.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/seraph-vpn-error.log</string>
+</dict>
+</plist>
+EOF
+  chmod 644 "$VPN_LAUNCH_DAEMON_PATH"
+  launchctl unload "$VPN_LAUNCH_DAEMON_PATH" 2>/dev/null || true
+  launchctl load "$VPN_LAUNCH_DAEMON_PATH" 2>/dev/null || true
+
+  cat > /etc/pf.anchors/com.seraph.agent << 'EOF'
+pass in proto tcp from any to any port 3000
+pass in proto tcp from any to any port 5000
+pass in proto udp from any to any port 51820
+EOF
+  if ! grep -q "com.seraph.agent" /etc/pf.conf; then
+    echo "" >> /etc/pf.conf
+    echo "anchor \"com.seraph.agent\"" >> /etc/pf.conf
+    echo "load anchor \"com.seraph.agent\" from \"/etc/pf.anchors/com.seraph.agent\"" >> /etc/pf.conf
+  fi
+  pfctl -f /etc/pf.conf >/dev/null 2>&1 || true
+  pfctl -e >/dev/null 2>&1 || true
+else
+  echo "Skipping root-only VPN/firewall autostart setup on macOS (run installer with sudo to enable)."
+fi
 
 echo ""
 echo "================================================================"
@@ -3237,7 +4315,7 @@ echo "Stop: launchctl unload $LAUNCH_AGENT_PATH"
 echo "Start: launchctl load $LAUNCH_AGENT_PATH"
 '''
     
-    usage = f"curl -sSL {base_url}/api/unified/agent/install-macos | bash"
+    usage = f"curl -sSL {base_url}/api/unified/agent/install-macos | SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash"
     if (format or "").lower() == "json":
         return {"script": script, "usage": usage}
 
@@ -3543,22 +4621,45 @@ async def get_all_installers(request: Request, server_url: Optional[str] = None)
                 "name": "Linux",
                 "icon": "🐧",
                 "endpoint": f"{base_url}/api/unified/agent/install-script",
-                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-script | sudo bash",
-                "requirements": ["Python 3.8+", "Root access", "systemd"]
+                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-script | sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash",
+                "requirements": [
+                    "Python 3.8+",
+                    "Root access",
+                    "systemd",
+                    "Dashboard exposed on port 5000",
+                    "Firewall rules for 3000/tcp, 5000/tcp, 51820/udp",
+                    "WireGuard autostart (if config present)",
+                ]
             },
             "windows": {
                 "name": "Windows",
                 "icon": "🪟",
                 "endpoint": f"{base_url}/api/unified/agent/install-windows",
-                "install_command": f"Invoke-WebRequest -Uri {base_url}/api/unified/agent/install-windows | Invoke-Expression",
-                "requirements": ["Python 3.8+", "Administrator access", "PowerShell 5+"]
+                "install_command": (
+                    f"irm {base_url}/api/unified/agent/install-windows | "
+                    "powershell -Command \"$env:SERAPH_ENROLLMENT_KEY='<ENROLLMENT_KEY>'; iex ($input | Out-String)\""
+                ),
+                "requirements": [
+                    "Python 3.8+",
+                    "Administrator access",
+                    "PowerShell 5+",
+                    "Dashboard exposed on port 5000",
+                    "Firewall rules for 3000/tcp, 5000/tcp, 51820/udp",
+                    "System32 launchers (seraph-agent.cmd, seraph-dashboard.cmd, seraph-vpn-start.cmd)",
+                    "WireGuard autostart task (if config present)",
+                ]
             },
             "macos": {
                 "name": "macOS",
                 "icon": "🍎",
                 "endpoint": f"{base_url}/api/unified/agent/install-macos",
-                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-macos | bash",
-                "requirements": ["Python 3.8+ (via Homebrew)", "User account"]
+                "install_command": f"curl -sSL {base_url}/api/unified/agent/install-macos | SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash",
+                "requirements": [
+                    "Python 3.8+ (via Homebrew)",
+                    "User account",
+                    "Dashboard exposed on port 5000",
+                    "Root required for VPN launch daemon + pf firewall rules",
+                ]
             },
             "android": {
                 "name": "Android",
@@ -3575,6 +4676,76 @@ async def get_all_installers(request: Request, server_url: Optional[str] = None)
                 "requirements": ["Pythonista 3 app OR Xcode + Apple Developer account"]
             }
         }
+    }
+
+
+@router.get("/agent/bootstrap-manifest")
+async def get_agent_bootstrap_manifest(
+    request: Request,
+    server_url: Optional[str] = None,
+    current_user: dict = Depends(check_permission("admin")),
+):
+    """Return secret-free bootstrap command templates for fleet installs."""
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    proto = forwarded_proto or request.url.scheme or "http"
+    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+
+    linux_cmd = (
+        f"curl -sSL {base_url}/api/unified/agent/install-script | "
+        "sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> "
+        "[SERAPH_INTEGRATION_TOKEN=<INTEGRATION_TOKEN>] "
+        "[SERAPH_CA_CERT_PEM_B64=<BASE64_CA_PEM>] bash"
+    )
+    windows_cmd = (
+        f"irm {base_url}/api/unified/agent/install-windows | "
+        "powershell -Command "
+        "\"$env:SERAPH_ENROLLMENT_KEY='<ENROLLMENT_KEY>'; "
+        "$env:SERAPH_INTEGRATION_TOKEN='<INTEGRATION_TOKEN>'; "
+        "$env:SERAPH_CA_CERT_PEM_B64='<BASE64_CA_PEM>'; "
+        "iex ($input | Out-String)\""
+    )
+    macos_cmd = (
+        f"curl -sSL {base_url}/api/unified/agent/install-macos | "
+        "SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> "
+        "[SERAPH_INTEGRATION_TOKEN=<INTEGRATION_TOKEN>] "
+        "[SERAPH_CA_CERT_PEM_B64=<BASE64_CA_PEM>] bash"
+    )
+
+    return {
+        "server_url": base_url,
+        "security": {
+            "secret_free": True,
+            "admin_only": True,
+            "required_env": ["SERAPH_ENROLLMENT_KEY"],
+            "optional_env": ["SERAPH_INTEGRATION_TOKEN", "SERAPH_CA_CERT_PEM_B64"],
+        },
+        "dashboard_contract": {
+            "canonical_port": 5000,
+            "surface": "unified_agent/ui/web/app.py",
+            "minimal_ui_disabled": True,
+        },
+        "platforms": {
+            "linux": {
+                "script_endpoint": f"{base_url}/api/unified/agent/install-script",
+                "command_template": linux_cmd,
+            },
+            "windows": {
+                "script_endpoint": f"{base_url}/api/unified/agent/install-windows",
+                "command_template": windows_cmd,
+            },
+            "macos": {
+                "script_endpoint": f"{base_url}/api/unified/agent/install-macos",
+                "command_template": macos_cmd,
+            },
+        },
+        "notes": [
+            "Replace placeholder values before execution.",
+            "Do not publish enrollment or integration tokens in docs or tickets.",
+            "Installers provision core agent execution and the substantive dashboard on port 5000.",
+            "Installers also apply baseline firewall rules (3000/tcp, 5000/tcp, 51820/udp).",
+            "Windows installer installs System32 launchers and a VPN autostart task.",
+        ],
+        "requested_by": current_user.get("id") if isinstance(current_user, dict) else None,
     }
 
 

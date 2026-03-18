@@ -7,13 +7,21 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
+import os
 import uuid
+import hmac
+import hashlib
+import socket
 
-from .dependencies import get_db
+from .dependencies import get_db, require_machine_token, machine_token_matches
 try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
 try:
     from .dependencies import get_current_user, check_permission, db
 except Exception:
@@ -29,6 +37,7 @@ except Exception:
 
 import logging
 from backend.services.outbound_gate import OutboundGateService
+from backend.services.governed_dispatch import GovernedDispatchService
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +48,186 @@ router = APIRouter(prefix="/swarm", tags=["Swarm Management"])
 _BAT_DEFAULT_SERVER_URL = "http://165.22.41.184:8001"
 
 SWARM_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
+verify_swarm_agent_token = require_machine_token(
+    env_keys=["SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY"],
+    header_names=["x-agent-token", "x-internal-token"],
+    subject="swarm agent",
+)
+
+
+def _unified_agent_secret() -> str:
+    return str(os.environ.get("SERAPH_AGENT_SECRET") or "dev-agent-secret-change-in-production")
+
+
+def _verify_unified_agent_hmac_token(agent_id: str, token: str) -> bool:
+    try:
+        parts = str(token or "").split(":")
+        if len(parts) != 2:
+            return False
+        timestamp, provided_signature = parts
+        token_time = int(timestamp)
+        now = int(datetime.now(timezone.utc).timestamp())
+        if now - token_time > 86400:
+            return False
+        message = f"{agent_id}:{timestamp}"
+        expected = hmac.new(
+            _unified_agent_secret().encode(),
+            message.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(provided_signature, expected)
+    except Exception:
+        return False
+
+
+async def _verify_scanner_ingest_auth(request: Request) -> Dict[str, Any]:
+    """
+    Accept scanner ingest auth from either:
+    1) shared machine token (x-internal-token or x-agent-token), or
+    2) unified per-agent token (x-agent-id + x-agent-token).
+    """
+    machine_header_token = (
+        request.headers.get("x-internal-token")
+        or request.headers.get("x-agent-token")
+    )
+    if machine_header_token and machine_token_matches(
+        machine_header_token,
+        ["SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY"],
+    ):
+        return {"auth": "machine_token", "subject": "swarm agent"}
+
+    unified_agent_id = str(request.headers.get("x-agent-id") or "").strip()
+    unified_agent_token = str(request.headers.get("x-agent-token") or "").strip()
+    if unified_agent_id and unified_agent_token and _verify_unified_agent_hmac_token(unified_agent_id, unified_agent_token):
+        existing = await db.unified_agents.find_one({"agent_id": unified_agent_id}, {"_id": 0, "agent_id": 1})
+        if existing:
+            return {"auth": "unified_agent_token", "agent_id": unified_agent_id}
+
+    raise HTTPException(
+        status_code=401,
+        detail="Missing or invalid scanner authentication (expected machine token or unified agent token)",
+    )
+
+
+def _normalize_scanner_device(device: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    ip = str(device.get("ip_address") or device.get("ip") or "").strip()
+    if not ip:
+        return None
+    os_raw = str(device.get("os") or device.get("os_type") or "unknown").strip()
+    os_norm = os_raw.lower()
+    if os_norm == "darwin":
+        os_norm = "macos"
+    device_type = str(device.get("device_type") or "").strip().lower()
+    if not device_type:
+        if os_norm in {"windows", "linux", "macos"}:
+            device_type = "workstation"
+        elif os_norm in {"ios", "android"}:
+            device_type = "mobile"
+        else:
+            device_type = "unknown"
+
+    deployable = bool(device.get("deployable"))
+    if not deployable and os_norm in {"windows", "linux", "macos"} and device_type in {"workstation", "server"}:
+        deployable = True
+    mobile_manageable = bool(device.get("mobile_manageable")) or os_norm in {"ios", "android"}
+
+    normalized_ports: List[Dict[str, Any]] = []
+    for entry in device.get("open_ports") or []:
+        if isinstance(entry, dict):
+            port = entry.get("port")
+            if isinstance(port, int):
+                normalized_ports.append(
+                    {
+                        "port": port,
+                        "service": str(entry.get("service") or "unknown"),
+                    }
+                )
+        elif isinstance(entry, int):
+            normalized_ports.append({"port": entry, "service": "unknown"})
+
+    return {
+        "ip_address": ip,
+        "mac_address": device.get("mac_address"),
+        "hostname": device.get("hostname"),
+        "vendor": device.get("vendor"),
+        "os_type": os_norm,
+        "os_label": os_raw,
+        "device_type": device_type,
+        "open_ports": normalized_ports,
+        "discovery_method": device.get("discovery_method"),
+        "deployable": deployable,
+        "mobile_manageable": mobile_manageable,
+    }
+
+
+def _ensure_device_flags(device: Dict[str, Any]) -> Dict[str, Any]:
+    os_norm = str(device.get("os_type") or "").lower().strip()
+    if os_norm == "darwin":
+        os_norm = "macos"
+    device_type = str(device.get("device_type") or "").lower().strip()
+    if not device.get("deployable"):
+        device["deployable"] = os_norm in {"windows", "linux", "macos"} and device_type in {"workstation", "server", "unknown"}
+    if not device.get("mobile_manageable"):
+        device["mobile_manageable"] = os_norm in {"ios", "android"}
+    if isinstance(device.get("open_ports"), list) and device["open_ports"] and isinstance(device["open_ports"][0], int):
+        device["open_ports"] = [{"port": p, "service": "unknown"} for p in device["open_ports"] if isinstance(p, int)]
+    return device
+
+
+def _local_ipv4_addresses() -> set[str]:
+    """
+    Best-effort local IPv4 set used to avoid attempting "remote" deployment
+    against the same host running the server.
+    """
+    ips: set[str] = {"127.0.0.1"}
+
+    try:
+        import psutil  # type: ignore
+
+        for _iface, addrs in (psutil.net_if_addrs() or {}).items():
+            for addr in addrs:
+                if getattr(addr, "family", None) == socket.AF_INET:
+                    value = str(getattr(addr, "address", "") or "").strip()
+                    if value:
+                        ips.add(value)
+    except Exception:
+        pass
+
+    try:
+        hostname = socket.gethostname()
+        for fam, *_rest, sockaddr in socket.getaddrinfo(hostname, None):
+            if fam == socket.AF_INET and sockaddr:
+                value = str(sockaddr[0] or "").strip()
+                if value:
+                    ips.add(value)
+    except Exception:
+        pass
+
+    return ips
+
+
+def _record_swarm_audit(
+    *,
+    principal: str,
+    action: str,
+    targets: List[str],
+    result: str,
+    result_details: Optional[str] = None,
+    constraints: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            constraints=constraints or {},
+            result=result,
+            result_details=result_details,
+        )
+    except Exception:
+        logger.exception("Failed to record swarm audit action: %s", action)
 
 
 # =============================================================================
@@ -47,6 +236,8 @@ SWARM_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
 
 class ScanNetworkRequest(BaseModel):
     network: Optional[str] = None  # e.g., "192.168.1.0/24"
+    wait_for_completion: Optional[bool] = True
+    auto_deploy: Optional[bool] = False
 
 
 class DeployAgentRequest(BaseModel):
@@ -102,7 +293,10 @@ class AgentHeartbeatRequest(BaseModel):
 # =============================================================================
 
 @router.post("/agents/register")
-async def register_agent(request: AgentRegistrationRequest):
+async def register_agent(
+    request: AgentRegistrationRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Register a new Seraph Defender agent"""
     now = datetime.now(timezone.utc).isoformat()
     
@@ -137,7 +331,11 @@ async def register_agent(request: AgentRegistrationRequest):
 
 
 @router.post("/agents/{agent_id}/heartbeat")
-async def agent_heartbeat(agent_id: str, request: AgentHeartbeatRequest):
+async def agent_heartbeat(
+    agent_id: str,
+    request: AgentHeartbeatRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Receive heartbeat from agent"""
     now = datetime.now(timezone.utc).isoformat()
     
@@ -189,41 +387,38 @@ async def send_command_to_agent(
         "type": request.type,
         "params": request.params,
         "priority": request.priority,
-        "status": "pending",
+        "status": "gated_pending_approval",
         "state_version": 1,
         "state_transition_log": [
             {
                 "from_status": None,
-                "to_status": "pending",
+                "to_status": "gated_pending_approval",
                 "actor": current_user.get("email", "system"),
-                "reason": "command queued",
+                "reason": "command queued for triune approval",
                 "timestamp": now,
             }
         ],
         "created_at": now,
         "created_by": current_user.get("email", "system")
     }
-    
-    gate = OutboundGateService(get_db())
-    gated = await gate.gate_action(
+    dispatch = GovernedDispatchService(get_db())
+    queued = await dispatch.queue_gated_agent_command(
         action_type="swarm_command",
         actor=current_user.get("email", "system"),
-        payload=command_doc,
+        agent_id=agent_id,
+        command_doc=command_doc,
         impact_level="critical" if request.priority in {"high", "critical"} else "high",
-        subject_id=agent_id,
-        entity_refs=[command_doc["command_id"]],
+        entity_refs=[agent_id, command_doc["command_id"]],
         requires_triune=True,
+        event_type="swarm_agent_command_gated",
+        event_payload={
+            "command_type": request.type,
+            "actor": current_user.get("email", "system"),
+        },
+        event_entity_refs=[agent_id, command_doc["command_id"]],
+        event_trigger_triune=True,
     )
-
-    command_doc["status"] = "gated_pending_approval"
-    command_doc["gate"] = {
-        "queue_id": gated.get("queue_id"),
-        "decision_id": gated.get("decision_id"),
-        "action_id": gated.get("action_id"),
-    }
-
-    await db.agent_commands.insert_one(command_doc)
-    await emit_world_event(get_db(), event_type="swarm_agent_command_gated", entity_refs=[agent_id, command_doc["command_id"]], payload={"command_type": request.type, "actor": current_user.get("email", "system"), "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}, trigger_triune=True)
+    gated = queued.get("queued", {})
     logger.info(f"Command gated for agent {agent_id}: {request.type}")
     await emit_world_event(get_db(), event_type="swarm_agent_command_queued", entity_refs=[agent_id, command_doc["command_id"]], payload={"command_type": request.type, "actor": current_user.get("email", "system")}, trigger_triune=False)
     logger.info(f"Command queued for agent {agent_id}: {request.type}")
@@ -238,7 +433,7 @@ async def send_command_to_agent(
 
 
 @router.get("/agents/{agent_id}/commands")
-async def get_pending_commands(agent_id: str):
+async def get_pending_commands(agent_id: str, auth: dict = Depends(verify_swarm_agent_token)):
     """Get pending commands for an agent (agent polls this)"""
     cursor = db.agent_commands.find(
         {"agent_id": agent_id, "status": "pending"},
@@ -279,7 +474,12 @@ async def get_pending_commands(agent_id: str):
 
 
 @router.post("/agents/{agent_id}/commands/{command_id}/ack")
-async def acknowledge_command(agent_id: str, command_id: str, result: dict = None):
+async def acknowledge_command(
+    agent_id: str,
+    command_id: str,
+    result: dict = None,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Agent acknowledges command execution"""
     now = datetime.now(timezone.utc).isoformat()
     
@@ -353,47 +553,60 @@ async def respond_to_threat(
     params: dict = None,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Send a remediation command to an agent in response to a threat"""
-    
-    # Create command for agent
+    """Queue remediation command via mandatory outbound gate."""
+    now = datetime.now(timezone.utc).isoformat()
     command_doc = {
         "command_id": f"cmd-{uuid.uuid4().hex[:8]}",
         "agent_id": target_agent,
         "type": action,
         "params": params or {},
         "priority": "critical",
-        "status": "pending",
+        "status": "gated_pending_approval",
         "state_version": 1,
         "state_transition_log": [
             {
                 "from_status": None,
-                "to_status": "pending",
+                "to_status": "gated_pending_approval",
                 "actor": current_user.get("email", "system"),
-                "reason": "threat response command queued",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "reason": "threat response command queued for triune approval",
+                "timestamp": now,
             }
         ],
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now,
         "created_by": current_user.get("email", "system"),
-        "threat_id": threat_id
+        "threat_id": threat_id,
     }
-    
-    await db.agent_commands.insert_one(command_doc)
-    
-    # Log the response
+
+    dispatch = GovernedDispatchService(get_db())
+    queued = await dispatch.queue_gated_agent_command(
+        action_type="response_execution",
+        actor=current_user.get("email", "system"),
+        agent_id=target_agent,
+        command_doc=command_doc,
+        impact_level="critical",
+        entity_refs=[target_agent, command_doc["command_id"], threat_id],
+        requires_triune=True,
+    )
+    gated = queued.get("queued", {})
+
     await db.threat_responses.insert_one({
         "threat_id": threat_id,
         "action": action,
         "target_agent": target_agent,
         "command_id": command_doc["command_id"],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "initiated_by": current_user.get("email", "system")
+        "timestamp": now,
+        "initiated_by": current_user.get("email", "system"),
+        "status": "gated_pending_approval",
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     })
-    
+
     return {
-        "status": "ok",
-        "message": f"Remediation command sent to agent {target_agent}",
-        "command_id": command_doc["command_id"]
+        "status": "queued_for_triune_approval",
+        "message": f"Remediation command gated for agent {target_agent}",
+        "command_id": command_doc["command_id"],
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
     }
 
 
@@ -402,7 +615,10 @@ async def respond_to_threat(
 # =============================================================================
 
 @router.post("/scanner/report")
-async def receive_scanner_report(request: ScannerReportRequest):
+async def receive_scanner_report(
+    request: ScannerReportRequest,
+    auth: dict = Depends(_verify_scanner_ingest_auth),
+):
     """
     Receive device reports from network scanners running on user's LAN.
     This is the PRIMARY way devices get into the system.
@@ -426,8 +642,13 @@ async def receive_scanner_report(request: ScannerReportRequest):
     
     new_devices = 0
     updated_devices = 0
+    normalized_devices: List[Dict[str, Any]] = []
     
-    for device in request.devices:
+    for raw_device in request.devices:
+        device = _normalize_scanner_device(raw_device)
+        if not device:
+            continue
+        normalized_devices.append(device)
         ip = device.get('ip_address')
         if not ip:
             continue
@@ -436,9 +657,9 @@ async def receive_scanner_report(request: ScannerReportRequest):
         risk_score = 30  # Base risk
         if not device.get('deployable', False):
             risk_score += 20  # Higher risk if can't deploy agent
-        if device.get('os') == 'unknown':
+        if str(device.get('os_type') or 'unknown').lower() == 'unknown':
             risk_score += 15
-        if device.get('device_type') == 'iot':
+        if str(device.get('device_type') or '').lower() == 'iot':
             risk_score += 10
         
         device_doc = {
@@ -446,7 +667,8 @@ async def receive_scanner_report(request: ScannerReportRequest):
             "mac_address": device.get('mac_address'),
             "hostname": device.get('hostname'),
             "vendor": device.get('vendor'),
-            "os_type": device.get('os', 'unknown'),
+            "os_type": device.get('os_type', 'unknown'),
+            "os_label": device.get('os_label', device.get('os_type', 'unknown')),
             "device_type": device.get('device_type', 'unknown'),
             "open_ports": device.get('open_ports', []),
             "discovery_method": device.get('discovery_method'),
@@ -477,14 +699,33 @@ async def receive_scanner_report(request: ScannerReportRequest):
         else:
             updated_devices += 1
     
-    logger.info(f"Scanner {request.scanner_id} reported {len(request.devices)} devices ({new_devices} new, {updated_devices} updated)")
+    logger.info(f"Scanner {request.scanner_id} reported {len(normalized_devices)} devices ({new_devices} new, {updated_devices} updated)")
     
-    # Auto-deploy unified agents to deployable devices if requested
+    # Auto-deploy unified agents to deployable devices only when requested
     auto_deploy_queued = 0
-    if request.auto_deploy_request or True:  # Always attempt auto-deploy for deployable devices
-        for device in request.devices:
+    auto_deploy_skipped_local = 0
+    deployment_errors: List[str] = []
+    deployment_service = None
+    local_ips = _local_ipv4_addresses()
+    if request.auto_deploy_request:
+        from services.agent_deployment import get_deployment_service, start_deployment_service
+
+        deployment_service = get_deployment_service()
+        if deployment_service is None:
+            try:
+                api_url = os.environ.get('API_URL', 'http://localhost:8001')
+                deployment_service = await start_deployment_service(db, api_url)
+                logger.info("Started deployment service for scanner auto-deploy")
+            except Exception as exc:
+                deployment_errors.append(f"deployment_service_unavailable:{exc}")
+
+        for device in normalized_devices:
             ip = device.get('ip_address')
             if not ip:
+                continue
+
+            if ip in local_ips:
+                auto_deploy_skipped_local += 1
                 continue
             
             # Only auto-deploy to deployable devices that are not already managed
@@ -499,36 +740,49 @@ async def receive_scanner_report(request: ScannerReportRequest):
                 if existing_device and existing_device.get('deployment_status') in ['deployed', 'deploying', 'queued']:
                     continue
                 
-                # Queue for auto-deployment
-                await db.discovered_devices.update_one(
-                    {"ip_address": ip},
-                    {"$set": {
-                        "deployment_status": "queued",
-                        "deployment_queued_at": now,
-                        "deployment_method": "auto"
-                    }}
-                )
-                
-                # Create deployment task
-                deploy_task = {
-                    "task_id": f"deploy-{uuid.uuid4().hex[:8]}",
-                    "target_ip": ip,
-                    "target_hostname": device.get('hostname'),
-                    "target_os": device.get('os', device.get('os_type', 'unknown')),
-                    "status": "pending",
-                    "created_at": now,
-                    "method": "auto",
-                    "agent_type": "unified"
-                }
-                await db.deployment_tasks.insert_one(deploy_task)
-                auto_deploy_queued += 1
+                if deployment_service is None:
+                    continue
+                try:
+                    task_id = await deployment_service.queue_deployment(
+                        device_ip=ip,
+                        device_hostname=device.get('hostname'),
+                        os_type=device.get('os_type', 'unknown'),
+                    )
+                    await db.discovered_devices.update_one(
+                        {"ip_address": ip},
+                        {"$set": {
+                            "deployment_status": "queued",
+                            "deployment_queued_at": now,
+                            "deployment_method": "auto",
+                            "deployment_task_id": task_id,
+                            "agent_type": "unified",
+                        }}
+                    )
+                    auto_deploy_queued += 1
+                except Exception as exc:
+                    deployment_errors.append(f"{ip}:{exc}")
     
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_scanner_report_ingested",
+        entity_refs=[request.scanner_id, request.network],
+        payload={
+            "new_devices": new_devices,
+            "updated_devices": updated_devices,
+            "auto_deploy_queued": auto_deploy_queued,
+            "auto_deploy_skipped_local": auto_deploy_skipped_local,
+            "deployment_errors": len(deployment_errors),
+        },
+        trigger_triune=None,
+    )
     return {
         "status": "ok",
-        "message": f"Received {len(request.devices)} devices",
+        "message": f"Received {len(normalized_devices)} devices",
         "new_devices": new_devices,
         "updated_devices": updated_devices,
         "auto_deploy_queued": auto_deploy_queued,
+        "auto_deploy_skipped_local": auto_deploy_skipped_local,
+        "deployment_errors": deployment_errors[:10] if deployment_errors else [],
         "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
@@ -556,6 +810,7 @@ async def get_discovered_devices(
     
     cursor = db.discovered_devices.find(query, {"_id": 0})
     devices = await cursor.to_list(500)
+    devices = [_ensure_device_flags(dict(d)) for d in devices]
     
     # Calculate stats
     stats = {
@@ -598,13 +853,87 @@ async def trigger_network_scan(
                 detail=f"Network discovery service could not be started: {exc}"
             )
     
-    # Run scan in background
-    async def run_scan():
-        await discovery.trigger_manual_scan(request.network)
-    
-    background_tasks.add_task(run_scan)
-    
-    return {"message": "Network scan initiated", "network": request.network or "all"}
+    if not request.wait_for_completion:
+        # Run scan in background when explicitly requested.
+        async def run_scan():
+            await discovery.trigger_manual_scan(request.network)
+
+        background_tasks.add_task(run_scan)
+        return {
+            "message": "Network scan initiated",
+            "network": request.network or "all",
+            "wait_for_completion": False,
+        }
+
+    scanned_devices = await discovery.trigger_manual_scan(request.network)
+    auto_deploy_queued = 0
+    auto_deploy_skipped_local = 0
+    deployment_errors: List[str] = []
+    if request.auto_deploy:
+        from services.agent_deployment import get_deployment_service, start_deployment_service
+
+        service = get_deployment_service()
+        if service is None:
+            try:
+                api_url = os.environ.get("API_URL", "http://localhost:8001")
+                service = await start_deployment_service(db, api_url)
+            except Exception as exc:
+                deployment_errors.append(f"deployment_service_unavailable:{exc}")
+                service = None
+
+        local_ips = _local_ipv4_addresses()
+        for device in scanned_devices:
+            ip = str(device.get("ip_address") or "").strip()
+            if not ip:
+                continue
+            if ip in local_ips:
+                auto_deploy_skipped_local += 1
+                continue
+            normalized = _ensure_device_flags(dict(device))
+            if not normalized.get("deployable", False):
+                continue
+
+            existing_agent = await db.unified_agents.find_one({"ip_address": ip})
+            if existing_agent:
+                continue
+            existing_device = await db.discovered_devices.find_one({"ip_address": ip})
+            if existing_device and existing_device.get("deployment_status") in ["deployed", "deploying", "queued"]:
+                continue
+
+            if service is None:
+                continue
+            try:
+                task_id = await service.queue_deployment(
+                    device_ip=ip,
+                    device_hostname=normalized.get("hostname"),
+                    os_type=normalized.get("os_type", "unknown"),
+                )
+                await db.discovered_devices.update_one(
+                    {"ip_address": ip},
+                    {
+                        "$set": {
+                            "deployment_status": "queued",
+                            "deployment_queued_at": datetime.now(timezone.utc).isoformat(),
+                            "deployment_method": "auto",
+                            "deployment_task_id": task_id,
+                            "agent_type": "unified",
+                        }
+                    },
+                )
+                auto_deploy_queued += 1
+            except Exception as exc:
+                deployment_errors.append(f"{ip}:{exc}")
+
+    return {
+        "message": "Network scan completed",
+        "network": request.network or "all",
+        "wait_for_completion": True,
+        "devices_found": len(scanned_devices),
+        "auto_deploy_requested": bool(request.auto_deploy),
+        "auto_deploy_queued": auto_deploy_queued,
+        "auto_deploy_skipped_local": auto_deploy_skipped_local,
+        "deployment_errors": deployment_errors[:10],
+    }
 
 
 @router.get("/scan/status")
@@ -647,6 +976,132 @@ async def download_agent(platform: str, request: Request, server_url: Optional[s
     import io, os, zipfile, tarfile
 
     UNIFIED_AGENT_DIR = "/app/unified_agent"
+
+    # ── Dedicated network scanner script ─────────────────────────────────────
+    if platform == "scanner":
+        scanner_script = """#!/usr/bin/env python3
+import argparse
+import json
+import os
+import socket
+import subprocess
+import time
+from datetime import datetime, timezone
+from ipaddress import IPv4Network
+import requests
+
+
+def local_cidr():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    parts = ip.split(".")
+    return f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+
+
+def scan_hosts(cidr: str):
+    def infer_os_and_ports(ip: str):
+        ports = []
+        service_map = {22: "ssh", 3389: "rdp", 445: "smb"}
+        for port in service_map:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.25)
+            try:
+                if sock.connect_ex((ip, port)) == 0:
+                    ports.append({"port": port, "service": service_map[port]})
+            except Exception:
+                pass
+            finally:
+                sock.close()
+
+        if any(p["port"] in (3389, 445) for p in ports):
+            return "windows", ports
+        if any(p["port"] == 22 for p in ports):
+            return "linux", ports
+        return "unknown", ports
+
+    hosts = []
+    net = IPv4Network(cidr, strict=False)
+    for host in list(net.hosts())[:254]:
+        ip = str(host)
+        try:
+            result = subprocess.run(["ping", "-c", "1", "-W", "1", ip], capture_output=True, timeout=2)
+            if result.returncode == 0:
+                os_guess, ports = infer_os_and_ports(ip)
+                deployable = os_guess in {"windows", "linux", "macos"}
+                hosts.append({
+                    "ip_address": ip,
+                    "hostname": ip,
+                    "os": os_guess,
+                    "device_type": "workstation" if deployable else "unknown",
+                    "deployable": deployable,
+                    "mobile_manageable": False,
+                    "open_ports": ports,
+                    "discovery_method": "icmp_port_probe",
+                })
+        except Exception:
+            continue
+    return hosts
+
+
+def post_report(args):
+    cidr = args.network or local_cidr()
+    devices = scan_hosts(cidr)
+    payload = {
+        "scanner_id": args.scanner_id,
+        "network": cidr,
+        "scan_time": datetime.now(timezone.utc).isoformat(),
+        "devices": devices,
+        "auto_deploy_request": not args.no_auto_deploy,
+    }
+    headers = {}
+    token = args.token or os.environ.get("INTEGRATION_API_KEY") or os.environ.get("SWARM_AGENT_TOKEN") or ""
+    if token:
+        headers["x-internal-token"] = token
+    if args.agent_id and args.agent_token:
+        headers["x-agent-id"] = args.agent_id
+        headers["x-agent-token"] = args.agent_token
+    r = requests.post(f"{args.api_url.rstrip('/')}/api/swarm/scanner/report", json=payload, headers=headers, timeout=90)
+    if r.status_code == 401:
+        raise RuntimeError(
+            "Scanner auth failed (401). Provide --token <INTEGRATION_API_KEY> "
+            "or set INTEGRATION_API_KEY/SWARM_AGENT_TOKEN environment variable."
+        )
+    r.raise_for_status()
+    print(json.dumps(r.json(), indent=2))
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Seraph Network Scanner")
+    parser.add_argument("--api-url", required=True)
+    parser.add_argument("--network", default="")
+    parser.add_argument("--scanner-id", default=f"scanner-{socket.gethostname()}")
+    parser.add_argument("--token", default="")
+    parser.add_argument("--agent-id", default="")
+    parser.add_argument("--agent-token", default="")
+    parser.add_argument("--interval", "-i", type=int, default=60, help="Scan interval in seconds")
+    parser.add_argument("--once", action="store_true", help="Run one scan and exit")
+    parser.add_argument("--no-auto-deploy", action="store_true", help="Disable auto-deploy queue request")
+    args = parser.parse_args()
+
+    while True:
+        post_report(args)
+        if args.once:
+            break
+        time.sleep(max(5, int(args.interval)))
+
+
+if __name__ == "__main__":
+    main()
+"""
+        return Response(
+            content=scanner_script.encode("utf-8"),
+            media_type="text/x-python",
+            headers={"Content-Disposition": "attachment; filename=seraph_network_scanner.py"},
+        )
 
     # ── Windows batch installer ──────────────────────────────────────────────
     if platform in ("windows-installer", "batch"):
@@ -788,7 +1243,10 @@ async def get_vpn_server_config():
 
 
 @router.post("/vpn/register-agent")
-async def register_vpn_agent(request: VPNConfigRequest):
+async def register_vpn_agent(
+    request: VPNConfigRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """
     Register an agent for VPN access.
     Agent provides its public key, server assigns an IP.
@@ -895,7 +1353,7 @@ async def deploy_agent_to_device(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     
-    task = await service.queue_deployment(
+    task_id = await service.queue_deployment(
         device_ip=request.device_ip,
         device_hostname=device.get("hostname"),
         os_type=device.get("os_type", "unknown"),
@@ -905,7 +1363,8 @@ async def deploy_agent_to_device(
     return {
         "message": "Deployment queued",
         "device_ip": request.device_ip,
-        "status": task.status,
+        "task_id": task_id,
+        "status": "queued",
         "contract_version": SWARM_CONTROL_PLANE_CONTRACT_VERSION,
     }
 
@@ -1155,7 +1614,10 @@ async def deploy_via_winrm(
 # =============================================================================
 
 @router.post("/telemetry/ingest")
-async def ingest_telemetry(request: TelemetryIngestRequest):
+async def ingest_telemetry(
+    request: TelemetryIngestRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Ingest telemetry events from agents and process through AATL"""
     from services.aatl import get_aatl_engine
     
@@ -1171,9 +1633,14 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
     now = datetime.now(timezone.utc).isoformat()
     aatl_assessments = []
     agents_updated = 0
+    high_or_critical_events = 0
+    event_agent_refs = set()
     
     for event in events:
         event["ingested_at"] = now
+        event_agent_id = event.get("agent_id") or event.get("host_id")
+        if event_agent_id:
+            event_agent_refs.add(str(event_agent_id))
         
         # Handle agent heartbeat - register/update agent
         event_type = event.get("event_type", "")
@@ -1231,6 +1698,7 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
         
         # Create alert for high severity events
         if severity in ("critical", "high"):
+            high_or_critical_events += 1
             await db.alerts.insert_one({
                 "type": "telemetry",
                 "severity": severity,
@@ -1242,6 +1710,31 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
                 "status": "open"
             })
     
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_telemetry_ingested",
+        entity_refs=list(event_agent_refs)[:25],
+        payload={
+            "ingested": len(events),
+            "aatl_assessments": len(aatl_assessments),
+            "agents_updated": agents_updated,
+            "high_or_critical_events": high_or_critical_events,
+            "auth_subject": auth.get("subject", "swarm agent"),
+        },
+        trigger_triune=high_or_critical_events > 0,
+    )
+    _record_swarm_audit(
+        principal=f"machine:{auth.get('subject', 'swarm agent')}",
+        action="swarm_telemetry_ingest",
+        targets=list(event_agent_refs)[:10] or ["swarm_telemetry"],
+        result="success",
+        constraints={
+            "ingested": len(events),
+            "aatl_assessments": len(aatl_assessments),
+            "high_or_critical_events": high_or_critical_events,
+        },
+    )
+
     logger.info(f"Ingested {len(events)} telemetry events, {len(aatl_assessments)} AATL assessments")
     
     return {
@@ -1253,7 +1746,10 @@ async def ingest_telemetry(request: TelemetryIngestRequest):
 
 
 @router.post("/alerts/critical")
-async def receive_critical_alert(alert: Dict[str, Any]):
+async def receive_critical_alert(
+    alert: Dict[str, Any],
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Receive critical alerts from agents (auto-kill notifications, etc.)"""
     now = datetime.now(timezone.utc).isoformat()
     
@@ -1289,6 +1785,31 @@ async def receive_critical_alert(alert: Dict[str, Any]):
         "timestamp": now,
         "status": "open"
     })
+
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_critical_alert_received",
+        entity_refs=[
+            ref
+            for ref in [alert.get("agent_id"), alert.get("host_id"), alert.get("threat_id")]
+            if ref
+        ],
+        payload={
+            "alert_type": alert.get("alert_type", "UNKNOWN"),
+            "severity": alert.get("severity", "critical"),
+        },
+        trigger_triune=True,
+    )
+    _record_swarm_audit(
+        principal=f"machine:{auth.get('subject', 'swarm agent')}",
+        action="swarm_critical_alert_received",
+        targets=[str(alert.get("agent_id") or "unknown"), str(alert.get("threat_id") or "unknown")],
+        result="success",
+        constraints={
+            "alert_type": alert.get("alert_type", "UNKNOWN"),
+            "severity": alert.get("severity", "critical"),
+        },
+    )
     
     logger.warning(f"🚨 CRITICAL ALERT from {alert.get('host_id')}: {alert.get('alert_type')} - {alert.get('threat_title')}")
     
@@ -1307,6 +1828,71 @@ class AutoKillRequest(BaseModel):
     priority: str = "critical"
 
 
+async def _queue_auto_kill_command(
+    *,
+    agent_id: str,
+    command_type: str,
+    command_name: str,
+    parameters: Dict[str, Any],
+    current_user: Dict[str, Any],
+    reason: str,
+    risk_level: str = "high",
+    batch: bool = False,
+) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    command_id = f"ak-{uuid.uuid4().hex[:8]}"
+    command_doc = {
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "command_type": command_type,
+        "command_name": command_name,
+        "parameters": parameters,
+        "status": "gated_pending_approval",
+        "state_version": 1,
+        "state_transition_log": [{
+            "from_status": None,
+            "to_status": "gated_pending_approval",
+            "actor": current_user.get("email", "system"),
+            "reason": "auto-kill command queued for triune approval",
+            "timestamp": now,
+        }],
+        "priority": "critical",
+        "risk_level": risk_level,
+        "created_by": current_user.get("email", "system"),
+        "created_at": now,
+        "auto_kill": True,
+        "batch": bool(batch),
+    }
+
+    dispatch = GovernedDispatchService(get_db())
+    queued = await dispatch.queue_gated_agent_command(
+        action_type="response_execution",
+        actor=current_user.get("email", "system"),
+        agent_id=agent_id,
+        command_doc=command_doc,
+        impact_level="critical",
+        entity_refs=[agent_id, command_id],
+        requires_triune=True,
+    )
+    gated = queued.get("queued", {})
+
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_auto_kill_command_gated",
+        entity_refs=[agent_id, command_id],
+        payload={"command_type": command_type, "reason": reason, "queue_id": gated.get("queue_id")},
+        trigger_triune=True,
+    )
+
+    return {
+        "status": "queued_for_triune_approval",
+        "command_id": command_id,
+        "agent_id": agent_id,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
+
+
 @router.post("/auto-kill/process")
 async def auto_kill_process(
     agent_id: str,
@@ -1314,55 +1900,19 @@ async def auto_kill_process(
     reason: str = "Server-initiated kill",
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Server-initiated process kill on agent"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    command_id = f"kill-{uuid.uuid4().hex[:8]}"
-    
-    # Create kill command
-    command_doc = {
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "kill_process",
-        "command_name": "Server Auto-Kill Process",
-        "parameters": {"pid": pid, "reason": reason},
-        "status": "approved",  # Auto-approved for kill commands
-        "state_version": 1,
-        "state_transition_log": [{
-            "from_status": None,
-            "to_status": "approved",
-            "actor": current_user.get("email", "system"),
-            "reason": "auto-kill command approved",
-            "timestamp": now,
-        }],
-        "priority": "critical",
-        "risk_level": "high",
-        "created_by": current_user.get("email", "system"),
-        "created_at": now,
-        "auto_kill": True
-    }
-    
-    await db.agent_commands.insert_one(command_doc)
-    
-    # Also add to command queue for immediate pickup
-    await db.command_queue.insert_one({
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "kill_process",
-        "parameters": {"pid": pid, "reason": reason},
-        "status": "pending",
-        "created_at": now
-    })
-    
-    logger.warning(f"🔥 AUTO-KILL: Process {pid} on agent {agent_id} - {reason}")
-    
-    return {
-        "status": "queued",
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "target": f"PID {pid}",
-        "message": f"Kill command sent to agent {agent_id}"
-    }
+    """Queue server-initiated process kill via outbound gate."""
+    queued = await _queue_auto_kill_command(
+        agent_id=agent_id,
+        command_type="kill_process",
+        command_name="Server Auto-Kill Process",
+        parameters={"pid": pid, "reason": reason},
+        current_user=current_user,
+        reason=reason,
+        risk_level="high",
+    )
+    queued["target"] = f"PID {pid}"
+    queued["message"] = f"Kill command gated for agent {agent_id}"
+    return queued
 
 
 @router.post("/auto-kill/ip")
@@ -1373,56 +1923,19 @@ async def auto_kill_ip(
     duration_hours: int = 24,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Server-initiated IP block on agent"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    command_id = f"block-{uuid.uuid4().hex[:8]}"
-    
-    command_doc = {
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "block_ip",
-        "command_name": "Server Auto-Block IP",
-        "parameters": {
-            "ip_address": ip_address,
-            "reason": reason,
-            "duration_hours": duration_hours
-        },
-        "status": "approved",
-        "state_version": 1,
-        "state_transition_log": [{
-            "from_status": None,
-            "to_status": "approved",
-            "actor": current_user.get("email", "system"),
-            "reason": "auto-kill command approved",
-            "timestamp": now,
-        }],
-        "priority": "critical",
-        "risk_level": "medium",
-        "created_by": current_user.get("email", "system"),
-        "created_at": now,
-        "auto_kill": True
-    }
-    
-    await db.agent_commands.insert_one(command_doc)
-    await db.command_queue.insert_one({
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "block_ip",
-        "parameters": {"ip_address": ip_address, "duration_hours": duration_hours},
-        "status": "pending",
-        "created_at": now
-    })
-    
-    logger.warning(f"🔥 AUTO-KILL: Blocking IP {ip_address} on agent {agent_id} - {reason}")
-    
-    return {
-        "status": "queued",
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "target": ip_address,
-        "message": f"IP block command sent to agent {agent_id}"
-    }
+    """Queue server-initiated IP block via outbound gate."""
+    queued = await _queue_auto_kill_command(
+        agent_id=agent_id,
+        command_type="block_ip",
+        command_name="Server Auto-Block IP",
+        parameters={"ip_address": ip_address, "reason": reason, "duration_hours": duration_hours},
+        current_user=current_user,
+        reason=reason,
+        risk_level="medium",
+    )
+    queued["target"] = ip_address
+    queued["message"] = f"IP block command gated for agent {agent_id}"
+    return queued
 
 
 @router.post("/auto-kill/file")
@@ -1432,52 +1945,19 @@ async def auto_kill_file(
     reason: str = "Server-initiated quarantine",
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Server-initiated file quarantine on agent"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    command_id = f"quar-{uuid.uuid4().hex[:8]}"
-    
-    command_doc = {
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "quarantine_file",
-        "command_name": "Server Auto-Quarantine File",
-        "parameters": {"file_path": file_path, "reason": reason},
-        "status": "approved",
-        "state_version": 1,
-        "state_transition_log": [{
-            "from_status": None,
-            "to_status": "approved",
-            "actor": current_user.get("email", "system"),
-            "reason": "auto-kill command approved",
-            "timestamp": now,
-        }],
-        "priority": "critical",
-        "risk_level": "high",
-        "created_by": current_user.get("email", "system"),
-        "created_at": now,
-        "auto_kill": True
-    }
-    
-    await db.agent_commands.insert_one(command_doc)
-    await db.command_queue.insert_one({
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "quarantine_file",
-        "parameters": {"file_path": file_path},
-        "status": "pending",
-        "created_at": now
-    })
-    
-    logger.warning(f"🔥 AUTO-KILL: Quarantining {file_path} on agent {agent_id} - {reason}")
-    
-    return {
-        "status": "queued",
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "target": file_path,
-        "message": f"Quarantine command sent to agent {agent_id}"
-    }
+    """Queue server-initiated file quarantine via outbound gate."""
+    queued = await _queue_auto_kill_command(
+        agent_id=agent_id,
+        command_type="quarantine_file",
+        command_name="Server Auto-Quarantine File",
+        parameters={"file_path": file_path, "reason": reason},
+        current_user=current_user,
+        reason=reason,
+        risk_level="high",
+    )
+    queued["target"] = file_path
+    queued["message"] = f"Quarantine command gated for agent {agent_id}"
+    return queued
 
 
 @router.post("/auto-kill/isolate")
@@ -1487,52 +1967,19 @@ async def auto_kill_isolate_host(
     duration_hours: int = 1,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Server-initiated host isolation (block all network)"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    command_id = f"iso-{uuid.uuid4().hex[:8]}"
-    
-    command_doc = {
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "isolate_host",
-        "command_name": "Server Auto-Isolate Host",
-        "parameters": {"reason": reason, "duration_hours": duration_hours},
-        "status": "approved",
-        "state_version": 1,
-        "state_transition_log": [{
-            "from_status": None,
-            "to_status": "approved",
-            "actor": current_user.get("email", "system"),
-            "reason": "auto-kill command approved",
-            "timestamp": now,
-        }],
-        "priority": "critical",
-        "risk_level": "critical",
-        "created_by": current_user.get("email", "system"),
-        "created_at": now,
-        "auto_kill": True
-    }
-    
-    await db.agent_commands.insert_one(command_doc)
-    await db.command_queue.insert_one({
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "command_type": "isolate_host",
-        "parameters": {"duration_hours": duration_hours},
-        "status": "pending",
-        "created_at": now
-    })
-    
-    logger.warning(f"🔥 AUTO-KILL: Isolating host {agent_id} - {reason}")
-    
-    return {
-        "status": "queued",
-        "command_id": command_id,
-        "agent_id": agent_id,
-        "target": "full_network_isolation",
-        "message": f"Host isolation command sent to agent {agent_id}"
-    }
+    """Queue server-initiated host isolation via outbound gate."""
+    queued = await _queue_auto_kill_command(
+        agent_id=agent_id,
+        command_type="isolate_host",
+        command_name="Server Auto-Isolate Host",
+        parameters={"reason": reason, "duration_hours": duration_hours},
+        current_user=current_user,
+        reason=reason,
+        risk_level="critical",
+    )
+    queued["target"] = "full_network_isolation"
+    queued["message"] = f"Host isolation command gated for agent {agent_id}"
+    return queued
 
 
 @router.post("/auto-kill/batch")
@@ -1540,60 +1987,38 @@ async def auto_kill_batch(
     targets: List[Dict[str, Any]],
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Send multiple kill commands at once"""
-    now = datetime.now(timezone.utc).isoformat()
+    """Queue multiple high-impact commands through outbound gate."""
     results = []
     
     for target in targets:
-        command_id = f"batch-{uuid.uuid4().hex[:8]}"
         agent_id = target.get("agent_id")
         command_type = target.get("type")
         params = target.get("parameters", {})
-        
-        command_doc = {
-            "command_id": command_id,
-            "agent_id": agent_id,
-            "command_type": command_type,
-            "command_name": f"Batch Auto-Kill: {command_type}",
-            "parameters": params,
-            "status": "approved",
-            "state_version": 1,
-            "state_transition_log": [{
-                "from_status": None,
-                "to_status": "approved",
-                "actor": current_user.get("email", "system"),
-                "reason": "batch auto-kill command approved",
-                "timestamp": now,
-            }],
-            "priority": "critical",
-            "risk_level": "high",
-            "created_by": current_user.get("email", "system"),
-            "created_at": now,
-            "auto_kill": True,
-            "batch": True
-        }
-        
-        await db.agent_commands.insert_one(command_doc)
-        await db.command_queue.insert_one({
-            "command_id": command_id,
-            "agent_id": agent_id,
-            "command_type": command_type,
-            "parameters": params,
-            "status": "pending",
-            "created_at": now
-        })
-        
+        if not agent_id or not command_type:
+            continue
+        queued = await _queue_auto_kill_command(
+            agent_id=agent_id,
+            command_type=command_type,
+            command_name=f"Batch Auto-Kill: {command_type}",
+            parameters=params,
+            current_user=current_user,
+            reason="batch_auto_kill",
+            risk_level="high",
+            batch=True,
+        )
         results.append({
-            "command_id": command_id,
+            "command_id": queued["command_id"],
             "agent_id": agent_id,
             "type": command_type,
-            "status": "queued"
+            "status": queued["status"],
+            "queue_id": queued["queue_id"],
+            "decision_id": queued["decision_id"],
         })
     
-    logger.warning(f"🔥 BATCH AUTO-KILL: {len(results)} commands queued")
+    logger.warning("🔥 BATCH AUTO-KILL gated: %s commands queued", len(results))
     
     return {
-        "status": "queued",
+        "status": "queued_for_triune_approval",
         "count": len(results),
         "commands": results
     }
@@ -1601,7 +2026,10 @@ async def auto_kill_batch(
 
 # Browser extension command endpoint
 @router.post("/browser-shield/kill")
-async def browser_kill_command(command: Dict[str, Any]):
+async def browser_kill_command(
+    command: Dict[str, Any],
+    current_user: dict = Depends(check_permission("write")),
+):
     """
     Send kill command to browser extension.
     Extensions poll this endpoint to receive commands.
@@ -1615,17 +2043,44 @@ async def browser_kill_command(command: Dict[str, Any]):
         "target": command.get("target"),
         "reason": command.get("reason", "Server command"),
         "created_at": now,
-        "status": "pending",
+        "status": "gated_pending_approval",
         "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     }
-    
+
+    gate = OutboundGateService(get_db())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await gate.gate_action(
+        action_type="response_execution",
+        actor=actor,
+        payload=command_doc,
+        impact_level="high",
+        subject_id=str(command.get("target") or "browser"),
+        entity_refs=[command_doc["command_id"], str(command.get("target") or "")],
+        requires_triune=True,
+    )
+    command_doc["gate"] = {
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+        "action_id": gated.get("action_id"),
+    }
     await db.browser_commands.insert_one(command_doc)
-    
-    return {"status": "queued", "command_id": command_doc["command_id"]}
+    await emit_world_event(
+        get_db(),
+        event_type="swarm_browser_command_gated",
+        entity_refs=[command_doc["command_id"], gated.get("queue_id"), gated.get("decision_id")],
+        payload={"action": command.get("action"), "target": command.get("target"), "actor": actor},
+        trigger_triune=True,
+    )
+    return {
+        "status": "queued_for_triune_approval",
+        "command_id": command_doc["command_id"],
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 
 @router.get("/browser-shield/commands")
-async def get_browser_commands():
+async def get_browser_commands(auth: dict = Depends(verify_swarm_agent_token)):
     """Browser extensions poll this to get pending commands"""
     now = datetime.now(timezone.utc)
     
@@ -1648,7 +2103,7 @@ async def get_browser_commands():
 
 
 @router.get("/browser-shield/blocklist")
-async def get_browser_blocklist():
+async def get_browser_blocklist(auth: dict = Depends(verify_swarm_agent_token)):
     """Get domain blocklist for browser extension"""
     # Static blocklist + dynamic from threats
     static_domains = [
@@ -1833,7 +2288,10 @@ async def get_swarm_overview(current_user: dict = Depends(get_current_user)):
 # =============================================================================
 
 @router.post("/cli/event")
-async def ingest_cli_event(request: CLIEventRequest):
+async def ingest_cli_event(
+    request: CLIEventRequest,
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """
     Ingest a CLI event and process through AATL for AI threat detection.
     This is the primary endpoint for CLI monitoring integration.
@@ -1894,7 +2352,10 @@ async def ingest_cli_event(request: CLIEventRequest):
 
 
 @router.post("/cli/batch")
-async def ingest_cli_batch(events: List[CLIEventRequest]):
+async def ingest_cli_batch(
+    events: List[CLIEventRequest],
+    auth: dict = Depends(verify_swarm_agent_token),
+):
     """Ingest multiple CLI events in batch"""
     from services.aatl import get_aatl_engine
     
@@ -2189,7 +2650,15 @@ async def initiate_usb_scan(
         "created_at": now
     }
     
-    await db.command_queue.insert_one(command_doc)
+    dispatch = GovernedDispatchService(get_db())
+    await dispatch.enqueue_command_delivery(
+        command_id=command_doc["command_id"],
+        agent_id=request.host_id,
+        command_type=command_doc["command_type"],
+        parameters=command_doc["parameters"],
+        actor=current_user.get("email", "system"),
+        metadata={"source": "usb_scan"},
+    )
     
     return {"status": "queued", "scan_id": scan_id}
 
@@ -2213,7 +2682,8 @@ async def list_usb_scans(
 @router.post("/usb/scan/{scan_id}/results")
 async def submit_usb_scan_results(
     scan_id: str,
-    results: Dict[str, Any]
+    results: Dict[str, Any],
+    auth: dict = Depends(verify_swarm_agent_token),
 ):
     """Agent submits USB scan results"""
     now = datetime.now(timezone.utc).isoformat()
@@ -2542,29 +3012,49 @@ async def scan_and_auto_deploy(
         except Exception as e:
             logger.warning(f"Could not start deployment service: {e}")
     
-    # Step 3: Trigger scan
+    # Step 3: Run scan and wait for completion so newly discovered devices can be queued immediately.
     scan_triggered = False
+    scanned_devices: List[Dict[str, Any]] = []
     if discovery is not None:
         try:
-            background_tasks.add_task(discovery.trigger_manual_scan, request.network)
+            scanned_devices = await discovery.trigger_manual_scan(request.network)
             scan_triggered = True
         except Exception as e:
             logger.error(f"Network scan failed: {e}")
-    
-    # Step 4: Queue existing discovered devices for deployment
-    cursor = db.discovered_devices.find({
+
+    # Step 4: Queue discovered devices for deployment.
+    scanned_ips = [
+        str(d.get("ip_address") or "").strip()
+        for d in scanned_devices
+        if str(d.get("ip_address") or "").strip()
+    ]
+    query: Dict[str, Any] = {
         "deployment_status": {"$in": ["discovered", "failed", None]},
         "$or": [
             {"os_type": {"$regex": "^(windows|linux|macos|darwin)$", "$options": "i"}},
-            {"deployable": True}
-        ]
-    }, {"_id": 0})
+            {"deployable": True},
+        ],
+    }
+    if scanned_ips:
+        query["ip_address"] = {"$in": scanned_ips}
+
+    cursor = db.discovered_devices.find(query, {"_id": 0})
     devices = await cursor.to_list(100)
     
+    if service is None:
+        raise HTTPException(status_code=503, detail="Deployment service unavailable for auto-deploy")
+
     queued_count = 0
+    queued_tasks: List[Dict[str, Any]] = []
+    skipped_local = 0
+    local_ips = _local_ipv4_addresses()
     for device in devices:
         ip = device.get("ip_address")
         if not ip:
+            continue
+
+        if ip in local_ips:
+            skipped_local += 1
             continue
         
         # Check if already has an agent
@@ -2572,35 +3062,34 @@ async def scan_and_auto_deploy(
         if existing:
             continue
         
-        # Queue for deployment
-        await db.discovered_devices.update_one(
-            {"ip_address": ip},
-            {"$set": {
-                "deployment_status": "queued",
-                "deployment_queued_at": now,
-                "agent_type": "unified"
-            }}
-        )
-        
-        # Create deployment task
-        deploy_task = {
-            "task_id": f"unified-{uuid.uuid4().hex[:8]}",
-            "target_ip": ip,
-            "target_hostname": device.get("hostname"),
-            "target_os": device.get("os_type", "unknown"),
-            "status": "pending",
-            "created_at": now,
-            "method": "auto",
-            "agent_type": "unified"
-        }
-        await db.deployment_tasks.insert_one(deploy_task)
-        queued_count += 1
+        try:
+            task_id = await service.queue_deployment(
+                device_ip=ip,
+                device_hostname=device.get("hostname"),
+                os_type=device.get("os_type", "unknown"),
+            )
+            await db.discovered_devices.update_one(
+                {"ip_address": ip},
+                {"$set": {
+                    "deployment_status": "queued",
+                    "deployment_queued_at": now,
+                    "agent_type": "unified",
+                    "deployment_task_id": task_id,
+                }}
+            )
+            queued_count += 1
+            queued_tasks.append({"ip": ip, "task_id": task_id})
+        except Exception as exc:
+            logger.error("Failed to queue unified auto-deploy for %s: %s", ip, exc)
     
     return {
         "status": "ok",
         "message": "Network scan and auto-deploy initiated",
         "scan_triggered": scan_triggered,
+        "devices_found": len(scanned_devices),
         "devices_queued": queued_count,
+        "devices_skipped_local": skipped_local,
+        "queued_tasks": queued_tasks,
         "network": request.network or "all networks"
     }
 
@@ -2675,31 +3164,24 @@ async def deploy_unified_to_device(
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Deployment service unavailable: {e}")
     
-    # Queue deployment
+    task_id = await service.queue_deployment(
+        device_ip=device_ip,
+        device_hostname=device.get("hostname"),
+        os_type=device.get("os_type", "unknown"),
+    )
     await db.discovered_devices.update_one(
         {"ip_address": device_ip},
         {"$set": {
             "deployment_status": "queued",
             "deployment_queued_at": now,
-            "agent_type": "unified"
+            "agent_type": "unified",
+            "deployment_task_id": task_id,
         }}
     )
-    
-    deploy_task = {
-        "task_id": f"unified-{uuid.uuid4().hex[:8]}",
-        "target_ip": device_ip,
-        "target_hostname": device.get("hostname"),
-        "target_os": device.get("os_type", "unknown"),
-        "status": "pending",
-        "created_at": now,
-        "method": "manual",
-        "agent_type": "unified"
-    }
-    await db.deployment_tasks.insert_one(deploy_task)
     
     return {
         "status": "queued",
         "message": f"Unified agent deployment queued for {device_ip}",
-        "task_id": deploy_task["task_id"],
+        "task_id": task_id,
         "os_type": device.get("os_type")
     }

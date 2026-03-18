@@ -21,6 +21,11 @@ from dataclasses import dataclass, asdict, field
 from enum import Enum
 import hashlib
 
+try:
+    from services.governance_context import assert_governance_context
+except Exception:
+    from backend.services.governance_context import assert_governance_context
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -380,9 +385,11 @@ class RealTimeWSManager:
         self,
         agent_id: str,
         command: str,
-        parameters: Optional[Dict] = None
+        parameters: Optional[Dict] = None,
+        governance_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Send a command to an agent"""
+        assert_governance_context(governance_context, action="websocket.send_command")
         message = WSMessage(
             type=WSMessageType.COMMAND.value,
             payload={
@@ -398,9 +405,11 @@ class RealTimeWSManager:
         self,
         agent_id: str,
         scan_type: str,
-        target: Optional[str] = None
+        target: Optional[str] = None,
+        governance_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Request a scan from an agent"""
+        assert_governance_context(governance_context, action="websocket.request_scan")
         message = WSMessage(
             type=WSMessageType.SCAN_REQUEST.value,
             payload={
@@ -412,8 +421,15 @@ class RealTimeWSManager:
         )
         return await self.send_to_agent(agent_id, message)
     
-    async def send_block_ip_command(self, agent_id: str, ip: str, reason: str) -> bool:
+    async def send_block_ip_command(
+        self,
+        agent_id: str,
+        ip: str,
+        reason: str,
+        governance_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """Send IP block command to agent"""
+        assert_governance_context(governance_context, action="websocket.send_block_ip")
         message = WSMessage(
             type=WSMessageType.BLOCK_IP.value,
             payload={
@@ -429,9 +445,11 @@ class RealTimeWSManager:
         self,
         agent_id: str,
         filepath: str,
-        threat_name: str
+        threat_name: str,
+        governance_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Send quarantine command to agent"""
+        assert_governance_context(governance_context, action="websocket.send_quarantine")
         message = WSMessage(
             type=WSMessageType.QUARANTINE_FILE.value,
             payload={

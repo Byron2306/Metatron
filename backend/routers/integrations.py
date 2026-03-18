@@ -2,28 +2,40 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-import asyncio
+import os
 
-from .dependencies import check_permission, get_current_user, get_db
+from .dependencies import (
+    check_permission,
+    get_current_user,
+    get_optional_current_user,
+    has_permission,
+    optional_machine_token,
+    get_db,
+)
 try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
-from integrations_manager import run_amass, ingest_indicators_direct, get_job, list_jobs
-from integrations_manager import run_velociraptor, ingest_host_logs
-from integrations_manager import run_purplesharp
-import os
-
-# Internal token for machine-to-machine calls (Celery, unified_agent)
-INTERNAL_TOKEN = os.environ.get('INTEGRATION_API_KEY', '').strip()
-
-# Allow internal token bypass for ingestion calls
-INTERNAL_TOKEN = os.environ.get('INTEGRATION_API_KEY', '')
+from integrations_manager import (
+    ingest_indicators_direct,
+    run_runtime_tool,
+    get_job_async,
+    list_jobs_async,
+    SUPPORTED_RUNTIME_TOOLS,
+)
+from integrations_manager import ingest_host_logs
+verify_integrations_machine_token = optional_machine_token(
+    env_keys=["INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-internal-token", "x-agent-token"],
+    subject="integrations internal",
+)
 
 router = APIRouter(prefix="/integrations", tags=["Integrations"])
 
 class AmassRequest(BaseModel):
     domain: str
+    runtime_target: Optional[str] = "server"
+    agent_id: Optional[str] = None
 
 class IngestItem(BaseModel):
     type: Optional[str] = None
@@ -38,81 +50,299 @@ class DirectIngestRequest(BaseModel):
     source: str
     indicators: List[IngestItem]
 
+class RuntimeLaunchRequest(BaseModel):
+    tool: str
+    params: Optional[Dict[str, Any]] = None
+    runtime_target: Optional[str] = "server"
+    agent_id: Optional[str] = None
+
+
+class ToolRunRequest(BaseModel):
+    params: Optional[Dict[str, Any]] = None
+    runtime_target: Optional[str] = "server"
+    agent_id: Optional[str] = None
+
+
+def _runtime_job_response(job: Dict[str, Any]) -> Dict[str, Any]:
+    result = job.get("result") if isinstance(job, dict) else {}
+    result = result if isinstance(result, dict) else {}
+    return {
+        "status": job.get("status"),
+        "job_id": job.get("id"),
+        "tool": job.get("tool"),
+        "runtime_target": (job.get("params") or {}).get("runtime_target") or result.get("runtime_target") or "server",
+        "agent_id": result.get("agent_id") or (job.get("params") or {}).get("agent_id"),
+        "command_id": result.get("command_id"),
+        "queue_id": result.get("queue_id"),
+        "decision_id": result.get("decision_id"),
+        "result": result,
+    }
+
+
+async def _start_tool_runtime(
+    *,
+    tool: str,
+    params: Dict[str, Any],
+    runtime_target: str,
+    agent_id: Optional[str],
+    user: Dict[str, Any],
+) -> Dict[str, Any]:
+    job = await run_runtime_tool(
+        tool=tool,
+        params=params or {},
+        runtime_target=runtime_target or "server",
+        agent_id=agent_id,
+        actor=user.get("email", user.get("id", "unknown")),
+        governance_context={
+            "approved": True,
+            "decision_id": f"integration-{tool}-direct",
+            "queue_id": f"integration-{tool}-direct",
+        },
+    )
+    await emit_world_event(
+        get_db(),
+        event_type=f"integration_{tool}_runtime_requested",
+        entity_refs=[tool, job.get("id"), (job.get("result") or {}).get("queue_id")],
+        payload={
+            "tool": tool,
+            "actor": user.get("id"),
+            "runtime_target": runtime_target or "server",
+            "agent_id": agent_id,
+        },
+        trigger_triune=False,
+    )
+    return _runtime_job_response(job)
+
 @router.post("/amass/run")
 async def start_amass(req: AmassRequest, user: dict = Depends(check_permission("write"))):
-    """Start Amass enumeration on the server; returns job id."""
-    # Kick off background task
-    task = asyncio.create_task(run_amass(req.domain))
-    # task will register job internally and update
-    # We don't have immediate job id from run_amass (it creates one), but run_amass returns job dict when complete
-    # To provide job id immediately, run_amass creates a job entry first. We'll wait a tick for it to appear.
-    await asyncio.sleep(0.1)
-    jobs = list_jobs()
-    # Find most recent job for amass/domain
-    matches = [j for j in jobs if j.get('tool') == 'amass' and j.get('params', {}).get('domain') == req.domain]
-    if not matches:
-        raise HTTPException(status_code=500, detail='Failed to start amass job')
-    job = sorted(matches, key=lambda x: x.get('created_at'), reverse=True)[0]
-    await emit_world_event(get_db(), event_type="integration_amass_started", entity_refs=[job["id"], req.domain], payload={"actor": user.get("id")}, trigger_triune=False)
-    return {"job_id": job['id'], "status": job['status']}
+    """Run Amass on server or queue it for unified-agent runtime."""
+    return await _start_tool_runtime(
+        tool="amass",
+        params={"domain": req.domain},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
 
 @router.get("/jobs")
-async def get_jobs(user: dict = Depends(get_current_user)):
-    return list_jobs()
+async def get_jobs(
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
+    if machine_auth is None:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "read"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: read")
+    return await list_jobs_async()
 
 @router.get("/jobs/{job_id}")
-async def get_job_status(job_id: str, user: dict = Depends(get_current_user)):
-    job = get_job(job_id)
+async def get_job_status(
+    job_id: str,
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
+    if machine_auth is None:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "read"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: read")
+    job = await get_job_async(job_id)
     if not job:
         raise HTTPException(status_code=404, detail='job not found')
     return job
 
 @router.post("/ingest/direct")
-async def direct_ingest(req: DirectIngestRequest, request: Request, user: dict = Depends(check_permission("write"))):
+async def direct_ingest(
+    req: DirectIngestRequest,
+    request: Request,
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
     """Allow direct ingest either via authenticated user OR internal token header for M2M calls.
 
     Internal clients (workers/agents) should send header `X-Internal-Token` with value
     set in `INTEGRATION_API_KEY` env var.
     """
-    # Accept internal token without normal auth
-    internal = False
-    hdr = request.headers.get('x-internal-token') or request.headers.get('X-Internal-Token')
-    if hdr and INTERNAL_TOKEN and hdr.strip() == INTERNAL_TOKEN:
-        internal = True
-
+    internal = machine_auth is not None
     if not internal:
-        # permission dependency already enforced by caller via Depends; if it's present, proceed
-        # (the dependency will raise if not allowed)
-        pass
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "write"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: write")
 
     items = [i.dict() for i in req.indicators]
     job = await ingest_indicators_direct(req.source, items)
-    await emit_world_event(get_db(), event_type="integration_direct_ingest", entity_refs=[job["id"], req.source], payload={"indicator_count": len(items), "internal": internal, "actor": user.get("id") if isinstance(user, dict) else None}, trigger_triune=False)
+    actor = "machine" if internal else user.get("id")
+    await emit_world_event(get_db(), event_type="integration_direct_ingest", entity_refs=[job["id"], req.source], payload={"indicator_count": len(items), "internal": internal, "actor": actor}, trigger_triune=False)
     return {"job_id": job['id'], "status": job['status'], "result": job.get('result')}
 
 
 class VelociraptorRequest(BaseModel):
     collection_name: Optional[str] = None
+    runtime_target: Optional[str] = "server"
+    agent_id: Optional[str] = None
 
 
 @router.post('/velociraptor/run')
 async def start_velociraptor(req: VelociraptorRequest, user: dict = Depends(check_permission('write'))):
-    """Start a Velociraptor collection on the server (enqueues Celery task)."""
-    job = await run_velociraptor(req.collection_name)
-    await emit_world_event(get_db(), event_type="integration_velociraptor_started", entity_refs=[job["id"]], payload={"collection_name": req.collection_name, "actor": user.get("id")}, trigger_triune=False)
-    return {"job_id": job['id'], "status": job.get('status')}
+    return await _start_tool_runtime(
+        tool="velociraptor",
+        params={"collection_name": req.collection_name},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
 
 
 class PurpleSharpRequest(BaseModel):
     target: Optional[str] = None
     options: Optional[Dict[str, Any]] = None
+    runtime_target: Optional[str] = "server"
+    agent_id: Optional[str] = None
 
 
 @router.post('/purplesharp/run')
 async def start_purplesharp(req: PurpleSharpRequest, user: dict = Depends(check_permission('write'))):
-    job = await run_purplesharp(req.target, req.options)
-    await emit_world_event(get_db(), event_type="integration_purplesharp_started", entity_refs=[job["id"]], payload={"target": req.target, "actor": user.get("id")}, trigger_triune=False)
-    return {"job_id": job['id'], "status": job.get('status')}
+    return await _start_tool_runtime(
+        tool="purplesharp",
+        params={"target": req.target, "options": req.options or {}},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/arkime/run')
+async def start_arkime(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="arkime",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/bloodhound/run')
+async def start_bloodhound(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="bloodhound",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/spiderfoot/run')
+async def start_spiderfoot(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="spiderfoot",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/sigma/run')
+async def start_sigma(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="sigma",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/atomic/run')
+async def start_atomic(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="atomic",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/falco/run')
+async def start_falco(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="falco",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/yara/run')
+async def start_yara(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="yara",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/suricata/run')
+async def start_suricata(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="suricata",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/trivy/run')
+async def start_trivy(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="trivy",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/cuckoo/run')
+async def start_cuckoo(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="cuckoo",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/osquery/run')
+async def start_osquery(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="osquery",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
+
+
+@router.post('/zeek/run')
+async def start_zeek(req: ToolRunRequest, user: dict = Depends(check_permission("write"))):
+    return await _start_tool_runtime(
+        tool="zeek",
+        params=req.params or {},
+        runtime_target=req.runtime_target or "server",
+        agent_id=req.agent_id,
+        user=user,
+    )
 
 
 class HostLogIngestRequest(BaseModel):
@@ -120,18 +350,91 @@ class HostLogIngestRequest(BaseModel):
     raw: str
 
 
+@router.get("/runtime/tools")
+async def runtime_supported_tools(
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
+    if machine_auth is None:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "read"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: read")
+    return {"tools": sorted(SUPPORTED_RUNTIME_TOOLS)}
+
+
+@router.post("/runtime/run")
+async def start_runtime_launch(
+    payload: RuntimeLaunchRequest,
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
+    if machine_auth is None:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "write"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: write")
+        actor = user.get("email", user.get("id", "unknown"))
+    else:
+        actor = "integration-machine-token"
+
+    tool = str(payload.tool or "").strip().lower()
+    if tool not in SUPPORTED_RUNTIME_TOOLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported tool '{payload.tool}'. Supported: {sorted(SUPPORTED_RUNTIME_TOOLS)}",
+        )
+    job = await run_runtime_tool(
+        tool=tool,
+        params=payload.params or {},
+        runtime_target=payload.runtime_target or "server",
+        agent_id=payload.agent_id,
+        actor=actor,
+        governance_context={
+            "approved": True,
+            "decision_id": f"integration-{tool}-direct",
+            "queue_id": f"integration-{tool}-direct",
+        },
+    )
+    await emit_world_event(
+        get_db(),
+        event_type=f"integration_{tool}_runtime_requested",
+        entity_refs=[tool, job.get("id"), (job.get("result") or {}).get("queue_id")],
+        payload={
+            "tool": tool,
+            "actor": actor,
+            "runtime_target": payload.runtime_target or "server",
+            "agent_id": payload.agent_id,
+            "auth_mode": "machine_token" if machine_auth is not None else "user",
+        },
+        trigger_triune=False,
+    )
+    return _runtime_job_response(job)
+
+
 @router.post('/ingest/host')
-async def ingest_host(req: HostLogIngestRequest, user: dict = Depends(check_permission('write'))):
+async def ingest_host(
+    req: HostLogIngestRequest,
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
     """Ingest raw host telemetry (Sysmon/Auditd) text and extract indicators."""
+    internal = machine_auth is not None
+    if not internal:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not has_permission(user, "write"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: write")
     job = await ingest_host_logs(req.source, req.raw)
-    await emit_world_event(get_db(), event_type="integration_host_ingest", entity_refs=[job["id"], req.source], payload={"raw_size": len(req.raw), "actor": user.get("id")}, trigger_triune=False)
+    actor = "machine" if internal else user.get("id")
+    await emit_world_event(get_db(), event_type="integration_host_ingest", entity_refs=[job["id"], req.source], payload={"raw_size": len(req.raw), "actor": actor}, trigger_triune=False)
     return {"job_id": job['id'], "status": job['status'], "result": job.get('result')}
 
 
 @router.get('/artifacts/{job_id}')
 async def list_artifacts(job_id: str, request: Request, user: dict = Depends(get_current_user)):
     """List artifact filenames for a job (if available)."""
-    job = get_job(job_id)
+    job = await get_job_async(job_id)
     if not job:
         raise HTTPException(status_code=404, detail='job not found')
     result = job.get('result') or {}
@@ -145,7 +448,7 @@ async def get_artifact(job_id: str, filename: str, request: Request, user: dict 
     """Download a specific artifact file for a job.
     Note: artifact paths are trusted only when running in controlled environment.
     """
-    job = get_job(job_id)
+    job = await get_job_async(job_id)
     if not job:
         raise HTTPException(status_code=404, detail='job not found')
     result = job.get('result') or {}

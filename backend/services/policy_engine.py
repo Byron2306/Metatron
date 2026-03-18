@@ -114,6 +114,7 @@ class PolicyEngine:
         # Pending approvals
         self.pending_approvals: Dict[str, PolicyDecision] = {}
         self.approval_votes: Dict[str, List[str]] = {}  # For two-person rule
+        self.db = None
         
         # Load policy rules
         self._load_policy_rules()
@@ -123,6 +124,96 @@ class PolicyEngine:
     def set_db(self, db):
         """Attach optional DB context for canonical world-event emission."""
         self.db = db
+
+    def _run_background_coro(self, coro):
+        """Run async DB writes from sync policy methods."""
+        try:
+            asyncio.get_running_loop()
+            running = True
+        except RuntimeError:
+            running = False
+
+        if running:
+            def _runner():
+                try:
+                    asyncio.run(coro)
+                except Exception:
+                    logger.debug("PolicyEngine async persistence worker failed", exc_info=True)
+
+            t = threading.Thread(target=_runner, daemon=True)
+            t.start()
+            return
+
+        try:
+            asyncio.run(coro)
+        except Exception:
+            logger.debug("PolicyEngine async persistence failed", exc_info=True)
+
+    async def _persist_policy_decision_async(self, decision: PolicyDecision, status: str = "evaluated"):
+        if self.db is None:
+            return
+
+        decision_doc = asdict(decision)
+        decision_doc["action_category"] = decision.action_category.value
+        decision_doc["approval_tier"] = decision.approval_tier.value
+        decision_doc["status"] = status
+        decision_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        await self.db.policy_decisions.update_one(
+            {"decision_id": decision.decision_id},
+            {"$set": decision_doc},
+            upsert=True,
+        )
+
+        if decision.approval_tier in {ApprovalTier.REQUIRE_APPROVAL, ApprovalTier.TWO_PERSON}:
+            await self.db.triune_decisions.update_one(
+                {"decision_id": decision.decision_id},
+                {
+                    "$set": {
+                        "decision_id": decision.decision_id,
+                        "related_queue_id": None,
+                        "action_id": decision.decision_id,
+                        "action_type": decision.action,
+                        "subject_id": decision.principal,
+                        "actor": decision.principal,
+                        "status": "pending",
+                        "execution_status": "awaiting_decision",
+                        "created_at": decision.timestamp,
+                        "updated_at": decision_doc["updated_at"],
+                        "notes": "Policy decision requires approval",
+                        "source": "policy_engine",
+                        "approval_tier": decision.approval_tier.value,
+                        "decision_hash": decision.decision_hash,
+                    }
+                },
+                upsert=True,
+            )
+        elif status in {"approved", "denied"}:
+            await self.db.triune_decisions.update_one(
+                {"decision_id": decision.decision_id},
+                {
+                    "$set": {
+                        "decision_id": decision.decision_id,
+                        "related_queue_id": None,
+                        "action_id": decision.decision_id,
+                        "action_type": decision.action,
+                        "subject_id": decision.principal,
+                        "actor": decision.principal,
+                        "status": "approved" if status == "approved" else "denied",
+                        "execution_status": "policy_only" if status == "approved" else "skipped",
+                        "updated_at": decision_doc["updated_at"],
+                        "source": "policy_engine",
+                        "approval_tier": decision.approval_tier.value,
+                        "decision_hash": decision.decision_hash,
+                    }
+                },
+                upsert=True,
+            )
+
+    def _persist_policy_decision(self, decision: PolicyDecision, status: str = "evaluated"):
+        if self.db is None:
+            return
+        self._run_background_coro(self._persist_policy_decision_async(decision, status=status))
 
     def _emit_policy_event(self, event_type: str, entity_refs: List[str], payload: Dict[str, Any], trigger_triune: bool = False):
         if emit_world_event is None or getattr(self, "db", None) is None:
@@ -422,6 +513,7 @@ class PolicyEngine:
             },
             trigger_triune=base_tier in {ApprovalTier.REQUIRE_APPROVAL, ApprovalTier.TWO_PERSON},
         )
+        self._persist_policy_decision(decision, status="pending" if decision.decision_id in self.pending_approvals else "permitted")
         
         return decision
     
@@ -461,6 +553,7 @@ class PolicyEngine:
             },
             trigger_triune=True,
         )
+        self._persist_policy_decision(decision, status="denied")
         
         return decision
     
@@ -493,6 +586,7 @@ class PolicyEngine:
             self.approval_votes[decision_id].append(approver)
             
             if len(self.approval_votes[decision_id]) < 2:
+                self._persist_policy_decision(decision, status="pending")
                 self._emit_policy_event(
                     event_type="decision_gate_approval_recorded",
                     entity_refs=[decision_id, approver],
@@ -504,6 +598,7 @@ class PolicyEngine:
             # Two approvals received
             del self.pending_approvals[decision_id]
             del self.approval_votes[decision_id]
+            self._persist_policy_decision(decision, status="approved")
             self._emit_policy_event(
                 event_type="decision_gate_approved",
                 entity_refs=[decision_id, approver],
@@ -514,6 +609,7 @@ class PolicyEngine:
         
         else:
             del self.pending_approvals[decision_id]
+            self._persist_policy_decision(decision, status="approved")
             self._emit_policy_event(
                 event_type="decision_gate_approved",
                 entity_refs=[decision_id, approver],
@@ -525,9 +621,12 @@ class PolicyEngine:
     def deny(self, decision_id: str, denier: str, reason: str = None) -> bool:
         """Deny a pending decision"""
         if decision_id in self.pending_approvals:
+            decision = self.pending_approvals.get(decision_id)
             del self.pending_approvals[decision_id]
             if decision_id in self.approval_votes:
                 del self.approval_votes[decision_id]
+            if decision is not None:
+                self._persist_policy_decision(decision, status="denied")
             logger.info(f"POLICY: Decision {decision_id} denied by {denier}")
             self._emit_policy_event(
                 event_type="decision_gate_denied",

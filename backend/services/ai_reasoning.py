@@ -371,6 +371,61 @@ class ReasoningContext:
         
         # Combine all text for analysis
         all_text = f"{title} {description} {command_line} {process_name}"
+
+        # Lightweight deterministic threat matching that works offline.
+        matched_patterns: List[str] = []
+        threat_hits: Dict[str, int] = {}
+        for candidate_type, patterns in self.threat_patterns.items():
+            hits = 0
+            for pattern in patterns:
+                if pattern in all_text:
+                    matched_patterns.append(pattern)
+                    hits += 1
+            if hits:
+                threat_hits[candidate_type] = hits
+
+        for indicator in indicators:
+            value = str(indicator or "").lower()
+            if not value:
+                continue
+            for candidate_type, patterns in self.threat_patterns.items():
+                if any(pattern in value for pattern in patterns):
+                    threat_hits[candidate_type] = threat_hits.get(candidate_type, 0) + 1
+                    matched_patterns.append(value[:80])
+
+        if threat_hits:
+            threat_type = max(threat_hits.items(), key=lambda item: item[1])[0]
+        else:
+            threat_type = "unknown"
+
+        severity = str(threat_data.get("severity") or "").strip().lower()
+        if severity not in {"critical", "high", "medium", "low"}:
+            if len(matched_patterns) >= 5:
+                severity = "critical"
+            elif len(matched_patterns) >= 3:
+                severity = "high"
+            elif len(matched_patterns) >= 1:
+                severity = "medium"
+            else:
+                severity = "low"
+
+        mitre_techniques: List[str] = []
+        if any(k in all_text for k in ["mimikatz", "lsass", "credential", "sekurlsa"]):
+            mitre_techniques.append("T1003")
+        if any(k in all_text for k in ["powershell", "cmd.exe", "bash -c", "wscript", "cscript"]):
+            mitre_techniques.append("T1059")
+        if any(k in all_text for k in ["rundll32", "regsvr32", "mshta", "wmic"]):
+            mitre_techniques.append("T1218")
+        if any(k in all_text for k in ["http://", "https://", "dns", "beacon", "c2"]):
+            mitre_techniques.append("T1071")
+        mitre_techniques = list(dict.fromkeys(mitre_techniques))
+        mitre_details = [self.mitre_techniques.get(tid, {}).get("name", tid) for tid in mitre_techniques]
+        if not mitre_details:
+            mitre_details = ["none_observed"]
+
+        risk_score = self._calculate_risk_score(threat_type, severity, [str(i) for i in indicators])
+        exploitability = min(1.0, 0.2 + 0.15 * len(matched_patterns))
+        impact = min(1.0, 0.25 + (risk_score / 100.0) * 0.75)
         
         # Reasoning chain
         reasoning_chain = []
@@ -1052,9 +1107,29 @@ ai_reasoning = LocalAIReasoningEngine()
 # robust we bind module-level callables onto the class when missing, then bind
 # the resulting class attributes onto the singleton instance.
 _expected_methods = [
-    'get_reasoning_stats', 'configure_ollama', 'get_ollama_status',
-    'ollama_generate', 'ollama_analyze_threat', 'analyze_with_aatl',
-    'query_aatr', 'run_cognition', 'ml_predict', 'trigger_soar'
+    # Core reasoning APIs expected by routers/services
+    "analyze_threat",
+    "analyze_snapshot",
+    "predict_next_step",
+    "predict_lateral_path",
+    "explain_candidates",
+    "triage_incident",
+    "query",
+    # Internal helpers used by core reasoning APIs
+    "_calculate_risk_score",
+    "_generate_recommendations",
+    "_get_triage_recommendation",
+    # LLM / integration wrappers
+    "get_reasoning_stats",
+    "configure_ollama",
+    "get_ollama_status",
+    "ollama_generate",
+    "ollama_analyze_threat",
+    "analyze_with_aatl",
+    "query_aatr",
+    "run_cognition",
+    "ml_predict",
+    "trigger_soar",
 ]
 import sys as _sys
 _mod = _sys.modules.get(__name__)
@@ -1062,11 +1137,19 @@ for _m in _expected_methods:
     # If the class is missing the method but a module-level function exists,
     # attach it to the class so it becomes a proper descriptor.
     try:
-        if not hasattr(LocalAIReasoningEngine, _m) and _mod and hasattr(_mod, _m) and callable(getattr(_mod, _m)):
-            try:
-                setattr(LocalAIReasoningEngine, _m, getattr(_mod, _m))
-            except Exception:
-                pass
+        if not hasattr(LocalAIReasoningEngine, _m):
+            _candidate = None
+            # First preference: methods accidentally placed on ReasoningContext.
+            if hasattr(ReasoningContext, _m) and callable(getattr(ReasoningContext, _m)):
+                _candidate = getattr(ReasoningContext, _m)
+            # Fallback: module-level function with same name.
+            elif _mod and hasattr(_mod, _m) and callable(getattr(_mod, _m)):
+                _candidate = getattr(_mod, _m)
+            if _candidate is not None:
+                try:
+                    setattr(LocalAIReasoningEngine, _m, _candidate)
+                except Exception:
+                    pass
         # Now bind the attribute from the class onto the singleton instance.
         if not hasattr(ai_reasoning, _m) and hasattr(LocalAIReasoningEngine, _m):
             try:

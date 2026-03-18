@@ -17,7 +17,7 @@ const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = (!envBackendUrl || envBackendUrl.includes('localhost')) ? '/api' : `${envBackendUrl}/api`;
 
 const EDRPage = () => {
-  const { token } = useAuth();
+  const { token, getAuthHeaders } = useAuth();
   const [status, setStatus] = useState(null);
   const [processTree, setProcessTree] = useState([]);
   const [fimEvents, setFimEvents] = useState([]);
@@ -26,7 +26,7 @@ const EDRPage = () => {
   const [newPath, setNewPath] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = getAuthHeaders();
 
   useEffect(() => {
     fetchStatus();
@@ -275,6 +275,35 @@ const EDRPage = () => {
                 <p className="text-slate-400 text-xs">Open Files</p>
               </div>
             </div>
+
+            {telemetry.fleet && (
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mt-4">
+                <div className="p-3 bg-slate-800/50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-cyan-300">{telemetry.fleet.total_endpoints || 0}</p>
+                  <p className="text-slate-400 text-xs">Fleet Endpoints</p>
+                </div>
+                <div className="p-3 bg-slate-800/50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-green-300">{telemetry.fleet.online_endpoints || 0}</p>
+                  <p className="text-slate-400 text-xs">Fleet Online</p>
+                </div>
+                <div className="p-3 bg-slate-800/50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-amber-300">{telemetry.fleet.fim_violations || 0}</p>
+                  <p className="text-slate-400 text-xs">FIM Violations</p>
+                </div>
+                <div className="p-3 bg-slate-800/50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-red-300">{telemetry.fleet.memory_alerts || 0}</p>
+                  <p className="text-slate-400 text-xs">Memory Alerts</p>
+                </div>
+                <div className="p-3 bg-slate-800/50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-purple-300">{telemetry.fleet.usb_alerts || 0}</p>
+                  <p className="text-slate-400 text-xs">USB Alerts</p>
+                </div>
+                <div className="p-3 bg-slate-800/50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-blue-300">{telemetry.fleet.runtime_alerts || 0}</p>
+                  <p className="text-slate-400 text-xs">Runtime Alerts</p>
+                </div>
+              </div>
+            )}
             
             {telemetry.suspicious_activity?.length > 0 && (
               <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">

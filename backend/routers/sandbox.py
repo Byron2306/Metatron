@@ -10,6 +10,10 @@ try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 from sandbox_analysis import sandbox_service, SandboxService
 
 router = APIRouter(prefix="/sandbox", tags=["Sandbox Analysis"])
@@ -62,54 +66,67 @@ async def submit_file_for_analysis(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     tags: Optional[str] = None,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
-    """Submit a file for sandbox analysis"""
-    # Read file content
-    content = await file.read()
-    
-    # Parse tags
+    """Queue file submission through outbound governance."""
+    gate = OutboundGateService(get_db())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
     tag_list = tags.split(",") if tags else []
-    
-    # Submit sample
-    result = sandbox_service.submit_sample(
-        sample_name=file.filename,
-        sample_data=content,
-        submitted_by=current_user.get("email", "anonymous"),
-        tags=tag_list
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={"sandbox_action": "submit_file", "file_name": file.filename, "tags": tag_list},
+        impact_level="high",
+        subject_id=file.filename,
+        entity_refs=[file.filename],
+        requires_triune=True,
     )
-    
-    # Start analysis in background
-    if result.get("success") and not result.get("cached"):
-        background_tasks.add_task(
-            sandbox_service.run_analysis,
-            result["analysis_id"]
-        )
-    await emit_world_event(get_db(), event_type="sandbox_file_submitted", entity_refs=[result.get("analysis_id", ""), file.filename], payload={"actor": current_user.get("id"), "success": result.get("success", False), "cached": result.get("cached", False)}, trigger_triune=False)
-    return result
+    await emit_world_event(
+        get_db(),
+        event_type="sandbox_file_submission_gated",
+        entity_refs=[file.filename, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": current_user.get("id")},
+        trigger_triune=True,
+    )
+    return {
+        "status": "queued_for_triune_approval",
+        "file_name": file.filename,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 
 @router.post("/submit/url")
 async def submit_url_for_analysis(
     request: SubmitURLRequest,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
-    """Submit a URL for sandbox analysis"""
-    result = sandbox_service.submit_url(
-        url=request.url,
-        submitted_by=current_user.get("email", "anonymous"),
-        tags=request.tags
+    """Queue URL submission through outbound governance."""
+    gate = OutboundGateService(get_db())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={"sandbox_action": "submit_url", "url": request.url, "tags": request.tags or []},
+        impact_level="high",
+        subject_id=request.url,
+        entity_refs=[request.url],
+        requires_triune=True,
     )
-    
-    # Start analysis in background
-    if result.get("success"):
-        background_tasks.add_task(
-            sandbox_service.run_analysis,
-            result["analysis_id"]
-        )
-    await emit_world_event(get_db(), event_type="sandbox_url_submitted", entity_refs=[result.get("analysis_id", ""), request.url], payload={"actor": current_user.get("id"), "success": result.get("success", False)}, trigger_triune=False)
-    return result
+    await emit_world_event(
+        get_db(),
+        event_type="sandbox_url_submission_gated",
+        entity_refs=[request.url, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": current_user.get("id")},
+        trigger_triune=True,
+    )
+    return {
+        "status": "queued_for_triune_approval",
+        "url": request.url,
+        "queue_id": gated.get("queue_id"),
+        "decision_id": gated.get("decision_id"),
+    }
 
 
 @router.post("/analyses/{analysis_id}/rerun")
@@ -118,18 +135,30 @@ async def rerun_analysis(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Re-run a sandbox analysis"""
+    """Queue analysis re-run through outbound governance."""
     analysis = sandbox_service.get_analysis(analysis_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
-    
-    # Start re-analysis in background
-    background_tasks.add_task(
-        sandbox_service.run_analysis,
-        analysis_id
+
+    gate = OutboundGateService(get_db())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={"sandbox_action": "rerun_analysis", "analysis_id": analysis_id},
+        impact_level="high",
+        subject_id=analysis_id,
+        entity_refs=[analysis_id],
+        requires_triune=True,
     )
-    await emit_world_event(get_db(), event_type="sandbox_analysis_rerun_queued", entity_refs=[analysis_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
-    return {"message": "Analysis queued for re-run", "analysis_id": analysis_id}
+    await emit_world_event(
+        get_db(),
+        event_type="sandbox_analysis_rerun_gated",
+        entity_refs=[analysis_id, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": current_user.get("id")},
+        trigger_triune=True,
+    )
+    return {"message": "Analysis queued for triune approval", "status": "queued_for_triune_approval", "analysis_id": analysis_id, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.get("/signatures")

@@ -15,12 +15,13 @@ import asyncio
 import logging
 import os
 import base64
-import tempfile
+import json
+import shlex
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
+from urllib.parse import quote
 
 try:
     from services.world_events import emit_world_event
@@ -82,9 +83,6 @@ class AgentDeploymentService:
         self.task = None
         self.concurrent_deployments = 5
         
-        # Agent script path
-        self.agent_script_path = Path("/app/scripts/seraph_defender.py")
-        
         # Default credentials (should be configured via settings)
         self.default_credentials = {
             "ssh": {
@@ -99,6 +97,32 @@ class AgentDeploymentService:
         }
         
         logger.info("Agent Deployment Service initialized")
+
+    def _normalized_server_url(self) -> str:
+        return str(self.api_url or "").rstrip("/")
+
+    def _resolved_enrollment_key(self) -> str:
+        return str(os.environ.get("SERAPH_AGENT_SECRET") or "dev-agent-secret-change-in-production")
+
+    def _resolved_integration_token(self) -> str:
+        return str(
+            os.environ.get("INTEGRATION_API_KEY")
+            or os.environ.get("SWARM_AGENT_TOKEN")
+            or ""
+        ).strip()
+
+    def _resolved_ca_cert_pem_b64(self) -> str:
+        inline = str(os.environ.get("SERAPH_AGENT_CA_CERT_PEM_B64") or "").strip()
+        if inline:
+            return inline
+        pem_path = str(os.environ.get("SERAPH_AGENT_CA_CERT_PATH") or "").strip()
+        if pem_path and os.path.exists(pem_path):
+            try:
+                with open(pem_path, "rb") as fh:
+                    return base64.b64encode(fh.read()).decode()
+            except Exception:
+                logger.warning("Unable to read SERAPH_AGENT_CA_CERT_PATH for deployment", exc_info=True)
+        return ""
 
     async def _emit_deployment_event(
         self,
@@ -606,44 +630,24 @@ class AgentDeploymentService:
         key_path = creds.get('key_path')
         password = creds.get('password')
         port = creds.get('port', 22)
-        
-        # Read agent script
-        if not self.agent_script_path.exists():
-            task.error_message = "Agent script not found"
+
+        server_url = self._normalized_server_url()
+        if not server_url:
+            task.error_message = "Deployment server URL is empty"
             return False
-        
-        agent_code = self.agent_script_path.read_text()
-        agent_b64 = base64.b64encode(agent_code.encode()).decode()
-        
+        install_url = f"{server_url}/api/unified/agent/install-script?server_url={quote(server_url, safe='')}&noninteractive=1"
+
+        enrollment_key = shlex.quote(self._resolved_enrollment_key())
+        integration_token = shlex.quote(self._resolved_integration_token())
+        ca_cert_b64 = shlex.quote(self._resolved_ca_cert_pem_b64())
+
         # Commands to execute on remote host
         remote_commands = f'''
-set -e
-mkdir -p /opt/seraph-defender
-echo "{agent_b64}" | base64 -d > /opt/seraph-defender/seraph_defender.py
-chmod +x /opt/seraph-defender/seraph_defender.py
-
-# Install dependencies
-pip3 install psutil requests 2>/dev/null || pip install psutil requests 2>/dev/null || apt-get install -y python3-pip && pip3 install psutil requests || true
-
-# Create systemd service
-cat > /etc/systemd/system/seraph-defender.service << 'EOF'
-[Unit]
-Description=Seraph Defender Agent
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/python3 /opt/seraph-defender/seraph_defender.py --monitor --api-url {self.api_url}
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable seraph-defender
-systemctl start seraph-defender
+set -euo pipefail
+INSTALL_SCRIPT_URL={shlex.quote(install_url)}
+curl -fsSL "$INSTALL_SCRIPT_URL" -o /tmp/seraph-agent-install.sh
+chmod +x /tmp/seraph-agent-install.sh
+SERAPH_ENROLLMENT_KEY={enrollment_key} SERAPH_INTEGRATION_TOKEN={integration_token} SERAPH_CA_CERT_PEM_B64={ca_cert_b64} bash /tmp/seraph-agent-install.sh
 echo "SERAPH_DEPLOY_SUCCESS"
 '''
         
@@ -780,49 +784,41 @@ echo "SERAPH_DEPLOY_SUCCESS"
         if not password:
             task.error_message = "WinRM requires password authentication"
             return False
-        
-        # Read agent script
-        if not self.agent_script_path.exists():
-            task.error_message = "Agent script not found"
+        server_url = self._normalized_server_url()
+        if not server_url:
+            task.error_message = "Deployment server URL is empty"
             return False
-        
-        agent_code = self.agent_script_path.read_text()
-        agent_b64 = base64.b64encode(agent_code.encode()).decode()
-        
+        install_url = f"{server_url}/api/unified/agent/install-windows?server_url={quote(server_url, safe='')}&noninteractive=1"
+
+        enrollment_key_json = json.dumps(self._resolved_enrollment_key())
+        integration_token_json = json.dumps(self._resolved_integration_token())
+        ca_cert_b64_json = json.dumps(self._resolved_ca_cert_pem_b64())
+
         # PowerShell commands
         ps_script = f'''
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
-# Create directory
-New-Item -ItemType Directory -Force -Path "C:\\SeraphDefender" | Out-Null
+$installScriptPath = "$env:TEMP\\seraph-agent-install.ps1"
+$enrollmentKey = {enrollment_key_json}
+$integrationToken = {integration_token_json}
+$caCertB64 = {ca_cert_b64_json}
 
-# Decode and write agent
-$agentB64 = "{agent_b64}"
-$agentBytes = [System.Convert]::FromBase64String($agentB64)
-[System.IO.File]::WriteAllBytes("C:\\SeraphDefender\\seraph_defender.py", $agentBytes)
-
-# Install Python if not present
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {{
-    Write-Host "Python not found, attempting to install..."
-    # Download Python installer
-    Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.0/python-3.11.0-amd64.exe" -OutFile "$env:TEMP\\python_installer.exe"
-    Start-Process -FilePath "$env:TEMP\\python_installer.exe" -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1" -Wait
+if (-not $enrollmentKey) {{
+    throw "Missing SERAPH enrollment key for remote deployment"
 }}
 
-# Install dependencies
-python -m pip install psutil requests --quiet
+$env:SERAPH_ENROLLMENT_KEY = $enrollmentKey
+if ($integrationToken) {{
+    $env:SERAPH_INTEGRATION_TOKEN = $integrationToken
+}}
+if ($caCertB64) {{
+    $env:SERAPH_CA_CERT_PEM_B64 = $caCertB64
+}}
+$env:SERAPH_NONINTERACTIVE = "1"
 
-# Create scheduled task to run agent
-$action = New-ScheduledTaskAction -Execute "python" -Argument "C:\\SeraphDefender\\seraph_defender.py --monitor --api-url {self.api_url}"
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-
-Register-ScheduledTask -TaskName "SeraphDefender" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force
-
-# Start immediately
-Start-ScheduledTask -TaskName "SeraphDefender"
-
+Invoke-WebRequest -UseBasicParsing -Uri "{install_url}" -OutFile $installScriptPath
+powershell -ExecutionPolicy Bypass -File $installScriptPath
 Write-Host "SERAPH_DEPLOY_SUCCESS"
 '''
         

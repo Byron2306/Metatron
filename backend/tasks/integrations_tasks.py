@@ -22,6 +22,10 @@ except Exception:
     logger = get_task_logger(__name__)
 
 import requests
+try:
+    from services.attack_metadata import build_celery_attack_metadata
+except Exception:
+    from backend.services.attack_metadata import build_celery_attack_metadata
 
 try:
     from services.world_events import emit_world_event
@@ -32,9 +36,18 @@ except Exception:
         emit_world_event = None
 
 
-def _emit_task_event(db, event_type: str, entity_refs=None, payload=None):
+def _emit_task_event(db, event_type: str, entity_refs=None, payload=None, task_name: str = ""):
     if emit_world_event is None or db is None:
         return
+    attack_metadata = build_celery_attack_metadata(
+        task_name=task_name or "backend.tasks.integrations_tasks.run_velociraptor_task",
+        event_type=event_type,
+        payload=payload or {},
+    )
+    enriched_payload = dict(payload or {})
+    enriched_payload["attack_metadata"] = attack_metadata
+    enriched_payload["attack_techniques"] = attack_metadata.get("techniques", [])
+    enriched_payload["attack_tactics"] = attack_metadata.get("tactics", [])
     import asyncio
     try:
         asyncio.run(
@@ -42,8 +55,8 @@ def _emit_task_event(db, event_type: str, entity_refs=None, payload=None):
                 db,
                 event_type=event_type,
                 entity_refs=entity_refs or [],
-                payload=payload or {},
-                trigger_triune=False,
+                payload=enriched_payload,
+                trigger_triune=None,
                 source="task.integrations",
             )
         )
@@ -66,7 +79,15 @@ def run_velociraptor_task(self, job_id: str, collection_name: str = None):
         db_for_events = _db
     except Exception:
         db_for_events = None
-    _emit_task_event(db_for_events, "integrations_velociraptor_task_started", [job_id], {"collection_name": collection_name})
+    task_name = getattr(self, "name", "backend.tasks.integrations_tasks.run_velociraptor_task")
+    start_payload = {"collection_name": collection_name}
+    _emit_task_event(
+        db_for_events,
+        "integrations_velociraptor_task_started",
+        [job_id],
+        start_payload,
+        task_name=task_name,
+    )
 
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     integrations_dir = os.environ.get('INTEGRATIONS_DIR', '/tmp/integrations')
@@ -78,12 +99,54 @@ def run_velociraptor_task(self, job_id: str, collection_name: str = None):
     else:
         cli_cmd = f"velociraptor --config /config/config.yaml collect --output /data/collection_{ts}.json"
 
-    cmd = f"docker run --rm -v {outdir}:/data veloci/velociraptor:latest {cli_cmd}"
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{outdir}:/data",
+        "veloci/velociraptor:latest",
+        "velociraptor",
+        "--config",
+        "/config/config.yaml",
+        "collect",
+    ]
+    if collection_name:
+        cmd.extend(["--collection", collection_name])
+    cmd.extend(["--output", f"/data/collection_{ts}.json"])
 
-    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3600)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
     if proc.returncode != 0:
         logger.error(f"Velociraptor failed: {proc.stderr}")
-        _emit_task_event(db_for_events, "integrations_velociraptor_task_failed", [job_id], {"error": proc.stderr[:500]})
+        failure_payload = {"error": proc.stderr[:500]}
+        _emit_task_event(
+            db_for_events,
+            "integrations_velociraptor_task_failed",
+            [job_id],
+            failure_payload,
+            task_name=task_name,
+        )
+        attack_metadata = build_celery_attack_metadata(
+            task_name=task_name,
+            event_type="integrations_velociraptor_task_failed",
+            payload=failure_payload,
+        )
+        try:
+            from pymongo import MongoClient
+            MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+            DB_NAME = os.environ.get('DB_NAME', 'metatron')
+            client = MongoClient(MONGO_URL)
+            db = client[DB_NAME]
+            db.integrations_jobs.update_one(
+                {"id": job_id},
+                {"$set": {
+                    "status": "failed",
+                    "attack_metadata": attack_metadata,
+                    "updated_at": datetime.utcnow().isoformat(),
+                }},
+            )
+        except Exception:
+            logger.exception('Failed to persist failed job ATT&CK metadata')
         # raise to trigger retry
         raise RuntimeError(f"Velociraptor failed: {proc.stderr}")
 
@@ -119,16 +182,36 @@ def run_velociraptor_task(self, job_id: str, collection_name: str = None):
                 logger.error(f"Ingest API returned {r.status_code}: {r.text}")
         except Exception as e:
             logger.exception(f"Failed to POST indicators to ingestion API: {e}")
-            _emit_task_event(db_for_events, "integrations_velociraptor_ingest_post_failed", [job_id], {"error": str(e)[:500]})
+            _emit_task_event(
+                db_for_events,
+                "integrations_velociraptor_ingest_post_failed",
+                [job_id],
+                {"error": str(e)[:500]},
+                task_name=task_name,
+            )
 
     # Update job document via direct DB (best-effort) if API not used by integrations_manager
+    completion_payload = {"ingested": ingested, "artifact_count": len(artifacts), "indicator_count": len(indicators)}
+    attack_metadata = build_celery_attack_metadata(
+        task_name=task_name,
+        event_type="integrations_velociraptor_task_completed",
+        payload=completion_payload,
+    )
     try:
         from pymongo import MongoClient
         MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
         DB_NAME = os.environ.get('DB_NAME', 'metatron')
         client = MongoClient(MONGO_URL)
         db = client[DB_NAME]
-        db.integrations_jobs.update_one({"id": job_id}, {"$set": {"status": "completed", "result": result, "updated_at": datetime.utcnow().isoformat()}})
+        db.integrations_jobs.update_one(
+            {"id": job_id},
+            {"$set": {
+                "status": "completed",
+                "result": {**result, "attack_metadata": attack_metadata},
+                "attack_metadata": attack_metadata,
+                "updated_at": datetime.utcnow().isoformat(),
+            }},
+        )
     except Exception:
         logger.exception('Failed to update job document in DB')
 
@@ -137,7 +220,8 @@ def run_velociraptor_task(self, job_id: str, collection_name: str = None):
         db_for_events,
         "integrations_velociraptor_task_completed",
         [job_id],
-        {"ingested": ingested, "artifact_count": len(artifacts), "indicator_count": len(indicators)},
+        completion_payload,
+        task_name=task_name,
     )
 
 
@@ -173,8 +257,12 @@ def extract_indicators_from_collection(collection_file: str):
         except Exception:
             # fallback to command-line yara
             try:
-                yara_cmd = f"yara -r {yara_rules_dir} {collection_file}"
-                yc = subprocess.run(yara_cmd, shell=True, capture_output=True, text=True, timeout=120)
+                yc = subprocess.run(
+                    ["yara", "-r", yara_rules_dir, collection_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
                 if yc.returncode == 0 and yc.stdout:
                     for line in yc.stdout.splitlines():
                         parts = line.strip().split()

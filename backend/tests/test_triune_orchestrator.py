@@ -18,6 +18,18 @@ class FakeCursor:
     def __init__(self, docs):
         self.docs = list(docs)
 
+    def sort(self, key, direction):
+        reverse = direction == -1
+        def _get(doc, dotted):
+            cur = doc
+            for part in dotted.split("."):
+                if not isinstance(cur, dict):
+                    return None
+                cur = cur.get(part)
+            return cur
+        self.docs = sorted(self.docs, key=lambda d: (_get(d, key) is None, _get(d, key)), reverse=reverse)
+        return self
+
     def limit(self, n):
         return FakeCursor(self.docs[:n])
 
@@ -54,6 +66,43 @@ class FakeColl(dict):
                 current[top][leaf].append(value)
         self[key] = current
 
+    async def update_many(self, q, u):
+        modified = 0
+        for key, current in list(self.items()):
+            if not isinstance(current, dict):
+                continue
+
+            matches = True
+            for field, expected in (q or {}).items():
+                if field == "type" and isinstance(expected, dict) and "$in" in expected:
+                    if current.get("type") not in expected["$in"]:
+                        matches = False
+                        break
+                elif field == "attributes.sector" and isinstance(expected, dict) and "$in" in expected:
+                    if (current.get("attributes") or {}).get("sector") not in expected["$in"]:
+                        matches = False
+                        break
+                elif current.get(field) != expected:
+                    matches = False
+                    break
+
+            if not matches:
+                continue
+
+            if "$set" in u:
+                for skey, sval in u["$set"].items():
+                    if "." in skey:
+                        top, leaf = skey.split(".", 1)
+                        current.setdefault(top, {})
+                        if isinstance(current[top], dict):
+                            current[top][leaf] = sval
+                    else:
+                        current[skey] = sval
+            self[key] = current
+            modified += 1
+
+        return types.SimpleNamespace(modified_count=modified, matched_count=modified)
+
     async def find_one(self, q, projection=None, sort=None):
         if "id" in q:
             return self.get(q["id"])
@@ -72,6 +121,20 @@ class FakeColl(dict):
         if limit:
             docs = docs[:limit]
         return FakeCursor(docs)
+
+    def aggregate(self, pipeline):
+        grouped = {}
+        for d in self.values():
+            attrs = d.get("attributes", {}) if isinstance(d, dict) else {}
+            if "risk_score" not in attrs:
+                continue
+            sector = attrs.get("sector", "unknown")
+            grouped.setdefault(sector, []).append(float(attrs.get("risk_score") or 0.0))
+        rows = []
+        for sector, vals in grouped.items():
+            rows.append({"_id": sector, "avg_risk": sum(vals) / len(vals), "entities": len(vals)})
+        rows.sort(key=lambda r: r["avg_risk"], reverse=True)
+        return FakeCursor(rows)
 
 
 def _load_services(base):
@@ -145,3 +208,128 @@ async def test_emit_world_event_accepts_source_keyword():
     assert out["event"]["type"] == "unit_test_event"
     assert out["event"]["source"] == "test.source"
     assert out["triune"] is None
+
+
+@pytest.mark.asyncio
+async def test_event_classification_separates_persistence_from_trigger():
+    base = pathlib.Path(__file__).resolve().parents[1]
+    _, events_mod = _load_services(base)
+
+    fake = types.SimpleNamespace(
+        world_entities=FakeColl(),
+        world_edges=FakeColl(),
+        campaigns=FakeColl(),
+        world_events=FakeColl(),
+        triune_analysis=FakeColl(),
+    )
+
+    out = await events_mod.emit_world_event(
+        fake,
+        event_type="agent_heartbeat",
+        entity_refs=["a-1"],
+        payload={"status": "online"},
+        trigger_triune=None,
+    )
+
+    assert out["event"]["event_class"] == "local_reflex"
+    assert out["event"]["triune_triggered"] is False
+    assert out["triune"] is None
+
+
+@pytest.mark.asyncio
+async def test_deception_interaction_runs_beacon_cascade():
+    base = pathlib.Path(__file__).resolve().parents[1]
+    _, events_mod = _load_services(base)
+
+    fake = types.SimpleNamespace(
+        world_entities=FakeColl(),
+        world_edges=FakeColl(),
+        campaigns=FakeColl(),
+        world_events=FakeColl(),
+        response_history=FakeColl(),
+        triune_analysis=FakeColl(),
+        sector_posture=FakeColl(),
+        deception_deployments=FakeColl(),
+    )
+    fake.world_entities["h-fin"] = {
+        "id": "h-fin",
+        "type": "host",
+        "attributes": {"risk_score": 0.91, "sector": "finance"},
+    }
+
+    out = await events_mod.emit_world_event(
+        fake,
+        event_type="deception_interaction",
+        entity_refs=["h-fin"],
+        payload={"sector": "finance", "decoy_type": "credential"},
+        trigger_triune=None,
+    )
+
+    cascade = out["triune"]["beacon_cascade"]
+    assert cascade["activated"] is True
+    assert cascade["predicted_sectors"]
+
+
+@pytest.mark.asyncio
+async def test_triune_bundle_includes_cognition_fabric_signals():
+    base = pathlib.Path(__file__).resolve().parents[1]
+    _, events_mod = _load_services(base)
+
+    fake = types.SimpleNamespace(
+        world_entities=FakeColl(),
+        world_edges=FakeColl(),
+        campaigns=FakeColl(),
+        world_events=FakeColl(),
+        response_history=FakeColl(),
+        triune_analysis=FakeColl(),
+        aatl_assessments=FakeColl(),
+        cli_session_summaries=FakeColl(),
+        ml_predictions=FakeColl(),
+        aatr_entries=FakeColl(),
+    )
+    fake.world_entities["h-1"] = {
+        "id": "h-1",
+        "type": "host",
+        "attributes": {"risk_score": 0.8, "sector": "endpoint"},
+    }
+    fake.aatl_assessments["a1"] = {
+        "host_id": "h-1",
+        "session_id": "s-1",
+        "threat_score": 87,
+        "threat_level": "high",
+        "actor_type": "autonomous_agent",
+        "recommended_strategy": "deceive",
+        "recommended_actions": ["full_honeypot_engagement", "isolate_host"],
+        "timestamp": "2026-03-15T00:00:00+00:00",
+    }
+    fake.cli_session_summaries["c1"] = {
+        "host_id": "h-1",
+        "session_id": "s-1",
+        "machine_likelihood": 0.88,
+        "dominant_intents": ["credential_access", "lateral_movement"],
+        "tool_switch_latency_ms": 180,
+        "command_count": 22,
+        "timestamp": "2026-03-15T00:00:00+00:00",
+    }
+    fake.ml_predictions["m1"] = {
+        "prediction_id": "pred-1",
+        "entity_id": "h-1",
+        "threat_score": 78,
+        "predicted_category": "lateral_movement",
+        "timestamp": "2026-03-15T00:00:00+00:00",
+    }
+
+    out = await events_mod.emit_world_event(
+        fake,
+        event_type="detection_ingested",
+        entity_refs=["h-1"],
+        payload={"signal": "cli_autonomy"},
+        trigger_triune=True,
+    )
+
+    triune = out["triune"]
+    cognition = triune["world_snapshot"].get("cognition") or {}
+    assert cognition.get("fused_signal"), "Expected fused cognition signal in world snapshot"
+    assert triune["metatron"].get("cognition_state"), "Metatron should expose cognition state"
+    assert triune["michael"]["plan"].get("cognitive_action_alignment"), "Michael should include cognition alignment outputs"
+    assert triune["loki"].get("cognitive_dissent"), "Loki should include cognition-aware dissent"

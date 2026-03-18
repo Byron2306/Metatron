@@ -19,7 +19,7 @@ const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl
 
 const CSPMPage = () => {
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, getAuthHeaders } = useAuth();
   
   // State
   const [loading, setLoading] = useState(true);
@@ -41,6 +41,28 @@ const CSPMPage = () => {
   // Expanded state
   const [expandedFindings, setExpandedFindings] = useState({});
 
+  const normalizeFinding = (finding, idx) => {
+    const resource = finding?.resource || {};
+    const remediationSteps = Array.isArray(finding?.remediation_steps) ? finding.remediation_steps : [];
+    const complianceMappings = Array.isArray(finding?.compliance_mappings) ? finding.compliance_mappings : [];
+    const findingId = finding?.finding_id || finding?.id || `finding-${idx}`;
+    return {
+      ...finding,
+      id: findingId,
+      finding_id: findingId,
+      resource_id: finding?.resource_id || resource?.resource_id || 'unknown-resource',
+      resource_type: finding?.resource_type || resource?.resource_type || 'resource',
+      region: finding?.region || resource?.region || 'global',
+      recommendation:
+        finding?.recommendation ||
+        remediationSteps?.[0]?.description ||
+        'Investigate finding context and apply provider hardening guidance.',
+      compliance_frameworks:
+        finding?.compliance_frameworks ||
+        complianceMappings.map((m) => m?.framework).filter(Boolean),
+    };
+  };
+
   useEffect(() => {
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 60000); // Refresh every minute
@@ -49,7 +71,7 @@ const CSPMPage = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const headers = { 'Authorization': `Bearer ${token}` };
+      const headers = getAuthHeaders();
       
       const [dashboardRes, postureRes, providersRes, findingsRes, scansRes] = await Promise.all([
         fetch(`${API_URL}/api/v1/cspm/dashboard`, { headers }),
@@ -64,7 +86,7 @@ const CSPMPage = () => {
       if (providersRes.ok) setProviders(await providersRes.json());
       if (findingsRes.ok) {
         const data = await findingsRes.json();
-        setFindings(data.findings || []);
+        setFindings((data.findings || []).map((finding, idx) => normalizeFinding(finding, idx)));
       }
       if (scansRes.ok) {
         const data = await scansRes.json();
@@ -80,7 +102,7 @@ const CSPMPage = () => {
   const fetchCompliance = async (framework) => {
     try {
       const response = await fetch(`${API_URL}/api/v1/cspm/compliance/${framework}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       if (response.ok) {
         const data = await response.json();
@@ -97,7 +119,7 @@ const CSPMPage = () => {
       const response = await fetch(`${API_URL}/api/v1/cspm/scan`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -178,7 +200,7 @@ const CSPMPage = () => {
       const response = await fetch(`${API_URL}/api/v1/cspm/providers`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
@@ -201,7 +223,7 @@ const CSPMPage = () => {
       const response = await fetch(`${API_URL}/api/v1/cspm/findings/${findingId}/status`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ status, reason })
@@ -219,10 +241,17 @@ const CSPMPage = () => {
   const exportFindings = async () => {
     try {
       const response = await fetch(`${API_URL}/api/v1/cspm/export?format=csv`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       if (response.ok) {
-        const blob = await response.blob();
+        const contentType = response.headers.get('content-type') || '';
+        let blob;
+        if (contentType.includes('application/json')) {
+          const payload = await response.json();
+          blob = new Blob([payload?.data || ''], { type: 'text/csv;charset=utf-8' });
+        } else {
+          blob = await response.blob();
+        }
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -624,15 +653,20 @@ const CSPMPage = () => {
           {/* Findings List */}
           <div className="space-y-3">
             {filteredFindings.map((finding) => (
-              <Card key={finding.id} className="bg-[#12121a] border-gray-800">
+              <Card key={finding.finding_id} className="bg-[#12121a] border-gray-800">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3 flex-1">
                       <button
-                        onClick={() => setExpandedFindings(prev => ({ ...prev, [finding.id]: !prev[finding.id] }))}
+                        onClick={() =>
+                          setExpandedFindings((prev) => ({
+                            ...prev,
+                            [finding.finding_id]: !prev[finding.finding_id],
+                          }))
+                        }
                         className="mt-1"
                       >
-                        {expandedFindings[finding.id] ? (
+                        {expandedFindings[finding.finding_id] ? (
                           <ChevronDown className="w-4 h-4 text-gray-400" />
                         ) : (
                           <ChevronRight className="w-4 h-4 text-gray-400" />
@@ -666,7 +700,7 @@ const CSPMPage = () => {
                     </div>
                   </div>
                   
-                  {expandedFindings[finding.id] && (
+                  {expandedFindings[finding.finding_id] && (
                     <div className="mt-4 pt-4 border-t border-gray-800 space-y-3">
                       <div>
                         <p className="text-gray-400 text-sm font-medium">Recommendation</p>
@@ -688,7 +722,7 @@ const CSPMPage = () => {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => updateFindingStatus(finding.id, 'acknowledged', 'Acknowledged by operator')}
+                          onClick={() => updateFindingStatus(finding.finding_id, 'in_progress', 'Acknowledged by operator')}
                           className="border-blue-500 text-blue-400 hover:bg-blue-500/20"
                         >
                           Acknowledge
@@ -696,7 +730,7 @@ const CSPMPage = () => {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => updateFindingStatus(finding.id, 'resolved', 'Marked as resolved')}
+                          onClick={() => updateFindingStatus(finding.finding_id, 'resolved', 'Marked as resolved')}
                           className="border-green-500 text-green-400 hover:bg-green-500/20"
                         >
                           Resolve
@@ -704,7 +738,7 @@ const CSPMPage = () => {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => updateFindingStatus(finding.id, 'suppressed', 'False positive')}
+                          onClick={() => updateFindingStatus(finding.finding_id, 'suppressed', 'False positive')}
                           className="border-gray-500 text-gray-400 hover:bg-gray-500/20"
                         >
                           Suppress

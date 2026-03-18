@@ -4,7 +4,7 @@ Threat Timeline Router
 from dataclasses import asdict
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from .dependencies import get_current_user, get_db, check_permission
 
@@ -14,11 +14,39 @@ try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
+try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
 
 # Import timeline services
 from threat_timeline import timeline_builder, ReportType
 
 router = APIRouter(prefix="/timeline", tags=["Timeline"])
+
+
+def _record_timeline_audit(
+    *,
+    principal: str,
+    action: str,
+    targets: List[str],
+    result: str,
+    result_details: Optional[str] = None,
+    constraints: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            constraints=constraints or {},
+            result=result,
+            result_details=result_details,
+        )
+    except Exception:
+        pass
 
 
 class ArtifactRegisterRequest(BaseModel):
@@ -83,7 +111,7 @@ async def get_timeline_report(
     current_user: dict = Depends(check_permission("read")),
 ):
     """Generate enterprise incident report for a threat timeline."""
-    _ = current_user
+    actor = (current_user or {}).get("email") or (current_user or {}).get("id") or "unknown"
     db = get_db()
     threat = await db.threats.find_one({"id": threat_id}, {"_id": 0, "id": 1})
     if not threat:
@@ -105,7 +133,20 @@ async def get_timeline_report(
         raise HTTPException(status_code=404, detail="Could not build timeline")
 
     report = timeline_builder.generate_report(timeline, report_type=report_type)
-    await emit_world_event(get_db(), event_type="timeline_report_generated", entity_refs=[threat_id], payload={"report_type": report_type.value, "actor": current_user.get("id")}, trigger_triune=False)
+    await emit_world_event(
+        get_db(),
+        event_type="timeline_report_generated",
+        entity_refs=[threat_id],
+        payload={"report_type": report_type.value, "actor": actor},
+        trigger_triune=False,
+    )
+    _record_timeline_audit(
+        principal=f"operator:{actor}",
+        action="timeline_generate_report",
+        targets=[threat_id],
+        result="success",
+        constraints={"report_type": report_type.value},
+    )
     return {
         "threat_id": threat_id,
         "report_type": report_type.value,
@@ -188,10 +229,23 @@ async def get_artifact_custody_report(
     current_user: dict = Depends(check_permission("read")),
 ):
     """Export chain-of-custody report for a forensic artifact."""
-    _ = current_user
+    actor = (current_user or {}).get("email") or (current_user or {}).get("id") or "unknown"
     report = timeline_builder.export_custody_report(artifact_id)
     if not report:
         raise HTTPException(status_code=404, detail="Artifact not found")
+    await emit_world_event(
+        get_db(),
+        event_type="timeline_custody_report_exported",
+        entity_refs=[artifact_id],
+        payload={"actor": actor},
+        trigger_triune=False,
+    )
+    _record_timeline_audit(
+        principal=f"operator:{actor}",
+        action="timeline_export_custody_report",
+        targets=[artifact_id],
+        result="success",
+    )
 
     return {
         "artifact_id": artifact_id,
@@ -229,7 +283,21 @@ async def export_threat_timeline(threat_id: str, format: str = "json", current_u
         raise HTTPException(status_code=404, detail="Could not build timeline")
     
     from dataclasses import asdict
-    await emit_world_event(get_db(), event_type="timeline_export_requested", entity_refs=[threat_id], payload={"format": format, "actor": current_user.get("id")}, trigger_triune=False)
+    actor = (current_user or {}).get("email") or (current_user or {}).get("id") or "unknown"
+    await emit_world_event(
+        get_db(),
+        event_type="timeline_export_requested",
+        entity_refs=[threat_id],
+        payload={"format": format, "actor": actor},
+        trigger_triune=False,
+    )
+    _record_timeline_audit(
+        principal=f"operator:{actor}",
+        action="timeline_export_requested",
+        targets=[threat_id],
+        result="success",
+        constraints={"format": format},
+    )
     if format == "json":
         return asdict(timeline)
     elif format == "markdown":

@@ -28,6 +28,7 @@ import platform
 import threading
 import subprocess
 import shutil
+import shlex
 import re
 import math
 from pathlib import Path
@@ -470,6 +471,10 @@ class AgentConfig:
     # Authentication
     enrollment_key: str = ""  # For initial registration
     auth_token: str = ""       # Received after registration
+    integration_api_key: str = field(default_factory=lambda: os.environ.get("INTEGRATION_API_KEY", ""))
+    cli_ingest_token: str = field(default_factory=lambda: os.environ.get("CLI_INGEST_TOKEN", ""))
+    identity_ingest_token: str = field(default_factory=lambda: os.environ.get("IDENTITY_INGEST_TOKEN", ""))
+    api_bearer_token: str = field(default_factory=lambda: os.environ.get("AGENT_API_BEARER_TOKEN", ""))
     
     # Whitelisted IPs (server + known-friendly)
     server_ips: List[str] = field(default_factory=list)
@@ -514,9 +519,19 @@ class AgentConfig:
 
     # Triune decision hooks
     require_triune_approval: bool = True  # Gate remediation actions via triune/backend approval
+    allow_local_post_triune_approval: bool = False  # Prefer backend-governed command release over immediate local execution
     triune_rank_before_handle: bool = True  # Rank threats by triune heuristic before handling
     triune_preflight_gate: bool = True  # Allow local triune-style suppression before remediation
     triune_hypothesis_enabled: bool = True  # Attach hypothesis metadata to handled threats
+
+    # Endpoint fortress (local VNS + MCP + broker)
+    endpoint_fortress_enabled: bool = True
+    endpoint_mcp_require_decision_context: bool = True
+    endpoint_mcp_require_token: bool = True
+    endpoint_mcp_throttle_per_minute: int = 18
+    endpoint_local_token_signing_key: str = field(default_factory=lambda: os.environ.get("ENDPOINT_LOCAL_TOKEN_SIGNING_KEY", ""))
+    endpoint_world_event_feedback_enabled: bool = True
+    endpoint_allow_shell_commands: bool = False
     
     # SIEM Configuration
     elasticsearch_url: str = ""
@@ -7557,7 +7572,7 @@ class LANDiscoveryScanner:
         except:
             return False
     
-    def report_to_server(self, devices: Optional[List[dict]] = None) -> bool:
+    def report_to_server(self, devices: Optional[List[dict]] = None, headers: Optional[Dict[str, str]] = None) -> bool:
         """Report discovered devices to server for auto-deployment"""
         if not REQUESTS_AVAILABLE or not self.server_url:
             logger.warning("Cannot report: requests not available or server URL not set")
@@ -7575,9 +7590,11 @@ class LANDiscoveryScanner:
                 'auto_deploy_request': True  # Request auto-deployment
             }
             
+            request_headers = dict(headers or {})
             response = requests.post(
                 f"{self.server_url}/api/swarm/scanner/report",
                 json=payload,
+                headers=request_headers,
                 timeout=30
             )
             
@@ -7864,6 +7881,457 @@ PersistentKeepalive = 25
 # REMEDIATION ENGINE
 # =============================================================================
 
+class LocalVNSSentinel:
+    """
+    Local VNS sentinel for endpoint micro-sectors.
+
+    Responsibilities:
+    - Observe boundary crossings pre/post enforcement
+    - Score weirdness and tempo bursts
+    - Raise local beacon posture (Green/Yellow/Amber/Red)
+    """
+
+    def __init__(self, config: 'AgentConfig'):
+        self.config = config
+        self._request_windows: Dict[str, deque] = defaultdict(lambda: deque(maxlen=256))
+        self._lock = threading.Lock()
+        self._beacon = {
+            "state": "Green",
+            "score": 0,
+            "classification": "normal",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "reason": "initialized",
+        }
+
+    @staticmethod
+    def _state_rank(state: str) -> int:
+        return {"green": 0, "yellow": 1, "amber": 2, "red": 3}.get(str(state or "").lower(), 0)
+
+    def _classification_from_score(self, score: int) -> str:
+        if score >= 70:
+            return "beacon_lit"
+        if score >= 45:
+            return "escalating"
+        if score >= 25:
+            return "suspicious"
+        return "normal"
+
+    def _state_from_score(self, score: int) -> str:
+        if score >= 70:
+            return "Red"
+        if score >= 45:
+            return "Amber"
+        if score >= 25:
+            return "Yellow"
+        return "Green"
+
+    def _update_beacon(self, score: int, reason: str) -> Dict[str, Any]:
+        with self._lock:
+            candidate_state = self._state_from_score(score)
+            current_state = str(self._beacon.get("state") or "Green")
+            promote = self._state_rank(candidate_state) >= self._state_rank(current_state)
+            if promote:
+                self._beacon = {
+                    "state": candidate_state,
+                    "score": int(score),
+                    "classification": self._classification_from_score(score),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "reason": reason,
+                }
+            return dict(self._beacon)
+
+    def pre_observe(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        principal = str(request.get("principal") or "unknown")
+        capability = str(request.get("capability") or "")
+        target = str(request.get("target") or "")
+        decision_context = request.get("decision_context") or {}
+        token = request.get("token")
+        risk_hint = request.get("risk_hint") or {}
+
+        key = f"{principal}:{capability}"
+        timeline = self._request_windows[key]
+        timeline.append(now)
+        one_minute_ago = now - timedelta(seconds=60)
+        while timeline and timeline[0] < one_minute_ago:
+            timeline.popleft()
+        tempo_per_minute = len(timeline)
+
+        score = int(risk_hint.get("vns_score_boost") or 0)
+        reasons: List[str] = []
+        if not decision_context.get("decision_id") and not decision_context.get("queue_id"):
+            score += 18
+            reasons.append("missing_decision_context")
+        if not token:
+            score += 15
+            reasons.append("missing_capability_token")
+        if tempo_per_minute >= max(6, int(getattr(self.config, "endpoint_mcp_throttle_per_minute", 18) // 2)):
+            score += 20
+            reasons.append("cli_or_action_burst")
+        if any(x in capability.lower() for x in ("kill", "block", "quarantine", "command", "firewall", "token", "schedule")):
+            score += 10
+            reasons.append("high_impact_capability")
+        if any(x in target.lower() for x in ("canary", "honey", "decoy", "trap")) or bool(risk_hint.get("decoy_hit")):
+            score = max(score + 30, 85)
+            reasons.append("decoy_interaction_detected")
+
+        score = max(0, min(score, 100))
+        beacon = self._update_beacon(score, "pre_observe")
+        return {
+            "phase": "pre",
+            "observed_at": now.isoformat(),
+            "anomaly_score": score,
+            "tempo_per_minute": tempo_per_minute,
+            "classification": self._classification_from_score(score),
+            "reasons": reasons,
+            "beacon": beacon,
+        }
+
+    def post_observe(
+        self,
+        request: Dict[str, Any],
+        *,
+        pre_observation: Dict[str, Any],
+        gate_outcome: str,
+        execution_status: str,
+        gate_reason: str = "",
+    ) -> Dict[str, Any]:
+        score = int((pre_observation or {}).get("anomaly_score") or 0)
+        reasons = list((pre_observation or {}).get("reasons") or [])
+        outcome = str(gate_outcome or "allow").lower().strip()
+
+        if outcome in {"deny", "quarantine", "token-invalid"}:
+            score = max(score, 70)
+            reasons.append("crossing_denied")
+        elif outcome == "queue":
+            score = max(score, 50)
+            reasons.append("queued_for_authority")
+        elif outcome == "throttle":
+            score = max(score, 45)
+            reasons.append("throttled_for_tempo")
+
+        if str(execution_status or "").lower() in {"failed", "error"}:
+            score = min(100, score + 10)
+            reasons.append("execution_failed")
+
+        score = max(0, min(score, 100))
+        beacon = self._update_beacon(score, f"post_observe:{outcome}")
+        return {
+            "phase": "post",
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "anomaly_score": score,
+            "classification": self._classification_from_score(score),
+            "reasons": reasons,
+            "gate_outcome": outcome,
+            "gate_reason": gate_reason,
+            "execution_status": execution_status,
+            "beacon": beacon,
+        }
+
+    def ingest_monitor_signal(self, signal_type: str, severity: str, evidence: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        severity_rank = {"low": 10, "medium": 25, "high": 50, "critical": 80}
+        score = severity_rank.get(str(severity or "").lower(), 20)
+        evidence = evidence or {}
+        if bool(evidence.get("decoy_hit")):
+            score = max(score, 85)
+        beacon = self._update_beacon(score, f"monitor_signal:{signal_type}")
+        return {
+            "signal_type": signal_type,
+            "severity": severity,
+            "anomaly_score": score,
+            "beacon": beacon,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def get_beacon_snapshot(self) -> Dict[str, Any]:
+        with self._lock:
+            return dict(self._beacon)
+
+
+class LocalMCPGate:
+    """
+    Local endpoint MCP gate.
+
+    Responsibilities:
+    - Identity, capability, decision-context, token, and scope checks
+    - Return allow/deny/queue/throttle/quarantine decisions
+    """
+
+    SENSITIVE_CAPABILITIES = {
+        "run_command",
+        "shell_command",
+        "powershell_command",
+        "kill_process",
+        "block_ip",
+        "block_connection",
+        "quarantine_file",
+        "vpn_connect",
+        "vpn_disconnect",
+        "service_control",
+        "scheduled_task",
+        "token_issue",
+        "token_use",
+        "network_isolation",
+        "browser_control",
+        "email_control",
+        "mobile_control",
+        "update_config",
+        "collect_forensics",
+    }
+
+    RED_LOCKDOWN_BLOCKED = {
+        "run_command",
+        "shell_command",
+        "powershell_command",
+        "kill_process",
+        "block_connection",
+        "vpn_connect",
+        "vpn_disconnect",
+        "update_config",
+        "collect_forensics",
+    }
+
+    def __init__(self, config: 'AgentConfig'):
+        self.config = config
+
+    def _token_signature_payload(
+        self,
+        *,
+        token_id: str,
+        principal: str,
+        capability: str,
+        target: str,
+        expires_at: str,
+    ) -> str:
+        return f"{token_id}|{principal}|{capability}|{target}|{expires_at}"
+
+    def _validate_token(self, token: Any, principal: str, capability: str, target: str) -> Tuple[bool, str]:
+        token_id = ""
+        signature = ""
+        expires_at = ""
+        token_principal = ""
+        token_capability = ""
+        token_target = ""
+
+        if isinstance(token, dict):
+            token_id = str(token.get("token_id") or token.get("id") or "").strip()
+            signature = str(token.get("signature") or "").strip()
+            expires_at = str(token.get("expires_at") or "").strip()
+            token_principal = str(token.get("principal") or "").strip()
+            token_capability = str(token.get("capability") or token.get("action") or "").strip()
+            token_target = str(token.get("target") or "").strip()
+        else:
+            token_id = str(token or "").strip()
+
+        if not token_id:
+            return False, "missing_token"
+
+        if expires_at:
+            try:
+                expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) > expiry:
+                    return False, "expired_token"
+            except Exception:
+                return False, "malformed_token_expiry"
+
+        if token_principal and token_principal != principal:
+            return False, "token_principal_mismatch"
+        if token_capability and token_capability != capability:
+            return False, "token_capability_mismatch"
+        if token_target and token_target != target:
+            return False, "token_target_mismatch"
+
+        signing_key = str(getattr(self.config, "endpoint_local_token_signing_key", "") or "").strip()
+        if signing_key:
+            if not signature:
+                return False, "missing_token_signature"
+            payload = self._token_signature_payload(
+                token_id=token_id,
+                principal=principal,
+                capability=capability,
+                target=target,
+                expires_at=expires_at,
+            )
+            expected = hmac.new(signing_key.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, signature):
+                return False, "invalid_token_signature"
+
+        return True, "token_valid"
+
+    def evaluate(self, request: Dict[str, Any], pre_observation: Dict[str, Any]) -> Dict[str, Any]:
+        capability = str(request.get("capability") or "").strip()
+        target = str(request.get("target") or "").strip() or capability
+        principal = str(request.get("principal") or "").strip()
+        token = request.get("token")
+        decision_context = request.get("decision_context") or {}
+        beacon = (pre_observation or {}).get("beacon") or {}
+        beacon_state = str(beacon.get("state") or "Green")
+        tempo_per_minute = int((pre_observation or {}).get("tempo_per_minute") or 0)
+        sensitive = capability in self.SENSITIVE_CAPABILITIES
+
+        if not principal:
+            return {"decision": "deny", "reason": "missing_principal", "token_valid": False}
+
+        throttle_threshold = int(getattr(self.config, "endpoint_mcp_throttle_per_minute", 18))
+        if throttle_threshold > 0 and tempo_per_minute >= throttle_threshold:
+            return {"decision": "throttle", "reason": "tempo_threshold_exceeded", "token_valid": True}
+
+        if str(beacon_state).lower() == "red" and sensitive and capability in self.RED_LOCKDOWN_BLOCKED:
+            return {"decision": "quarantine", "reason": "red_beacon_lockdown", "token_valid": True}
+
+        if sensitive and bool(getattr(self.config, "endpoint_mcp_require_decision_context", True)):
+            if not decision_context.get("decision_id") and not decision_context.get("queue_id"):
+                return {"decision": "queue", "reason": "decision_context_required", "token_valid": False}
+
+        if sensitive and bool(getattr(self.config, "endpoint_mcp_require_token", True)):
+            token_valid, token_reason = self._validate_token(token, principal, capability, target)
+            if not token_valid:
+                if token_reason == "missing_token":
+                    return {"decision": "queue", "reason": "token_required", "token_valid": False}
+                return {"decision": "deny", "reason": token_reason, "token_valid": False, "error_type": "token-invalid"}
+
+        if str(beacon_state).lower() == "amber" and sensitive and capability in {"run_command", "shell_command", "powershell_command", "update_config"}:
+            return {"decision": "queue", "reason": "amber_requires_additional_authority", "token_valid": True}
+
+        return {"decision": "allow", "reason": "approved", "token_valid": True}
+
+
+class LocalExecutionBroker:
+    """
+    Endpoint execution broker:
+    request -> VNS pre-observe -> MCP gate -> local enforcement hook -> VNS post-observe.
+    """
+
+    def __init__(
+        self,
+        config: 'AgentConfig',
+        emit_event_cb: Optional[Callable[[str, str, Dict[str, Any], str], None]] = None,
+    ):
+        self.config = config
+        self.vns = LocalVNSSentinel(config)
+        self.gate = LocalMCPGate(config)
+        self._emit_event_cb = emit_event_cb
+
+    def _emit_event(self, event_type: str, severity: str, data: Dict[str, Any], trace_id: str):
+        if self._emit_event_cb:
+            try:
+                self._emit_event_cb(event_type, severity, data, trace_id)
+            except Exception as e:
+                logger.debug(f"LocalExecutionBroker event callback failed: {e}")
+
+    def execute_sensitive_action(
+        self,
+        *,
+        principal: str,
+        capability: str,
+        target: str,
+        parameters: Dict[str, Any],
+        decision_context: Optional[Dict[str, Any]],
+        token: Any,
+        risk_hint: Optional[Dict[str, Any]],
+        executor: Callable[[], Tuple[bool, str, Dict[str, Any]]],
+        zone_from: str = "agent_control_zone",
+        zone_to: str = "admin_tooling_zone",
+        trace_id: Optional[str] = None,
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        trace = str(trace_id or f"local-boundary-{uuid.uuid4().hex[:12]}")
+        request = {
+            "trace_id": trace,
+            "principal": principal,
+            "capability": capability,
+            "target": target,
+            "parameters": parameters or {},
+            "decision_context": decision_context or {},
+            "token": token,
+            "risk_hint": risk_hint or {},
+            "zone_from": zone_from,
+            "zone_to": zone_to,
+        }
+
+        pre = self.vns.pre_observe(request)
+        gate_decision = self.gate.evaluate(request, pre)
+        decision = str(gate_decision.get("decision") or "deny").lower()
+        reason = str(gate_decision.get("reason") or "denied").strip()
+
+        if decision != "allow":
+            status_map = {
+                "deny": "denied",
+                "queue": "queued",
+                "throttle": "throttled",
+                "quarantine": "quarantined",
+            }
+            execution_status = status_map.get(decision, "denied")
+            post = self.vns.post_observe(
+                request,
+                pre_observation=pre,
+                gate_outcome=("token-invalid" if gate_decision.get("error_type") == "token-invalid" else decision),
+                execution_status=execution_status,
+                gate_reason=reason,
+            )
+            severity = "high" if decision in {"deny", "quarantine"} else "medium"
+            self._emit_event(
+                "endpoint_boundary_crossing",
+                severity,
+                {
+                    "outcome": "token-invalid" if gate_decision.get("error_type") == "token-invalid" else execution_status,
+                    "boundary": request,
+                    "pre_observation": pre,
+                    "gate_decision": gate_decision,
+                    "post_observation": post,
+                },
+                trace,
+            )
+            return False, reason, {
+                "status": execution_status,
+                "trace_id": trace,
+                "pre": pre,
+                "gate": gate_decision,
+                "post": post,
+                "execution": {},
+            }
+
+        success = False
+        message = "executor_not_called"
+        execution_meta: Dict[str, Any] = {}
+        try:
+            success, message, execution_meta = executor()
+        except Exception as e:
+            success = False
+            message = f"execution_error:{e}"
+            execution_meta = {"error": str(e)}
+
+        post = self.vns.post_observe(
+            request,
+            pre_observation=pre,
+            gate_outcome="allow",
+            execution_status="completed" if success else "failed",
+            gate_reason=reason,
+        )
+        outcome = "allowed" if success else "anomalous"
+        severity = "info" if success else "high"
+        self._emit_event(
+            "endpoint_boundary_crossing",
+            severity,
+            {
+                "outcome": outcome,
+                "boundary": request,
+                "pre_observation": pre,
+                "gate_decision": gate_decision,
+                "post_observation": post,
+                "execution": execution_meta,
+            },
+            trace,
+        )
+        return success, message, {
+            "status": "completed" if success else "failed",
+            "trace_id": trace,
+            "pre": pre,
+            "gate": gate_decision,
+            "post": post,
+            "execution": execution_meta,
+        }
+
+
 class RemediationEngine:
     """Execute remediation actions.
 
@@ -7877,61 +8345,193 @@ class RemediationEngine:
         self.blocked_ips: Set[str] = set()
         self.blocked_ports: Set[int] = set()
         self.config = config or AgentConfig()
+        self.local_broker: Optional[LocalExecutionBroker] = None
         # Processes that must never be terminated by the agent
         self._protected_processes = {
             'system', 'systemd', 'svchost.exe', 'wininit.exe', 'explorer.exe',
             'csrss.exe', 'lsass.exe', 'init', 'kernel_task', 'launchd'
         }
-    
-    def _request_triune_approval(self, threat: Threat, timeout: float = 5.0) -> bool:
-        """Ask the triune/backend for approval before taking remediation.
 
-        Returns True if approved, False otherwise or on error.
+    def attach_local_broker(self, broker: LocalExecutionBroker):
+        self.local_broker = broker
+
+    @staticmethod
+    def _resolve_target_for_action(action: str, params: Dict[str, Any]) -> str:
+        if action == "kill_process":
+            return str(params.get("pid") or params.get("process_name") or "process")
+        if action in {"block_ip", "block_connection"}:
+            return str(params.get("ip") or "ip")
+        if action == "quarantine_file":
+            return str(params.get("filepath") or "file")
+        return action
+
+    def _execute_action_direct(self, action: str, params: Dict[str, Any]) -> Tuple[bool, str]:
+        if action == "kill_process":
+            return self._kill_process(params)
+        if action == "block_ip":
+            return self._block_ip(params)
+        if action == "block_connection":
+            return self._block_connection(params)
+        if action == "quarantine_file":
+            return self._quarantine_file(params)
+        return False, f"Unknown action: {action}"
+    
+    def _governance_headers(self) -> Dict[str, str]:
+        headers: Dict[str, str] = {}
+        if getattr(self.config, "auth_token", ""):
+            headers["X-Agent-Id"] = self.config.agent_id
+            headers["X-Agent-Token"] = self.config.auth_token
+        elif getattr(self.config, "enrollment_key", ""):
+            headers["X-Enrollment-Key"] = self.config.enrollment_key
+        if getattr(self.config, "integration_api_key", ""):
+            headers.setdefault("X-Internal-Token", self.config.integration_api_key)
+        return headers
+
+    def _request_triune_approval(
+        self,
+        threat: Threat,
+        action: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        timeout: float = 8.0,
+    ) -> Dict[str, Any]:
+        """
+        Submit remediation proposal to backend governed dispatch.
+
+        Returns dict:
+          {
+            "accepted": bool,
+            "queued": bool,
+            "approved": bool,
+            "response": dict,
+            "error": str
+          }
         """
         if not REQUESTS_AVAILABLE:
-            logger.debug("requests not available; cannot ask triune for approval")
-            return False
+            return {"accepted": False, "queued": False, "approved": False, "error": "requests_unavailable"}
 
-        triune_url = (self.config.server_url or "http://localhost:8001").rstrip('/')
-        endpoint = f"{triune_url}/api/triune/approve_action"
+        base_url = (self.config.server_url or "http://localhost:8001").rstrip("/")
+        endpoint = f"{base_url}/api/unified/agents/{self.config.agent_id}/remediation/propose"
         payload = {
-            'threat': threat.to_dict(),
-            'agent_id': self.config.agent_id,
+            "action": action or threat.remediation_action,
+            "parameters": params or threat.remediation_params or {},
+            "priority": "critical",
+            "reason": threat.kill_reason or "agent_auto_remediation",
+            "threat": threat.to_dict() if hasattr(threat, "to_dict") else {},
         }
         try:
-            r = requests.post(endpoint, json=payload, timeout=timeout)
-            if r.status_code == 200:
-                data = r.json()
-                return bool(data.get('approved', False))
+            response = requests.post(
+                endpoint,
+                headers=self._governance_headers(),
+                json=payload,
+                timeout=timeout,
+            )
+            data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+            if response.status_code >= 400:
+                return {
+                    "accepted": False,
+                    "queued": False,
+                    "approved": False,
+                    "response": data,
+                    "error": f"http_{response.status_code}",
+                }
+
+            status = str(data.get("status") or "").lower().strip()
+            queued = status in {"queued_for_approval", "queued_for_triune_approval", "queued", "pending"}
+            approved = status in {"approved", "released_to_execution"}
+            return {
+                "accepted": bool(queued or approved),
+                "queued": bool(queued),
+                "approved": bool(approved),
+                "response": data,
+                "error": "",
+            }
         except Exception as e:
-            logger.debug(f"Triune approval request failed: {e}")
-        return False
+            return {
+                "accepted": False,
+                "queued": False,
+                "approved": False,
+                "response": {},
+                "error": str(e),
+            }
 
     def execute(self, threat: Threat) -> Tuple[bool, str]:
         """Execute remediation action (gated when configured)."""
         action = threat.remediation_action
         params = threat.remediation_params
+        decision_context: Dict[str, Any] = {}
+        token = (params or {}).get("token") or (params or {}).get("token_id")
 
         # If configured to require triune approval, request it first
         if getattr(self.config, 'require_triune_approval', True):
-            approved = self._request_triune_approval(threat)
-            if not approved:
-                logger.info(f"Remediation action '{action}' blocked by triune (not approved)")
-                return False, "Action not approved by triune"
+            approval = self._request_triune_approval(threat, action=action, params=params)
+            if not approval.get("accepted"):
+                logger.info(f"Remediation action '{action}' blocked by governance ({approval.get('error')})")
+                return False, "governance_rejected_or_unreachable"
+
+            if approval.get("queued", False):
+                queue_id = (approval.get("response") or {}).get("queue_id")
+                decision_id = (approval.get("response") or {}).get("decision_id")
+                return False, f"queued_for_triune_approval:{queue_id or 'unknown'}:{decision_id or 'unknown'}"
+
+            approval_response = approval.get("response") or {}
+            decision_context = {
+                "decision_id": approval_response.get("decision_id"),
+                "queue_id": approval_response.get("queue_id"),
+                "approved": approval.get("approved", False),
+            }
+            # Prefer command release from governance executor rather than immediate local action.
+            if not getattr(self.config, "allow_local_post_triune_approval", False):
+                return False, "approved_via_governance_executor"
+
+        if (
+            getattr(self.config, "endpoint_fortress_enabled", True)
+            and self.local_broker is not None
+            and action in LocalMCPGate.SENSITIVE_CAPABILITIES
+        ):
+            target = self._resolve_target_for_action(action or "", params or {})
+
+            def _executor() -> Tuple[bool, str, Dict[str, Any]]:
+                ok, msg = self._execute_action_direct(action, params)
+                return ok, msg, {"action": action, "target": target, "params": params}
+
+            ok, msg, meta = self.local_broker.execute_sensitive_action(
+                principal=f"agent:{self.config.agent_id or HOSTNAME}",
+                capability=str(action or ""),
+                target=target,
+                parameters=params or {},
+                decision_context=decision_context,
+                token=token,
+                risk_hint={
+                    "threat_type": threat.threat_type,
+                    "threat_severity": threat.severity.value if isinstance(threat.severity, ThreatSeverity) else str(threat.severity),
+                    "vns_score_boost": 30 if threat.severity in {ThreatSeverity.HIGH, ThreatSeverity.CRITICAL} else 10,
+                    "source": "auto_remediation",
+                },
+                executor=_executor,
+                zone_from="agent_control_zone",
+                zone_to="admin_tooling_zone",
+                trace_id=str((threat.evidence or {}).get("trace_id") or ""),
+            )
+            if hasattr(threat, "evidence") and isinstance(threat.evidence, dict):
+                threat.evidence["endpoint_fortress"] = meta
+            return ok, msg
 
         try:
-            if action == "kill_process":
-                return self._kill_process(params)
-            elif action == "block_ip":
-                return self._block_ip(params)
-            elif action == "block_connection":
-                return self._block_connection(params)
-            elif action == "quarantine_file":
-                return self._quarantine_file(params)
-            else:
-                return False, f"Unknown action: {action}"
+            return self._execute_action_direct(action, params)
         except Exception as e:
             return False, str(e)
+
+    def kill_process(self, pid: int, process_name: str = "unknown") -> bool:
+        ok, _ = self._kill_process({"pid": pid, "process_name": process_name})
+        return bool(ok)
+
+    def block_ip(self, ip: str) -> bool:
+        ok, _ = self._block_ip({"ip": ip})
+        return bool(ok)
+
+    def quarantine_file(self, filepath: Any) -> bool:
+        ok, _ = self._quarantine_file({"filepath": str(filepath)})
+        return bool(ok)
     
     def _kill_process(self, params: Dict) -> Tuple[bool, str]:
         """Kill a malicious process"""
@@ -12127,6 +12727,28 @@ class CLITelemetryMonitor(MonitorModule):
             'command': command[:500],
         }
 
+    def _get_ingest_headers(self, purpose: str) -> Dict[str, str]:
+        """Build ingestion headers for backend machine-token routes."""
+        headers: Dict[str, str] = {}
+        bearer = str(getattr(self.config, "api_bearer_token", "") or "").strip()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+
+        internal = str(getattr(self.config, "integration_api_key", "") or "").strip()
+        if internal:
+            headers["X-Internal-Token"] = internal
+
+        if purpose == "identity":
+            identity_token = str(getattr(self.config, "identity_ingest_token", "") or "").strip()
+            if identity_token:
+                headers["X-Identity-Token"] = identity_token
+        elif purpose == "cli":
+            cli_token = str(getattr(self.config, "cli_ingest_token", "") or "").strip()
+            if cli_token:
+                headers["X-CLI-Token"] = cli_token
+
+        return headers
+
     def _send_identity_provider_event(self, provider: str, event_payload: Dict[str, Any]):
         if not REQUESTS_AVAILABLE:
             return
@@ -12138,9 +12760,15 @@ class CLITelemetryMonitor(MonitorModule):
         else:
             endpoint = '/api/v1/identity/events/entra'
 
+        headers = self._get_ingest_headers("identity")
+        if not headers:
+            logger.debug("Skipping identity signal export: no identity/machine auth configured")
+            return
+
         try:
             requests.post(
                 f"{self.backend_url}{endpoint}",
+                headers=headers,
                 json={'events': [event_payload]},
                 timeout=5,
             )
@@ -12167,6 +12795,10 @@ class CLITelemetryMonitor(MonitorModule):
     def _send_cli_event(self, event_data: Dict[str, Any]):
         """Send CLI command event to backend CCE pipeline"""
         try:
+            headers = self._get_ingest_headers("cli")
+            if not headers:
+                logger.debug("Skipping CLI event export: no CLI/machine auth configured")
+                return
             payload = {
                 'host_id': event_data.get('host_id', self.config.agent_id),
                 'session_id': f"agent-{self.config.agent_id}",
@@ -12181,6 +12813,7 @@ class CLITelemetryMonitor(MonitorModule):
             
             response = requests.post(
                 f"{self.backend_url}/api/cli/event",
+                headers=headers,
                 json=payload,
                 timeout=5
             )
@@ -14773,6 +15406,11 @@ class UnifiedAgent:
         
         # Initialize remediation (pass config so engine can ask triune)
         self.remediation = RemediationEngine(self.config)
+        self.local_execution_broker = LocalExecutionBroker(
+            self.config,
+            emit_event_cb=self._emit_endpoint_world_event,
+        )
+        self.remediation.attach_local_broker(self.local_execution_broker)
         
         # Telemetry storage
         self.telemetry = TelemetryData(agent_id=self.config.agent_id)
@@ -14912,6 +15550,20 @@ class UnifiedAgent:
         elif self.config.enrollment_key:
             return {'X-Enrollment-Key': self.config.enrollment_key}
         return {}
+
+    def _get_side_channel_headers(self) -> Dict[str, str]:
+        """
+        Headers for non-unified side-channel APIs (AI/VNS/ingest).
+        Prefers bearer auth, with optional internal machine token support.
+        """
+        headers: Dict[str, str] = {}
+        bearer = str(getattr(self.config, "api_bearer_token", "") or "").strip()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        internal = str(getattr(self.config, "integration_api_key", "") or "").strip()
+        if internal:
+            headers["X-Internal-Token"] = internal
+        return headers
     
     def _get_primary_ip(self) -> str:
         """Get primary IP address"""
@@ -14970,6 +15622,34 @@ class UnifiedAgent:
 
         return True, "passed"
 
+    def _notify_local_vns_threat_signal(self, threat: Threat):
+        """Feed monitor-detected threat signal into local endpoint sentinel."""
+        if not getattr(self.config, "endpoint_fortress_enabled", True):
+            return
+        try:
+            severity = threat.severity.value if isinstance(threat.severity, ThreatSeverity) else str(threat.severity or "medium")
+            signal = self.local_execution_broker.vns.ingest_monitor_signal(
+                signal_type=str(threat.threat_type or "unknown"),
+                severity=severity,
+                evidence={
+                    "decoy_hit": bool((threat.evidence or {}).get("decoy_hit")),
+                    "threat_id": threat.threat_id,
+                },
+            )
+            self._emit_endpoint_world_event(
+                "endpoint_vns_monitor_signal",
+                "high" if str(signal.get("beacon", {}).get("state", "")).lower() in {"amber", "red"} else "info",
+                {
+                    "threat_id": threat.threat_id,
+                    "threat_type": threat.threat_type,
+                    "severity": severity,
+                    "signal": signal,
+                },
+                trace_id=str((threat.evidence or {}).get("trace_id") or ""),
+            )
+        except Exception as e:
+            logger.debug(f"Local VNS signal feed failed: {e}")
+
     def scan_all(self) -> Dict[str, Any]:
         """Run all enabled monitors"""
         results = {}
@@ -15020,6 +15700,7 @@ class UnifiedAgent:
 
         self.threat_history.append(threat)
         self.stats["threats_detected"] += 1
+        self._notify_local_vns_threat_signal(threat)
         
         # Determine if auto-kill should be triggered
         should_auto_kill = False
@@ -15047,6 +15728,8 @@ class UnifiedAgent:
             
             # Execute remediation
             success, msg = self.remediation.execute(threat)
+            queued_for_triune = isinstance(msg, str) and msg.startswith("queued_for_triune_approval")
+            governance_deferred = isinstance(msg, str) and msg == "approved_via_governance_executor"
             
             if success:
                 self.stats["threats_auto_killed"] += 1
@@ -15056,11 +15739,27 @@ class UnifiedAgent:
                 
                 # Log to SIEM
                 self.siem.log_threat(threat, "auto_killed")
+            elif queued_for_triune or governance_deferred:
+                threat.status = "queued_for_triune_approval"
+                threat.user_approved = False
+                threat.evidence = dict(threat.evidence or {})
+                threat.evidence["governance_queue_status"] = msg
+                logger.warning(f"AUTO-KILL QUEUED FOR TRIUNE: {threat.title} | Reason: {kill_reason} | {msg}")
+                self._log_event("auto_remediation_queued", {
+                    "threat_id": threat.threat_id,
+                    "title": threat.title,
+                    "reason": kill_reason,
+                    "queue_status": msg,
+                })
+                self.siem.log_threat(threat, "queued_for_triune_approval")
             else:
                 logger.error(f"AUTO-KILL FAILED: {threat.title} - {msg}")
             
             # Trigger alarm
-            self._trigger_alarm(threat, f"AUTO_KILL:{kill_reason}")
+            if queued_for_triune or governance_deferred:
+                self._trigger_alarm(threat, f"AUTO_KILL_QUEUED:{kill_reason}")
+            else:
+                self._trigger_alarm(threat, f"AUTO_KILL:{kill_reason}")
         else:
             # Log to SIEM
             self.siem.log_threat(threat, "detected")
@@ -15106,8 +15805,13 @@ class UnifiedAgent:
             return
         
         try:
+            headers = self._get_side_channel_headers()
+            if not headers:
+                logger.debug("Skipping AI analysis request: no side-channel auth configured")
+                return
             response = requests.post(
                 f"{self.config.server_url}/api/advanced/ai/analyze",
+                headers=headers if headers else None,
                 json={
                     "title": threat.title,
                     "description": threat.description,
@@ -15135,9 +15839,14 @@ class UnifiedAgent:
                 evidence = threat.evidence
                 local = evidence.get('local', ':0')
                 remote = evidence.get('remote', ':0')
+                headers = self._get_side_channel_headers()
+                if not headers:
+                    logger.debug("Skipping VNS sync: no side-channel auth configured")
+                    return
                 
                 requests.post(
                     f"{self.config.server_url}/api/advanced/vns/flow",
+                    headers=headers if headers else None,
                     json={
                         "src_ip": local.split(':')[0] if ':' in local else '0.0.0.0',
                         "src_port": int(local.split(':')[-1]) if ':' in local else 0,
@@ -15174,6 +15883,60 @@ class UnifiedAgent:
         
         if self.on_telemetry_update:
             self.on_telemetry_update(self.telemetry)
+
+    def _compact_monitor_value(self, value: Any, depth: int = 0) -> Any:
+        """Bound monitor payload size before heartbeat transport."""
+        if depth >= 3:
+            return str(value)[:240]
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            if isinstance(value, str):
+                return value[:500]
+            return value
+        if isinstance(value, list):
+            return [self._compact_monitor_value(v, depth + 1) for v in value[:40]]
+        if isinstance(value, dict):
+            compacted: Dict[str, Any] = {}
+            for key, item in list(value.items())[:40]:
+                compacted[str(key)[:80]] = self._compact_monitor_value(item, depth + 1)
+            return compacted
+        return str(value)[:240]
+
+    def _build_monitors_payload(self) -> Dict[str, Any]:
+        """Serialize all monitor status snapshots for backend SSOT ingestion."""
+        payload: Dict[str, Any] = {}
+        for name, monitor in self.monitors.items():
+            if not getattr(monitor, "enabled", True):
+                continue
+            monitor_snapshot: Dict[str, Any] = {}
+            last_run = getattr(monitor, "last_run", None)
+            if hasattr(last_run, "isoformat"):
+                monitor_snapshot["last_run"] = last_run.isoformat()
+            elif last_run is not None:
+                monitor_snapshot["last_run"] = str(last_run)
+
+            threat_count = 0
+            if hasattr(monitor, "get_threats"):
+                try:
+                    monitor_threats = monitor.get_threats() or []
+                    if isinstance(monitor_threats, list):
+                        threat_count = len(monitor_threats)
+                except Exception:
+                    threat_count = 0
+            monitor_snapshot["threats_found"] = int(max(0, threat_count))
+
+            if hasattr(monitor, "get_status"):
+                try:
+                    status_payload = monitor.get_status()
+                    if isinstance(status_payload, dict):
+                        for key, value in status_payload.items():
+                            if key in {"last_run", "threats_found"}:
+                                continue
+                            monitor_snapshot[key] = self._compact_monitor_value(value)
+                except Exception:
+                    pass
+
+            payload[name] = monitor_snapshot
+        return payload
 
     def _mask_file_path(self, path_value: Any) -> Optional[str]:
         """Mask file path while preserving minimal triage value."""
@@ -15242,6 +16005,51 @@ class UnifiedAgent:
         
         # Log to SIEM
         self.siem.log_event(event_type, data.get('severity', 'info'), data)
+
+    def _emit_endpoint_world_event(self, event_type: str, severity: str, data: Dict[str, Any], trace_id: str = ""):
+        """
+        Emit endpoint fortress event locally + upstream world-state telemetry.
+        """
+        enriched = dict(data or {})
+        enriched.setdefault("agent_id", self.config.agent_id)
+        enriched.setdefault("hostname", HOSTNAME)
+        if trace_id:
+            enriched.setdefault("trace_id", trace_id)
+
+        # Always keep local event trail (endpoint-side SSOT cache).
+        self._log_event(event_type, {"severity": severity, **enriched})
+
+        if not getattr(self.config, "endpoint_world_event_feedback_enabled", True):
+            return
+        if not REQUESTS_AVAILABLE or not self.config.server_url:
+            return
+
+        try:
+            headers = self._get_side_channel_headers()
+            auth_headers = self._get_auth_headers()
+            # Enterprise telemetry endpoint accepts x-agent-token and x-internal-token.
+            if auth_headers.get("X-Agent-Token"):
+                headers.setdefault("x-agent-token", auth_headers["X-Agent-Token"])
+            if auth_headers.get("X-Agent-Id"):
+                headers.setdefault("x-agent-id", auth_headers["X-Agent-Id"])
+            if not headers:
+                return
+
+            requests.post(
+                f"{self.config.server_url.rstrip('/')}/api/enterprise/telemetry/event",
+                headers=headers,
+                json={
+                    "event_type": event_type,
+                    "severity": severity,
+                    "data": enriched,
+                    "agent_id": self.config.agent_id,
+                    "hostname": HOSTNAME,
+                    "trace_id": trace_id or "",
+                },
+                timeout=5,
+            )
+        except Exception as e:
+            logger.debug(f"Endpoint world event emit failed: {e}")
     
     def heartbeat(self) -> bool:
         """Send heartbeat to server"""
@@ -15267,6 +16075,11 @@ class UnifiedAgent:
                     "is_admin": self._is_admin,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "telemetry": asdict(self.telemetry),
+                    "monitors": self._build_monitors_payload(),
+                    "endpoint_fortress": {
+                        "enabled": bool(getattr(self.config, "endpoint_fortress_enabled", True)),
+                        "beacon": self.local_execution_broker.vns.get_beacon_snapshot() if hasattr(self, "local_execution_broker") else {},
+                    },
                     "edm_hits": outbound_hits,
                     "local_ui_url": self._local_ui_url,
                 },
@@ -15306,6 +16119,12 @@ class UnifiedAgent:
             "lan_discovery": {
                 "network": self.lan_discovery.network_cidr,
                 "devices_found": len(self.lan_discovery.discovered_devices)
+            },
+            "endpoint_fortress": {
+                "enabled": bool(getattr(self.config, "endpoint_fortress_enabled", True)),
+                "beacon": self.local_execution_broker.vns.get_beacon_snapshot() if hasattr(self, "local_execution_broker") else {},
+                "mcp_require_decision_context": bool(getattr(self.config, "endpoint_mcp_require_decision_context", True)),
+                "mcp_require_token": bool(getattr(self.config, "endpoint_mcp_require_token", True)),
             },
             "telemetry": {
                 "cpu_usage": self.telemetry.cpu_usage,
@@ -15356,7 +16175,9 @@ class UnifiedAgent:
         devices = self.lan_discovery.scan_network()
         
         if report and self.config.server_url:
-            self.lan_discovery.report_to_server(devices)
+            scanner_headers = self._get_side_channel_headers()
+            scanner_headers.update(self._get_auth_headers())
+            self.lan_discovery.report_to_server(devices, headers=scanner_headers)
         
         return devices
     
@@ -15392,6 +16213,123 @@ class UnifiedAgent:
             logger.debug(f"Command poll error: {e}")
         
         return []
+
+    def _extract_command_decision_context(self, command: Dict[str, Any]) -> Dict[str, Any]:
+        nested = command.get("decision_context") if isinstance(command.get("decision_context"), dict) else {}
+        return {
+            "decision_id": nested.get("decision_id") or command.get("decision_id") or command.get("policy_decision_id"),
+            "queue_id": nested.get("queue_id") or command.get("queue_id"),
+            "approved": bool(
+                nested.get("approved", False)
+                or command.get("approved", False)
+                or command.get("released_to_execution", False)
+                or nested.get("released_to_execution", False)
+            ),
+        }
+
+    def _extract_command_token(self, command: Dict[str, Any], params: Dict[str, Any]) -> Any:
+        authority = command.get("authority_context") if isinstance(command.get("authority_context"), dict) else {}
+        auth_token = authority.get("token")
+        if isinstance(auth_token, dict) and auth_token:
+            return auth_token
+        token = command.get("token")
+        if token:
+            return token
+        if authority.get("token_id"):
+            return {"token_id": authority.get("token_id")}
+        if command.get("token_id"):
+            return {"token_id": command.get("token_id")}
+        if params.get("token"):
+            return params.get("token")
+        if params.get("token_id"):
+            return {"token_id": params.get("token_id")}
+        return None
+
+    def _command_zone_mapping(self, capability: str) -> str:
+        cap = str(capability or "").lower()
+        if cap in {"browser_control", "email_control", "mobile_control", "quarantine_file"}:
+            return "browser_email_document_zone"
+        if cap in {"block_ip", "block_connection", "vpn_connect", "vpn_disconnect", "network_isolation"}:
+            return "network_egress_zone"
+        if cap in {"token_issue", "token_use"}:
+            return "credential_token_zone"
+        return "admin_tooling_zone"
+
+    def _execute_local_run_command(self, params: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Local enforcement hook for governed command execution choke-point.
+        """
+        if not bool(getattr(self.config, "endpoint_allow_shell_commands", False)):
+            return False, "shell_command_execution_disabled", {}
+
+        command_value = params.get("command")
+        timeout = int(params.get("timeout", 30) or 30)
+        if isinstance(command_value, list):
+            argv = [str(v) for v in command_value if str(v).strip()]
+        else:
+            command_text = str(command_value or "").strip()
+            if not command_text:
+                return False, "missing_command", {}
+            argv = [command_text]
+
+        # Guardrail: refuse obvious shell injection operators unless explicit argv list is provided.
+        if isinstance(command_value, str) and any(x in command_value for x in [";", "&&", "||", "|", "`", "$("]):
+            return False, "unsafe_shell_operators_detected", {}
+
+        try:
+            if isinstance(command_value, list):
+                proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+            else:
+                # No shell=True: execute the command directly by split argv.
+                proc = subprocess.run(shlex.split(argv[0]), capture_output=True, text=True, timeout=timeout)
+            success = proc.returncode == 0
+            return success, ("command_executed" if success else f"command_failed_rc_{proc.returncode}"), {
+                "return_code": proc.returncode,
+                "stdout": (proc.stdout or "")[:5000],
+                "stderr": (proc.stderr or "")[:3000],
+            }
+        except subprocess.TimeoutExpired:
+            return False, f"command_timeout_{timeout}s", {}
+        except Exception as e:
+            return False, f"command_execution_error:{e}", {}
+
+    def _execute_command_via_fortress(
+        self,
+        *,
+        command: Dict[str, Any],
+        capability: str,
+        target: str,
+        params: Dict[str, Any],
+        executor: Callable[[], Tuple[bool, str, Dict[str, Any]]],
+        risk_hint: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        principal = str(
+            command.get("principal")
+            or command.get("requested_by")
+            or command.get("actor")
+            or "service:control_plane"
+        )
+        decision_context = self._extract_command_decision_context(command)
+        token = self._extract_command_token(command, params)
+        zone_to = self._command_zone_mapping(capability)
+        trace_id = str(command.get("trace_id") or f"cmd-{command.get('command_id', uuid.uuid4().hex[:8])}")
+
+        if not getattr(self.config, "endpoint_fortress_enabled", True):
+            return executor()
+
+        return self.local_execution_broker.execute_sensitive_action(
+            principal=principal,
+            capability=capability,
+            target=target,
+            parameters=params,
+            decision_context=decision_context,
+            token=token,
+            risk_hint=risk_hint or {},
+            executor=executor,
+            zone_from="agent_control_zone",
+            zone_to=zone_to,
+            trace_id=trace_id,
+        )
     
     def execute_command(self, command: Dict) -> Dict:
         """Execute a server-sent command and return result"""
@@ -15439,58 +16377,83 @@ class UnifiedAgent:
                 result['result'] = {'threats': [asdict(t) if hasattr(t, '__dict__') else t for t in threats]}
                 
             elif cmd_type == 'collect_forensics':
-                # Collect system forensics data
-                forensics = {
-                    'processes': self._get_process_list(),
-                    'network_connections': self._get_network_connections(),
-                    'services': self._get_services(),
-                    'users': self._get_logged_users(),
-                    'system_info': self._get_system_info()
-                }
-                result['result'] = forensics
+                def _exec_collect_forensics() -> Tuple[bool, str, Dict[str, Any]]:
+                    forensics = {
+                        'processes': self._get_process_list(),
+                        'network_connections': self._get_network_connections(),
+                        'services': self._get_services(),
+                        'users': self._get_logged_users(),
+                        'system_info': self._get_system_info(),
+                    }
+                    return True, "forensics_collected", forensics
+
+                ok, msg, meta = self._execute_command_via_fortress(
+                    command=command,
+                    capability="collect_forensics",
+                    target=f"host:{HOSTNAME}",
+                    params=params,
+                    executor=_exec_collect_forensics,
+                    risk_hint={"source": "server_command", "vns_score_boost": 20},
+                )
+                result['status'] = meta.get("status", "completed" if ok else "failed")
+                result['result'] = meta.get("execution", {}) if ok else {'error': msg}
+                result['fortress'] = meta
                 
             elif cmd_type == 'update_config':
-                # Update agent configuration
-                if 'auto_kill' in params:
-                    self.config.auto_remediate = params['auto_kill']
-                if 'auto_block_ips' in params:
-                    self.config.auto_block_ips = params['auto_block_ips']
-                if 'update_interval' in params:
-                    self.config.update_interval = params['update_interval']
+                def _exec_update_config() -> Tuple[bool, str, Dict[str, Any]]:
+                    # Update agent configuration
+                    if 'auto_kill' in params:
+                        self.config.auto_remediate = params['auto_kill']
+                    if 'auto_block_ips' in params:
+                        self.config.auto_block_ips = params['auto_block_ips']
+                    if 'update_interval' in params:
+                        self.config.update_interval = params['update_interval']
 
-                # EDM runtime config updates
-                if 'dlp_edm_enabled' in params:
-                    self.config.dlp_edm_enabled = bool(params['dlp_edm_enabled'])
-                if 'dlp_edm_dataset_path' in params:
-                    self.config.dlp_edm_dataset_path = str(params['dlp_edm_dataset_path'])
-                if 'dlp_edm_tenant_salt' in params:
-                    self.config.dlp_edm_tenant_salt = str(params['dlp_edm_tenant_salt'])
-                if 'dlp_edm_max_records' in params:
-                    self.config.dlp_edm_max_records = int(params['dlp_edm_max_records'])
-                if 'dlp_edm_min_confidence' in params:
-                    self.config.dlp_edm_min_confidence = float(params['dlp_edm_min_confidence'])
-                if 'dlp_edm_allowed_candidate_types' in params and isinstance(params['dlp_edm_allowed_candidate_types'], list):
-                    self.config.dlp_edm_allowed_candidate_types = [str(v) for v in params['dlp_edm_allowed_candidate_types'] if str(v).strip()]
-                if 'dlp_edm_require_signed' in params:
-                    self.config.dlp_edm_require_signed = bool(params['dlp_edm_require_signed'])
-                if 'dlp_edm_signing_secret' in params:
-                    self.config.dlp_edm_signing_secret = str(params['dlp_edm_signing_secret'])
+                    # EDM runtime config updates
+                    if 'dlp_edm_enabled' in params:
+                        self.config.dlp_edm_enabled = bool(params['dlp_edm_enabled'])
+                    if 'dlp_edm_dataset_path' in params:
+                        self.config.dlp_edm_dataset_path = str(params['dlp_edm_dataset_path'])
+                    if 'dlp_edm_tenant_salt' in params:
+                        self.config.dlp_edm_tenant_salt = str(params['dlp_edm_tenant_salt'])
+                    if 'dlp_edm_max_records' in params:
+                        self.config.dlp_edm_max_records = int(params['dlp_edm_max_records'])
+                    if 'dlp_edm_min_confidence' in params:
+                        self.config.dlp_edm_min_confidence = float(params['dlp_edm_min_confidence'])
+                    if 'dlp_edm_allowed_candidate_types' in params and isinstance(params['dlp_edm_allowed_candidate_types'], list):
+                        self.config.dlp_edm_allowed_candidate_types = [str(v) for v in params['dlp_edm_allowed_candidate_types'] if str(v).strip()]
+                    if 'dlp_edm_require_signed' in params:
+                        self.config.dlp_edm_require_signed = bool(params['dlp_edm_require_signed'])
+                    if 'dlp_edm_signing_secret' in params:
+                        self.config.dlp_edm_signing_secret = str(params['dlp_edm_signing_secret'])
 
-                # Rebuild DLP monitor if EDM settings changed.
-                if 'dlp' in self.monitors and any(
-                    k in params for k in [
-                        'dlp_edm_enabled',
-                        'dlp_edm_dataset_path',
-                        'dlp_edm_tenant_salt',
-                        'dlp_edm_max_records',
-                        'dlp_edm_min_confidence',
-                        'dlp_edm_allowed_candidate_types',
-                        'dlp_edm_require_signed',
-                        'dlp_edm_signing_secret',
-                    ]
-                ):
-                    self.monitors['dlp'] = DLPMonitor(self.config)
-                result['result'] = {'config_updated': True, 'new_config': asdict(self.config)}
+                    # Rebuild DLP monitor if EDM settings changed.
+                    if 'dlp' in self.monitors and any(
+                        k in params for k in [
+                            'dlp_edm_enabled',
+                            'dlp_edm_dataset_path',
+                            'dlp_edm_tenant_salt',
+                            'dlp_edm_max_records',
+                            'dlp_edm_min_confidence',
+                            'dlp_edm_allowed_candidate_types',
+                            'dlp_edm_require_signed',
+                            'dlp_edm_signing_secret',
+                        ]
+                    ):
+                        self.monitors['dlp'] = DLPMonitor(self.config)
+                    return True, "config_updated", {'config_updated': True, 'new_config': asdict(self.config)}
+
+                ok, msg, meta = self._execute_command_via_fortress(
+                    command=command,
+                    capability="update_config",
+                    target=f"agent_config:{self.config.agent_id}",
+                    params=params,
+                    executor=_exec_update_config,
+                    risk_hint={"source": "server_command", "vns_score_boost": 25},
+                )
+                result['status'] = meta.get("status", "completed" if ok else "failed")
+                result['result'] = meta.get("execution", {}) if ok else {'error': msg}
+                result['fortress'] = meta
 
             elif cmd_type == 'reload_edm_dataset':
                 dlp = self.monitors.get('dlp')
@@ -15532,10 +16495,27 @@ class UnifiedAgent:
             elif cmd_type in ('quarantine_file', 'quarantine'):
                 filepath = params.get('filepath')
                 if filepath:
-                    if not self._is_admin:
-                        result['result'] = {'warning': 'Agent not running with admin privileges - quarantine may fail', 'is_admin': False}
-                    success = self.remediation.quarantine_file(Path(filepath))
-                    result['result'] = {'quarantined': success, 'filepath': filepath, 'is_admin': self._is_admin}
+                    def _exec_quarantine() -> Tuple[bool, str, Dict[str, Any]]:
+                        warning = None
+                        if not self._is_admin:
+                            warning = 'Agent not running with admin privileges - quarantine may fail'
+                        success = self.remediation.quarantine_file(Path(filepath))
+                        payload = {'quarantined': success, 'filepath': filepath, 'is_admin': self._is_admin}
+                        if warning:
+                            payload['warning'] = warning
+                        return success, ("file_quarantined" if success else "quarantine_failed"), payload
+
+                    ok, msg, meta = self._execute_command_via_fortress(
+                        command=command,
+                        capability="quarantine_file",
+                        target=str(filepath),
+                        params=params,
+                        executor=_exec_quarantine,
+                        risk_hint={"source": "server_command", "vns_score_boost": 20},
+                    )
+                    result['status'] = meta.get("status", "completed" if ok else "failed")
+                    result['result'] = meta.get("execution", {}) if ok else {'error': msg, 'filepath': filepath}
+                    result['fortress'] = meta
                 else:
                     result['status'] = 'failed'
                     result['result'] = {'error': "No filepath provided (expected 'filepath' parameter)"}
@@ -15543,10 +16523,27 @@ class UnifiedAgent:
             elif cmd_type == 'block_ip':
                 ip = params.get('ip')
                 if ip:
-                    if not self._is_admin:
-                        result['result'] = {'warning': 'Agent not running with admin privileges - IP blocking requires elevated permissions', 'is_admin': False}
-                    success = self.remediation.block_ip(ip)
-                    result['result'] = {'blocked': success, 'ip': ip, 'is_admin': self._is_admin}
+                    def _exec_block_ip() -> Tuple[bool, str, Dict[str, Any]]:
+                        warning = None
+                        if not self._is_admin:
+                            warning = 'Agent not running with admin privileges - IP blocking requires elevated permissions'
+                        success = self.remediation.block_ip(ip)
+                        payload = {'blocked': success, 'ip': ip, 'is_admin': self._is_admin}
+                        if warning:
+                            payload['warning'] = warning
+                        return success, ("ip_blocked" if success else "ip_block_failed"), payload
+
+                    ok, msg, meta = self._execute_command_via_fortress(
+                        command=command,
+                        capability="block_ip",
+                        target=str(ip),
+                        params=params,
+                        executor=_exec_block_ip,
+                        risk_hint={"source": "server_command", "vns_score_boost": 20},
+                    )
+                    result['status'] = meta.get("status", "completed" if ok else "failed")
+                    result['result'] = meta.get("execution", {}) if ok else {'error': msg, 'ip': ip}
+                    result['fortress'] = meta
                 else:
                     result['status'] = 'failed'
                     result['result'] = {'error': 'No IP provided'}
@@ -15554,33 +16551,109 @@ class UnifiedAgent:
             elif cmd_type == 'kill_process':
                 pid = params.get('pid')
                 name = params.get('name')
-                if not self._is_admin:
-                    logger.warning("Agent not running with admin privileges - process kill may fail for system processes")
-                if pid:
-                    success = self.remediation.kill_process(pid)
-                    result['result'] = {'killed': success, 'pid': pid, 'is_admin': self._is_admin}
-                elif name:
-                    # Kill by name
-                    killed = []
-                    for proc in psutil.process_iter(['pid', 'name']) if PSUTIL_AVAILABLE else []:
-                        if proc.info['name'] and name.lower() in proc.info['name'].lower():
-                            try:
-                                proc.kill()
-                                killed.append(proc.info['pid'])
-                            except:
-                                pass
-                    result['result'] = {'killed_pids': killed, 'name': name, 'is_admin': self._is_admin}
+                if pid or name:
+                    def _exec_kill_process() -> Tuple[bool, str, Dict[str, Any]]:
+                        warning = None
+                        if not self._is_admin:
+                            warning = "Agent not running with admin privileges - process kill may fail for system processes"
+                            logger.warning(warning)
+                        if pid:
+                            success = self.remediation.kill_process(pid)
+                            payload = {'killed': success, 'pid': pid, 'is_admin': self._is_admin}
+                            if warning:
+                                payload['warning'] = warning
+                            return success, ("process_killed" if success else "process_kill_failed"), payload
+
+                        killed = []
+                        for proc in psutil.process_iter(['pid', 'name']) if PSUTIL_AVAILABLE else []:
+                            if proc.info['name'] and name.lower() in proc.info['name'].lower():
+                                try:
+                                    ok, _ = self.remediation._kill_process({
+                                        "pid": proc.info.get('pid'),
+                                        "process_name": proc.info.get('name') or name,
+                                    })
+                                    if ok:
+                                        killed.append(proc.info['pid'])
+                                except Exception:
+                                    pass
+                        success = len(killed) > 0
+                        payload = {'killed_pids': killed, 'name': name, 'is_admin': self._is_admin}
+                        if warning:
+                            payload['warning'] = warning
+                        return success, ("processes_killed" if success else "no_matching_process_killed"), payload
+
+                    target = str(pid or name)
+                    ok, msg, meta = self._execute_command_via_fortress(
+                        command=command,
+                        capability="kill_process",
+                        target=target,
+                        params=params,
+                        executor=_exec_kill_process,
+                        risk_hint={"source": "server_command", "vns_score_boost": 35},
+                    )
+                    result['status'] = meta.get("status", "completed" if ok else "failed")
+                    result['result'] = meta.get("execution", {}) if ok else {'error': msg, 'target': target}
+                    result['fortress'] = meta
                 else:
                     result['status'] = 'failed'
                     result['result'] = {'error': 'No pid or name provided'}
+
+            elif cmd_type in ('run_command', 'shell_command', 'powershell_command'):
+                command_text = params.get('command')
+                if command_text:
+                    capability = "powershell_command" if cmd_type == "powershell_command" else (
+                        "shell_command" if cmd_type == "shell_command" else "run_command"
+                    )
+                    ok, msg, meta = self._execute_command_via_fortress(
+                        command=command,
+                        capability=capability,
+                        target=str(command_text)[:200],
+                        params=params,
+                        executor=lambda: self._execute_local_run_command(params),
+                        risk_hint={"source": "server_command", "vns_score_boost": 40},
+                    )
+                    result['status'] = meta.get("status", "completed" if ok else "failed")
+                    result['result'] = meta.get("execution", {}) if ok else {'error': msg}
+                    result['fortress'] = meta
+                else:
+                    result['status'] = 'failed'
+                    result['result'] = {'error': 'No command provided'}
                     
             elif cmd_type == 'vpn_connect':
-                self.vpn.connect()
-                result['result'] = self.vpn.get_status()
+                def _exec_vpn_connect() -> Tuple[bool, str, Dict[str, Any]]:
+                    self.vpn.connect()
+                    status = self.vpn.get_status()
+                    return bool(status.get('connected') or status.get('configured')), "vpn_connect_attempted", status
+
+                ok, msg, meta = self._execute_command_via_fortress(
+                    command=command,
+                    capability="vpn_connect",
+                    target="network_egress_zone",
+                    params=params,
+                    executor=_exec_vpn_connect,
+                    risk_hint={"source": "server_command", "vns_score_boost": 20},
+                )
+                result['status'] = meta.get("status", "completed" if ok else "failed")
+                result['result'] = meta.get("execution", {}) if ok else {'error': msg}
+                result['fortress'] = meta
                 
             elif cmd_type == 'vpn_disconnect':
-                self.vpn.disconnect()
-                result['result'] = self.vpn.get_status()
+                def _exec_vpn_disconnect() -> Tuple[bool, str, Dict[str, Any]]:
+                    self.vpn.disconnect()
+                    status = self.vpn.get_status()
+                    return True, "vpn_disconnected", status
+
+                ok, msg, meta = self._execute_command_via_fortress(
+                    command=command,
+                    capability="vpn_disconnect",
+                    target="network_egress_zone",
+                    params=params,
+                    executor=_exec_vpn_disconnect,
+                    risk_hint={"source": "server_command", "vns_score_boost": 20},
+                )
+                result['status'] = meta.get("status", "completed" if ok else "failed")
+                result['result'] = meta.get("execution", {}) if ok else {'error': msg}
+                result['fortress'] = meta
                 
             elif cmd_type == 'get_status':
                 result['result'] = self.get_status()
@@ -15607,6 +16680,11 @@ class UnifiedAgent:
 
             elif cmd_type in ('volatility_scan', 'volatility_status'):
                 result['result'] = self._execute_volatility_command(params)
+                if not result['result'].get('success', False):
+                    result['status'] = 'failed'
+
+            elif cmd_type == 'integration_runtime':
+                result['result'] = self._execute_integration_runtime(params)
                 if not result['result'].get('success', False):
                     result['status'] = 'failed'
                 
@@ -15677,6 +16755,166 @@ class UnifiedAgent:
                 'error': str(e),
                 'command': cmd,
             }
+
+    def _execute_integration_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute integration runtimes on endpoint with strict allowlist.
+        This avoids generic shell-command dispatch while still supporting
+        operational launches from the central integration orchestrator.
+        """
+        tool = str(params.get('tool') or '').strip().lower()
+        tool_params = params.get('params') if isinstance(params.get('params'), dict) else {}
+        tool_params = dict(tool_params or {})
+        allowed = {
+            'amass', 'arkime', 'bloodhound', 'spiderfoot',
+            'velociraptor', 'purplesharp', 'sigma', 'atomic',
+            'trivy', 'falco', 'suricata', 'yara', 'osquery', 'zeek', 'cuckoo',
+        }
+        if tool not in allowed:
+            return {'success': False, 'error': f"Unsupported integration tool '{tool}'", 'tool': tool}
+
+        if tool == 'amass':
+            domain = str(tool_params.get('domain') or '').strip()
+            if not domain:
+                return {'success': False, 'error': 'domain_required', 'tool': tool}
+            out_file = f"/tmp/amass_{domain}_{int(time.time())}.json"
+            cmd = [
+                "docker", "run", "--rm",
+                "-v", "/tmp:/data",
+                "caffix/amass:latest",
+                "enum", "-d", domain, "-oJ", f"/data/{os.path.basename(out_file)}",
+            ]
+            res = self._run_external_tool(cmd, timeout=int(tool_params.get('timeout') or 900))
+            res.update({'tool': tool, 'domain': domain, 'output_file': out_file})
+            return res
+
+        if tool == 'spiderfoot':
+            port = int(tool_params.get('port') or 5001)
+            cmd = [
+                "docker", "run", "-d", "--rm",
+                "-p", f"{port}:5001",
+                "spiderfoot/spiderfoot:latest",
+            ]
+            res = self._run_external_tool(cmd, timeout=120)
+            res.update({'tool': tool, 'port': port})
+            return res
+
+        if tool == 'arkime':
+            es_url = str(tool_params.get('es_url') or os.getenv('ARKIME_ES_URL') or 'http://host.docker.internal:9200')
+            cmd = [
+                "docker", "run", "-d", "--rm",
+                "-p", "8005:8005", "-p", "8006:8006",
+                "-e", f"ES_HOSTS={es_url}",
+                "quay.io/arkime/arkime:latest",
+            ]
+            res = self._run_external_tool(cmd, timeout=120)
+            res.update({'tool': tool, 'es_url': es_url})
+            return res
+
+        if tool == 'bloodhound':
+            image = str(tool_params.get('image') or 'specterops/bloodhound:latest')
+            cmd = [
+                "docker", "run", "-d", "--rm",
+                "-p", "7474:7474", "-p", "7687:7687",
+                image,
+            ]
+            res = self._run_external_tool(cmd, timeout=120)
+            res.update({'tool': tool, 'image': image})
+            return res
+
+        if tool == 'velociraptor':
+            collection = str(tool_params.get('collection_name') or '')
+            out_file = f"/tmp/velociraptor_collection_{int(time.time())}.json"
+            cmd = [
+                "docker", "run", "--rm",
+                "-v", "/tmp:/data",
+                "veloci/velociraptor:latest",
+                "velociraptor", "--config", "/config/config.yaml", "collect",
+            ]
+            if collection:
+                cmd.extend(["--collection", collection])
+            cmd.extend(["--output", f"/data/{os.path.basename(out_file)}"])
+            res = self._run_external_tool(cmd, timeout=int(tool_params.get('timeout') or 1200))
+            res.update({'tool': tool, 'collection_name': collection, 'output_file': out_file})
+            return res
+
+        if tool == 'purplesharp':
+            script = (
+                tool_params.get('script_path')
+                or os.environ.get('PURPLESHARP_SCRIPT_PATH')
+                or '/workspace/unified_agent/integrations/purplesharp/run_purplesharp.sh'
+            )
+            cmd = ["bash", str(script)]
+            if tool_params.get('target'):
+                cmd.extend(['--target', str(tool_params.get('target'))])
+            if tool_params.get('mode'):
+                cmd.extend(['--mode', str(tool_params.get('mode'))])
+            if tool_params.get('host'):
+                cmd.extend(['--host', str(tool_params.get('host'))])
+            if tool_params.get('username'):
+                cmd.extend(['--username', str(tool_params.get('username'))])
+            if tool_params.get('password'):
+                cmd.extend(['--password', str(tool_params.get('password'))])
+            res = self._run_external_tool(cmd, timeout=int(tool_params.get('timeout') or 300))
+            res.update({'tool': tool, 'script_path': script})
+            return res
+
+        if tool == 'sigma':
+            sigma_bin = self._resolve_tool_binary(['sigma', 'sigmac', 'sigma-cli'])
+            if not sigma_bin:
+                return {'success': False, 'tool': tool, 'error': 'sigma-cli not installed on endpoint'}
+            res = self._run_external_tool([sigma_bin, '--help'], timeout=int(tool_params.get('timeout') or 30))
+            res.update({'tool': tool, 'mode': 'status'})
+            return res
+
+        if tool == 'atomic':
+            atomic_root = str(tool_params.get('atomic_root') or os.environ.get('ATOMIC_RED_TEAM_PATH') or '/opt/atomic-red-team')
+            runner = self._resolve_tool_binary(['pwsh', 'powershell'])
+            return {
+                'success': bool(runner and os.path.exists(atomic_root)),
+                'tool': tool,
+                'runner': runner,
+                'atomic_root': atomic_root,
+                'mode': 'status',
+                'error': None if (runner and os.path.exists(atomic_root)) else 'atomic_runner_or_root_missing',
+            }
+
+        if tool == 'trivy':
+            result = self._execute_trivy_scan(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'falco':
+            result = self._execute_falco_status(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'suricata':
+            result = self._execute_suricata_status(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'yara':
+            result = self._execute_yara_runtime(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'osquery':
+            result = self._execute_osquery_runtime(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'zeek':
+            result = self._execute_zeek_runtime(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        if tool == 'cuckoo':
+            result = self._execute_cuckoo_runtime(tool_params)
+            result.update({'tool': tool})
+            return result
+
+        return {'success': False, 'error': 'tool_not_implemented', 'tool': tool}
 
     def _resolve_tool_binary(self, candidates: List[str]) -> Optional[str]:
         for candidate in candidates:
@@ -15760,6 +16998,76 @@ class UnifiedAgent:
             'running': running,
             'version': version,
         }
+
+    def _execute_yara_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run YARA status/scan with bounded args."""
+        yara_bin = self._resolve_tool_binary(['yara'])
+        if not yara_bin:
+            return {'success': False, 'error': 'yara not installed on endpoint'}
+        action = str(params.get('action') or 'status').lower().strip()
+        if action == 'scan':
+            rules_path = str(params.get('rules_path') or '/workspace/yara_rules')
+            target_path = str(params.get('target_path') or '/tmp')
+            timeout = int(params.get('timeout') or 120)
+            scan = self._run_external_tool([yara_bin, '-r', rules_path, target_path], timeout=timeout)
+            scan['mode'] = 'scan'
+            scan['rules_path'] = rules_path
+            scan['target_path'] = target_path
+            if scan.get('return_code') in (0, 1):
+                scan['success'] = True
+            return scan
+        status = self._run_external_tool([yara_bin, '--version'], timeout=int(params.get('timeout') or 30))
+        status['mode'] = 'status'
+        return status
+
+    def _execute_osquery_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run osquery status or a bounded live query."""
+        osquery_bin = self._resolve_tool_binary(['osqueryi', 'osqueryd'])
+        if not osquery_bin:
+            return {'success': False, 'error': 'osquery not installed on endpoint'}
+        action = str(params.get('action') or 'status').lower().strip()
+        timeout = int(params.get('timeout') or 60)
+        if action in {'live_query', 'query'}:
+            sql = str(params.get('sql') or 'select name, pid from processes limit 10;').strip()
+            # osqueryd does not support interactive query mode like osqueryi.
+            if os.path.basename(osquery_bin).startswith('osqueryd'):
+                return {'success': False, 'error': 'osqueryi required for live_query', 'binary': osquery_bin}
+            return self._run_external_tool([osquery_bin, '--json', sql], timeout=timeout)
+        return self._run_external_tool([osquery_bin, '--version'], timeout=timeout)
+
+    def _execute_zeek_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Check Zeek runtime and optionally tail a log file."""
+        action = str(params.get('action') or 'status').lower().strip()
+        zeek_bin = self._resolve_tool_binary(['zeek', 'bro'])
+        log_dir = str(params.get('log_dir') or '/var/log/zeek/current')
+        if action == 'log':
+            log_type = str(params.get('log_type') or 'conn')
+            log_path = os.path.join(log_dir, f'{log_type}.log')
+            if not os.path.exists(log_path):
+                return {'success': False, 'error': f'log_not_found:{log_path}'}
+            try:
+                with open(log_path, 'r', encoding='utf-8', errors='ignore') as fh:
+                    lines = fh.readlines()[-int(params.get('limit') or 120):]
+                return {'success': True, 'mode': 'log', 'log_type': log_type, 'records': [l.strip() for l in lines if l.strip()]}
+            except Exception as exc:
+                return {'success': False, 'error': str(exc)}
+        if not zeek_bin:
+            return {'success': False, 'error': 'zeek not installed on endpoint', 'log_dir_exists': os.path.exists(log_dir)}
+        status = self._run_external_tool([zeek_bin, '--version'], timeout=int(params.get('timeout') or 30))
+        status['log_dir_exists'] = os.path.exists(log_dir)
+        return status
+
+    def _execute_cuckoo_runtime(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Cuckoo integration status from endpoint perspective."""
+        api_url = str(params.get('api_url') or os.environ.get('CUCKOO_API_URL') or '').strip()
+        if not api_url:
+            return {'success': False, 'error': 'cuckoo_api_url_not_configured'}
+        curl_bin = self._resolve_tool_binary(['curl'])
+        if curl_bin:
+            probe = self._run_external_tool([curl_bin, '-fsS', f'{api_url}/cuckoo/status'], timeout=int(params.get('timeout') or 20))
+            probe['api_url'] = api_url
+            return probe
+        return {'success': True, 'api_url': api_url, 'message': 'configured (curl unavailable for active probe)'}
 
     def _execute_volatility_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Run volatility status or lightweight plugin command when an image is provided."""
@@ -15881,9 +17189,10 @@ class UnifiedAgent:
         """Start the agent"""
         self.running = True
 
-        # Start the built-in local web UI first so the URL is available
-        # before we register with the server.
-        if self.config.local_ui_enabled:
+        # Minimal in-core UI is fallback only. Canonical dashboard surface is
+        # unified_agent/ui/web/app.py on port 5000.
+        allow_minimal_ui = os.getenv("SERAPH_ALLOW_MINIMAL_UI", "").strip().lower() in {"1", "true", "yes", "on"}
+        if self.config.local_ui_enabled and allow_minimal_ui:
             self.local_ui_server = LocalWebUIServer(self, self.config.local_ui_port)
             bound_port = self.local_ui_server.start()
             if bound_port:
@@ -15893,6 +17202,11 @@ class UnifiedAgent:
                     local_ip = "localhost"
                 self._local_ui_url = f"http://{local_ip}:{bound_port}"
                 logger.info(f"Local Web UI: {self._local_ui_url}")
+        elif self.config.local_ui_enabled:
+            logger.info(
+                "Built-in minimal UI disabled by policy; use web dashboard on port 5000 "
+                "(set SERAPH_ALLOW_MINIMAL_UI=1 only for diagnostics)."
+            )
 
         self.register()
         

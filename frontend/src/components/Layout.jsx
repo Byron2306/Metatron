@@ -1,10 +1,8 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, 
-  Shield, 
-  Bell, 
-  AlertTriangle, 
   LogOut, 
   ChevronRight,
   Cpu,
@@ -13,13 +11,10 @@ import {
   Crosshair,
   Radar,
   FileText,
-  Monitor,
   ShieldAlert,
   Settings,
-  Zap,
   Clock,
   ScrollText,
-  Database,
   Container,
   Lock,
   GitBranch,
@@ -37,7 +32,6 @@ import {
   Chrome,
   Server,
   Cloud,
-  Route,
   Eye,
   FlaskConical,
   Fingerprint,
@@ -47,9 +41,100 @@ import {
 import { Button } from './ui/button';
 import triunePages from '../triune_pages_map';
 
+const NAV_SECTIONS = [
+  {
+    id: 'command',
+    title: 'Command',
+    defaultOpen: true,
+    items: [
+      { path: '/command', icon: LayoutDashboard, label: 'Command Workspace' },
+      { path: '/timeline', icon: Clock, label: 'Timeline' },
+    ],
+  },
+  {
+    id: 'intelligence',
+    title: 'Intelligence',
+    defaultOpen: true,
+    items: [
+      { path: '/world', icon: Brain, label: 'World View' },
+      { path: '/investigation', icon: GitBranch, label: 'Investigation' },
+      { path: '/ai-activity', icon: Brain, label: 'AI Activity' },
+      { path: '/hunting', icon: Crosshair, label: 'Threat Hunting' },
+      { path: '/network', icon: Network, label: 'Network Map' },
+      { path: '/honeypots', icon: Radar, label: 'Honeypots' },
+    ],
+  },
+  {
+    id: 'response',
+    title: 'Response',
+    defaultOpen: true,
+    items: [
+      { path: '/unified-agent', icon: Cpu, label: 'Unified Agent' },
+      { path: '/agent-dashboard', icon: Link, label: 'Agent UI', external: true, url: '__AGENT_UI__' },
+      { path: '/response-operations', icon: Workflow, label: 'Response Operations' },
+      { path: '/deception', icon: Eye, label: 'Deception' },
+      { path: '/honey-tokens', icon: Key, label: 'Honey Tokens' },
+      { path: '/ransomware', icon: ShieldAlert, label: 'Ransomware' },
+    ],
+  },
+  {
+    id: 'platform',
+    title: 'Platform',
+    defaultOpen: true,
+    items: [
+      { path: '/identity', icon: Fingerprint, label: 'Identity' },
+      { path: '/zero-trust', icon: ShieldCheck, label: 'Zero Trust' },
+      { path: '/vpn', icon: Lock, label: 'VPN' },
+      { path: '/cspm', icon: Cloud, label: 'Cloud Security' },
+      { path: '/containers', icon: Container, label: 'Containers' },
+      { path: '/browser-isolation', icon: Globe, label: 'Browser Isolation' },
+      { path: '/email-security', icon: Mail, label: 'Email Security' },
+      { path: '/endpoint-mobility', icon: Smartphone, label: 'Endpoint Mobility' },
+    ],
+  },
+  {
+    id: 'engineering',
+    title: 'Engineering',
+    defaultOpen: false,
+    items: [
+      { path: '/detection-engineering', icon: FlaskConical, label: 'Detection Engineering' },
+      { path: '/zeek', icon: Radio, label: 'Zeek NDR' },
+      { path: '/osquery-fleet', icon: Terminal, label: 'osquery / Fleet' },
+      { path: '/kernel-sensors', icon: Cpu, label: 'Kernel Sensors' },
+      { path: '/ml-prediction', icon: Brain, label: 'ML Prediction' },
+      { path: '/sandbox', icon: Box, label: 'Sandbox' },
+    ],
+  },
+  {
+    id: 'admin',
+    title: 'Admin',
+    defaultOpen: false,
+    items: [
+      { path: '/reports', icon: FileText, label: 'Reports' },
+      { path: '/audit', icon: ScrollText, label: 'Audit Logs' },
+      { path: '/tenants', icon: Globe, label: 'Tenants' },
+      { path: '/settings', icon: Settings, label: 'Settings' },
+    ],
+  },
+  {
+    id: 'more-tools',
+    title: 'More Tools',
+    defaultOpen: false,
+    items: [
+      { path: '/advanced', icon: Cpu, label: 'Advanced Services' },
+      { path: '/heatmap', icon: Map, label: 'Threat Heatmap' },
+      { path: '/vns-alerts', icon: Mail, label: 'VNS Alerts' },
+      { path: '/browser-extension', icon: Chrome, label: 'Browser Extension' },
+      { path: '/kibana', icon: BarChart3, label: 'Kibana' },
+      { path: '/setup-guide', icon: Server, label: 'Setup Guide' },
+    ],
+  },
+];
+
 const Layout = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = () => {
     logout();
@@ -59,60 +144,130 @@ const Layout = () => {
   // Seraph AI Logo URL
   const logoUrl = "https://customer-assets.emergentagent.com/job_securityshield-17/artifacts/4jbqdhyd_ChatGPT%20Image%20Feb%2010%2C%202026%2C%2009_07_51%20AM.png";
 
-  const navItems = [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/world', icon: Brain, label: 'World View' },
-    { path: '/unified-agent', icon: Cpu, label: 'Unified Agent' },
-    { path: '/agent-dashboard', icon: Link, label: 'Agent UI', external: true, url: 'http://localhost:5000' },
-    { path: '/command-center', icon: ShieldAlert, label: 'Command Center' },
-    { path: '/advanced', icon: Cpu, label: 'Advanced Services' },
-    { path: '/heatmap', icon: Map, label: 'Threat Heatmap' },
-    { path: '/ai-threats', icon: Brain, label: 'AI Threats (AATL)' },
-    { path: '/cli-sessions', icon: Brain, label: 'AI Detection' },
-    { path: '/threats', icon: AlertTriangle, label: 'Threats' },
-    { path: '/alerts', icon: Bell, label: 'Alerts' },
-    { path: '/vns-alerts', icon: Mail, label: 'VNS Alerts' },
-    { path: '/quarantine', icon: ShieldAlert, label: 'Quarantine' },
-    { path: '/response', icon: Zap, label: 'Auto Response' },
-    { path: '/timeline', icon: Clock, label: 'Timeline' },
-    { path: '/network', icon: Network, label: 'Network Map' },
-    { path: '/hunting', icon: Crosshair, label: 'Threat Hunting' },
-    { path: '/honeypots', icon: Radar, label: 'Honeypots' },
-    { path: '/threat-intel', icon: Database, label: 'Threat Intel' },
-    { path: '/mitre-attack', icon: Shield, label: 'MITRE ATT&CK' },
-    { path: '/sigma', icon: Shield, label: 'Sigma Rules' },
-    { path: '/zeek', icon: Radio, label: 'Zeek NDR' },
-    { path: '/osquery-fleet', icon: Terminal, label: 'osquery / Fleet' },
-    { path: '/atomic-validation', icon: FlaskConical, label: 'Atomic Validation' },
-    { path: '/correlation', icon: GitBranch, label: 'Correlation' },
-    { path: '/ransomware', icon: ShieldAlert, label: 'Ransomware' },
-    { path: '/containers', icon: Container, label: 'Containers' },
-    { path: '/cspm', icon: Cloud, label: 'Cloud Security' },
-    { path: '/attack-paths', icon: Route, label: 'Attack Paths' },
-    { path: '/deception', icon: Eye, label: 'Deception' },
-    { path: '/kernel-sensors', icon: Cpu, label: 'Kernel Sensors' },
-    { path: '/secure-boot', icon: ShieldCheck, label: 'Secure Boot' },
-    { path: '/identity', icon: Fingerprint, label: 'Identity' },
-    { path: '/vpn', icon: Lock, label: 'VPN' },
-    { path: '/edr', icon: Brain, label: 'EDR' },
-    { path: '/soar', icon: Workflow, label: 'SOAR' },
-    { path: '/honey-tokens', icon: Key, label: 'Honey Tokens' },
-    { path: '/zero-trust', icon: ShieldCheck, label: 'Zero Trust' },
-    { path: '/ml-prediction', icon: Brain, label: 'ML Prediction' },
-    { path: '/sandbox', icon: Box, label: 'Sandbox' },
-    { path: '/browser-isolation', icon: Globe, label: 'Browser Isolation' },
-    { path: '/email-protection', icon: Mail, label: 'Email Protection' },
-    { path: '/email-gateway', icon: Server, label: 'Email Gateway' },
-    { path: '/mobile-security', icon: Smartphone, label: 'Mobile Security' },
-    { path: '/mdm', icon: Link, label: 'MDM Connectors' },
-    { path: '/browser-extension', icon: Chrome, label: 'Browser Extension' },
-    { path: '/kibana', icon: BarChart3, label: 'Kibana' },
-    { path: '/reports', icon: FileText, label: 'Reports' },
-    { path: '/audit', icon: ScrollText, label: 'Audit Logs' },
-    { path: '/tenants', icon: Globe, label: 'Tenants' },
-    { path: '/setup-guide', icon: Server, label: 'Setup Guide' },
-    { path: '/settings', icon: Settings, label: 'Settings' },
-  ];
+  const [openSections, setOpenSections] = useState(() =>
+    NAV_SECTIONS.reduce((acc, section) => {
+      const hasActive = section.items.some(
+        (item) => !item.external && location.pathname.startsWith(item.path),
+      );
+      acc[section.id] = section.defaultOpen || hasActive;
+      return acc;
+    }, {}),
+  );
+
+  useEffect(() => {
+    setOpenSections((prev) => {
+      const next = { ...prev };
+      for (const section of NAV_SECTIONS) {
+        const hasActive = section.items.some(
+          (item) => !item.external && location.pathname.startsWith(item.path),
+        );
+        if (hasActive) {
+          next[section.id] = true;
+        } else if (next[section.id] === undefined) {
+          next[section.id] = section.defaultOpen;
+        }
+      }
+      return next;
+    });
+  }, [location.pathname]);
+
+  const toggleSection = (sectionId) => {
+    setOpenSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
+  };
+
+  const resolveTriuneRoles = (item) => {
+    const labelKey = item.label.replace(/[^A-Za-z0-9]/g, '') + 'Page';
+    const altKey = item.label.replace(/\s+/g, '') + 'Page';
+    const simpleKey = item.path.replace(/\//g, '');
+    return (
+      triunePages[labelKey] ||
+      triunePages[altKey] ||
+      triunePages[item.label] ||
+      triunePages[simpleKey] ||
+      []
+    );
+  };
+
+  const renderNavItem = (item) => {
+    if (item.external) {
+      const resolvedExternalUrl = item.url === '__AGENT_UI__'
+        ? `${window.location.protocol}//${window.location.hostname}:5000`
+        : item.url;
+      return (
+        <a
+          key={item.path}
+          href={resolvedExternalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group seraph-nav-item"
+          style={{ color: '#A5F3FC', border: '1px solid transparent' }}
+        >
+          <item.icon className="w-4 h-4" style={{ color: '#A5F3FC' }} />
+          <span className="font-medium text-sm" style={{ color: '#A5F3FC' }}>
+            {item.label}
+          </span>
+          <ChevronRight className="w-4 h-4 ml-auto" style={{ color: '#A5F3FC' }} />
+        </a>
+      );
+    }
+
+    return (
+      <NavLink
+        key={item.path}
+        to={item.path}
+        className={({ isActive }) =>
+          `flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group ${
+            isActive ? 'seraph-nav-active' : 'seraph-nav-item'
+          }`
+        }
+        style={({ isActive }) =>
+          isActive
+            ? {
+                backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                color: '#38BDF8',
+              }
+            : {
+                color: '#A5F3FC',
+                border: '1px solid transparent',
+              }
+        }
+      >
+        {({ isActive }) => {
+          const roles = resolveTriuneRoles(item);
+          return (
+            <>
+              <item.icon className="w-4 h-4" style={{ color: isActive ? '#38BDF8' : '#A5F3FC' }} />
+              <span className="font-medium text-sm" style={{ color: isActive ? '#E0E7FF' : '#A5F3FC' }}>
+                {item.label}
+                {roles.length ? (
+                  <span style={{ marginLeft: 8, display: 'inline-flex', gap: 6 }}>
+                    {roles.map((role) => (
+                      <span
+                        key={role}
+                        style={{
+                          fontSize: 10,
+                          padding: '2px 6px',
+                          borderRadius: 6,
+                          background: 'rgba(255,255,255,0.04)',
+                          color: '#A5F3FC',
+                        }}
+                      >
+                        {role[0]}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+              </span>
+              {isActive ? (
+                <ChevronRight className="w-4 h-4 ml-auto" style={{ color: '#38BDF8' }} />
+              ) : null}
+            </>
+          );
+        }}
+      </NavLink>
+    );
+  };
 
   return (
     <div className="min-h-screen flex" style={{ backgroundColor: '#0C1020' }}>
@@ -136,68 +291,36 @@ const Layout = () => {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-              {navItems.map((item) => (
-            item.external ? (
-              <a
-                key={item.path}
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group seraph-nav-item"
-                style={{ color: '#A5F3FC', border: '1px solid transparent' }}
-              >
-                <item.icon className="w-4 h-4" style={{ color: '#A5F3FC' }} />
-                <span className="font-medium text-sm" style={{ color: '#A5F3FC' }}>{item.label}</span>
-                <ChevronRight className="w-4 h-4 ml-auto" style={{ color: '#A5F3FC' }} />
-              </a>
-              ) : (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group ${
-                    isActive
-                      ? 'seraph-nav-active'
-                      : 'seraph-nav-item'
-                  }`
-                }
-                style={({ isActive }) => isActive ? {
-                  backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                  border: '1px solid rgba(56, 189, 248, 0.3)',
-                  color: '#38BDF8'
-                } : {
-                  color: '#A5F3FC',
-                  border: '1px solid transparent'
+        <nav className="flex-1 p-3 space-y-2 overflow-y-auto">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.id} className="space-y-1">
+              <button
+                type="button"
+                onClick={() => toggleSection(section.id)}
+                className="w-full flex items-center justify-between px-2 py-1 rounded-md transition-colors"
+                style={{
+                  color: '#FDE68A',
+                  backgroundColor: 'rgba(253, 230, 138, 0.06)',
+                  border: '1px solid rgba(253, 230, 138, 0.16)',
                 }}
               >
-                {({ isActive }) => (
-                  <>
-                    <item.icon className="w-4 h-4" style={{ color: isActive ? '#38BDF8' : '#A5F3FC' }} />
-                    <span className="font-medium text-sm" style={{ color: isActive ? '#E0E7FF' : '#A5F3FC' }}>
-                      {item.label}
-                      {/* role badges by label heuristic */}
-                      {(() => {
-                        const labelKey = item.label.replace(/[^A-Za-z0-9]/g, '') + 'Page'
-                        const altKey = item.label.replace(/\s+/g, '') + 'Page'
-                        const simpleKey = item.path.replace(/\//g, '')
-                        const roles = triunePages[labelKey] || triunePages[altKey] || triunePages[item.label] || triunePages[simpleKey] || []
-                        return roles.length ? (
-                          <span style={{marginLeft:8, display:'inline-flex',gap:6}}>
-                            {roles.map(r => (
-                              <span key={r} style={{fontSize:10, padding:'2px 6px', borderRadius:6, background:'rgba(255,255,255,0.04)', color:'#A5F3FC'}}>{r[0]}</span>
-                            ))}
-                          </span>
-                        ) : null
-                      })()}
-                    </span>
-                    {isActive && (
-                      <ChevronRight className="w-4 h-4 ml-auto" style={{ color: '#38BDF8' }} />
-                    )}
-                  </>
-                )}
-              </NavLink>
-            )
+                <span className="text-xs font-semibold uppercase tracking-widest">
+                  {section.title}
+                </span>
+                <ChevronRight
+                  className="w-4 h-4 transition-transform duration-200"
+                  style={{
+                    color: '#FDE68A',
+                    transform: openSections[section.id] ? 'rotate(90deg)' : 'rotate(0deg)',
+                  }}
+                />
+              </button>
+              {openSections[section.id] ? (
+                <div className="space-y-0.5">
+                  {section.items.map((item) => renderNavItem(item))}
+                </div>
+              ) : null}
+            </div>
           ))}
         </nav>
 

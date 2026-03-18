@@ -186,6 +186,15 @@ class WebAgentBridge:
         "autothrottle": "auto_throttle",
         "webview": "webview2",
     }
+    CORE_INTEGRATION_TOOLS = (
+        "amass",
+        "arkime",
+        "bloodhound",
+        "spiderfoot",
+        "velociraptor",
+        "sigma",
+        "atomic",
+    )
 
     def __init__(self):
         self.agent = UnifiedAgentCore()
@@ -816,6 +825,182 @@ class WebAgentBridge:
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "supported_agent_command_types": sorted(supported_command_types),
             "backend_feature_families": backend_feature_families,
+        }
+
+    def _backend_api_base(self) -> str:
+        """Resolve backend API base URL for integration orchestration calls."""
+        configured = (
+            os.environ.get("REMOTE_SERVER_URL")
+            or getattr(self.agent.config, "server_url", "")
+            or "http://localhost:8001"
+        ).strip()
+        if not configured:
+            return ""
+        base = configured.rstrip("/")
+        if not base.endswith("/api"):
+            base = f"{base}/api"
+        return base
+
+    def _backend_headers(self) -> Dict[str, str]:
+        headers: Dict[str, str] = {"Content-Type": "application/json"}
+        token = (os.environ.get("INTEGRATION_API_KEY") or os.environ.get("SWARM_AGENT_TOKEN") or "").strip()
+        if token:
+            headers["X-Internal-Token"] = token
+        return headers
+
+    def _backend_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: Optional[Dict[str, Any]] = None,
+        timeout: float = 20.0,
+    ) -> Dict[str, Any]:
+        base = self._backend_api_base()
+        if not base:
+            return {"ok": False, "error": "backend_api_base_unavailable"}
+        if _requests is None:
+            return {"ok": False, "error": "requests_dependency_unavailable", "base_url": base}
+        req_path = path if str(path).startswith("/") else f"/{path}"
+        url = f"{base}{req_path}"
+        try:
+            response = _requests.request(
+                method=method.upper(),
+                url=url,
+                headers=self._backend_headers(),
+                json=payload,
+                timeout=timeout,
+            )
+            try:
+                data = response.json()
+            except Exception:
+                data = {"raw": response.text[:2000]}
+            return {
+                "ok": 200 <= response.status_code < 300,
+                "status_code": response.status_code,
+                "data": data,
+                "url": url,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "url": url}
+
+    def get_core_integration_tools(self) -> Dict[str, Any]:
+        fallback = list(self.CORE_INTEGRATION_TOOLS)
+        call = self._backend_request("GET", "/integrations/runtime/tools", timeout=10)
+        if not call.get("ok"):
+            return {
+                "available": False,
+                "source": "fallback",
+                "tools": fallback,
+                "error": call.get("error") or (call.get("data") or {}).get("detail"),
+                "backend_status_code": call.get("status_code"),
+                "backend_base_url": self._backend_api_base(),
+            }
+        data = call.get("data") if isinstance(call.get("data"), dict) else {}
+        tools = [str(t).strip().lower() for t in (data.get("tools") or []) if str(t).strip()]
+        filtered = [tool for tool in tools if tool in self.CORE_INTEGRATION_TOOLS]
+        return {
+            "available": True,
+            "source": "backend",
+            "tools": filtered or fallback,
+            "backend_status_code": call.get("status_code"),
+            "backend_base_url": self._backend_api_base(),
+        }
+
+    def get_core_integrations_status(self, runtime_target: str = "server", agent_id: Optional[str] = None) -> Dict[str, Any]:
+        statuses: Dict[str, Any] = {}
+        failures: List[Dict[str, Any]] = []
+        target = str(runtime_target or "server").strip().lower()
+        for tool in self.CORE_INTEGRATION_TOOLS:
+            payload = {
+                "tool": tool,
+                "params": {"action": "status"},
+                "runtime_target": target,
+                "agent_id": agent_id or None,
+            }
+            call = self._backend_request("POST", "/integrations/runtime/run", payload=payload, timeout=25)
+            if call.get("ok"):
+                data = call.get("data") if isinstance(call.get("data"), dict) else {}
+                statuses[tool] = {
+                    "ok": True,
+                    "job_id": data.get("job_id"),
+                    "status": data.get("status"),
+                    "result": data.get("result"),
+                }
+            else:
+                detail = call.get("data") if isinstance(call.get("data"), dict) else {}
+                statuses[tool] = {
+                    "ok": False,
+                    "error": call.get("error") or detail.get("detail") or detail,
+                    "status_code": call.get("status_code"),
+                }
+                failures.append({"tool": tool, "error": statuses[tool]["error"], "status_code": call.get("status_code")})
+
+        return {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "runtime_target": target,
+            "agent_id": agent_id or None,
+            "backend_base_url": self._backend_api_base(),
+            "tools": statuses,
+            "ready": len(failures) == 0,
+            "failures": failures,
+        }
+
+    def launch_core_integration(
+        self,
+        tool: str,
+        params: Optional[Dict[str, Any]] = None,
+        runtime_target: str = "server",
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        normalized_tool = str(tool or "").strip().lower()
+        if normalized_tool not in self.CORE_INTEGRATION_TOOLS:
+            return {"ok": False, "error": f"unsupported_tool:{normalized_tool}"}
+
+        payload = {
+            "tool": normalized_tool,
+            "params": params or {},
+            "runtime_target": str(runtime_target or "server").strip().lower(),
+            "agent_id": agent_id or None,
+        }
+        call = self._backend_request("POST", "/integrations/runtime/run", payload=payload, timeout=45)
+        if call.get("ok"):
+            data = call.get("data") if isinstance(call.get("data"), dict) else {}
+            return {
+                "ok": True,
+                "tool": normalized_tool,
+                "job_id": data.get("job_id"),
+                "status": data.get("status"),
+                "queue_id": data.get("queue_id"),
+                "decision_id": data.get("decision_id"),
+                "result": data.get("result"),
+            }
+        detail = call.get("data") if isinstance(call.get("data"), dict) else {}
+        return {
+            "ok": False,
+            "tool": normalized_tool,
+            "status_code": call.get("status_code"),
+            "error": call.get("error") or detail.get("detail") or detail,
+        }
+
+    def list_core_integration_jobs(self, limit: int = 20) -> Dict[str, Any]:
+        call = self._backend_request("GET", "/integrations/jobs", timeout=15)
+        if not call.get("ok"):
+            detail = call.get("data") if isinstance(call.get("data"), dict) else {}
+            return {
+                "ok": False,
+                "jobs": [],
+                "error": call.get("error") or detail.get("detail") or detail,
+                "status_code": call.get("status_code"),
+                "backend_base_url": self._backend_api_base(),
+            }
+        rows = call.get("data") if isinstance(call.get("data"), list) else []
+        filtered = [row for row in rows if str((row or {}).get("tool") or "").lower() in self.CORE_INTEGRATION_TOOLS]
+        return {
+            "ok": True,
+            "jobs": filtered[: max(1, int(limit or 20))],
+            "backend_base_url": self._backend_api_base(),
+            "count": len(filtered),
         }
 
     def _vpn_interface_order(self) -> List[str]:
@@ -2651,7 +2836,28 @@ def create_app() -> Flask:
     """Create and configure the Flask app."""
     template_dir = Path(__file__).resolve().parent / "templates"
     app = Flask(__name__, template_folder=str(template_dir))
-    CORS(app)
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": "*"}},
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+        expose_headers=["Content-Type"],
+    )
+
+    @app.after_request
+    def _set_response_security_headers(resp):
+        # Keep dashboard dependencies loadable on both :3000 and :5000 surfaces.
+        csp = (
+            "default-src 'self' data: blob: https:; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data: blob: https:; "
+            "connect-src 'self' http: https: ws: wss:;"
+        )
+        resp.headers.setdefault("Content-Security-Policy", csp)
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        return resp
 
     # Single global agent bridge
     bridge = WebAgentBridge()
@@ -2736,6 +2942,38 @@ def create_app() -> Flask:
     @app.route("/api/integration/backend-gap-report")
     def api_backend_gap_report():
         return jsonify(bridge.get_backend_integration_gap_report())
+
+    @app.route("/api/integrations/core/tools")
+    def api_core_integration_tools():
+        return jsonify(bridge.get_core_integration_tools())
+
+    @app.route("/api/integrations/core/status")
+    def api_core_integration_status():
+        runtime_target = request.args.get("runtime_target", "server")
+        agent_id = request.args.get("agent_id") or None
+        return jsonify(bridge.get_core_integrations_status(runtime_target=runtime_target, agent_id=agent_id))
+
+    @app.route("/api/integrations/core/jobs")
+    def api_core_integration_jobs():
+        limit = request.args.get("limit", 20, type=int)
+        return jsonify(bridge.list_core_integration_jobs(limit=limit))
+
+    @app.route("/api/integrations/core/run", methods=["POST"])
+    def api_core_integration_run():
+        data = request.get_json(silent=True) or {}
+        tool = str(data.get("tool") or "").strip().lower()
+        if not tool:
+            return jsonify({"ok": False, "error": "tool_required"}), 400
+        params = data.get("params") if isinstance(data.get("params"), dict) else {}
+        runtime_target = str(data.get("runtime_target") or "server").strip().lower()
+        agent_id = str(data.get("agent_id") or "").strip() or None
+        result = bridge.launch_core_integration(
+            tool=tool,
+            params=params,
+            runtime_target=runtime_target,
+            agent_id=agent_id,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
 
     @app.route("/api/events")
     def api_events():

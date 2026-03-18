@@ -4,8 +4,11 @@ Quarantine Router
 from fastapi import APIRouter, HTTPException, Depends
 from dataclasses import asdict
 
-from .dependencies import get_current_user, get_db
-from services.outbound_gate import OutboundGateService
+from .dependencies import get_current_user, check_permission, get_db
+try:
+    from services.outbound_gate import OutboundGateService
+except Exception:
+    from backend.services.outbound_gate import OutboundGateService
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -14,7 +17,7 @@ except Exception:
 # Import quarantine service
 from quarantine import (
     get_quarantine_summary, list_quarantined,
-    get_quarantine_entry, restore_file, delete_quarantined
+    get_quarantine_entry
 )
 
 router = APIRouter(prefix="/quarantine", tags=["Quarantine"])
@@ -50,7 +53,7 @@ async def get_entry(entry_id: str, current_user: dict = Depends(get_current_user
     return asdict(entry)
 
 @router.post("/{entry_id}/restore")
-async def restore_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
+async def restore_entry(entry_id: str, current_user: dict = Depends(check_permission("write"))):
     """Queue quarantine restore via mandatory outbound gate."""
     gate = OutboundGateService(get_db())
     gated = await gate.gate_action(
@@ -65,8 +68,9 @@ async def restore_entry(entry_id: str, current_user: dict = Depends(get_current_
     await emit_world_event(get_db(), event_type="quarantine_entry_restore_gated", entity_refs=[entry_id], payload={"actor": (current_user or {}).get("id"), "queue_id": gated.get("queue_id")}, trigger_triune=True)
     return {"success": True, "status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "Restore queued for approval"}
 
+
 @router.delete("/{entry_id}")
-async def delete_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_entry(entry_id: str, current_user: dict = Depends(check_permission("write"))):
     """Queue quarantine delete via mandatory outbound gate."""
     gate = OutboundGateService(get_db())
     gated = await gate.gate_action(
@@ -80,20 +84,3 @@ async def delete_entry(entry_id: str, current_user: dict = Depends(get_current_u
     )
     await emit_world_event(get_db(), event_type="quarantine_entry_delete_gated", entity_refs=[entry_id], payload={"actor": (current_user or {}).get("id"), "queue_id": gated.get("queue_id")}, trigger_triune=True)
     return {"success": True, "status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id"), "message": "Delete queued for approval"}
-    """Restore a quarantined file"""
-    # restore_file is sync, returns bool
-    result = restore_file(entry_id)
-    if not result:
-        raise HTTPException(status_code=400, detail="Restore failed - entry not found or already restored")
-    await emit_world_event(get_db(), event_type="quarantine_entry_restored", entity_refs=[entry_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
-    return {"success": True, "message": "File restored successfully"}
-
-@router.delete("/{entry_id}")
-async def delete_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
-    """Permanently delete a quarantined file"""
-    # delete_quarantined is sync, returns bool
-    result = delete_quarantined(entry_id)
-    if not result:
-        raise HTTPException(status_code=400, detail="Delete failed - entry not found")
-    await emit_world_event(get_db(), event_type="quarantine_entry_deleted", entity_refs=[entry_id], payload={"actor": current_user.get("id")}, trigger_triune=False)
-    return {"success": True, "message": "File deleted successfully"}

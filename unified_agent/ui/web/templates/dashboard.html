@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Seraph AI - Security Agent Dashboard</title>
+    <link rel="dns-prefetch" href="//cdn.tailwindcss.com">
+    <link rel="dns-prefetch" href="//cdn.jsdelivr.net">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -80,11 +82,12 @@
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="vpn">&#x1F510; VPN</button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="email">&#x1F4E7; Email</button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="mobile">&#x1F4F1; Mobile</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="integrations">&#x1F680; Integrations</button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="commands">&#x1F6E1; Commands<span id="cmd-badge" class="ml-1 hidden px-1.5 py-0.5 rounded-full bg-red-500 text-[10px]">0</span></button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="settings">&#x2699; Settings</button>
         <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="logs">&#x1F4DD; Logs</button>
         <!-- external Metatron world view -->
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" onclick="window.open('http://localhost:3000/world','_blank')">🧠 Metatron</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" onclick="openMetatronWorld()">🧠 Metatron</button>
     </div>
 </nav>
 
@@ -1129,6 +1132,74 @@
         </div>
     </div>
 
+    <!-- ==================== CORE INTEGRATIONS TAB ==================== -->
+    <div id="tab-integrations" class="tab-content hidden">
+        <div class="card rounded-lg p-4 mb-4">
+            <div class="flex flex-wrap gap-3 items-end">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-slate-400">Runtime Target</label>
+                    <select id="int-runtime-target" class="min-w-[180px]">
+                        <option value="server">server</option>
+                        <option value="unified_agent_local">unified_agent_local</option>
+                        <option value="unified_agent_remote">unified_agent_remote</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-slate-400">Agent ID (optional)</label>
+                    <input type="text" id="int-agent-id" placeholder="agent-1234" class="min-w-[220px]">
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-slate-400">Input file (optional)</label>
+                    <input type="text" id="int-input-file" placeholder="/data/export.json" class="min-w-[260px]">
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-slate-400">Extra params JSON (optional)</label>
+                    <input type="text" id="int-extra-params" placeholder='{"strict_nonempty_parse":true}' class="min-w-[320px]">
+                </div>
+                <div class="ml-auto flex gap-2">
+                    <button onclick="refreshCoreIntegrationStatus()" class="action-btn bg-blue-600 hover:bg-blue-500 text-white">Refresh Status</button>
+                    <button onclick="refreshCoreIntegrationJobs()" class="action-btn bg-slate-700 hover:bg-slate-600 text-white">Refresh Jobs</button>
+                </div>
+            </div>
+            <p id="int-summary" class="text-xs text-slate-500 mt-3">Core integrations status not loaded.</p>
+        </div>
+
+        <div class="card rounded-lg p-4 mb-4">
+            <h3 class="font-mono font-semibold mb-3 text-sm">Core Tool Launch Controls</h3>
+            <div class="table-wrap" style="max-height:360px">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:130px">Tool</th>
+                            <th style="width:140px">Action</th>
+                            <th>Status</th>
+                            <th style="width:180px">Last Job</th>
+                            <th style="width:190px">Controls</th>
+                        </tr>
+                    </thead>
+                    <tbody id="int-tools-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card rounded-lg p-4">
+            <h3 class="font-mono font-semibold mb-3 text-sm">Recent Core Integration Jobs</h3>
+            <div class="table-wrap" style="max-height:300px">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:120px">Tool</th>
+                            <th style="width:120px">Status</th>
+                            <th style="width:200px">Updated</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody id="int-jobs-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== COMMANDS TAB ==================== -->
     <div id="tab-commands" class="tab-content hidden">
         <div class="flex items-center justify-between mb-3">
@@ -1241,6 +1312,27 @@ let selectedHiddenPath = null;
 let selectedMalwarePath = null;
 let procSortCol = 'cpu';
 let procSortReverse = true;
+const coreIntegrationTools = ['amass', 'arkime', 'bloodhound', 'spiderfoot', 'velociraptor', 'sigma', 'atomic'];
+const coreDefaultActions = {
+    amass: 'status',
+    arkime: 'status',
+    bloodhound: 'status',
+    spiderfoot: 'status',
+    velociraptor: 'status',
+    sigma: 'status',
+    atomic: 'status',
+};
+let coreIntegrationStatus = {};
+
+function getMetatronWorldUrl() {
+    const protocol = window.location.protocol || 'http:';
+    const host = window.location.hostname || 'localhost';
+    return `${protocol}//${host}:3000/world`;
+}
+
+function openMetatronWorld() {
+    window.open(getMetatronWorldUrl(), '_blank');
+}
 
 // ============================================================================
 // TAB NAVIGATION
@@ -1318,11 +1410,29 @@ function showToast(message, type = 'info') {
 // API HELPERS
 // ============================================================================
 async function api(path, method = 'GET', body = null) {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
-    if (body) opts.body = JSON.stringify(body);
+    const isOptionsObject = method && typeof method === 'object' && !Array.isArray(method);
+    const opts = isOptionsObject
+        ? { ...method }
+        : { method, headers: { 'Content-Type': 'application/json' } };
+
+    opts.method = String(opts.method || 'GET').toUpperCase();
+    opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    if (!isOptionsObject && body != null) {
+        opts.body = JSON.stringify(body);
+    }
+
     try {
         const resp = await fetch(path, opts);
-        return await resp.json();
+        let data = null;
+        try {
+            data = await resp.json();
+        } catch (_ignored) {
+            data = { ok: resp.ok, status_code: resp.status, raw: '' };
+        }
+        if (!resp.ok && data && typeof data === 'object' && !data.error) {
+            data.error = `HTTP ${resp.status}`;
+        }
+        return data;
     } catch (err) {
         console.error(`API ${method} ${path} error:`, err);
         return null;
@@ -2649,6 +2759,190 @@ async function analyzeApp() {
     document.getElementById('app-indicators').innerHTML = (data.indicators || []).map(i => `<div>• ${i}</div>`).join('');
 }
 
+// =============================================================================
+// CORE INTEGRATIONS (AMASS/ARKIME/BLOODHOUND/SPIDERFOOT/VELO/SIGMA/ATOMIC)
+// =============================================================================
+function coreActionOptions(tool) {
+    switch (tool) {
+        case 'amass':
+            return ['status', 'run'];
+        case 'arkime':
+        case 'bloodhound':
+        case 'spiderfoot':
+            return ['status', 'start', 'parse_ingest'];
+        case 'velociraptor':
+            return ['status', 'run'];
+        case 'sigma':
+            return ['status', 'reload', 'coverage', 'list_rules'];
+        case 'atomic':
+            return ['status', 'jobs', 'runs', 'run'];
+        default:
+            return ['status'];
+    }
+}
+
+function renderCoreIntegrationRows() {
+    const tbody = document.getElementById('int-tools-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = coreIntegrationTools.map((tool) => {
+        const options = coreActionOptions(tool).map((a) =>
+            `<option value="${a}" ${a === (coreDefaultActions[tool] || 'status') ? 'selected' : ''}>${a}</option>`
+        ).join('');
+        return `
+            <tr>
+                <td class="font-mono text-cyan-300">${tool}</td>
+                <td>
+                    <select id="int-action-${tool}" class="w-full text-xs">${options}</select>
+                </td>
+                <td id="int-status-${tool}" class="text-slate-400">unknown</td>
+                <td id="int-job-${tool}" class="text-slate-500 font-mono text-[11px]">--</td>
+                <td class="flex gap-2">
+                    <button onclick="runCoreIntegration('${tool}', true)" class="action-btn bg-slate-700 hover:bg-slate-600 text-white">Status</button>
+                    <button onclick="runCoreIntegration('${tool}', false)" class="action-btn bg-indigo-600 hover:bg-indigo-500 text-white">Run</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function _readCoreRuntimeContext() {
+    const runtimeTarget = (document.getElementById('int-runtime-target')?.value || 'server').trim();
+    const agentId = (document.getElementById('int-agent-id')?.value || '').trim();
+    let extraParams = {};
+    const rawExtra = (document.getElementById('int-extra-params')?.value || '').trim();
+    if (rawExtra) {
+        try {
+            extraParams = JSON.parse(rawExtra);
+        } catch (e) {
+            showToast('Extra params JSON is invalid', 'warning');
+        }
+    }
+    return { runtimeTarget, agentId, extraParams };
+}
+
+function _coreParamsForAction(tool, action, forceStatus = false) {
+    const inputFile = (document.getElementById('int-input-file')?.value || '').trim();
+    const params = {};
+    const selectedAction = forceStatus ? 'status' : (action || 'status');
+    params.action = selectedAction;
+
+    if (tool === 'amass' && selectedAction !== 'status') {
+        const domain = prompt('Amass domain to enumerate (e.g. example.com):');
+        if (!domain) return null;
+        params.domain = domain.trim();
+    }
+
+    if (['arkime', 'bloodhound', 'spiderfoot'].includes(tool) && selectedAction === 'parse_ingest') {
+        if (!inputFile) {
+            showToast('Provide Input file for parse_ingest action', 'warning');
+            return null;
+        }
+        params.input_file = inputFile;
+        params.strict_nonempty_parse = true;
+    }
+
+    if (tool === 'atomic' && selectedAction === 'run') {
+        const jobId = prompt('Atomic job_id (leave blank for default configured job):', '');
+        if (jobId && jobId.trim()) {
+            params.job_id = jobId.trim();
+        }
+    }
+
+    return params;
+}
+
+function _renderCoreIntegrationStatusRows() {
+    coreIntegrationTools.forEach((tool) => {
+        const statusEl = document.getElementById(`int-status-${tool}`);
+        const jobEl = document.getElementById(`int-job-${tool}`);
+        if (!statusEl || !jobEl) return;
+        const row = coreIntegrationStatus[tool] || {};
+        if (!row || !Object.keys(row).length) {
+            statusEl.textContent = 'unknown';
+            statusEl.className = 'text-slate-400';
+            jobEl.textContent = '--';
+            return;
+        }
+        const ok = !!row.ok;
+        const status = row.status || (ok ? 'ok' : 'error');
+        statusEl.textContent = status;
+        statusEl.className = ok ? 'text-green-400' : 'text-red-400';
+        jobEl.textContent = row.job_id ? String(row.job_id).slice(0, 18) : '--';
+    });
+}
+
+async function refreshCoreIntegrationStatus() {
+    const { runtimeTarget, agentId } = _readCoreRuntimeContext();
+    const qs = `runtime_target=${encodeURIComponent(runtimeTarget)}${agentId ? `&agent_id=${encodeURIComponent(agentId)}` : ''}`;
+    const data = await api(`/api/integrations/core/status?${qs}`);
+    if (!data) return;
+    coreIntegrationStatus = data.tools || {};
+    _renderCoreIntegrationStatusRows();
+    const failures = (data.failures || []).length;
+    const summary = document.getElementById('int-summary');
+    if (summary) {
+        summary.textContent = failures
+            ? `Runtime target=${runtimeTarget} • ${failures} tool status probe(s) failed`
+            : `Runtime target=${runtimeTarget} • all core tool status probes succeeded`;
+        summary.className = failures ? 'text-xs text-amber-400 mt-3' : 'text-xs text-green-400 mt-3';
+    }
+}
+
+async function runCoreIntegration(tool, forceStatus) {
+    const actionSelect = document.getElementById(`int-action-${tool}`);
+    const selectedAction = actionSelect?.value || 'status';
+    const params = _coreParamsForAction(tool, selectedAction, forceStatus);
+    if (!params) return;
+
+    const { runtimeTarget, agentId, extraParams } = _readCoreRuntimeContext();
+    const payload = {
+        tool,
+        params: { ...(extraParams || {}), ...(params || {}) },
+        runtime_target: runtimeTarget,
+        agent_id: runtimeTarget === 'server' ? null : (agentId || null),
+    };
+
+    const data = await api('/api/integrations/core/run', 'POST', payload);
+    if (!data) {
+        showToast(`Failed to run ${tool}`, 'error');
+        return;
+    }
+    if (data.ok === false || data.error) {
+        showToast(`${tool} failed: ${data.error || 'request failed'}`, 'error');
+    } else if (data.queue_id || data.decision_id) {
+        showToast(`${tool} queued for triune approval`, 'info');
+    } else {
+        showToast(`${tool} launched`, 'success');
+    }
+    await refreshCoreIntegrationStatus();
+    await refreshCoreIntegrationJobs();
+}
+
+async function refreshCoreIntegrationJobs() {
+    const data = await api('/api/integrations/core/jobs?limit=30');
+    const tbody = document.getElementById('int-jobs-tbody');
+    if (!tbody) return;
+    if (!data || !Array.isArray(data.jobs)) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-red-400">Failed to fetch jobs</td></tr>`;
+        return;
+    }
+    const rows = data.jobs || [];
+    if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-slate-500">No core integration jobs yet.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows.map((job) => {
+        const result = job.result || {};
+        const resultText = escHtml(JSON.stringify(result)).slice(0, 260);
+        return `<tr>
+            <td class="font-mono text-cyan-300">${escHtml(job.tool || '--')}</td>
+            <td class="${String(job.status || '').includes('failed') ? 'text-red-400' : 'text-green-400'}">${escHtml(job.status || '--')}</td>
+            <td class="font-mono text-slate-400">${escHtml(job.updated_at || job.created_at || '--')}</td>
+            <td class="text-[11px] text-slate-300">${resultText}</td>
+        </tr>`;
+    }).join('');
+}
+
 function getRiskColor(level) {
     const colors = { 'safe': 'text-green-400', 'low': 'text-blue-400', 'medium': 'text-yellow-400', 'high': 'text-orange-400', 'critical': 'text-red-400' };
     return colors[level] || 'text-slate-400';
@@ -2656,6 +2950,7 @@ function getRiskColor(level) {
 
 // Initial load
 (async function init() {
+    renderCoreIntegrationRows();
     await loadSettings();
     await pollFast();
     await pollMedium();
@@ -2667,6 +2962,8 @@ function getRiskColor(level) {
     refreshVpnStatus();
     refreshEmailProtection();
     refreshMobileSecurity();
+    refreshCoreIntegrationStatus();
+    refreshCoreIntegrationJobs();
 })();
 
 // Polling intervals
@@ -2682,6 +2979,8 @@ setInterval(refreshPorts, 30000);
 setInterval(refreshVpnStatus, 30000);  // VPN status every 30s
 setInterval(refreshEmailProtection, 30000);  // Email protection every 30s
 setInterval(refreshMobileSecurity, 30000);  // Mobile security every 30s
+setInterval(refreshCoreIntegrationStatus, 30000);  // Integration status every 30s
+setInterval(refreshCoreIntegrationJobs, 15000);  // Integration jobs every 15s
 </script>
 </body>
 </html>

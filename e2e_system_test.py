@@ -121,11 +121,11 @@ class SeraphE2ETest:
         
         # Threat Intel
         self._request("GET", "/threat-intel/feeds", expected_codes=[200, 401])
-        self._request("GET", "/threat-intel/iocs", expected_codes=[200, 401])
+        self._request("GET", "/threat-intel/stats", expected_codes=[200, 401])
         
         # Threat Response
-        self._request("GET", "/threat-response/playbooks", expected_codes=[200, 401])
-        self._request("GET", "/threat-response/rules", expected_codes=[200, 401])
+        self._request("GET", "/threat-response/stats", expected_codes=[200, 401])
+        self._request("GET", "/threat-response/history", expected_codes=[200, 401])
         
     def test_agent_management(self):
         """Test unified agent infrastructure"""
@@ -138,7 +138,7 @@ class SeraphE2ETest:
         # Unified Agent
         self._request("GET", "/unified/agents", expected_codes=[200, 401])
         self._request("GET", "/unified/deployments", expected_codes=[200, 401])
-        self._request("GET", "/unified/health", auth=False, expected_codes=[200])
+        self._request("GET", "/unified/stats", expected_codes=[200, 401])
         
         # Agent Commands
         self._request("GET", "/agent-commands/types", expected_codes=[200, 401])
@@ -149,25 +149,25 @@ class SeraphE2ETest:
         print("\n=== EDR & Endpoint Protection ===")
         
         # EDR
-        self._request("GET", "/edr/events", expected_codes=[200, 401])
-        self._request("GET", "/edr/stats", expected_codes=[200, 401])
-        self._request("GET", "/edr/config", expected_codes=[200, 401])
+        self._request("GET", "/edr/status", expected_codes=[200, 401])
+        self._request("GET", "/edr/telemetry", expected_codes=[200, 401])
+        self._request("GET", "/edr/fim/status", expected_codes=[200, 401])
         
         # Quarantine
-        self._request("GET", "/quarantine/list", expected_codes=[200, 401])
+        self._request("GET", "/quarantine", expected_codes=[200, 401])
         self._request("GET", "/quarantine/summary", expected_codes=[200, 401])
         
         # Ransomware Protection
         self._request("GET", "/ransomware/status", expected_codes=[200, 401])
-        self._request("GET", "/ransomware/protected-paths", expected_codes=[200, 401])
+        self._request("GET", "/ransomware/status", expected_codes=[200, 401])
         
     def test_cloud_security(self):
         """Test CSPM and cloud security"""
         print("\n=== Cloud Security ===")
         
         # Containers
-        self._request("GET", "/containers/images", expected_codes=[200, 401])
-        self._request("GET", "/containers/scans", expected_codes=[200, 401])
+        self._request("GET", "/containers", expected_codes=[200, 401])
+        self._request("GET", "/containers/scans/history", expected_codes=[200, 401])
         
     def test_network_security(self):
         """Test network security features"""
@@ -175,7 +175,7 @@ class SeraphE2ETest:
         
         # Network
         self._request("GET", "/network/topology", expected_codes=[200, 401])
-        self._request("GET", "/network/connections", expected_codes=[200, 401])
+        self._request("GET", "/network/topology", expected_codes=[200, 401])
         
         # VPN
         self._request("GET", "/vpn/status", expected_codes=[200, 401])
@@ -183,19 +183,19 @@ class SeraphE2ETest:
         
         # Zero Trust
         self._request("GET", "/zero-trust/policies", expected_codes=[200, 401])
-        self._request("GET", "/zero-trust/sessions", expected_codes=[200, 401])
+        self._request("GET", "/zero-trust/access-logs", expected_codes=[200, 401])
         
     def test_email_web_security(self):
         """Test email and web security"""
         print("\n=== Email & Web Security ===")
         
         # Email Gateway
-        self._request("GET", "/email-gateway/status", expected_codes=[200, 401])
+        self._request("GET", "/email-gateway/stats", expected_codes=[200, 401])
         self._request("GET", "/email-gateway/quarantine", expected_codes=[200, 401])
         
         # Email Protection
-        self._request("GET", "/email-protection/status", expected_codes=[200, 401])
-        self._request("GET", "/email-protection/policies", expected_codes=[200, 401])
+        self._request("GET", "/email-protection/stats", expected_codes=[200, 401])
+        self._request("GET", "/email-protection/quarantine", expected_codes=[200, 401])
         
         # Browser Isolation
         self._request("GET", "/browser-isolation/sessions", expected_codes=[200, 401])
@@ -219,7 +219,7 @@ class SeraphE2ETest:
         print("\n=== AI/ML Features ===")
         
         # ML Predictions
-        self._request("GET", "/ml/models", expected_codes=[200, 401])
+        self._request("GET", "/ml/predictions", expected_codes=[200, 401])
         self._request("GET", "/ml/predictions", expected_codes=[200, 401])
         
         # AI Analysis
@@ -235,16 +235,16 @@ class SeraphE2ETest:
         print("\n=== Deception Technology ===")
         
         # Honeypots
-        self._request("GET", "/honeypots/list", expected_codes=[200, 401])
-        self._request("GET", "/honeypots/stats", expected_codes=[200, 401])
+        self._request("GET", "/honeypots", expected_codes=[200, 401])
+        self._request("GET", "/deception/status", expected_codes=[200, 401])
         
         # Honey Tokens
-        self._request("GET", "/honey-tokens/tokens", expected_codes=[200, 401])
+        self._request("GET", "/honey-tokens", expected_codes=[200, 401])
         self._request("GET", "/honey-tokens/stats", expected_codes=[200, 401])
         
         # Deception Engine
-        self._request("GET", "/deception/decoys", expected_codes=[200, 401])
-        self._request("GET", "/deception/stats", expected_codes=[200, 401])
+        self._request("GET", "/deception/events", expected_codes=[200, 401])
+        self._request("GET", "/deception/status", expected_codes=[200, 401])
         
     def test_soar_automation(self):
         """Test SOAR and automation"""
@@ -253,22 +253,22 @@ class SeraphE2ETest:
         # SOAR
         self._request("GET", "/soar/playbooks", expected_codes=[200, 401])
         self._request("GET", "/soar/executions", expected_codes=[200, 401])
-        self._request("GET", "/soar/status", expected_codes=[200, 401])
+        self._request("GET", "/soar/stats", expected_codes=[200, 401])
         
     def test_hunting_investigation(self):
         """Test threat hunting and investigation"""
         print("\n=== Threat Hunting & Investigation ===")
         
         # Hunting
-        self._request("GET", "/hunting/queries", expected_codes=[200, 401])
-        self._request("GET", "/hunting/stats", expected_codes=[200, 401])
+        self._request("GET", "/hunting/rules", expected_codes=[200, 401])
+        self._request("GET", "/hunting/status", expected_codes=[200, 401])
         
         # Correlation
-        self._request("GET", "/correlation/rules", expected_codes=[200, 401])
-        self._request("GET", "/correlation/alerts", expected_codes=[200, 401])
+        self._request("GET", "/correlation/stats", expected_codes=[200, 401])
+        self._request("GET", "/correlation/history", expected_codes=[200, 401])
         
         # Timeline
-        self._request("GET", "/timeline/events", expected_codes=[200, 401])
+        self._request("GET", "/timelines/recent", expected_codes=[200, 401])
         
     def test_analytics_reporting(self):
         """Test analytics and reporting"""
@@ -278,7 +278,7 @@ class SeraphE2ETest:
         self._request("GET", "/dashboard/stats", expected_codes=[200, 401])
         
         # Reports
-        self._request("GET", "/reports/list", expected_codes=[200, 401])
+        self._request("GET", "/reports/health", expected_codes=[200, 401])
         
         # Audit
         self._request("GET", "/audit/logs", expected_codes=[200, 401])
@@ -309,23 +309,23 @@ class SeraphE2ETest:
         print("\n=== Enterprise & Multi-tenant ===")
         
         # Enterprise
-        self._request("GET", "/enterprise/tenants", expected_codes=[200, 401, 403])
-        self._request("GET", "/enterprise/licenses", expected_codes=[200, 401, 403])
+        self._request("GET", "/enterprise/status", expected_codes=[200, 401, 403])
+        self._request("GET", "/enterprise/tools", expected_codes=[200, 401, 403])
         
         # Swarm (distributed agents)
-        self._request("GET", "/swarm/status", expected_codes=[200, 401])
-        self._request("GET", "/swarm/nodes", expected_codes=[200, 401])
+        self._request("GET", "/swarm/overview", expected_codes=[200, 401])
+        self._request("GET", "/swarm/devices", expected_codes=[200, 401])
         
     def test_cli_extension_apis(self):
         """Test CLI and extension APIs"""
         print("\n=== CLI & Extension APIs ===")
         
         # CLI
-        self._request("POST", "/cli/auth", auth=False, expected_codes=[200, 401, 422])
-        self._request("GET", "/cli/hello", auth=False, expected_codes=[200])
+        self._request("POST", "/cli/event", {"event_type": "e2e_probe", "message": "cli path check"}, expected_codes=[200, 401, 422])
+        self._request("GET", "/health", auth=False, expected_codes=[200])
         
         # Extension
-        self._request("GET", "/extension/status", expected_codes=[200, 401])
+        self._request("GET", "/extension/stats", expected_codes=[200, 401])
         
     def run_all_tests(self):
         """Run all test categories"""

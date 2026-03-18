@@ -3,6 +3,10 @@ from celery import Celery
 from celery.signals import task_prerun, task_postrun, task_failure
 import asyncio
 import threading
+try:
+    from services.attack_metadata import build_celery_attack_metadata
+except Exception:
+    from backend.services.attack_metadata import build_celery_attack_metadata
 
 # Celery configuration
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
@@ -45,11 +49,22 @@ def _emit_celery_world_event(event_type: str, payload: dict, trigger_triune: boo
     if db is None:
         return
 
+    task_name = str((payload or {}).get("task_name") or "unknown")
+    attack_metadata = build_celery_attack_metadata(
+        task_name=task_name,
+        event_type=event_type,
+        payload=payload or {},
+    )
+    enriched_payload = dict(payload or {})
+    enriched_payload["attack_metadata"] = attack_metadata
+    enriched_payload["attack_techniques"] = attack_metadata.get("techniques", [])
+    enriched_payload["attack_tactics"] = attack_metadata.get("tactics", [])
+
     coro = emit_world_event(
         db,
         event_type=event_type,
-        entity_refs=[str(payload.get("task_name") or "unknown")],
-        payload=payload,
+        entity_refs=[task_name],
+        payload=enriched_payload,
         trigger_triune=trigger_triune,
         source="celery_app",
     )

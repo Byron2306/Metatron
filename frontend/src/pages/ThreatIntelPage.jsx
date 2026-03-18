@@ -4,9 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import { motion } from 'framer-motion';
 import JobCard from './JobCard';
 import { 
-  Database, Search, RefreshCw, Shield, AlertTriangle, 
+  Database, Search, RefreshCw, Shield, 
   Globe, Hash, Link as LinkIcon, CheckCircle, XCircle,
-  TrendingUp, Clock, Activity
+  TrendingUp, Clock, Activity, Server, Laptop, Network
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -19,6 +19,17 @@ const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl ===
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
+const CORE_TOOLS = ['amass', 'arkime', 'bloodhound', 'spiderfoot', 'velociraptor', 'sigma', 'atomic'];
+const CORE_TOOL_ACTIONS = {
+  amass: ['status', 'run'],
+  arkime: ['status', 'start', 'parse_ingest'],
+  bloodhound: ['status', 'start', 'parse_ingest'],
+  spiderfoot: ['status', 'start', 'parse_ingest'],
+  velociraptor: ['status', 'run'],
+  sigma: ['status', 'reload', 'coverage', 'list_rules'],
+  atomic: ['status', 'jobs', 'runs', 'run'],
+};
+
 const ThreatIntelPage = () => {
   const { token } = useAuth();
   const [stats, setStats] = useState(null);
@@ -27,6 +38,22 @@ const ThreatIntelPage = () => {
   const [recentMatches, setRecentMatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [runtimeTarget, setRuntimeTarget] = useState('server');
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [agents, setAgents] = useState([]);
+  const [supportedTools, setSupportedTools] = useState([]);
+  const [toolInputFile, setToolInputFile] = useState('');
+  const [toolParamsJson, setToolParamsJson] = useState('{}');
+  const [coreActionByTool, setCoreActionByTool] = useState({
+    amass: 'status',
+    arkime: 'status',
+    bloodhound: 'status',
+    spiderfoot: 'status',
+    velociraptor: 'status',
+    sigma: 'status',
+    atomic: 'status',
+  });
+  const [coreStatusByTool, setCoreStatusByTool] = useState({});
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -34,9 +61,26 @@ const ThreatIntelPage = () => {
     fetchStats();
     fetchRecentMatches();
     fetchJobs();
+    fetchAgents();
+    fetchSupportedTools();
     const iv = setInterval(() => fetchJobs(), 5000);
     return () => clearInterval(iv);
   }, [token]);
+
+  useEffect(() => {
+    const next = {};
+    for (const tool of CORE_TOOLS) {
+      const latest = (jobs || []).find((row) => String(row?.tool || '').toLowerCase() === tool);
+      if (latest) {
+        next[tool] = {
+          status: latest.status || 'unknown',
+          updated_at: latest.updated_at,
+          job_id: latest.id,
+        };
+      }
+    }
+    setCoreStatusByTool(next);
+  }, [jobs]);
 
   const [amassDomain, setAmassDomain] = useState('');
   const [jobs, setJobs] = useState([]);
@@ -51,6 +95,29 @@ const ThreatIntelPage = () => {
     }
   };
 
+  const fetchAgents = async () => {
+    try {
+      const res = await axios.get(`${API}/unified/agents`, { headers });
+      const rows = (res.data?.agents || []).filter((a) => a?.agent_id);
+      setAgents(rows);
+      if (!selectedAgentId && rows.length) {
+        const preferred = rows.find((a) => a.status === 'online') || rows[0];
+        setSelectedAgentId(preferred.agent_id);
+      }
+    } catch (err) {
+      console.error('Failed to fetch unified agents', err);
+    }
+  };
+
+  const fetchSupportedTools = async () => {
+    try {
+      const res = await axios.get(`${API}/integrations/runtime/tools`, { headers });
+      setSupportedTools(res.data?.tools || []);
+    } catch (err) {
+      console.error('Failed to fetch runtime tools', err);
+    }
+  };
+
   const fetchArtifacts = async (jobId) => {
     try {
       const res = await axios.get(`${API}/integrations/artifacts/${jobId}`, { headers });
@@ -60,24 +127,6 @@ const ThreatIntelPage = () => {
       return { artifacts: [] };
     }
   };
-
-  const handleStartAmass = async () => {
-    if (!amassDomain.trim()) return toast.error('Provide a domain');
-    setJobStarting(true);
-    try {
-      const res = await axios.post(`${API}/integrations/amass/run`, { domain: amassDomain.trim() }, { headers });
-      toast.success(`Amass job started: ${res.data.job_id}`);
-      setAmassDomain('');
-      fetchJobs();
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to start Amass');
-    } finally {
-      setJobStarting(false);
-    }
-  };
-
-  const [hostRaw, setHostRaw] = useState('');
 
   const handleUploadHostLogs = async (file) => {
     if (!file) return toast.error('Select a log file');
@@ -95,29 +144,93 @@ const ThreatIntelPage = () => {
     }
   };
 
-  const handleStartVelociraptor = async () => {
-    setJobStarting(true);
-    try {
-      const res = await axios.post(`${API}/integrations/velociraptor/run`, { collection_name: '' }, { headers });
-      toast.success(`Velociraptor job started: ${res.data.job_id}`);
-      fetchJobs();
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to start Velociraptor');
-    } finally {
-      setJobStarting(false);
-    }
+  const handleStartPurpleSharp = async () => {
+    await launchIntegration('purplesharp', { target: '' });
   };
 
-  const handleStartPurpleSharp = async () => {
+  const buildCoreParams = (tool, action) => {
+    const selectedAction = String(action || 'status').trim().toLowerCase();
+    const params = { action: selectedAction };
+
+    if (tool === 'amass' && selectedAction !== 'status') {
+      if (!amassDomain.trim()) {
+        toast.error('Provide a domain for Amass run');
+        return null;
+      }
+      params.domain = amassDomain.trim();
+    }
+
+    if (['arkime', 'bloodhound', 'spiderfoot'].includes(tool) && selectedAction === 'parse_ingest') {
+      if (!toolInputFile.trim()) {
+        toast.error(`Provide input file path for ${tool} parse_ingest`);
+        return null;
+      }
+      params.input_file = toolInputFile.trim();
+      params.strict_nonempty_parse = true;
+    }
+
+    if (tool === 'velociraptor' && selectedAction !== 'status') {
+      params.collection_name = '';
+    }
+
+    return params;
+  };
+
+  const runCoreTool = async (tool, forceStatus = false) => {
+    const action = forceStatus ? 'status' : (coreActionByTool[tool] || 'status');
+    const params = buildCoreParams(tool, action);
+    if (!params) return;
+    await launchIntegration(tool, params);
+  };
+
+  const runCoreStatusSweep = async () => {
+    for (const tool of CORE_TOOLS) {
+      await launchIntegration(tool, { action: 'status' }, { silent: true });
+    }
+    toast.success('Core integration status sweep submitted');
+    fetchJobs();
+  };
+
+  const launchIntegration = async (tool, params = {}, options = {}) => {
+    const silent = Boolean(options?.silent);
+    if (runtimeTarget !== 'server' && !selectedAgentId) {
+      if (!silent) toast.error('Select a unified agent for agent runtime target');
+      return;
+    }
     setJobStarting(true);
     try {
-      const res = await axios.post(`${API}/integrations/purplesharp/run`, { target: '' }, { headers });
-      toast.success(`PurpleSharp job scheduled: ${res.data.job_id}`);
+      let parsedParams = {};
+      if (toolParamsJson && toolParamsJson.trim()) {
+        try {
+          parsedParams = JSON.parse(toolParamsJson);
+        } catch (e) {
+          if (!silent) toast.error('Custom params JSON is invalid');
+          setJobStarting(false);
+          return;
+        }
+      }
+      const payload = {
+        tool,
+        params: { ...(parsedParams || {}), ...(params || {}) },
+        runtime_target: runtimeTarget,
+        agent_id: runtimeTarget === 'server' ? null : selectedAgentId,
+      };
+      const res = await axios.post(`${API}/integrations/runtime/run`, payload, { headers });
+      const queueId = res.data?.queue_id;
+      const decisionId = res.data?.decision_id;
+      if (!silent) {
+        if (queueId || decisionId) {
+          toast.success(`${tool} queued for approval • queue ${queueId || 'n/a'}`);
+        } else {
+          toast.success(`${tool} launched • job ${res.data?.job_id || 'created'}`);
+        }
+      }
       fetchJobs();
+      return res.data;
     } catch (err) {
       console.error(err);
-      toast.error('Failed to schedule PurpleSharp');
+      if (!silent) toast.error(`Failed to launch ${tool}`);
+      return null;
     } finally {
       setJobStarting(false);
     }
@@ -409,18 +522,129 @@ const ThreatIntelPage = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2 items-center mb-4">
-            <Input placeholder="example.com" value={amassDomain} onChange={(e)=>setAmassDomain(e.target.value)} className="bg-slate-800 border-slate-700 text-white" />
-            <Button onClick={handleStartAmass} disabled={jobStarting} data-testid="run-amass-btn">
-              {jobStarting ? 'Starting...' : 'Run Amass'}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-slate-400">Runtime target</span>
+              <select
+                value={runtimeTarget}
+                onChange={(e) => setRuntimeTarget(e.target.value)}
+                className="bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2"
+              >
+                <option value="server">Server runtime</option>
+                <option value="unified_agent_local">Unified agent (local)</option>
+                <option value="unified_agent_remote">Unified agent (remote)</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-slate-400">Target unified agent</span>
+              <select
+                value={selectedAgentId}
+                onChange={(e) => setSelectedAgentId(e.target.value)}
+                disabled={runtimeTarget === 'server'}
+                className="bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2 disabled:opacity-60"
+              >
+                <option value="">Auto-select</option>
+                {agents.map((agent) => (
+                  <option key={agent.agent_id} value={agent.agent_id}>
+                    {agent.agent_id} ({agent.status || 'unknown'})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-slate-400">Optional source file path</span>
+              <Input
+                placeholder="/data/export.json"
+                value={toolInputFile}
+                onChange={(e) => setToolInputFile(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-slate-400">Optional custom params JSON</span>
+              <textarea
+                value={toolParamsJson}
+                onChange={(e) => setToolParamsJson(e.target.value)}
+                className="bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2 min-h-[42px]"
+                placeholder='{"action":"status"}'
+              />
+            </div>
+          </div>
+
+          <div className="mb-3 flex items-center gap-2">
+            <Input
+              placeholder="example.com (for Amass run)"
+              value={amassDomain}
+              onChange={(e) => setAmassDomain(e.target.value)}
+              className="bg-slate-800 border-slate-700 text-white max-w-sm"
+            />
+            <Button onClick={runCoreStatusSweep} disabled={jobStarting} variant="outline">
+              Status Sweep (7 tools)
             </Button>
-            <Button onClick={handleStartVelociraptor} disabled={jobStarting} data-testid="run-velociraptor-btn">
-              {jobStarting ? 'Starting...' : 'Run Velociraptor'}
-            </Button>
+            <Button onClick={fetchJobs} variant="outline">Refresh Jobs</Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
+            {CORE_TOOLS.map((tool) => {
+              const status = coreStatusByTool?.[tool]?.status || 'n/a';
+              const updatedAt = coreStatusByTool?.[tool]?.updated_at;
+              const statusColor = String(status).includes('failed')
+                ? 'text-red-400 border-red-500/30'
+                : String(status).includes('completed') || String(status).includes('running')
+                ? 'text-green-400 border-green-500/30'
+                : 'text-slate-300 border-slate-600';
+              return (
+                <div key={tool} className="p-3 rounded-lg bg-slate-800/50 border border-slate-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-white font-medium capitalize">{tool}</p>
+                    <Badge variant="outline" className={statusColor}>{status}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <select
+                      value={coreActionByTool[tool] || 'status'}
+                      onChange={(e) => setCoreActionByTool((prev) => ({ ...prev, [tool]: e.target.value }))}
+                      className="bg-slate-900 border border-slate-700 text-white rounded px-2 py-1 text-xs flex-1"
+                    >
+                      {(CORE_TOOL_ACTIONS[tool] || ['status']).map((action) => (
+                        <option key={action} value={action}>{action}</option>
+                      ))}
+                    </select>
+                    <Button size="sm" variant="outline" onClick={() => runCoreTool(tool, true)} disabled={jobStarting}>
+                      Status
+                    </Button>
+                    <Button size="sm" onClick={() => runCoreTool(tool, false)} disabled={jobStarting}>
+                      Run
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {updatedAt ? `Updated ${new Date(updatedAt).toLocaleString()}` : 'No recent jobs'}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap gap-2 items-center mb-4">
             <Button onClick={handleStartPurpleSharp} disabled={jobStarting} data-testid="run-purplesharp-btn">
               {jobStarting ? 'Starting...' : 'Run PurpleSharp'}
             </Button>
-            <Button onClick={fetchJobs} variant="outline">Refresh Jobs</Button>
+            <Button onClick={() => launchIntegration('trivy', { action: 'status' })} disabled={jobStarting}>Run Trivy</Button>
+            <Button onClick={() => launchIntegration('falco', { action: 'status' })} disabled={jobStarting}>Run Falco</Button>
+            <Button onClick={() => launchIntegration('suricata', { action: 'status' })} disabled={jobStarting}>Run Suricata</Button>
+            <Button onClick={() => launchIntegration('yara', { action: 'status' })} disabled={jobStarting}>Run YARA</Button>
+            <Button onClick={() => launchIntegration('cuckoo', { action: 'status' })} disabled={jobStarting}>Run Cuckoo</Button>
+            <Button onClick={() => launchIntegration('osquery', { action: 'status' })} disabled={jobStarting}>Run Osquery</Button>
+            <Button onClick={() => launchIntegration('zeek', { action: 'status' })} disabled={jobStarting}>Run Zeek</Button>
+          </div>
+
+          <div className="mb-4 flex items-center gap-2 text-xs text-slate-400">
+            {runtimeTarget === 'server' ? <Server className="w-4 h-4" /> : <Laptop className="w-4 h-4" />}
+            <span>
+              Launch mode: <span className="text-slate-200">{runtimeTarget}</span>
+              {runtimeTarget !== 'server' && selectedAgentId ? ` • agent ${selectedAgentId}` : ''}
+            </span>
+            <Network className="w-4 h-4" />
+            <span>{supportedTools.length ? `${supportedTools.length} supported tools` : 'Loading tools...'}</span>
           </div>
 
           <div className="flex items-center gap-2 mb-4">

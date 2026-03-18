@@ -1,10 +1,11 @@
 """Shared dependencies for all routers"""
-from fastapi import HTTPException, Depends, Request
+from fastapi import HTTPException, Depends, Request, WebSocket, WebSocketException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
+from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 import jwt
 try:
     import bcrypt
@@ -14,6 +15,7 @@ import uuid
 import os
 import logging
 import ipaddress
+import hmac
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,7 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 # MongoDB connection - will be set by main app
 db = None
@@ -171,6 +174,16 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+async def get_optional_current_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+):
+    """Best-effort identity resolution. Returns None when no bearer token is provided."""
+    if credentials is None:
+        return None
+    return await get_current_user(request=request, credentials=credentials)
+
+
 # ============ ROLE-BASED ACCESS CONTROL ============
 
 ROLES = {
@@ -178,14 +191,129 @@ ROLES = {
     "analyst": ["read", "write", "export_reports"],
     "viewer": ["read"],
 }
+
+
+def has_permission(user: Optional[dict], required_permission: str) -> bool:
+    if not user:
+        return False
+    user_role = user.get("role", "viewer")
+    permissions = ROLES.get(user_role, [])
+    return required_permission in permissions
+
+
 def check_permission(required_permission: str):
     async def permission_checker(current_user: dict = Depends(get_current_user)):
-        user_role = current_user.get("role", "viewer")
-        permissions = ROLES.get(user_role, [])
-        if required_permission not in permissions:
+        if not has_permission(current_user, required_permission):
             raise HTTPException(status_code=403, detail=f"Permission denied. Required: {required_permission}")
         return current_user
     return permission_checker
+
+
+def _resolve_machine_tokens(env_keys: List[str]) -> List[str]:
+    tokens: List[str] = []
+    for key in env_keys:
+        raw = (os.environ.get(key) or "").strip()
+        if raw:
+            tokens.append(raw)
+    return tokens
+
+
+def machine_token_matches(token: Optional[str], env_keys: List[str]) -> bool:
+    if not token:
+        return False
+    configured_tokens = _resolve_machine_tokens(env_keys)
+    if not configured_tokens:
+        return False
+    provided = token.strip()
+    return any(hmac.compare_digest(provided, configured) for configured in configured_tokens)
+
+
+def _extract_header_token(request: Request, header_names: List[str]) -> Optional[str]:
+    for name in header_names:
+        value = request.headers.get(name)
+        if value:
+            return value.strip()
+    return None
+
+
+def require_machine_token(
+    *,
+    env_keys: List[str],
+    header_names: Optional[List[str]] = None,
+    subject: str = "machine",
+):
+    """Create a dependency that validates a shared machine token from headers."""
+    resolved_headers = [h.strip() for h in (header_names or ["x-agent-token", "x-internal-token"]) if h.strip()]
+
+    async def _checker(request: Request):
+        configured_tokens = _resolve_machine_tokens(env_keys)
+        if not configured_tokens:
+            raise HTTPException(status_code=503, detail=f"{subject} token is not configured")
+
+        provided = _extract_header_token(request, resolved_headers)
+        if not provided:
+            raise HTTPException(status_code=401, detail=f"Missing {subject} token")
+
+        if not any(hmac.compare_digest(provided, token) for token in configured_tokens):
+            raise HTTPException(status_code=401, detail=f"Invalid {subject} token")
+
+        return {"auth": "ok", "subject": subject}
+
+    return _checker
+
+
+def optional_machine_token(
+    *,
+    env_keys: List[str],
+    header_names: Optional[List[str]] = None,
+    subject: str = "machine",
+):
+    """Create a dependency that validates machine token only when header is present."""
+    resolved_headers = [h.strip() for h in (header_names or ["x-agent-token", "x-internal-token"]) if h.strip()]
+
+    async def _checker(request: Request):
+        provided = _extract_header_token(request, resolved_headers)
+        if not provided:
+            return None
+
+        configured_tokens = _resolve_machine_tokens(env_keys)
+        if not configured_tokens:
+            raise HTTPException(status_code=503, detail=f"{subject} token is not configured")
+
+        if not any(hmac.compare_digest(provided, token) for token in configured_tokens):
+            raise HTTPException(status_code=401, detail=f"Invalid {subject} token")
+
+        return {"auth": "ok", "subject": subject}
+
+    return _checker
+
+
+def verify_websocket_machine_token(
+    websocket: WebSocket,
+    *,
+    env_keys: List[str],
+    header_names: Optional[List[str]] = None,
+    subject: str = "machine",
+) -> Dict[str, str]:
+    """Validate machine token from websocket headers."""
+    configured_tokens = _resolve_machine_tokens(env_keys)
+    if not configured_tokens:
+        raise WebSocketException(code=WS_1011_INTERNAL_ERROR, reason=f"{subject} token is not configured")
+
+    resolved_headers = [h.strip() for h in (header_names or ["x-agent-token", "x-internal-token"]) if h.strip()]
+    provided: Optional[str] = None
+    for header_name in resolved_headers:
+        value = websocket.headers.get(header_name)
+        if value:
+            provided = value.strip()
+            break
+
+    if not provided:
+        raise WebSocketException(code=WS_1008_POLICY_VIOLATION, reason=f"Missing {subject} token")
+    if not any(hmac.compare_digest(provided, token) for token in configured_tokens):
+        raise WebSocketException(code=WS_1008_POLICY_VIOLATION, reason=f"Invalid {subject} token")
+
+    return {"auth": "ok", "subject": subject}
 
 # ============ SHARED MODELS ============
 

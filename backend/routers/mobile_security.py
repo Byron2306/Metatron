@@ -103,7 +103,7 @@ async def register_device(
         user_email=request.user_email,
         imei=request.imei
     )
-    await emit_world_event(get_db(), event_type="mobile_device_registered", entity_refs=[device.id, request.user_id], payload={"platform": device.platform.value, "actor": current_user.get("id")}, trigger_triune=False)
+    await emit_world_event(get_db(), event_type="mobile_device_registered", entity_refs=[device.device_id, request.user_id], payload={"platform": device.platform.value, "actor": current_user.get("id")}, trigger_triune=False)
     return {
         **asdict(device),
         "platform": device.platform.value,

@@ -11,17 +11,24 @@ import json
 import asyncio
 
 from .dependencies import get_db
+from backend.services.governed_dispatch import GovernedDispatchService
+from backend.services.governance_authority import GovernanceDecisionAuthority
+from backend.services.governance_executor import GovernanceExecutorService
 from backend.services.outbound_gate import OutboundGateService
 try:
     from services.world_events import emit_world_event
 except Exception:
     from backend.services.world_events import emit_world_event
 try:
-    from services.world_events import emit_world_event
-except Exception:
-    from backend.services.world_events import emit_world_event
-try:
-    from .dependencies import get_current_user, check_permission, logger
+    from .dependencies import (
+        get_current_user,
+        get_optional_current_user,
+        check_permission,
+        has_permission,
+        optional_machine_token,
+        logger,
+        verify_websocket_machine_token,
+    )
 except Exception:
     def get_current_user(*args, **kwargs):
         return None
@@ -31,10 +38,29 @@ except Exception:
             return None
         return _checker
 
+    async def get_optional_current_user(*args, **kwargs):
+        return None
+
+    def has_permission(_user: Optional[dict], _required_permission: str) -> bool:
+        return False
+
+    def optional_machine_token(*args, **kwargs):
+        async def _checker(*a, **k):
+            return None
+        return _checker
+
     import logging as _logging
     logger = _logging.getLogger(__name__)
 
+    def verify_websocket_machine_token(*args, **kwargs):
+        return {"auth": "ok"}
+
 router = APIRouter(prefix="/agent-commands", tags=["Agent Commands"])
+verify_agent_result_machine_token = optional_machine_token(
+    env_keys=["AGENT_COMMANDS_TOKEN", "SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY"],
+    header_names=["x-agent-token", "x-internal-token"],
+    subject="agent command reporter",
+)
 
 COMMAND_TERMINAL_STATUSES = {"completed", "failed", "rejected"}
 CONNECTION_STATUSES = {"connected", "disconnected"}
@@ -694,7 +720,7 @@ async def get_command_types(current_user: dict = Depends(get_current_user)):
 @router.post("/recommend")
 async def recommend_commands(
     request: AICommandRecommendationRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Recommend commands using Ollama-assisted reasoning with safe fallbacks."""
     from services.ai_reasoning import ai_reasoning
@@ -805,38 +831,27 @@ async def create_command(
         "result": None
     }
     
-    gate = OutboundGateService(db)
+    dispatch = GovernedDispatchService(db)
     action_type = "cross_sector_hardening" if request.command_type in {"remediate_compliance", "remove_persistence"} else "agent_command"
-    gated = await gate.gate_action(
+    queued = await dispatch.queue_gated_agent_command(
         action_type=action_type,
         actor=current_user.get("email", current_user.get("id", "unknown")),
-        payload=command,
+        agent_id=request.agent_id,
+        command_doc=command,
         impact_level="critical" if command["risk_level"] in {"high", "critical"} else "high",
-        subject_id=request.agent_id,
-        entity_refs=[command_id],
+        entity_refs=[request.agent_id, command_id],
         requires_triune=True,
     )
-
-    command["status"] = "gated_pending_approval"
-    command["gate"] = {
-        "queue_id": gated.get("queue_id"),
-        "decision_id": gated.get("decision_id"),
-        "action_id": gated.get("action_id"),
-    }
+    gated = queued.get("queued", {})
+    command = queued.get("command", command)
 
     pending_commands[command_id] = command.copy()
-    await db.agent_commands.insert_one(command)
     await emit_world_event(
         db,
         event_type="agent_command_created",
         trigger_triune=True,
         entity_refs=[request.agent_id, command_id],
         payload={"command_type": request.command_type, "priority": request.priority, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")},
-    )
-
-        trigger_triune=False,
-        entity_refs=[request.agent_id, command_id],
-        payload={"command_type": request.command_type, "priority": request.priority},
     )
     
     # Remove MongoDB _id before returning
@@ -849,7 +864,7 @@ async def get_pending_commands(current_user: dict = Depends(get_current_user)):
     """Get all commands pending approval"""
     db = get_db()
     commands = await db.agent_commands.find(
-        {"status": "pending_approval"},
+        {"status": {"$in": ["pending_approval", "gated_pending_approval"]}},
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     
@@ -899,64 +914,66 @@ async def approve_command(
     if not transitioned:
         raise HTTPException(status_code=409, detail="Command approval conflict; state changed concurrently")
 
-    post_approval_version = current_version + 1
-    
-    # If approved, queue for agent pickup or send via WebSocket if connected
-    if approval.approved:
-        agent_id = command["agent_id"]
-        
-        # Add to command queue for agent to poll
-        await db.command_queue.insert_one({
-            "command_id": command_id,
-            "agent_id": agent_id,
-            "command_type": command["command_type"],
-            "parameters": command["parameters"],
-            "status": "pending",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-        
-        # Try to send via WebSocket if agent is connected
-        if agent_id in connected_agents:
-            try:
-                ws = connected_agents[agent_id]
-                await ws.send_json({
-                    "type": "command",
-                    "command_id": command_id,
-                    "command_type": command["command_type"],
-                    "parameters": command["parameters"]
-                })
-                await _guarded_command_transition(
-                    db,
-                    command_id=command_id,
-                    expected_statuses=["approved", "queued_for_pickup"],
-                    next_status="sent_to_agent",
-                    actor="system:command-dispatch",
-                    reason="command pushed over websocket during approval",
-                    expected_state_version=post_approval_version,
-                )
-            except Exception as e:
-                logger.debug(f"Could not send to agent {agent_id} via WS: {e}")
-                await _guarded_command_transition(
-                    db,
-                    command_id=command_id,
-                    expected_statuses=["approved"],
-                    next_status="queued_for_pickup",
-                    actor="system:command-dispatch",
-                    reason="websocket dispatch failed; queued for pickup",
-                    expected_state_version=post_approval_version,
-                    transition_metadata={"error": str(e)},
-                )
-        else:
-            # Update status to indicate command is queued for pickup
-            await _guarded_command_transition(
-                db,
-                command_id=command_id,
-                expected_statuses=["approved"],
-                next_status="queued_for_pickup",
-                actor="system:command-dispatch",
-                reason="agent offline; queued for pickup",
-                expected_state_version=post_approval_version,
+    decision_id = command.get("decision_id") or (command.get("gate") or {}).get("decision_id")
+    if not decision_id and approval.approved:
+        # Legacy compatibility: bootstrap ungated commands into the canonical gate.
+        gate = OutboundGateService(db)
+        actor = approved_by or "unknown"
+        action_type = (
+            "cross_sector_hardening"
+            if command.get("command_type") in {"remediate_compliance", "remove_persistence"}
+            else "agent_command"
+        )
+        gated = await gate.gate_action(
+            action_type=action_type,
+            actor=actor,
+            payload=command,
+            impact_level="critical" if str(command.get("risk_level", "")).lower() in {"high", "critical"} else "high",
+            subject_id=command.get("agent_id"),
+            entity_refs=[command.get("agent_id"), command_id],
+            requires_triune=True,
+        )
+        await db.agent_commands.update_one(
+            {"command_id": command_id},
+            {
+                "$set": {
+                    "decision_id": gated.get("decision_id"),
+                    "queue_id": gated.get("queue_id"),
+                    "gate": {
+                        "queue_id": gated.get("queue_id"),
+                        "decision_id": gated.get("decision_id"),
+                        "action_id": gated.get("action_id"),
+                    },
+                    "updated_at": _iso_now(),
+                }
+            },
+        )
+        decision_id = gated.get("decision_id")
+
+    actor = approved_by or "unknown"
+    authority = GovernanceDecisionAuthority(db)
+    execution_summary = None
+    if decision_id:
+        if approval.approved:
+            await authority.approve_decision(
+                decision_id=decision_id,
+                actor=actor,
+                notes=approval.notes,
+                execution_status="pending_executor",
+                source="agent_commands_manual_approval",
             )
+            execution_summary = await GovernanceExecutorService(db).process_approved_decisions(limit=100)
+        else:
+            await authority.deny_decision(
+                decision_id=decision_id,
+                actor=actor,
+                reason=approval.notes,
+                source="agent_commands_manual_approval",
+            )
+        await db.triune_decisions.update_one(
+            {"decision_id": decision_id},
+            {"$set": {"manual_override": True, "manual_override_actor": actor}},
+        )
 
     await emit_world_event(
         db,
@@ -970,7 +987,13 @@ async def approve_command(
         },
     )
     
-    return {"command_id": command_id, "status": new_status, "message": "Command approved and queued for agent"}
+    return {
+        "command_id": command_id,
+        "status": new_status,
+        "decision_id": decision_id,
+        "execution_summary": execution_summary,
+        "message": "Command decision recorded through canonical governance authority",
+    }
 
 
 @router.get("/history")
@@ -995,15 +1018,25 @@ async def get_command_history(
 async def report_command_result(
     command_id: str,
     result: Dict[str, Any],
-    current_user: dict = Depends(get_current_user)
+    machine_auth: Optional[dict] = Depends(verify_agent_result_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Agent reports command execution result"""
     db = get_db()
+    actor = None
+    if current_user is not None and has_permission(current_user, "write"):
+        actor = current_user.get("email", current_user.get("id")) or "unknown"
+    elif machine_auth is not None:
+        actor = "agent:machine-token"
+    else:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        raise HTTPException(status_code=403, detail="Permission denied. Required: write or machine token")
 
     command = await _ensure_command_state_fields(
         db,
         command_id=command_id,
-        actor=current_user.get("email", current_user.get("id")) or "unknown",
+        actor=actor,
         reason="bootstrap legacy command durability fields",
     )
     if not command:
@@ -1018,9 +1051,9 @@ async def report_command_result(
     transitioned = await _guarded_command_transition(
         db,
         command_id=command_id,
-        expected_statuses=["approved", "queued_for_pickup", "sent_to_agent", "deploying", "running", "in_progress"],
+        expected_statuses=["approved", "queued_for_pickup", "pending", "delivered", "sent_to_agent", "deploying", "running", "in_progress"],
         next_status=next_status,
-        actor=current_user.get("email", current_user.get("id")) or "agent:reported-result",
+        actor=actor or "agent:reported-result",
         reason="command result reported",
         expected_state_version=current_version,
         extra_updates={
@@ -1055,6 +1088,12 @@ async def get_connected_agents(current_user: dict = Depends(get_current_user)):
 @router.websocket("/ws/{agent_id}")
 async def agent_websocket(websocket: WebSocket, agent_id: str):
     """WebSocket connection for agent bi-directional communication"""
+    verify_websocket_machine_token(
+        websocket,
+        env_keys=["SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY", "AGENT_COMMANDS_WS_TOKEN"],
+        header_names=["x-agent-token", "x-internal-token"],
+        subject="agent commands websocket",
+    )
     await websocket.accept()
     connection_session_id = str(uuid.uuid4())[:12]
     connected_agents[agent_id] = websocket
@@ -1070,10 +1109,10 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
         logger.warning("Connection registration conflict for agent %s; proceeding with in-memory session", agent_id)
     
     try:
-        # Send any pending approved commands
+        # Send any pending commands ready for delivery.
         pending = await db.agent_commands.find({
             "agent_id": agent_id,
-            "status": {"$in": ["approved", "queued_for_pickup"]}
+            "status": {"$in": ["pending", "approved", "queued_for_pickup"]}
         }, {"_id": 0}).to_list(100)
         
         for cmd in pending:
@@ -1086,7 +1125,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
             await _guarded_command_transition(
                 db,
                 command_id=cmd["command_id"],
-                expected_statuses=["approved", "queued_for_pickup"],
+                    expected_statuses=["pending", "approved", "queued_for_pickup"],
                 next_status="sent_to_agent",
                 actor="system:websocket-delivery",
                 reason="command delivered on websocket connect",
@@ -1145,7 +1184,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
                         await _guarded_command_transition(
                             db,
                             command_id=command_id,
-                            expected_statuses=["approved", "queued_for_pickup", "sent_to_agent", "deploying", "running", "in_progress"],
+                            expected_statuses=["pending", "delivered", "approved", "queued_for_pickup", "sent_to_agent", "deploying", "running", "in_progress"],
                             next_status="completed" if data.get("success") else "failed",
                             actor=f"agent:{agent_id}",
                             reason="command result received via websocket",

@@ -311,7 +311,7 @@ class QuantumSecurityService:
         return base64.b64encode(shared_secret).decode()
     
     # =========================================================================
-    # DILITHIUM SIGNATURES (Simulated)
+    # DILITHIUM SIGNATURES
     # =========================================================================
     
     def generate_dilithium_keypair(self, key_id: str = None,
@@ -354,7 +354,8 @@ class QuantumSecurityService:
     
     def dilithium_sign(self, key_id: str, data: bytes) -> Optional[QuantumSignature]:
         """
-        Sign data using Dilithium (simulated).
+        Sign data using Dilithium.
+        In simulation mode, this is a deterministic hash-based stand-in.
         """
         import uuid
         
@@ -362,12 +363,12 @@ class QuantumSecurityService:
         if not keypair or not keypair.algorithm.startswith("DILITHIUM"):
             return None
         
-        private_key = base64.b64decode(keypair.private_key)
+        public_key = base64.b64decode(keypair.public_key)
         data_hash = hashlib.sha3_256(data).hexdigest()
         
-        # Simulated signature
-        # In production, use Signature.sign(private_key, data)
-        signature = hashlib.sha3_512(private_key + data).digest()
+        # Simulation signature path.
+        # This keeps verification deterministic without requiring private-key access.
+        signature = hashlib.sha3_512(public_key + data).digest()
         
         sig = QuantumSignature(
             signature_id=f"sig-{uuid.uuid4().hex[:12]}",
@@ -386,24 +387,55 @@ class QuantumSecurityService:
     def dilithium_verify(self, public_key: str, data: bytes, 
                          signature: str) -> bool:
         """
-        Verify a Dilithium signature (simulated).
+        Verify a Dilithium signature.
+        In simulation mode, this verifies the deterministic hash-based stand-in.
         """
         try:
             pk = base64.b64decode(public_key)
             sig = base64.b64decode(signature)
             
-            # Simulated verification
-            # In production, use Signature.verify(public_key, data, signature)
-            # For simulation, we do a simplified check
-            expected = hashlib.sha3_512(pk[:len(pk)//2] + data).digest()
-            
-            # In real PQ crypto, verification is different
-            # This is just a simulation
-            valid = len(sig) == len(expected)
+            # Simulation verification path.
+            expected = hashlib.sha3_512(pk + data).digest()
+            valid = hmac.compare_digest(sig, expected)
             self._emit_quantum_event("quantum_signature_verified", [], {"valid": valid}, trigger_triune=not valid)
             return valid
-        except:
+        except Exception:
             return False
+
+    def verify_stored_signature(self, signature_id: str, data: bytes) -> bool:
+        """
+        Verify a previously created signature object against input data.
+        """
+        signature = self.signatures.get(signature_id)
+        if not signature:
+            self._emit_quantum_event(
+                "quantum_signature_verified",
+                [signature_id],
+                {"valid": False, "reason": "signature_not_found"},
+                trigger_triune=True,
+            )
+            return False
+
+        keypair = self.key_pairs.get(signature.signer_key_id)
+        if not keypair:
+            self._emit_quantum_event(
+                "quantum_signature_verified",
+                [signature_id, signature.signer_key_id],
+                {"valid": False, "reason": "signer_key_missing"},
+                trigger_triune=True,
+            )
+            return False
+
+        if hashlib.sha3_256(data).hexdigest() != signature.data_hash:
+            self._emit_quantum_event(
+                "quantum_signature_verified",
+                [signature_id, signature.signer_key_id],
+                {"valid": False, "reason": "data_hash_mismatch"},
+                trigger_triune=True,
+            )
+            return False
+
+        return self.dilithium_verify(keypair.public_key, data, signature.signature)
     
     # =========================================================================
     # HYBRID ENCRYPTION
@@ -503,6 +535,29 @@ class QuantumSecurityService:
                 "created_at": kp.created_at,
                 "expires_at": kp.expires_at
             })
+        return result
+
+    def get_signatures(self, signer_key_id: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get stored signatures metadata."""
+        signatures = sorted(
+            self.signatures.values(),
+            key=lambda item: item.timestamp,
+            reverse=True,
+        )
+        result: List[Dict[str, Any]] = []
+        for sig in signatures:
+            if signer_key_id and sig.signer_key_id != signer_key_id:
+                continue
+            result.append({
+                "signature_id": sig.signature_id,
+                "algorithm": sig.algorithm,
+                "data_hash": sig.data_hash,
+                "signature": f"{sig.signature[:32]}...",
+                "signer_key_id": sig.signer_key_id,
+                "timestamp": sig.timestamp,
+            })
+            if len(result) >= max(1, int(limit)):
+                break
         return result
     
     def get_quantum_status(self) -> Dict:

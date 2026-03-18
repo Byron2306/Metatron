@@ -14,7 +14,14 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from .dependencies import get_current_user, check_permission, get_db
+from .dependencies import (
+    get_current_user,
+    get_optional_current_user,
+    check_permission,
+    has_permission,
+    optional_machine_token,
+    get_db,
+)
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -23,12 +30,61 @@ try:
     from services.outbound_gate import OutboundGateService
 except Exception:
     from backend.services.outbound_gate import OutboundGateService
+try:
+    from services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/advanced", tags=["Advanced Security"])
+verify_advanced_ingest_machine_token = optional_machine_token(
+    env_keys=["ADVANCED_INGEST_TOKEN", "INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-advanced-token", "x-internal-token", "x-agent-token"],
+    subject="advanced ingest",
+)
+
+
+def _record_advanced_audit(
+    *,
+    principal: str,
+    action: str,
+    targets: List[str],
+    result: str,
+    result_details: Optional[str] = None,
+    tool_id: Optional[str] = None,
+    constraints: Optional[Dict[str, Any]] = None,
+) -> None:
+    try:
+        tamper_evident_telemetry.set_db(get_db())
+        tamper_evident_telemetry.record_action(
+            principal=principal,
+            principal_trust_state="trusted",
+            action=action,
+            targets=targets,
+            tool_id=tool_id,
+            constraints=constraints or {},
+            result=result,
+            result_details=result_details,
+        )
+    except Exception:
+        logger.exception("Failed to record advanced audit action: %s", action)
+
+
+def _resolve_write_actor(
+    *,
+    machine_auth: Optional[dict],
+    current_user: Optional[dict],
+) -> str:
+    if machine_auth is not None:
+        return f"machine:{machine_auth.get('subject', 'advanced ingest')}"
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not has_permission(current_user, "write"):
+        raise HTTPException(status_code=403, detail="Permission denied. Required: write or machine token")
+    return current_user.get("email", current_user.get("id", "unknown"))
 
 
 def _safe_get_reasoning_stats() -> Dict[str, Any]:
@@ -227,6 +283,26 @@ class AIQueryRequest(BaseModel):
     context: Optional[Dict[str, Any]] = None
 
 
+class QuantumSignRequest(BaseModel):
+    key_id: str
+    data: str
+
+
+class QuantumVerifyRequest(BaseModel):
+    public_key: str
+    data: str
+    signature: str
+
+
+class QuantumVerifyStoredRequest(BaseModel):
+    signature_id: str
+    data: str
+
+
+class QuantumHashRequest(BaseModel):
+    data: str
+
+
 # =============================================================================
 # MCP SERVER ENDPOINTS
 # =============================================================================
@@ -340,6 +416,26 @@ async def store_memory(
         confidence=request.confidence,
         ttl_days=request.ttl_days
     )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_stored",
+        entity_refs=[entry.entry_id, entry.namespace.value],
+        payload={
+            "actor": actor,
+            "namespace": entry.namespace.value,
+            "trust_level": entry.trust_level.value,
+            "source": entry.source,
+        },
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_memory_store",
+        targets=[entry.entry_id, entry.namespace.value],
+        result="success",
+        constraints={"trust_level": entry.trust_level.value, "source": entry.source},
+    )
     
     return {
         "entry_id": entry.entry_id,
@@ -351,7 +447,7 @@ async def store_memory(
 @router.post("/memory/search")
 async def search_memory(
     request: MemorySearchRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Search memory by semantic similarity"""
     from services.vector_memory import vector_memory, MemoryNamespace
@@ -363,6 +459,28 @@ async def search_memory(
         namespace=namespace,
         top_k=request.top_k,
         min_confidence=request.min_confidence
+    )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    namespace_value = namespace.value if namespace else "all"
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_searched",
+        entity_refs=[namespace_value],
+        payload={
+            "actor": actor,
+            "query": request.query[:128],
+            "top_k": request.top_k,
+            "min_confidence": request.min_confidence,
+            "result_count": len(results),
+        },
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_memory_search",
+        targets=[namespace_value],
+        result="success",
+        constraints={"top_k": request.top_k, "result_count": len(results)},
     )
     
     return {
@@ -398,6 +516,26 @@ async def create_incident_case(
         created_by=current_user.get("email", "unknown"),
         confidence=request.confidence
     )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_case_created",
+        entity_refs=[case.case_id],
+        payload={
+            "actor": actor,
+            "title": case.title,
+            "affected_hosts": case.affected_hosts,
+            "confidence": case.confidence,
+        },
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_memory_case_create",
+        targets=[case.case_id],
+        result="success",
+        constraints={"affected_hosts_count": len(case.affected_hosts or [])},
+    )
     
     return {
         "case_id": case.case_id,
@@ -409,7 +547,7 @@ async def create_incident_case(
 @router.post("/memory/case/{case_id}/similar")
 async def find_similar_cases(
     case_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Find similar historical cases"""
     from services.vector_memory import vector_memory
@@ -421,6 +559,21 @@ async def find_similar_cases(
     similar = vector_memory.find_similar_cases(
         symptoms=case.symptoms,
         indicators=case.indicators
+    )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_case_similarity_queried",
+        entity_refs=[case_id],
+        payload={"actor": actor, "result_count": len(similar)},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_memory_case_similarity",
+        targets=[case_id],
+        result="success",
+        constraints={"result_count": len(similar)},
     )
     
     return {
@@ -441,7 +594,16 @@ async def find_similar_cases(
 async def get_memory_stats(current_user: dict = Depends(get_current_user)):
     """Get memory database statistics"""
     from services.vector_memory import vector_memory
-    return vector_memory.get_memory_stats()
+    stats = vector_memory.get_memory_stats()
+    actor = (current_user or {}).get("email", (current_user or {}).get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_memory_stats_requested",
+        entity_refs=[],
+        payload={"actor": actor, "total_entries": stats.get("total_entries", 0)},
+        trigger_triune=False,
+    )
+    return stats
 
 
 # =============================================================================
@@ -451,7 +613,8 @@ async def get_memory_stats(current_user: dict = Depends(get_current_user)):
 @router.post("/vns/flow")
 async def record_network_flow(
     request: FlowRecordRequest,
-    current_user: dict = Depends(check_permission("write"))
+    machine_auth: Optional[dict] = Depends(verify_advanced_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Record a network flow"""
     from services.vns import vns
@@ -467,6 +630,26 @@ async def record_network_flow(
         ja3_hash=request.ja3_hash,
         sni=request.sni
     )
+    actor = _resolve_write_actor(machine_auth=machine_auth, current_user=current_user)
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_vns_flow_recorded",
+        entity_refs=[flow.flow_id, request.src_ip, request.dst_ip],
+        payload={
+            "actor": actor,
+            "protocol": request.protocol,
+            "threat_score": flow.threat_score,
+            "status": flow.status.value,
+        },
+        trigger_triune=flow.threat_score >= 0.8,
+    )
+    _record_advanced_audit(
+        principal=("operator:" + actor) if not actor.startswith("machine:") else actor,
+        action="advanced_vns_flow_record",
+        targets=[flow.flow_id, request.src_ip, request.dst_ip],
+        result="success",
+        constraints={"threat_score": flow.threat_score, "protocol": request.protocol},
+    )
     
     return {
         "flow_id": flow.flow_id,
@@ -480,7 +663,8 @@ async def record_network_flow(
 @router.post("/vns/dns")
 async def record_dns_query(
     request: DNSQueryRequest,
-    current_user: dict = Depends(check_permission("write"))
+    machine_auth: Optional[dict] = Depends(verify_advanced_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Record a DNS query"""
     from services.vns import vns
@@ -491,6 +675,26 @@ async def record_dns_query(
         query_type=request.query_type,
         response_code=request.response_code,
         response_ips=request.response_ips
+    )
+    actor = _resolve_write_actor(machine_auth=machine_auth, current_user=current_user)
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_vns_dns_query_recorded",
+        entity_refs=[query.query_id, request.src_ip, request.query_name],
+        payload={
+            "actor": actor,
+            "query_type": request.query_type,
+            "response_code": request.response_code,
+            "is_suspicious": query.is_suspicious,
+        },
+        trigger_triune=bool(query.is_suspicious),
+    )
+    _record_advanced_audit(
+        principal=("operator:" + actor) if not actor.startswith("machine:") else actor,
+        action="advanced_vns_dns_record",
+        targets=[query.query_id, request.query_name],
+        result="success",
+        constraints={"is_suspicious": bool(query.is_suspicious), "response_code": request.response_code},
     )
     
     return {
@@ -560,10 +764,26 @@ async def add_canary_ip(
     ip: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Add a canary IP"""
-    from services.vns import vns
-    vns.add_canary_ip(ip)
-    return {"status": "added", "canary_ip": ip}
+    """Queue canary IP deployment through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "vns_add_canary_ip", "ip": ip},
+        impact_level="high",
+        subject_id=ip,
+        entity_refs=[ip],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_vns_canary_ip_gated",
+        entity_refs=[ip, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "canary_ip": ip, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.post("/vns/canary/domain")
@@ -571,17 +791,33 @@ async def add_canary_domain(
     domain: str,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Add a canary domain"""
-    from services.vns import vns
-    vns.add_canary_domain(domain)
-    return {"status": "added", "canary_domain": domain}
+    """Queue canary domain deployment through outbound governance."""
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="cross_sector_hardening",
+        actor=actor,
+        payload={"operation": "vns_add_canary_domain", "domain": domain},
+        impact_level="high",
+        subject_id=domain,
+        entity_refs=[domain],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_vns_canary_domain_gated",
+        entity_refs=[domain, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "canary_domain": domain, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.post("/vns/validate")
 async def validate_endpoint_telemetry(
     endpoint_ip: str,
     endpoint_flows: List[Dict[str, Any]],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Validate endpoint telemetry against VNS"""
     from services.vns import vns
@@ -612,6 +848,21 @@ async def generate_kyber_keypair(
     quantum_security.set_db(get_db())
     
     keypair = quantum_security.generate_kyber_keypair(key_id, security_level)
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_kyber_keypair_generated",
+        entity_refs=[keypair.key_id],
+        payload={"actor": actor, "security_level": security_level, "algorithm": keypair.algorithm},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_generate_kyber",
+        targets=[keypair.key_id],
+        result="success",
+        constraints={"security_level": security_level},
+    )
     
     return {
         "key_id": keypair.key_id,
@@ -632,6 +883,21 @@ async def generate_dilithium_keypair(
     quantum_security.set_db(get_db())
     
     keypair = quantum_security.generate_dilithium_keypair(key_id, security_level)
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_dilithium_keypair_generated",
+        entity_refs=[keypair.key_id],
+        payload={"actor": actor, "security_level": security_level, "algorithm": keypair.algorithm},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_generate_dilithium",
+        targets=[keypair.key_id],
+        result="success",
+        constraints={"security_level": security_level},
+    )
     
     return {
         "key_id": keypair.key_id,
@@ -648,12 +914,31 @@ async def quantum_hybrid_encrypt(
     current_user: dict = Depends(check_permission("write"))
 ):
     """Hybrid encrypt (Kyber + AES-GCM)"""
+    import binascii
     from services.quantum_security import quantum_security
     quantum_security.set_db(get_db())
     
-    encrypted = quantum_security.hybrid_encrypt(
-        plaintext.encode(),
-        recipient_public_key
+    try:
+        encrypted = quantum_security.hybrid_encrypt(
+            plaintext.encode(),
+            recipient_public_key
+        )
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid quantum encryption input: {exc}") from exc
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_hybrid_encryption_performed",
+        entity_refs=["quantum_encryption"],
+        payload={"actor": actor, "ciphertext_len": len(encrypted.get("ciphertext", ""))},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_encrypt",
+        targets=["quantum_encryption"],
+        result="success",
+        constraints={"ciphertext_len": len(encrypted.get("ciphertext", ""))},
     )
     
     return encrypted
@@ -668,13 +953,188 @@ async def quantum_hybrid_decrypt(
     """Hybrid decrypt (Kyber + AES-GCM)"""
     from services.quantum_security import quantum_security
     quantum_security.set_db(get_db())
+
+    required_fields = {"kem_ciphertext", "nonce", "ciphertext"}
+    if not isinstance(encrypted_data, dict) or not required_fields.issubset(set(encrypted_data.keys())):
+        raise HTTPException(
+            status_code=400,
+            detail=f"encrypted_data must include fields: {sorted(required_fields)}",
+        )
     
     plaintext = quantum_security.hybrid_decrypt(key_id, encrypted_data)
     
     if plaintext is None:
+        actor = current_user.get("email", current_user.get("id", "unknown"))
+        await emit_world_event(
+            get_db(),
+            event_type="advanced_quantum_hybrid_decryption_failed",
+            entity_refs=[key_id],
+            payload={"actor": actor},
+            trigger_triune=True,
+        )
+        _record_advanced_audit(
+            principal=f"operator:{actor}",
+            action="advanced_quantum_decrypt",
+            targets=[key_id],
+            result="failed",
+            result_details="decryption_failed",
+        )
         raise HTTPException(status_code=400, detail="Decryption failed")
-    
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_hybrid_decryption_performed",
+        entity_refs=[key_id],
+        payload={"actor": actor, "plaintext_len": len(plaintext)},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_decrypt",
+        targets=[key_id],
+        result="success",
+        constraints={"plaintext_len": len(plaintext)},
+    )
     return {"plaintext": plaintext.decode()}
+
+
+@router.post("/quantum/sign")
+async def quantum_sign(
+    request: QuantumSignRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Create a Dilithium signature for application payloads."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+
+    signature = quantum_security.dilithium_sign(request.key_id, request.data.encode())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    if signature is None:
+        await emit_world_event(
+            get_db(),
+            event_type="advanced_quantum_signature_creation_failed",
+            entity_refs=[request.key_id],
+            payload={"actor": actor},
+            trigger_triune=True,
+        )
+        _record_advanced_audit(
+            principal=f"operator:{actor}",
+            action="advanced_quantum_sign",
+            targets=[request.key_id],
+            result="failed",
+            result_details="invalid_or_missing_dilithium_key",
+        )
+        raise HTTPException(status_code=404, detail="Dilithium key not found")
+
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_signature_created",
+        entity_refs=[signature.signature_id, signature.signer_key_id],
+        payload={"actor": actor, "algorithm": signature.algorithm},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_sign",
+        targets=[signature.signature_id, signature.signer_key_id],
+        result="success",
+        constraints={"algorithm": signature.algorithm},
+    )
+    return {
+        "signature_id": signature.signature_id,
+        "algorithm": signature.algorithm,
+        "data_hash": signature.data_hash,
+        "signature": signature.signature,
+        "signer_key_id": signature.signer_key_id,
+        "timestamp": signature.timestamp,
+    }
+
+
+@router.post("/quantum/verify")
+async def quantum_verify(
+    request: QuantumVerifyRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Verify a Dilithium signature using a provided public key."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+
+    valid = quantum_security.dilithium_verify(
+        public_key=request.public_key,
+        data=request.data.encode(),
+        signature=request.signature,
+    )
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_signature_verified",
+        entity_refs=[],
+        payload={"actor": actor, "valid": valid},
+        trigger_triune=not valid,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_verify",
+        targets=["signature_verification"],
+        result="success" if valid else "failed",
+        constraints={"valid": bool(valid)},
+    )
+    return {"valid": bool(valid)}
+
+
+@router.post("/quantum/verify/stored")
+async def quantum_verify_stored(
+    request: QuantumVerifyStoredRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Verify a previously generated signature by signature_id."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+
+    valid = quantum_security.verify_stored_signature(request.signature_id, request.data.encode())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_stored_signature_verified",
+        entity_refs=[request.signature_id],
+        payload={"actor": actor, "valid": valid},
+        trigger_triune=not valid,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_verify_stored",
+        targets=[request.signature_id],
+        result="success" if valid else "failed",
+        constraints={"valid": bool(valid)},
+    )
+    return {"signature_id": request.signature_id, "valid": bool(valid)}
+
+
+@router.post("/quantum/hash")
+async def quantum_hash(
+    request: QuantumHashRequest,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Compute a SHA3-256 quantum-safe hash."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+
+    digest = quantum_security.quantum_hash(request.data.encode())
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_quantum_hash_computed",
+        entity_refs=[],
+        payload={"actor": actor},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=f"operator:{actor}",
+        action="advanced_quantum_hash",
+        targets=["quantum_hash"],
+        result="success",
+    )
+    return {"algorithm": "SHA3-256", "digest": digest}
 
 
 @router.get("/quantum/keypairs")
@@ -686,6 +1146,18 @@ async def list_quantum_keypairs(
     from services.quantum_security import quantum_security
     quantum_security.set_db(get_db())
     return {"keypairs": quantum_security.get_keypairs(algorithm)}
+
+
+@router.get("/quantum/signatures")
+async def list_quantum_signatures(
+    signer_key_id: str = None,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """List generated signature metadata."""
+    from services.quantum_security import quantum_security
+    quantum_security.set_db(get_db())
+    return {"signatures": quantum_security.get_signatures(signer_key_id=signer_key_id, limit=limit)}
 
 
 @router.get("/quantum/status")
@@ -703,10 +1175,12 @@ async def get_quantum_status(current_user: dict = Depends(get_current_user)):
 @router.post("/ai/analyze")
 async def analyze_threat_with_ai(
     request: ThreatAnalysisRequest,
-    current_user: dict = Depends(get_current_user)
+    machine_auth: Optional[dict] = Depends(verify_advanced_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Analyze a threat with AI reasoning"""
     from dataclasses import asdict
+    actor = _resolve_write_actor(machine_auth=machine_auth, current_user=current_user)
     
     analysis = _safe_call_ai_sync('analyze_threat', {
         "title": request.title,
@@ -719,15 +1193,29 @@ async def analyze_threat_with_ai(
 
     # analysis may be a dataclass or a dict/fallback
     try:
-        return asdict(analysis)
+        payload = asdict(analysis)
     except Exception:
-        return analysis
+        payload = analysis
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_ai_threat_analyzed",
+        entity_refs=[],
+        payload={"actor": actor, "source": "advanced_ai_analyze"},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=("operator:" + actor) if not actor.startswith("machine:") else actor,
+        action="advanced_ai_analyze_threat",
+        targets=["ai_reasoning"],
+        result="success",
+    )
+    return payload
 
 
 @router.post("/ai/triage")
 async def triage_incidents(
     incidents: List[Dict[str, Any]],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Triage and prioritize incidents"""
     prioritized = _safe_call_ai_sync('triage_incident', incidents)
@@ -737,16 +1225,33 @@ async def triage_incidents(
 @router.post("/ai/query")
 async def query_ai(
     request: AIQueryRequest,
-    current_user: dict = Depends(get_current_user)
+    machine_auth: Optional[dict] = Depends(verify_advanced_ingest_machine_token),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ):
     """Query the AI reasoning engine"""
     from dataclasses import asdict
+    actor = _resolve_write_actor(machine_auth=machine_auth, current_user=current_user)
 
     result = _safe_call_ai_sync('query', request.question, request.context)
     try:
-        return asdict(result)
+        payload = asdict(result)
     except Exception:
-        return result
+        payload = result
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_ai_query_executed",
+        entity_refs=[],
+        payload={"actor": actor, "question_len": len(request.question or "")},
+        trigger_triune=False,
+    )
+    _record_advanced_audit(
+        principal=("operator:" + actor) if not actor.startswith("machine:") else actor,
+        action="advanced_ai_query",
+        targets=["ai_reasoning"],
+        result="success",
+        constraints={"question_len": len(request.question or "")},
+    )
+    return payload
 
 
 @router.get("/ai/stats")
@@ -796,7 +1301,7 @@ async def get_ollama_status(current_user: dict = Depends(get_current_user)):
 @router.post("/ai/ollama/generate")
 async def ollama_generate(
     request: OllamaGenerateRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Generate response using Ollama"""
     result = await _safe_call_ai_async('ollama_generate', request.prompt, request.model, request.system_prompt)
@@ -806,7 +1311,7 @@ async def ollama_generate(
 @router.post("/ai/ollama/analyze")
 async def ollama_analyze_threat(
     request: ThreatAnalysisRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(check_permission("write"))
 ):
     """Analyze threat using Ollama LLM"""
     result = await _safe_call_ai_async('ollama_analyze_threat', {
@@ -930,50 +1435,36 @@ async def submit_file_to_sandbox(
     request: SandboxSubmitRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Submit a file for sandbox analysis"""
-    from services.cuckoo_sandbox import cuckoo_sandbox
-    cuckoo_sandbox.set_db(get_db())
-    import tempfile
-    import base64
-    
-    if request.file_base64:
-        # Decode base64 file
-        file_data = base64.b64decode(request.file_base64)
-        file_name = request.file_name or "sample.bin"
-        
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file_name}") as f:
-            f.write(file_data)
-            temp_path = f.name
-        
-        result = cuckoo_sandbox.submit_file(temp_path, request.options)
-        
-        # Clean up
-        try:
-            os.unlink(temp_path)
-        except:
-            pass
-        
-        await emit_world_event(
-            get_db(),
-            event_type="advanced_sandbox_file_submitted",
-            entity_refs=[],
-            payload={"file_name": file_name, "status": result.get("status") if isinstance(result, dict) else None},
-            trigger_triune=False,
-        )
-        return result
-    elif request.file_path:
-        result = cuckoo_sandbox.submit_file(request.file_path, request.options)
-        await emit_world_event(
-            get_db(),
-            event_type="advanced_sandbox_file_submitted",
-            entity_refs=[],
-            payload={"file_path": request.file_path, "status": result.get("status") if isinstance(result, dict) else None},
-            trigger_triune=False,
-        )
-        return result
-    else:
+    """Queue file submission to sandbox through outbound governance."""
+    if not request.file_base64 and not request.file_path:
         raise HTTPException(status_code=400, detail="file_path or file_base64 required")
+
+    subject = request.file_name or request.file_path or "inline_file_submission"
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={
+            "sandbox_action": "submit_file",
+            "file_name": request.file_name,
+            "file_path": request.file_path,
+            "has_inline_file": bool(request.file_base64),
+            "options": request.options or {},
+        },
+        impact_level="high",
+        subject_id=subject,
+        entity_refs=[subject],
+        requires_triune=True,
+    )
+    await emit_world_event(
+        get_db(),
+        event_type="advanced_sandbox_file_submission_gated",
+        entity_refs=[subject, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
+    )
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.post("/sandbox/submit/url")
@@ -981,22 +1472,29 @@ async def submit_url_to_sandbox(
     request: SandboxSubmitRequest,
     current_user: dict = Depends(check_permission("write"))
 ):
-    """Submit a URL for sandbox analysis"""
-    from services.cuckoo_sandbox import cuckoo_sandbox
-    cuckoo_sandbox.set_db(get_db())
-    
+    """Queue URL submission to sandbox through outbound governance."""
     if not request.url:
         raise HTTPException(status_code=400, detail="url required")
-    
-    result = cuckoo_sandbox.submit_url(request.url, request.options)
+
+    actor = current_user.get("email", current_user.get("id", "unknown"))
+    gate = OutboundGateService(get_db())
+    gated = await gate.gate_action(
+        action_type="tool_execution",
+        actor=actor,
+        payload={"sandbox_action": "submit_url", "url": request.url, "options": request.options or {}},
+        impact_level="high",
+        subject_id=request.url,
+        entity_refs=[request.url],
+        requires_triune=True,
+    )
     await emit_world_event(
         get_db(),
-        event_type="advanced_sandbox_url_submitted",
-        entity_refs=[],
-        payload={"url": request.url, "status": result.get("status") if isinstance(result, dict) else None},
-        trigger_triune=False,
+        event_type="advanced_sandbox_url_submission_gated",
+        entity_refs=[request.url, gated.get("queue_id"), gated.get("decision_id")],
+        payload={"actor": actor},
+        trigger_triune=True,
     )
-    return result
+    return {"status": "queued_for_triune_approval", "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")}
 
 
 @router.get("/sandbox/task/{task_id}")

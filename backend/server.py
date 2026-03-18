@@ -35,9 +35,28 @@ logger = logging.getLogger(__name__)
 logger.info(f"Logging initialized at {log_level} level")
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+db_name = os.environ.get("DB_NAME", "seraph_ai_defense")
+use_mock_mongo = os.environ.get("MONGO_USE_MOCK", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+if use_mock_mongo or mongo_url.startswith("mongomock://"):
+    try:
+        from mongomock_motor import AsyncMongoMockClient  # type: ignore
+
+        client = AsyncMongoMockClient()
+        logger.warning("Using mongomock in-memory database backend (MONGO_USE_MOCK enabled)")
+    except Exception as exc:
+        raise RuntimeError(
+            "MONGO_USE_MOCK is enabled but mongomock-motor is not available. "
+            "Install with: pip install mongomock-motor"
+        ) from exc
+else:
+    client = AsyncIOMotorClient(
+        mongo_url,
+        serverSelectionTimeoutMS=int(os.environ.get("MONGO_SERVER_SELECTION_TIMEOUT_MS", "3000")),
+    )
+
+db = client[db_name]
 
 # Ensure internal integration API key is present for M2M calls in non-dev environments
 INTEGRATION_API_KEY = os.environ.get('INTEGRATION_API_KEY', '').strip()
@@ -49,6 +68,7 @@ elif not INTEGRATION_API_KEY:
 
 # Initialize database for routers
 from routers.dependencies import set_database
+from routers.dependencies import verify_websocket_machine_token
 set_database(db)
 
 # Initialize services with database
@@ -162,6 +182,7 @@ from routers.osquery import router as osquery_router
 from routers.atomic_validation import router as atomic_validation_router
 from routers.mitre_attack import router as mitre_attack_router
 from routers.identity import router as identity_router
+from routers.governance import router as governance_router
 
 # Import Browser Extension router
 from routers.extension import router as extension_router
@@ -315,6 +336,7 @@ from routers.deception import router as deception_engine_router
 app.include_router(deception_engine_router, prefix="/api")  # Now /api/deception
 app.include_router(deception_engine_router, prefix="/api/v1")  # Frontend compatibility: /api/v1/deception
 app.include_router(identity_router)  # Already has /api/v1/identity prefix
+app.include_router(governance_router, prefix="/api")
 
 # Initialize deception engine and integrate with existing systems
 from deception_engine import deception_engine, integrate_with_honey_tokens, integrate_with_ransomware_protection
@@ -344,6 +366,12 @@ async def websocket_threats(websocket: WebSocket):
 @app.websocket("/ws/agent/{agent_id}")
 async def websocket_agent(websocket: WebSocket, agent_id: str):
     """WebSocket endpoint for agent real-time communication"""
+    verify_websocket_machine_token(
+        websocket,
+        env_keys=["SWARM_AGENT_TOKEN", "INTEGRATION_API_KEY", "SERVER_AGENT_WS_TOKEN"],
+        header_names=["x-agent-token", "x-internal-token"],
+        subject="server agent websocket",
+    )
     await realtime_ws.connect(websocket, agent_id)
     try:
         while True:
@@ -533,6 +561,14 @@ async def startup():
     except Exception as e:
         logger.warning(f"Failed to start integrations scheduler: {e}")
 
+    # Start governance executor loop (approved decision -> execution queue)
+    try:
+        from services.governance_executor import start_governance_executor
+        start_governance_executor(db)
+        logger.info("Governance executor triggered at startup")
+    except Exception as e:
+        logger.warning(f"Failed to start governance executor: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -562,6 +598,14 @@ async def shutdown():
         logger.info("Agent Deployment Service stopped")
     except Exception as e:
         logger.error(f"Error stopping Deployment Service: {e}")
+
+    # Stop governance executor loop
+    try:
+        from services.governance_executor import stop_governance_executor
+        await stop_governance_executor()
+        logger.info("Governance executor stopped")
+    except Exception as e:
+        logger.error(f"Error stopping governance executor: {e}")
     
     client.close()
 

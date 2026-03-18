@@ -39,6 +39,26 @@ const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl ===
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
+const normalizeSensorStatus = (status) => {
+  const value = String(status || '').toLowerCase();
+  if (['active', 'running', 'enabled', 'started'].includes(value)) return 'running';
+  if (['disabled', 'stopped', 'inactive'].includes(value)) return 'stopped';
+  if (value === 'degraded') return 'running';
+  return value || 'stopped';
+};
+
+const normalizeKernelEvent = (event) => {
+  const details = event?.data || {};
+  return {
+    ...event,
+    ...details,
+    filename: event?.filename || details?.filename || details?.path,
+    args: event?.args || details?.args || [],
+    remote_addr: event?.remote_addr || details?.remote_addr || details?.dst_addr,
+    remote_port: event?.remote_port || details?.remote_port || details?.dst_port,
+  };
+};
+
 const KernelSensorsPage = () => {
   const { getAuthHeaders } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -71,11 +91,30 @@ const KernelSensorsPage = () => {
         axios.get(`${API}/v1/kernel/sensors/stats`, { headers: getAuthHeaders() }),
         axios.get(`${API}/v1/kernel/capabilities`, { headers: getAuthHeaders() })
       ]);
-      
-      setSensors(sensorsRes.data.sensors || {});
-      setEvents(eventsRes.data.events || []);
-      setStats(statsRes.data);
-      setCapabilities(capsRes.data);
+
+      const normalizedSensors = Object.fromEntries(
+        Object.entries(sensorsRes.data.sensors || {}).map(([sensorType, sensorData]) => [
+          sensorType,
+          {
+            ...sensorData,
+            status: normalizeSensorStatus(sensorData?.status),
+          },
+        ]),
+      );
+      const normalizedCapabilities = {
+        ...capsRes.data,
+        ebpf_supported: Boolean(capsRes.data?.ebpf_support ?? capsRes.data?.ebpf_supported),
+        btf_available: Boolean(capsRes.data?.btf_support ?? capsRes.data?.btf_available),
+      };
+      const normalizedStats = {
+        ...statsRes.data,
+        ebpf_available: Boolean(normalizedCapabilities.ebpf_supported),
+      };
+
+      setSensors(normalizedSensors);
+      setEvents((eventsRes.data.events || []).map(normalizeKernelEvent));
+      setStats(normalizedStats);
+      setCapabilities(normalizedCapabilities);
       
     } catch (error) {
       console.error('Failed to fetch kernel data:', error);
@@ -308,7 +347,7 @@ const KernelSensorsPage = () => {
   }, [fetchKernelData]);
 
   const filteredEvents = events.filter(e => 
-    eventFilter === 'all' || e.event_type.startsWith(eventFilter)
+    eventFilter === 'all' || (e.event_type || '').startsWith(eventFilter)
   );
 
   return (
@@ -687,13 +726,15 @@ const KernelSensorsPage = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-400">Drop Rate</span>
-                      <span className={`font-mono ${stats.events_dropped / stats.events_total > 0.01 ? 'text-orange-400' : 'text-green-400'}`}>
-                        {((stats.events_dropped / stats.events_total) * 100).toFixed(3)}%
+                      <span className={`font-mono ${stats.events_total && stats.events_dropped / stats.events_total > 0.01 ? 'text-orange-400' : 'text-green-400'}`}>
+                        {stats.events_total ? ((stats.events_dropped / stats.events_total) * 100).toFixed(3) : '0.000'}%
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-400">Events/sec</span>
-                      <span className="font-mono">{Math.round(stats.events_total / stats.uptime_seconds).toLocaleString()}</span>
+                      <span className="font-mono">
+                        {stats.uptime_seconds ? Math.round(stats.events_total / stats.uptime_seconds).toLocaleString() : '0'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-400">Errors</span>
@@ -749,7 +790,9 @@ const KernelSensorsPage = () => {
                   {selectedEvent.args && (
                     <div>
                       <p className="text-gray-400">Arguments</p>
-                      <p className="font-mono text-xs break-all">{selectedEvent.args.join(' ')}</p>
+                      <p className="font-mono text-xs break-all">
+                        {Array.isArray(selectedEvent.args) ? selectedEvent.args.join(' ') : String(selectedEvent.args)}
+                      </p>
                     </div>
                   )}
                   {selectedEvent.remote_addr && (

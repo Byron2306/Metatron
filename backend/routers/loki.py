@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 import logging
 from typing import Any, Dict
 from pydantic import BaseModel, Field
-from routers.dependencies import get_db
+from routers.dependencies import get_db, require_machine_token
 from services.world_model import WorldModelService, WorldEntity, WorldEdge, EntityType
 from services.world_events import emit_world_event
 import uuid
@@ -10,6 +10,11 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["loki"])
+verify_loki_ingest_token = require_machine_token(
+    env_keys=["LOKI_INGEST_TOKEN", "WORLD_INGEST_TOKEN", "INTEGRATION_API_KEY", "SWARM_AGENT_TOKEN"],
+    header_names=["x-loki-token", "x-world-ingest-token", "x-internal-token", "x-agent-token"],
+    subject="loki ingest",
+)
 
 
 class LokiIngestRequest(BaseModel):
@@ -24,7 +29,7 @@ class LokiIngestRequest(BaseModel):
 
 
 @router.post("/loki/ingest/async")
-async def ingest_async(payload: Dict[str, Any], db=Depends(get_db)):
+async def ingest_async(payload: Dict[str, Any], auth: Dict[str, Any] = Depends(verify_loki_ingest_token), db=Depends(get_db)):
     """Attempt to enqueue the Loki ingest as a Celery task. If Celery is not
     available, fall back to running the ingestion synchronously in-process.
     Returns a best-effort acknowledgement including task id when available.
@@ -94,7 +99,7 @@ async def ingest(payload: LokiIngestRequest = Body(..., examples={
     "detection": {"summary": "Detection", "value": {"kind": "detection", "id": "d1", "entity_type": "detection", "attributes": {"sig": "x"}}},
     "edge": {"summary": "Edge", "value": {"kind": "edge", "source": "e1", "target": "e2", "relation": "observed"}},
     "campaign": {"summary": "Campaign", "value": {"kind": "campaign", "id": "c1", "attributes": {"stage": "initial"}}},
-}), db=Depends(get_db)):
+}), auth: Dict[str, Any] = Depends(verify_loki_ingest_token), db=Depends(get_db)):
     """Ingest events into the world model. Payload must include `kind` (detection|edge|campaign).
 
     Examples:

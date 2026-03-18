@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:
     from services.world_model import WorldModelService
 except Exception:
     from backend.services.world_model import WorldModelService
+try:
+    from services.cognition_fabric import CognitionFabricService
+except Exception:
+    from backend.services.cognition_fabric import CognitionFabricService
 
 try:
     from triune.loki import LokiService
@@ -27,6 +32,7 @@ class TriuneOrchestrator:
     def __init__(self, db: Any):
         self.db = db
         self.world_model = WorldModelService(db)
+        self.cognition = CognitionFabricService(db)
         self.metatron = MetatronService(db)
         self.michael = MichaelService(db)
         self.loki = LokiService(db)
@@ -41,6 +47,15 @@ class TriuneOrchestrator:
         context = context or {}
 
         world_snapshot = await self._build_world_snapshot(entity_ids)
+        try:
+            world_snapshot["cognition"] = await self.cognition.build_cognition_snapshot(
+                world_snapshot=world_snapshot,
+                event_type=event_type,
+                entity_ids=entity_ids,
+                context=context,
+            )
+        except Exception:
+            world_snapshot["cognition"] = {}
         metatron_assessment = await self.metatron.assess_world_state(
             snapshot=world_snapshot,
             event_type=event_type,
@@ -48,18 +63,38 @@ class TriuneOrchestrator:
         )
 
         candidates = await self._resolve_candidates(entity_ids)
+        policy_tier = (
+            metatron_assessment.get("policy_tier_suggestion")
+            or metatron_assessment.get("approval_tier_suggestion")
+            or "standard"
+        )
+        planning_context = dict(context)
+        planning_context["metatron_belief"] = metatron_assessment.get("metatron_belief") or {}
+        planning_context["metatron_predicted_next_sectors"] = metatron_assessment.get("predicted_next_sectors") or []
+        planning_context["cognitive_signal"] = (world_snapshot.get("cognition") or {}).get("fused_signal") or {}
         michael_plan = await self.michael.plan_actions(
             candidates=candidates,
             world_snapshot=world_snapshot,
-            policy_tier=metatron_assessment.get("approval_tier_suggestion", "standard"),
-            context=context,
+            policy_tier=policy_tier,
+            context=planning_context,
         )
 
+        loki_context = dict(context)
+        loki_context["metatron_policy_tier"] = policy_tier
+        loki_context["michael_selected_action"] = (michael_plan.get("selected_action") or {}).get("candidate")
+        loki_context["metatron_predicted_next_sectors"] = metatron_assessment.get("predicted_next_sectors") or []
         loki_advisory = await self.loki.challenge_plan(
             world_snapshot=world_snapshot,
             michael_plan=michael_plan,
             event_type=event_type,
+            context=loki_context,
+        )
+
+        beacon_cascade = await self._apply_beacon_cascade(
+            event_type=event_type,
             context=context,
+            metatron_assessment=metatron_assessment,
+            world_snapshot=world_snapshot,
         )
 
         return {
@@ -74,6 +109,7 @@ class TriuneOrchestrator:
                 "plan": michael_plan,
             },
             "loki": loki_advisory,
+            "beacon_cascade": beacon_cascade,
         }
 
     async def _build_world_snapshot(self, entity_ids: List[str]) -> Dict[str, Any]:
@@ -143,16 +179,27 @@ class TriuneOrchestrator:
         except Exception:
             sector_risk = {}
 
+        entity_count = 0
+        try:
+            entity_count = await self.world_model.count_entities()
+        except Exception:
+            entity_count = len(entities)
+
         attack_path_summary = {
             "node_count": len(attack_path_graph.get("nodes", [])),
             "edge_count": len(attack_path_graph.get("edges", [])),
             "top_nodes": [n.get("id") for n in attack_path_graph.get("nodes", [])[:10]],
             "graph_metrics": graph_metrics,
+            "top_risky_sectors": [
+                {"sector": sector, "avg_risk": details.get("avg_risk", 0.0)}
+                for sector, details in list(sector_risk.items())[:5]
+            ],
         }
 
         return {
             "entities": entities,
             "hotspots": hotspots,
+            "entity_count": entity_count,
             "edges": edges,
             "campaigns": campaigns,
             "trust_state": trust_state,
@@ -161,10 +208,6 @@ class TriuneOrchestrator:
             "sector_risk": sector_risk,
             "attack_path_graph": attack_path_graph,
             "attack_path_summary": attack_path_summary,
-        return {
-            "entities": entities,
-            "hotspots": hotspots,
-            "entity_count": await self.world_model.count_entities(),
         }
 
     async def _resolve_candidates(self, entity_ids: List[str]) -> List[str]:
@@ -173,3 +216,114 @@ class TriuneOrchestrator:
 
         actions = await self.world_model.list_actions(limit=10)
         return [f"{action['action']}:{action['entity_id']}" for action in actions]
+
+    async def _apply_beacon_cascade(
+        self,
+        *,
+        event_type: str,
+        context: Dict[str, Any],
+        metatron_assessment: Dict[str, Any],
+        world_snapshot: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """First concrete reflex cascade for deception-driven beacon events."""
+        if event_type != "deception_interaction":
+            return {"activated": False}
+
+        payload = (context or {}).get("payload") or {}
+        source_sector = payload.get("sector") or "unknown"
+        predicted_sectors = list(dict.fromkeys(metatron_assessment.get("predicted_next_sectors") or []))
+
+        if not predicted_sectors:
+            return {"activated": False, "reason": "no_predicted_sectors"}
+
+        now = datetime.now(timezone.utc).isoformat()
+        hardened = []
+        posture_updates = 0
+        deception_deployments = []
+
+        for sector in predicted_sectors:
+            hardened.append({"sector": sector, "posture": "hardened"})
+            if self.db is not None and hasattr(self.db, "sector_posture"):
+                try:
+                    await self.db.sector_posture.update_one(
+                        {"sector": sector},
+                        {
+                            "$set": {
+                                "sector": sector,
+                                "posture": "hardened",
+                                "source_event": event_type,
+                                "source_sector": source_sector,
+                                "updated_at": now,
+                            }
+                        },
+                        upsert=True,
+                    )
+                except Exception:
+                    pass
+
+            deploy_doc = {
+                "deployment_id": f"dd-{sector}-{now}",
+                "sector": sector,
+                "source_event": event_type,
+                "source_sector": source_sector,
+                "deception_type": "additional_honeytokens",
+                "status": "planned",
+                "created_at": now,
+            }
+            deception_deployments.append(deploy_doc)
+            if self.db is not None and hasattr(self.db, "deception_deployments"):
+                try:
+                    await self.db.deception_deployments.insert_one(deploy_doc)
+                except Exception:
+                    pass
+
+        if self.db is not None and hasattr(self.db, "world_entities"):
+            try:
+                result = await self.db.world_entities.update_many(
+                    {
+                        "type": {"$in": ["host", "agent"]},
+                        "attributes.sector": {"$in": predicted_sectors},
+                    },
+                    {
+                        "$set": {
+                            "attributes.posture": "hardened",
+                            "attributes.extra_deception": True,
+                            "attributes.posture_updated_at": now,
+                        }
+                    },
+                )
+                posture_updates = int(getattr(result, "modified_count", 0) or 0)
+            except Exception:
+                posture_updates = 0
+
+        if self.db is not None:
+            try:
+                try:
+                    from services.world_events import emit_world_event
+                except Exception:
+                    from backend.services.world_events import emit_world_event
+                await emit_world_event(
+                    self.db,
+                    event_type="beacon_cascade_activated",
+                    event_class="local_reflex",
+                    entity_refs=predicted_sectors,
+                    payload={
+                        "source_sector": source_sector,
+                        "predicted_sectors": predicted_sectors,
+                        "posture_updates": posture_updates,
+                        "active_response_count": len(world_snapshot.get("active_responses") or []),
+                    },
+                    trigger_triune=False,
+                    source="triune_orchestrator",
+                )
+            except Exception:
+                pass
+
+        return {
+            "activated": True,
+            "source_sector": source_sector,
+            "predicted_sectors": predicted_sectors,
+            "hardened_sectors": hardened,
+            "agent_posture_updates": posture_updates,
+            "deception_deployments": deception_deployments,
+        }

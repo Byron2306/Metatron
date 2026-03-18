@@ -93,7 +93,7 @@ export default function UnifiedAgentPage() {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [activeTab, setActiveTab] = useState("agents");
 
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   // Fetch all data
   const fetchData = useCallback(async () => {
@@ -743,28 +743,30 @@ export default function UnifiedAgentPage() {
             <Card className="bg-slate-900/50 border-slate-800">
               <CardHeader>
                 <CardTitle className="text-white">Quick Install by Platform</CardTitle>
-                <CardDescription>Click to download or copy install command</CardDescription>
+                <CardDescription>
+                  Click to download or copy install command (substantive dashboard binds to port 5000)
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {[
                   { 
                     name: "Linux", 
                     icon: "🐧", 
-                    command: `curl -sSL ${API_ROOT}/unified/agent/install-script | sudo bash`,
+                    command: `curl -sSL ${API_ROOT}/unified/agent/install-script | sudo SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash`,
                     endpoint: `${API_ROOT}/unified/agent/install-script`,
                     color: "border-green-500 hover:bg-green-500/10"
                   },
                   { 
                     name: "Windows", 
                     icon: "🪟", 
-                    command: `powershell -Command "irm ${API_ROOT}/unified/agent/install-windows | iex"`,
+                    command: `powershell -Command "$env:SERAPH_ENROLLMENT_KEY='<ENROLLMENT_KEY>'; irm ${API_ROOT}/unified/agent/install-windows | iex"`,
                     endpoint: `${API_ROOT}/unified/agent/install-windows`,
                     color: "border-blue-500 hover:bg-blue-500/10"
                   },
                   { 
                     name: "macOS", 
                     icon: "🍎", 
-                    command: `curl -sSL ${API_ROOT}/unified/agent/install-macos | bash`,
+                    command: `curl -sSL ${API_ROOT}/unified/agent/install-macos | SERAPH_ENROLLMENT_KEY=<ENROLLMENT_KEY> bash`,
                     endpoint: `${API_ROOT}/unified/agent/install-macos`,
                     color: "border-purple-500 hover:bg-purple-500/10"
                   },

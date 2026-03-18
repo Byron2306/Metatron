@@ -39,10 +39,15 @@ def _load_swarm_module():
 
     dependencies_stub.get_current_user = _fake_get_current_user
     dependencies_stub.check_permission = _fake_check_permission
+    async def _fake_machine_checker(request=None):
+        return {"auth": "ok"}
+
+    dependencies_stub.require_machine_token = lambda **_kwargs: _fake_machine_checker
+    dependencies_stub.machine_token_matches = lambda token, _env_keys: str(token or "").strip() == "test-machine-token"
     dependencies_stub.db = None
-    dependencies_stub.get_db = lambda: None
+    dependencies_stub.get_db = lambda: dependencies_stub.db
     dependencies_stub.logger = SimpleNamespace(debug=lambda *_a, **_k: None, info=lambda *_a, **_k: None, warning=lambda *_a, **_k: None, error=lambda *_a, **_k: None)
-    sys.modules.setdefault("backend.routers.dependencies", dependencies_stub)
+    sys.modules["backend.routers.dependencies"] = dependencies_stub
 
     module_path = ROUTERS_DIR / "swarm.py"
     spec = importlib.util.spec_from_file_location("backend.routers.swarm", module_path)
@@ -163,6 +168,9 @@ class FakeDB:
         self.deployment_tasks = FakeCollection([])
         self.agent_telemetry = FakeCollection([])
         self.alerts = FakeCollection([])
+        self.triune_outbound_queue = FakeCollection([])
+        self.triune_decisions = FakeCollection([])
+        self.world_events = FakeCollection([])
 
 
 def _install_aatl_stub():
@@ -193,7 +201,11 @@ def _install_agent_deployment_stub():
     def _get_deployment_service():
         return _FakeService()
 
+    async def _start_deployment_service(_db, _api_url):
+        return _FakeService()
+
     agent_deploy_mod.get_deployment_service = _get_deployment_service
+    agent_deploy_mod.start_deployment_service = _start_deployment_service
     sys.modules["services.agent_deployment"] = agent_deploy_mod
 
 
@@ -201,6 +213,19 @@ def _build_client() -> TestClient:
     fake_db = FakeDB()
     swarm.db = fake_db
     deps.db = fake_db
+    async def _noop_emit_world_event(*_args, **_kwargs):
+        return {"status": "ok"}
+    swarm.emit_world_event = _noop_emit_world_event
+    try:
+        import backend.services.world_events as world_events_module
+        world_events_module.emit_world_event = _noop_emit_world_event
+    except Exception:
+        pass
+    try:
+        import backend.services.governed_dispatch as governed_dispatch_module
+        governed_dispatch_module.emit_world_event = _noop_emit_world_event
+    except Exception:
+        pass
 
     app = FastAPI()
     app.include_router(swarm.router, prefix="/api")
@@ -297,6 +322,7 @@ def test_success_paths_emit_contract_version():
             ],
             "auto_deploy_request": True,
         },
+        headers={"x-internal-token": "test-machine-token"},
     )
     assert scanner_resp.status_code == 200
     assert scanner_resp.json().get("contract_version") == EXPECTED_CONTRACT_VERSION

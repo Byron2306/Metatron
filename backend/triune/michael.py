@@ -203,6 +203,79 @@ class MichaelService:
 
         return out
 
+    @staticmethod
+    def _candidate_from_cognitive_action(action: str, preferred_entities: List[str]) -> str:
+        normalized = str(action or "").strip().lower()
+        if not normalized:
+            return ""
+        if ":" in normalized:
+            return normalized
+        if normalized in {"isolate_hosts", "isolate_host", "quarantine_hosts"}:
+            return f"isolate:{preferred_entities[0]}" if preferred_entities else "isolate:critical_host"
+        if normalized in {"block_outbound", "cut_network_egress", "tighten_egress_controls"}:
+            return "block_egress:network"
+        if normalized in {"rotate_credentials", "step_up_authentication"}:
+            return "force_password_reset:identity"
+        if normalized in {"deploy_decoys", "full_honeypot_engagement", "deceive"}:
+            return "deploy_deception:network"
+        if normalized in {"investigate", "investigate_further"}:
+            return f"investigate:{preferred_entities[0]}" if preferred_entities else "investigate:global"
+        return normalized
+
+    def _augment_candidates_with_cognition(
+        self,
+        base_candidates: List[str],
+        world_snapshot: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        cognition = world_snapshot.get("cognition") or {}
+        fused_signal = cognition.get("fused_signal") or {}
+        aatl = cognition.get("aatl") or {}
+        ai_reasoning = cognition.get("ai_reasoning") or {}
+
+        preferred_entities = [
+            ent.get("id")
+            for ent in (world_snapshot.get("entities") or [])
+            if isinstance(ent, dict) and ent.get("id")
+        ]
+        augmented = list(base_candidates or [])
+        source_map: Dict[str, str] = {str(c): "base" for c in augmented}
+
+        fused_actions = [str(a) for a in (fused_signal.get("recommended_actions") or []) if a]
+        reasoning_actions = [str(a) for a in (ai_reasoning.get("suggested_actions") or []) if a]
+        strategies = [
+            str(row.get("recommended_strategy"))
+            for row in (aatl.get("high_threat_sessions") or [])
+            if row.get("recommended_strategy")
+        ]
+
+        for action in fused_actions + reasoning_actions:
+            candidate = self._candidate_from_cognitive_action(action, preferred_entities)
+            if candidate and candidate not in source_map:
+                augmented.append(candidate)
+                source_map[candidate] = "cognition"
+
+        for strategy in strategies:
+            if strategy == "deceive":
+                candidate = "deploy_deception:network"
+            elif strategy == "poison":
+                candidate = "seed_decoy_credential_path:identity"
+            elif strategy == "contain":
+                candidate = f"isolate:{preferred_entities[0]}" if preferred_entities else "isolate:critical_host"
+            elif strategy == "slow":
+                candidate = "throttle_remote_execution:network"
+            else:
+                candidate = ""
+            if candidate and candidate not in source_map:
+                augmented.append(candidate)
+                source_map[candidate] = "aatl_strategy"
+
+        return {
+            "candidates": augmented,
+            "source_map": source_map,
+            "fused_actions": fused_actions,
+            "aatl_strategies": strategies,
+        }
+
     async def plan_actions(
         self,
         candidates: List[str],
@@ -216,18 +289,72 @@ class MichaelService:
         """
         world_snapshot = world_snapshot or {}
         context = context or {}
-        ranked = await self.rank_responses(candidates or [])
+        cognitive_augmented = self._augment_candidates_with_cognition(candidates or [], world_snapshot)
+        ranked = await self.rank_responses(cognitive_augmented["candidates"])
         top = ranked[0] if ranked else None
 
-        # basic blast radius estimate from hotspot count
-        blast_radius = len(world_snapshot.get("hotspots") or [])
-        reversibility = "high" if top and any(k in top.get("candidate", "") for k in ["monitor", "investigate"]) else "medium"
+        # basic blast radius estimate from hotspot count + attack-path size
+        hotspot_count = len(world_snapshot.get("hotspots") or [])
+        path_nodes = len((world_snapshot.get("attack_path_graph") or {}).get("nodes") or [])
+        blast_radius = max(hotspot_count, min(path_nodes, 25))
+
+        top_candidate = (top or {}).get("candidate", "")
+        if any(k in top_candidate for k in ["monitor", "investigate", "collect_forensics"]):
+            reversibility = "high"
+            reversibility_score = 0.85
+        elif any(k in top_candidate for k in ["block", "quarantine", "isolate"]):
+            reversibility = "medium"
+            reversibility_score = 0.55
+        else:
+            reversibility = "low"
+            reversibility_score = 0.35
+        cognition = world_snapshot.get("cognition") or {}
+        fused_signal = cognition.get("fused_signal") or {}
+        cognitive_pressure = float(fused_signal.get("cognitive_pressure") or 0.0)
+        if cognitive_pressure >= 0.75 and reversibility_score < 0.5:
+            # Favor faster action under strong converged cognitive signal.
+            reversibility_score = max(reversibility_score, 0.5)
+
+        ranked_action_sets = {
+            "immediate": ranked[:3],
+            "stabilization": ranked[3:6],
+            "deferred": ranked[6:10],
+        }
+
+        endpoint_preparation_recommendations = [
+            "pre-stage isolation scripts for high-risk endpoints",
+            "validate EDR policy sync for predicted target sectors",
+            "cache forensic collection packages on responders",
+        ]
+        if fused_signal.get("autonomous_confidence", 0) >= 0.7:
+            endpoint_preparation_recommendations.append("enforce command throttling profiles for machine-paced sessions")
+        if cognition.get("cce", {}).get("dominant_intents"):
+            endpoint_preparation_recommendations.append(
+                f"deploy hunts for dominant intents: {', '.join(cognition.get('cce', {}).get('dominant_intents')[:3])}"
+            )
+
+        sector_readiness_changes = {
+            "identity": "step_up_authentication" if policy_tier in {"high", "critical"} else "monitor_auth_anomalies",
+            "endpoint": "raise_prevention_mode" if blast_radius >= 3 else "increase_detection_sensitivity",
+            "network": "tighten_egress_controls" if blast_radius >= 3 else "increase_flow_sampling",
+        }
+        predicted_next_sectors = fused_signal.get("predicted_next_sectors") or []
+        for sector in predicted_next_sectors:
+            if sector == "identity":
+                sector_readiness_changes["identity"] = "step_up_authentication"
+            elif sector == "endpoint":
+                sector_readiness_changes["endpoint"] = "raise_prevention_mode"
+            elif sector in {"network", "data"}:
+                sector_readiness_changes["network"] = "tighten_egress_controls"
 
         return {
             "policy_tier": policy_tier,
             "context": context,
             "ranked_action_candidates": ranked,
+            "ranked_action_sets": ranked_action_sets,
             "selected_action": top,
+            "endpoint_preparation_recommendations": endpoint_preparation_recommendations,
+            "sector_readiness_changes": sector_readiness_changes,
             "sector_preparation_plan": {
                 "identity": "require_step_up_auth" if blast_radius >= 2 else "monitor_idp",
                 "endpoint": "prepare_isolation_profiles" if blast_radius >= 3 else "raise_edr_sensitivity",
@@ -236,7 +363,15 @@ class MichaelService:
             "orchestration_plan": {
                 "blast_radius": blast_radius,
                 "reversibility": reversibility,
+                "reversibility_score": round(reversibility_score, 3),
                 "requires_human_approval": policy_tier in {"high", "critical"},
+            },
+            "cognitive_action_alignment": {
+                "recommended_actions": fused_signal.get("recommended_actions") or [],
+                "candidate_sources": cognitive_augmented["source_map"],
+                "aatl_strategies": cognitive_augmented["aatl_strategies"],
+                "selected_candidate_source": cognitive_augmented["source_map"].get((top or {}).get("candidate", ""), "unknown"),
+                "cognitive_pressure": round(float(fused_signal.get("cognitive_pressure") or 0.0), 4),
             },
         }
 

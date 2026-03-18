@@ -104,9 +104,11 @@ class ImageScanResult:
     medium_count: int = 0
     low_count: int = 0
     scan_status: str = "completed"
+    scan_mode: str = "trivy"
     scan_duration_ms: int = 0
     os_family: str = ""
     os_version: str = ""
+    attack_techniques: List[str] = field(default_factory=list)
 
 @dataclass
 class ContainerRuntimeEvent:
@@ -203,6 +205,8 @@ class TrivyScanner:
     https://github.com/aquasecurity/trivy
     """
     
+    _missing_trivy_warned = False
+
     def __init__(self):
         self.trivy_path = self._find_trivy()
         self.scan_cache: Dict[str, ImageScanResult] = {}
@@ -213,8 +217,11 @@ class TrivyScanner:
     
     def _find_trivy(self) -> Optional[str]:
         """Find trivy binary"""
-        paths = ["/usr/local/bin/trivy", "/usr/bin/trivy", "trivy"]
+        env_path = os.environ.get("TRIVY_PATH", "").strip()
+        paths = [env_path, "/workspace/.local/bin/trivy", "/usr/local/bin/trivy", "/usr/bin/trivy", "trivy"]
         for path in paths:
+            if not path:
+                continue
             try:
                 result = subprocess.run([path, "--version"], capture_output=True, timeout=5)
                 if result.returncode == 0:
@@ -222,8 +229,184 @@ class TrivyScanner:
                     return path
             except Exception:
                 continue
-        logger.warning("Trivy not found - container scanning disabled")
+        if not TrivyScanner._missing_trivy_warned:
+            logger.warning("Trivy not found - using degraded container metadata scan mode")
+            TrivyScanner._missing_trivy_warned = True
         return None
+
+    @staticmethod
+    def _scan_id(image_name: str) -> str:
+        return hashlib.md5(f"{image_name}-{datetime.now().isoformat()}".encode()).hexdigest()[:16]
+
+    async def _scan_image_fallback(self, image_name: str, start_time: Optional[datetime] = None) -> ImageScanResult:
+        """
+        Degraded fallback scan when Trivy is unavailable.
+        Uses docker image metadata and build history to surface actionable risk indicators.
+        """
+        start_time = start_time or datetime.now()
+        attack_techniques: Set[str] = set()
+        findings: List[Vulnerability] = []
+        critical = high = medium = low = 0
+
+        try:
+            inspect_proc = await asyncio.create_subprocess_exec(
+                "docker",
+                "image",
+                "inspect",
+                image_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            inspect_out, inspect_err = await asyncio.wait_for(inspect_proc.communicate(), timeout=30)
+            if inspect_proc.returncode != 0 or not inspect_out:
+                raise Exception(inspect_err.decode().strip() or "docker image inspect failed")
+
+            inspect_rows = json.loads(inspect_out.decode())
+            if not inspect_rows:
+                raise Exception("docker image inspect returned no results")
+            row = inspect_rows[0]
+            config_data = row.get("Config") or {}
+
+            repo_tags = row.get("RepoTags") or [image_name]
+            if any(str(tag).endswith(":latest") for tag in repo_tags):
+                medium += 1
+                attack_techniques.add("T1190")
+                findings.append(
+                    Vulnerability(
+                        vuln_id="IMAGE_TAG_LATEST",
+                        pkg_name="image-tag",
+                        installed_version="latest",
+                        fixed_version=None,
+                        severity="MEDIUM",
+                        title="Mutable latest tag detected",
+                        description="Image uses mutable ':latest' tag which weakens supply-chain traceability.",
+                    )
+                )
+
+            runtime_user = str(config_data.get("User") or "").strip().lower()
+            if runtime_user in {"", "0", "root"}:
+                high += 1
+                attack_techniques.update({"T1068", "T1611"})
+                findings.append(
+                    Vulnerability(
+                        vuln_id="IMAGE_RUNS_AS_ROOT",
+                        pkg_name="runtime-user",
+                        installed_version=runtime_user or "root(default)",
+                        fixed_version="non-root user",
+                        severity="HIGH",
+                        title="Container image runs as root",
+                        description="Running as root increases privilege escalation and breakout blast radius.",
+                    )
+                )
+
+            exposed_ports = list((config_data.get("ExposedPorts") or {}).keys())
+            if len(exposed_ports) >= 3:
+                medium += 1
+                attack_techniques.update({"T1046", "T1190"})
+                findings.append(
+                    Vulnerability(
+                        vuln_id="IMAGE_EXPOSES_MULTIPLE_PORTS",
+                        pkg_name="network-surface",
+                        installed_version=str(len(exposed_ports)),
+                        fixed_version="minimal exposed ports",
+                        severity="MEDIUM",
+                        title="Broad network exposure in image metadata",
+                        description=f"Image exposes {len(exposed_ports)} ports: {', '.join(exposed_ports[:8])}.",
+                    )
+                )
+
+            secret_markers = (
+                "password=",
+                "passwd=",
+                "secret=",
+                "token=",
+                "api_key=",
+                "apikey=",
+                "aws_secret_access_key=",
+            )
+            env_values = config_data.get("Env") or []
+            leaked = [entry for entry in env_values if any(marker in str(entry).lower() for marker in secret_markers)]
+            if leaked:
+                critical += 1
+                attack_techniques.update({"T1528", "T1552.001"})
+                findings.append(
+                    Vulnerability(
+                        vuln_id="IMAGE_ENV_SECRET_EXPOSURE",
+                        pkg_name="environment",
+                        installed_version=str(len(leaked)),
+                        fixed_version="move secrets to runtime vault/injector",
+                        severity="CRITICAL",
+                        title="Potential secrets embedded in image environment",
+                        description=f"Detected {len(leaked)} environment entries matching secret patterns.",
+                    )
+                )
+
+            history_proc = await asyncio.create_subprocess_exec(
+                "docker",
+                "history",
+                "--no-trunc",
+                "--format",
+                "{{.CreatedBy}}",
+                image_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            history_out, _ = await asyncio.wait_for(history_proc.communicate(), timeout=25)
+            history_text = history_out.decode().lower() if history_out else ""
+            if any(token in history_text for token in ["curl ", "wget ", "add http://", "add https://"]):
+                high += 1
+                attack_techniques.update({"T1105", "T1195.002"})
+                findings.append(
+                    Vulnerability(
+                        vuln_id="IMAGE_REMOTE_FETCH_IN_BUILD_HISTORY",
+                        pkg_name="build-history",
+                        installed_version="remote-fetch",
+                        fixed_version="pin and verify artifacts",
+                        severity="HIGH",
+                        title="Remote artifact fetch observed in build history",
+                        description="Build history contains remote fetch commands, increasing supply-chain risk.",
+                    )
+                )
+
+            duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+            return ImageScanResult(
+                image_name=image_name,
+                image_id=str(row.get("Id") or "")[:12],
+                scan_id=self._scan_id(image_name),
+                scanned_at=datetime.now(timezone.utc).isoformat(),
+                vulnerabilities=findings,
+                total_vulnerabilities=len(findings),
+                critical_count=critical,
+                high_count=high,
+                medium_count=medium,
+                low_count=low,
+                scan_status="completed_degraded",
+                scan_mode="degraded_fallback",
+                scan_duration_ms=duration_ms,
+                os_family=str(row.get("Os") or ""),
+                os_version=str(row.get("Architecture") or ""),
+                attack_techniques=sorted(attack_techniques),
+            )
+        except Exception as e:
+            return ImageScanResult(
+                image_name=image_name,
+                image_id="",
+                scan_id=self._scan_id(image_name),
+                scanned_at=datetime.now(timezone.utc).isoformat(),
+                scan_status="error",
+                scan_mode="degraded_fallback",
+                vulnerabilities=[
+                    Vulnerability(
+                        vuln_id="DOCKER_METADATA_SCAN_ERROR",
+                        pkg_name="docker",
+                        installed_version="",
+                        fixed_version=None,
+                        severity="UNKNOWN",
+                        title="Fallback metadata scan failed",
+                        description=str(e)[:220],
+                    )
+                ],
+            )
     
     async def scan_image(self, image_name: str, force: bool = False) -> ImageScanResult:
         """
@@ -241,26 +424,14 @@ class TrivyScanner:
         
         # Support remote Trivy server if configured via env var `TRIVY_SERVER`.
         trivy_server = os.environ.get("TRIVY_SERVER")
+        start_time = datetime.now()
 
         if not self.trivy_path and not trivy_server:
-            return ImageScanResult(
-                image_name=image_name,
-                image_id="",
-                scan_id=hashlib.md5(f"{image_name}-{datetime.now().isoformat()}".encode()).hexdigest()[:16],
-                scanned_at=datetime.now(timezone.utc).isoformat(),
-                scan_status="error",
-                vulnerabilities=[Vulnerability(
-                    vuln_id="TRIVY_NOT_INSTALLED",
-                    pkg_name="trivy",
-                    installed_version="0",
-                    fixed_version=None,
-                    severity="UNKNOWN",
-                    title="Trivy scanner not available",
-                    description="Install the trivy client in the backend image or configure TRIVY_SERVER"
-                )]
-            )
-        
-        start_time = datetime.now()
+            fallback_result = await self._scan_image_fallback(image_name, start_time=start_time)
+            self.scan_cache[cache_key] = fallback_result
+            if self._db is not None:
+                await self._db.container_scans.insert_one(asdict(fallback_result))
+            return fallback_result
 
         try:
             trivy_exe = self.trivy_path or "trivy"
@@ -348,7 +519,7 @@ class TrivyScanner:
             scan_result = ImageScanResult(
                 image_name=image_name,
                 image_id=metadata.get("ImageID", "")[:12],
-                scan_id=hashlib.md5(f"{image_name}-{datetime.now().isoformat()}".encode()).hexdigest()[:16],
+                scan_id=self._scan_id(image_name),
                 scanned_at=datetime.now(timezone.utc).isoformat(),
                 vulnerabilities=vulnerabilities,
                 total_vulnerabilities=len(vulnerabilities),
@@ -357,6 +528,7 @@ class TrivyScanner:
                 medium_count=medium_count,
                 low_count=low_count,
                 scan_status="completed",
+                scan_mode="trivy",
                 scan_duration_ms=int((datetime.now() - start_time).total_seconds() * 1000),
                 os_family=os_info.get("Family", ""),
                 os_version=os_info.get("Name", ""),
@@ -374,18 +546,38 @@ class TrivyScanner:
             return ImageScanResult(
                 image_name=image_name,
                 image_id="",
-                scan_id=hashlib.md5(f"{image_name}-{datetime.now().isoformat()}".encode()).hexdigest()[:16],
+                scan_id=self._scan_id(image_name),
                 scanned_at=datetime.now(timezone.utc).isoformat(),
-                scan_status="timeout"
+                scan_status="timeout",
+                scan_mode="trivy",
             )
         except Exception as e:
             logger.error(f"Scan failed for {image_name}: {e}")
+            if not trivy_server:
+                fallback_result = await self._scan_image_fallback(image_name, start_time=start_time)
+                fallback_result.vulnerabilities.append(
+                    Vulnerability(
+                        vuln_id="TRIVY_SCAN_FALLBACK",
+                        pkg_name="trivy",
+                        installed_version="",
+                        fixed_version=None,
+                        severity="LOW",
+                        title="Trivy scan failed; fallback metadata scan used",
+                        description=str(e)[:200],
+                    )
+                )
+                fallback_result.total_vulnerabilities = len(fallback_result.vulnerabilities)
+                self.scan_cache[cache_key] = fallback_result
+                if self._db is not None:
+                    await self._db.container_scans.insert_one(asdict(fallback_result))
+                return fallback_result
             return ImageScanResult(
                 image_name=image_name,
                 image_id="",
-                scan_id=hashlib.md5(f"{image_name}-{datetime.now().isoformat()}".encode()).hexdigest()[:16],
+                scan_id=self._scan_id(image_name),
                 scanned_at=datetime.now(timezone.utc).isoformat(),
                 scan_status="error",
+                scan_mode="trivy",
                 vulnerabilities=[Vulnerability(
                     vuln_id="SCAN_ERROR",
                     pkg_name="scanner",
@@ -742,6 +934,8 @@ class ContainerSecurityManager:
         """Get container security statistics"""
         return {
             "trivy_enabled": config.trivy_enabled,
+            "trivy_available": bool(self.scanner.trivy_path or os.environ.get("TRIVY_SERVER")),
+            "trivy_scan_mode": "trivy" if (self.scanner.trivy_path or os.environ.get("TRIVY_SERVER")) else "degraded_fallback",
             "falco_enabled": config.falco_enabled,
             "auto_scan": config.auto_scan_new_images,
             "cached_scans": len(self.scanner.scan_cache),
@@ -1715,8 +1909,11 @@ class EnhancedContainerSecurityManager:
     
     def get_comprehensive_stats(self) -> Dict[str, Any]:
         """Get comprehensive security statistics"""
+        trivy_available = bool(self.scanner.trivy_path or os.environ.get("TRIVY_SERVER"))
         return {
             "trivy_enabled": config.trivy_enabled,
+            "trivy_available": trivy_available,
+            "trivy_scan_mode": "trivy" if trivy_available else "degraded_fallback",
             "falco_enabled": config.falco_enabled,
             "secret_scanning": config.secret_scanning,
             "cosign_verify": config.cosign_verify,

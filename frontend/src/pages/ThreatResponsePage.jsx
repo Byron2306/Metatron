@@ -6,6 +6,7 @@ import {
   Server, Globe, Unlock, FileText, Settings2, Send
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '../context/AuthContext';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -13,6 +14,7 @@ const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl ===
   : envBackendUrl.replace(/\/+$/, '');
 
 const ThreatResponsePage = () => {
+  const { getAuthHeaders } = useAuth();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const [blockedIPs, setBlockedIPs] = useState([]);
@@ -25,8 +27,7 @@ const ThreatResponsePage = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers = getAuthHeaders();
       
       const [statsRes, blockedRes, historyRes, settingsRes, openclawRes] = await Promise.all([
         fetch(`${API}/api/threat-response/stats`, { headers }),
@@ -37,7 +38,10 @@ const ThreatResponsePage = () => {
       ]);
       
       if (statsRes.ok) setStats(await statsRes.json());
-      if (blockedRes.ok) setBlockedIPs((await blockedRes.json()).blocked_ips || []);
+      if (blockedRes.ok) {
+        const blockedPayload = await blockedRes.json();
+        setBlockedIPs(Array.isArray(blockedPayload) ? blockedPayload : blockedPayload?.blocked_ips || []);
+      }
       if (historyRes.ok) setHistory((await historyRes.json()).history || []);
       if (settingsRes.ok) setSettings(await settingsRes.json());
       if (openclawRes.ok) setOpenclawStatus(await openclawRes.json());
@@ -62,12 +66,11 @@ const ThreatResponsePage = () => {
     
     setActionLoading('block');
     try {
-      const token = localStorage.getItem('token');
       const response = await fetch(`${API}/api/threat-response/block-ip`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           ip: blockForm.ip,
@@ -94,10 +97,9 @@ const ThreatResponsePage = () => {
   const handleUnblockIP = async (ip) => {
     setActionLoading(ip);
     try {
-      const token = localStorage.getItem('token');
       const response = await fetch(`${API}/api/threat-response/unblock-ip/${ip}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: getAuthHeaders(),
       });
       
       if (response.ok) {
@@ -116,11 +118,10 @@ const ThreatResponsePage = () => {
   const handleToggleAutoBlock = async () => {
     setActionLoading('toggle');
     try {
-      const token = localStorage.getItem('token');
       const newState = !settings?.auto_response?.auto_block_enabled;
       const response = await fetch(`${API}/api/threat-response/settings/auto-block?enabled=${newState}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: getAuthHeaders(),
       });
       
       if (response.ok) {
@@ -138,12 +139,23 @@ const ThreatResponsePage = () => {
   };
 
   const handleTestSMS = async () => {
+    const targetPhone = settings?.emergency_contacts?.[0];
+    if (!targetPhone) {
+      toast.error('Add an emergency contact in response settings before sending a test SMS');
+      return;
+    }
     setActionLoading('sms');
     try {
-      const token = localStorage.getItem('token');
       const response = await fetch(`${API}/api/threat-response/test-sms`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phone_number: targetPhone,
+          message: 'Seraph test alert: threat response SMS integration is operational.',
+        }),
       });
       
       if (response.ok) {
@@ -191,6 +203,9 @@ const ThreatResponsePage = () => {
       </div>
     );
   }
+
+  const openclawOnline = Boolean(openclawStatus?.available ?? openclawStatus?.connected);
+  const openclawEnabled = Boolean(openclawStatus?.enabled || openclawOnline);
 
   return (
     <div className="space-y-6" data-testid="threat-response-page">
@@ -307,9 +322,9 @@ const ThreatResponsePage = () => {
             <span className="text-xs">OpenClaw AI</span>
           </div>
           <p className="text-2xl font-mono font-bold">
-            {openclawStatus?.available ? (
+            {openclawOnline ? (
               <Check className="w-6 h-6 text-green-400" />
-            ) : openclawStatus?.enabled ? (
+            ) : openclawEnabled ? (
               <AlertTriangle className="w-6 h-6 text-amber-400" />
             ) : (
               <X className="w-6 h-6 text-slate-500" />
@@ -464,6 +479,7 @@ const ThreatResponsePage = () => {
                   onClick={handleTestSMS}
                   disabled={actionLoading === 'sms'}
                   className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 rounded text-xs flex items-center gap-1"
+                  title={settings?.emergency_contacts?.[0] ? `Send test to ${settings.emergency_contacts[0]}` : 'Configure emergency contacts first'}
                 >
                   <Send className="w-3 h-3" />
                   Test
@@ -474,16 +490,16 @@ const ThreatResponsePage = () => {
             {/* OpenClaw AI */}
             <div className="flex items-center justify-between p-3 bg-slate-900/50 rounded">
               <div className="flex items-center gap-3">
-                <Bot className={`w-5 h-5 ${openclawStatus?.available ? 'text-green-400' : openclawStatus?.enabled ? 'text-amber-400' : 'text-slate-500'}`} />
+                <Bot className={`w-5 h-5 ${openclawOnline ? 'text-green-400' : openclawEnabled ? 'text-amber-400' : 'text-slate-500'}`} />
                 <div>
                   <p className="font-semibold text-sm">OpenClaw AI Agent</p>
                   <p className="text-xs text-slate-400">
-                    {openclawStatus?.available ? 'Connected & Ready' : openclawStatus?.enabled ? 'Enabled (Offline)' : 'Not configured'}
+                    {openclawOnline ? 'Connected & Ready' : openclawEnabled ? 'Enabled (Offline)' : 'Not configured'}
                   </p>
                 </div>
               </div>
-              <div className={`px-2 py-1 rounded text-xs ${openclawStatus?.available ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
-                {openclawStatus?.available ? 'Online' : 'Offline'}
+              <div className={`px-2 py-1 rounded text-xs ${openclawOnline ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+                {openclawOnline ? 'Online' : 'Offline'}
               </div>
             </div>
             
