@@ -1,0 +1,113 @@
+# Seraph AI - Production Docker Compose Override
+# ===============================================
+# Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This override:
+# - Runs the full production control plane (API + Redis + Celery + Nginx)
+# - Hides internal service ports from host except required ingress ports
+# - Enables security sensor services (Falco/Suricata/Zeek/Trivy/Volatility)
+
+version: '3.8'
+
+services:
+  # Keep Mongo internal in production.
+  mongodb:
+    ports: []
+    expose:
+      - "27017"
+    restart: always
+
+  # Keep Redis internal in production.
+  redis:
+    ports: []
+    expose:
+      - "6379"
+    restart: always
+
+  # Disable direct frontend port exposure (use Nginx only).
+  frontend:
+    ports: []
+    expose:
+      - "80"
+    restart: always
+
+  # Disable direct backend port exposure (use Nginx only).
+  backend:
+    ports: []
+    expose:
+      - "8001"
+    restart: always
+    environment:
+      - ENVIRONMENT=production
+      - SERAPH_STRICT_SECURITY=${SERAPH_STRICT_SECURITY:-true}
+      - REMOTE_ADMIN_ONLY=${REMOTE_ADMIN_ONLY:-true}
+    depends_on:
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_started
+      ollama:
+        condition: service_started
+
+  celery-worker:
+    restart: always
+    depends_on:
+      redis:
+        condition: service_started
+      mongodb:
+        condition: service_started
+
+  celery-beat:
+    restart: always
+    depends_on:
+      redis:
+        condition: service_started
+      mongodb:
+        condition: service_started
+
+  # Keep SIEM stores internal by default.
+  elasticsearch:
+    ports: []
+    expose:
+      - "9200"
+    restart: always
+
+  kibana:
+    ports: []
+    expose:
+      - "5601"
+    restart: always
+
+  # Security services become active in production stack.
+  trivy:
+    profiles: []
+    restart: always
+
+  falco:
+    profiles: []
+    restart: always
+
+  suricata:
+    profiles: []
+    restart: always
+
+  zeek:
+    profiles: []
+    restart: unless-stopped
+
+  volatility:
+    profiles: []
+    restart: always
+
+  # Nginx is the only HTTP ingress in production.
+  nginx:
+    profiles: []
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
