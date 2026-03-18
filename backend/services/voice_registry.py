@@ -15,6 +15,8 @@ def _model_dump(model: Any) -> Dict[str, Any]:
         return model.model_dump()  # type: ignore[no-any-return]
     if hasattr(model, "dict"):
         return model.dict()  # type: ignore[no-any-return]
+    if hasattr(model, "__dict__"):
+        return dict(model.__dict__)  # type: ignore[no-any-return]
     return dict(model)
 
 

@@ -11,6 +11,12 @@ except Exception:
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
+        def dict(self) -> Dict[str, Any]:
+            return dict(self.__dict__)
+
+        def model_dump(self) -> Dict[str, Any]:
+            return self.dict()
+
     def Field(default=None, default_factory=None):  # type: ignore
         if default_factory is not None:
             return default_factory()
