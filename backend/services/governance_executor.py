@@ -20,6 +20,21 @@ except Exception:
     from backend.services.notation_token import get_notation_token_service
 
 try:
+    from services.harmonic_engine import get_harmonic_engine
+except Exception:
+    from backend.services.harmonic_engine import get_harmonic_engine
+
+try:
+    from services.vns import vns
+except Exception:
+    from backend.services.vns import vns
+
+try:
+    from services.vns_alerts import vns_alert_service
+except Exception:
+    from backend.services.vns_alerts import vns_alert_service
+
+try:
     from services.world_events import emit_world_event
 except Exception:
     try:
@@ -73,6 +88,8 @@ class GovernanceExecutorService:
         self.dispatch = GovernedDispatchService(db)
         self.epoch_service = get_governance_epoch_service(db)
         self.notation_tokens = get_notation_token_service(db)
+        self.harmonic = get_harmonic_engine(db)
+        self.environment = str(os.environ.get("ENVIRONMENT") or "local").lower()
 
     @staticmethod
     def _governance_context_for_execution(
@@ -111,12 +128,130 @@ class GovernanceExecutorService:
             "token_id": token_id,
         }
 
+    @staticmethod
+    def _to_epoch_ms(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return int(float(value))
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            return int(float(text))
+        except Exception:
+            pass
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return None
+
+    def _attach_execution_timing_observation(
+        self,
+        *,
+        actor: str,
+        action_type: str,
+        queue_doc: Dict[str, Any],
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        stage: str,
+        timestamp_ms: Optional[int] = None,
+        outcome: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        ts_ms = int(timestamp_ms or int(datetime.now(timezone.utc).timestamp() * 1000))
+        scope = str(
+            payload.get("target_domain")
+            or (payload.get("parameters") or {}).get("target_domain")
+            or queue_doc.get("target_domain")
+            or "global"
+        )
+        dispatch_created_at_ms = self._to_epoch_ms(
+            payload.get("dispatch_created_at_ms")
+            or queue_doc.get("dispatch_created_at_ms")
+            or (polyphonic_context.get("harmonic_timeline") or {}).get("dispatch_created_at_ms")
+        )
+        approved_at_ms = self._to_epoch_ms(
+            queue_doc.get("approved_at")
+            or payload.get("approved_at")
+            or queue_doc.get("updated_at")
+        )
+        observation = self.harmonic.score_observation(
+            actor_id=str(actor or "governance_executor"),
+            tool_name=str(payload.get("command_type") or payload.get("tool") or action_type),
+            target_domain=scope,
+            environment=self.environment,
+            stage=stage,
+            timestamp_ms=float(ts_ms),
+            operation=action_type,
+            context={
+                "outcome": outcome,
+                "queue_id": queue_doc.get("queue_id"),
+                "decision_id": queue_doc.get("decision_id"),
+            },
+        )
+        polyphonic_context["timing_features"] = observation.get("timing_features")
+        polyphonic_context["harmonic_state"] = observation.get("harmonic_state")
+        polyphonic_context["baseline_ref"] = observation.get("baseline_ref")
+        history = list(polyphonic_context.get("harmonic_history") or [])
+        history.append(
+            {
+                "stage": stage,
+                "timestamp_ms": ts_ms,
+                "harmonic_state": observation.get("harmonic_state"),
+            }
+        )
+        polyphonic_context["harmonic_history"] = history[-30:]
+        timeline = dict(polyphonic_context.get("harmonic_timeline") or {})
+        if dispatch_created_at_ms is not None:
+            timeline.setdefault("dispatch_created_at_ms", dispatch_created_at_ms)
+            if stage == "executor_start":
+                timeline["time_since_queue_ms"] = max(0, ts_ms - dispatch_created_at_ms)
+        if approved_at_ms is not None and stage == "executor_start":
+            timeline["approved_at_ms"] = approved_at_ms
+            timeline["time_since_approval_ms"] = max(0, ts_ms - approved_at_ms)
+        if stage == "executor_start":
+            timeline["executor_start_ms"] = ts_ms
+        elif stage == "executor_end":
+            timeline["executor_end_ms"] = ts_ms
+            start = self._to_epoch_ms(timeline.get("executor_start_ms"))
+            if start is not None:
+                timeline["execution_duration_ms"] = max(0, ts_ms - start)
+        elif stage == "audit_closed":
+            timeline["audit_closed_at_ms"] = ts_ms
+            end = self._to_epoch_ms(timeline.get("executor_end_ms"))
+            if end is not None:
+                timeline["closure_lag_ms"] = max(0, ts_ms - end)
+        polyphonic_context["harmonic_timeline"] = timeline
+        try:
+            if hasattr(vns, "update_domain_pulse"):
+                pulse_state = vns.update_domain_pulse(
+                    domain=scope,
+                    timing_features=observation.get("timing_features") or {},
+                    harmonic_state=observation.get("harmonic_state") or {},
+                    timestamp_ms=ts_ms,
+                )
+                if (
+                    pulse_state
+                    and float(pulse_state.get("pulse_stability_index") or 1.0) < 0.45
+                    and hasattr(vns_alert_service, "alert_pulse_instability_by_domain")
+                ):
+                    vns_alert_service.alert_pulse_instability_by_domain(pulse_state)
+        except Exception:
+            pass
+        return observation
+
     async def _validate_notation_for_execution(
         self,
         *,
         queue_doc: Dict[str, Any],
         payload: Dict[str, Any],
-        enforce_sequence_slot: bool = True,
+        enforce_sequence_slot: Optional[bool] = None,
+        enforce_required_companions: Optional[bool] = None,
     ) -> Dict[str, Any]:
         notation_ctx = self._notation_token_from_context(queue_doc, payload)
         scope = str(
@@ -126,6 +261,18 @@ class GovernanceExecutorService:
         active_epoch_doc = (
             active_epoch.model_dump() if hasattr(active_epoch, "model_dump") else active_epoch.dict()
         ) if active_epoch is not None else None
+        profile = self.notation_tokens.resolve_enforcement_profile(
+            genre_mode=(
+                (active_epoch.genre_mode if active_epoch is not None else None)
+                or payload.get("genre_mode")
+                or queue_doc.get("genre_mode")
+            ),
+            strictness_level=(
+                (active_epoch.strictness_level if active_epoch is not None else None)
+                or payload.get("strictness_level")
+                or queue_doc.get("strictness_level")
+            ),
+        )
         return await self.notation_tokens.validate_notation_token(
             token=notation_ctx.get("token") or notation_ctx.get("token_id"),
             active_epoch=active_epoch_doc,
@@ -134,8 +281,12 @@ class GovernanceExecutorService:
                 "baseline_time": queue_doc.get("created_at") or payload.get("created_at"),
                 "observed_slot": payload.get("sequence_slot"),
                 "observed_companions": payload.get("observed_companions") or [],
-                "enforce_sequence_slot": enforce_sequence_slot,
-                "enforce_required_companions": False,
+                "enforce_sequence_slot": profile.get("enforce_sequence_slot")
+                if enforce_sequence_slot is None
+                else bool(enforce_sequence_slot),
+                "enforce_required_companions": profile.get("enforce_required_companions")
+                if enforce_required_companions is None
+                else bool(enforce_required_companions),
             },
         )
 
@@ -218,6 +369,14 @@ class GovernanceExecutorService:
                 if isinstance(resolved_polyphonic.get("voice_profile"), dict)
                 else {}
             )
+            harmonic_state = resolved_polyphonic.get("harmonic_state") if isinstance(resolved_polyphonic, dict) else None
+            timing_features = resolved_polyphonic.get("timing_features") if isinstance(resolved_polyphonic, dict) else None
+            baseline_ref = resolved_polyphonic.get("baseline_ref") if isinstance(resolved_polyphonic, dict) else None
+            harmonic_timeline = (
+                resolved_polyphonic.get("harmonic_timeline")
+                if isinstance(resolved_polyphonic, dict)
+                else None
+            )
             resolved_targets = [str(t) for t in (targets or []) if t]
             if not resolved_targets:
                 resolved_targets = [str(x) for x in [queue_id, command_id, token_id] if x]
@@ -237,10 +396,29 @@ class GovernanceExecutorService:
                     "reason": reason,
                     "voice_type": voice_profile.get("voice_type"),
                     "capability_class": voice_profile.get("capability_class"),
+                    "timing_features": timing_features,
+                    "harmonic_state": harmonic_state,
+                    "baseline_ref": baseline_ref,
                 },
                 result="success" if outcome == "executed" else ("denied" if outcome == "skipped" else "failed"),
                 result_details=reason,
             )
+            if harmonic_timeline and hasattr(tamper_evident_telemetry, "record_harmonic_timeline"):
+                tamper_evident_telemetry.record_harmonic_timeline(
+                    trace_id=str(trace_id or ""),
+                    timeline=harmonic_timeline,
+                    baseline_ref=baseline_ref,
+                    harmonic_state=harmonic_state,
+                )
+            if harmonic_state and hasattr(tamper_evident_telemetry, "store_harmonic_state"):
+                tamper_evident_telemetry.store_harmonic_state(
+                    trace_id=str(trace_id or ""),
+                    state=harmonic_state,
+                    contributors={
+                        "timing_features": timing_features,
+                        "baseline_ref": baseline_ref,
+                    },
+                )
         except Exception:
             logger.exception(
                 "Failed to record governance execution audit for decision=%s queue=%s",
@@ -695,6 +873,12 @@ class GovernanceExecutorService:
         skipped = 0
         failed = 0
         for decision in decisions:
+            release_not_before = decision.get("harmonic_release_not_before")
+            if release_not_before:
+                release_dt = self._to_epoch_ms(release_not_before)
+                now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                if release_dt is not None and now_ms < release_dt:
+                    continue
             processed += 1
             result = await self._execute_decision(decision)
             outcome = result.get("outcome")
@@ -752,16 +936,166 @@ class GovernanceExecutorService:
         action_type = str(queue_doc.get("action_type") or "").lower()
         payload = queue_doc.get("payload") or {}
         polyphonic_context = queue_doc.get("polyphonic_context") or payload.get("polyphonic_context") or {}
+        if not isinstance(polyphonic_context, dict):
+            polyphonic_context = {}
         actor = queue_doc.get("actor") or "governance_executor"
+        executor_start_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        harmonic_pre: Dict[str, Any] = {}
+        try:
+            harmonic_pre = self._attach_execution_timing_observation(
+                actor=str(actor),
+                action_type=action_type,
+                queue_doc=queue_doc,
+                payload=payload,
+                polyphonic_context=polyphonic_context,
+                stage="executor_start",
+                timestamp_ms=executor_start_ms,
+            )
+            payload["polyphonic_context"] = polyphonic_context
+            queue_doc["polyphonic_context"] = polyphonic_context
+            await self.db.triune_outbound_queue.update_one(
+                {"queue_id": related_queue_id},
+                {
+                    "$set": {
+                        "executor_start_ms": executor_start_ms,
+                        "polyphonic_context": polyphonic_context,
+                        "timing_features_at_executor_start": harmonic_pre.get("timing_features"),
+                        "harmonic_state_at_executor_start": harmonic_pre.get("harmonic_state"),
+                        "baseline_ref": harmonic_pre.get("baseline_ref"),
+                        "updated_at": now,
+                    }
+                },
+            )
+            await self.db.triune_decisions.update_one(
+                {"decision_id": decision_id},
+                {
+                    "$set": {
+                        "executor_start_ms": executor_start_ms,
+                        "polyphonic_context": polyphonic_context,
+                        "timing_features_at_executor_start": harmonic_pre.get("timing_features"),
+                        "harmonic_state_at_executor_start": harmonic_pre.get("harmonic_state"),
+                        "baseline_ref": harmonic_pre.get("baseline_ref"),
+                        "updated_at": now,
+                    }
+                },
+            )
+        except Exception:
+            logger.debug("Failed to attach pre-execution harmonic observation", exc_info=True)
         notation_ctx = self._notation_token_from_context(queue_doc, payload)
         notation_validation = await self._validate_notation_for_execution(
             queue_doc=queue_doc,
             payload=payload,
-            enforce_sequence_slot=True,
         )
         notation_valid = bool(notation_validation.get("valid"))
         notation_checks = notation_validation.get("checks") or {}
         notation_failure_reason = ";".join(notation_validation.get("reasons") or []) or None
+        async def _finalize_harmonic(outcome: str, reason: Optional[str] = None) -> None:
+            try:
+                end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                obs = self._attach_execution_timing_observation(
+                    actor=str(actor),
+                    action_type=action_type,
+                    queue_doc=queue_doc,
+                    payload=payload,
+                    polyphonic_context=polyphonic_context,
+                    stage="executor_end",
+                    timestamp_ms=end_ms,
+                    outcome=outcome,
+                )
+                self._attach_execution_timing_observation(
+                    actor=str(actor),
+                    action_type=action_type,
+                    queue_doc=queue_doc,
+                    payload=payload,
+                    polyphonic_context=polyphonic_context,
+                    stage="audit_closed",
+                    timestamp_ms=end_ms,
+                    outcome=outcome,
+                )
+                payload["polyphonic_context"] = polyphonic_context
+                queue_doc["polyphonic_context"] = polyphonic_context
+                harmonic_state = obs.get("harmonic_state")
+                await self.db.triune_outbound_queue.update_one(
+                    {"queue_id": related_queue_id},
+                    {
+                        "$set": {
+                            "executor_end_ms": end_ms,
+                            "polyphonic_context": polyphonic_context,
+                            "timing_features_at_executor_end": obs.get("timing_features"),
+                            "harmonic_state_at_executor_end": harmonic_state,
+                            "baseline_ref": obs.get("baseline_ref"),
+                            "updated_at": _iso_now(),
+                        }
+                    },
+                )
+                await self.db.triune_decisions.update_one(
+                    {"decision_id": decision_id},
+                    {
+                        "$set": {
+                            "executor_end_ms": end_ms,
+                            "polyphonic_context": polyphonic_context,
+                            "timing_features_at_executor_end": obs.get("timing_features"),
+                            "harmonic_state_at_executor_end": harmonic_state,
+                            "baseline_ref": obs.get("baseline_ref"),
+                            "updated_at": _iso_now(),
+                        }
+                    },
+                )
+                timing_features = obs.get("timing_features") or {}
+                if (
+                    float(timing_features.get("drift_norm") or 0.0) >= 0.6
+                    and hasattr(vns_alert_service, "alert_harmonic_drift_detected")
+                ):
+                    vns_alert_service.alert_harmonic_drift_detected(
+                        {
+                            "scope": str(
+                                payload.get("target_domain")
+                                or (payload.get("parameters") or {}).get("target_domain")
+                                or queue_doc.get("target_domain")
+                                or "global"
+                            ),
+                            "action_type": action_type,
+                            "actor": actor,
+                            "drift_norm": timing_features.get("drift_norm"),
+                            "confidence": float((harmonic_state or {}).get("confidence") or 0.0),
+                        }
+                    )
+                if (
+                    float(timing_features.get("burstiness") or 0.0) >= 0.6
+                    and hasattr(vns_alert_service, "alert_burst_cluster_detected")
+                ):
+                    vns_alert_service.alert_burst_cluster_detected(
+                        {
+                            "scope": str(
+                                payload.get("target_domain")
+                                or (payload.get("parameters") or {}).get("target_domain")
+                                or queue_doc.get("target_domain")
+                                or "global"
+                            ),
+                            "action_type": action_type,
+                            "burstiness": timing_features.get("burstiness"),
+                            "discord_score": float((harmonic_state or {}).get("discord_score") or 0.0),
+                        }
+                    )
+                discord = float((harmonic_state or {}).get("discord_score") or 0.0)
+                if discord >= 0.75 and hasattr(vns_alert_service, "alert_discord_threshold_crossed"):
+                    vns_alert_service.alert_discord_threshold_crossed(
+                        {
+                            "scope": str(
+                                payload.get("target_domain")
+                                or (payload.get("parameters") or {}).get("target_domain")
+                                or queue_doc.get("target_domain")
+                                or "global"
+                            ),
+                            "action_type": action_type,
+                            "actor": actor,
+                            "discord_score": discord,
+                            "confidence": float((harmonic_state or {}).get("confidence") or 0.0),
+                            "reason": reason,
+                        }
+                    )
+            except Exception:
+                logger.debug("Failed to finalize harmonic state", exc_info=True)
         if not notation_valid:
             await self.db.triune_decisions.update_one(
                 {"decision_id": decision_id},
@@ -771,9 +1105,11 @@ class GovernanceExecutorService:
                         "execution_error": "notation_validation_failed",
                         "notation_valid": False,
                         "notation_failure_reason": notation_failure_reason,
+                        "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
                         "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", False)),
                         "epoch_match": bool(notation_checks.get("epoch_match", False)),
                         "score_match": bool(notation_checks.get("score_match", False)),
+                        "polyphonic_context": polyphonic_context or None,
                         "updated_at": now,
                     }
                 },
@@ -786,9 +1122,11 @@ class GovernanceExecutorService:
                         "execution_status": "failed",
                         "notation_valid": False,
                         "notation_failure_reason": notation_failure_reason,
+                        "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
                         "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", False)),
                         "epoch_match": bool(notation_checks.get("epoch_match", False)),
                         "score_match": bool(notation_checks.get("score_match", False)),
+                        "polyphonic_context": polyphonic_context or None,
                         "updated_at": now,
                     }
                 },
@@ -796,6 +1134,10 @@ class GovernanceExecutorService:
             await self._mark_notation_execution_outcome(
                 notation_ctx.get("token_id"),
                 outcome="failed",
+            )
+            await _finalize_harmonic(
+                "failed",
+                reason=f"notation_validation_failed:{notation_failure_reason or 'unknown'}",
             )
             if emit_world_event is not None:
                 await emit_world_event(
@@ -840,6 +1182,37 @@ class GovernanceExecutorService:
             )
             return {"outcome": "failed", "reason": "notation_validation_failed"}
 
+        await self.db.triune_decisions.update_one(
+            {"decision_id": decision_id},
+            {
+                "$set": {
+                    "notation_valid": True,
+                    "notation_failure_reason": None,
+                    "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
+                    "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", True)),
+                    "epoch_match": bool(notation_checks.get("epoch_match", True)),
+                    "score_match": bool(notation_checks.get("score_match", True)),
+                    "polyphonic_context": polyphonic_context or None,
+                    "updated_at": _iso_now(),
+                }
+            },
+        )
+        await self.db.triune_outbound_queue.update_one(
+            {"queue_id": related_queue_id},
+            {
+                "$set": {
+                    "notation_valid": True,
+                    "notation_failure_reason": None,
+                    "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
+                    "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", True)),
+                    "epoch_match": bool(notation_checks.get("epoch_match", True)),
+                    "score_match": bool(notation_checks.get("score_match", True)),
+                    "polyphonic_context": polyphonic_context or None,
+                    "updated_at": _iso_now(),
+                }
+            },
+        )
+
         if action_type == "cross_sector_hardening":
             operation = str(payload.get("operation") or "").strip().lower()
             if operation in {"issue_token", "revoke_token", "revoke_principal_tokens"}:
@@ -853,6 +1226,10 @@ class GovernanceExecutorService:
                 await self._mark_notation_execution_outcome(
                     notation_ctx.get("token_id"),
                     outcome="completed" if result.get("outcome") == "executed" else "failed",
+                )
+                await _finalize_harmonic(
+                    result.get("outcome") or "failed",
+                    reason=result.get("reason"),
                 )
                 return result
 
@@ -868,6 +1245,10 @@ class GovernanceExecutorService:
                 notation_ctx.get("token_id"),
                 outcome="completed" if result.get("outcome") == "executed" else "failed",
             )
+            await _finalize_harmonic(
+                result.get("outcome") or "failed",
+                reason=result.get("reason"),
+            )
             return result
 
         if action_type == "tool_execution":
@@ -880,6 +1261,10 @@ class GovernanceExecutorService:
             await self._mark_notation_execution_outcome(
                 notation_ctx.get("token_id"),
                 outcome="completed" if result.get("outcome") == "executed" else "failed",
+            )
+            await _finalize_harmonic(
+                result.get("outcome") or "failed",
+                reason=result.get("reason"),
             )
             return result
 
@@ -920,6 +1305,7 @@ class GovernanceExecutorService:
                 polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             await self._mark_notation_execution_outcome(notation_ctx.get("token_id"), outcome="failed")
+            await _finalize_harmonic("skipped", reason="unsupported_action_type")
             return {"outcome": "skipped", "reason": "unsupported_action_type"}
 
         agent_id = queue_doc.get("subject_id") or payload.get("agent_id")
@@ -968,6 +1354,7 @@ class GovernanceExecutorService:
                 polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             await self._mark_notation_execution_outcome(notation_ctx.get("token_id"), outcome="failed")
+            await _finalize_harmonic("failed", reason=reason)
             return {"outcome": "failed", "reason": "missing_agent_or_command"}
 
         try:
@@ -1093,6 +1480,7 @@ class GovernanceExecutorService:
                 polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             await self._mark_notation_execution_outcome(notation_ctx.get("token_id"), outcome="completed")
+            await _finalize_harmonic("executed")
             return {"outcome": "executed"}
         except Exception as exc:
             logger.exception("Failed to execute approved decision %s: %s", decision_id, exc)
@@ -1136,6 +1524,7 @@ class GovernanceExecutorService:
                 polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             await self._mark_notation_execution_outcome(notation_ctx.get("token_id"), outcome="failed")
+            await _finalize_harmonic("failed", reason=error_reason)
             return {"outcome": "failed", "reason": "execution_exception"}
 
     async def _execute_token_operation(

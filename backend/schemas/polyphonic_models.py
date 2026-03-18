@@ -64,8 +64,11 @@ class PolyphonicContext(BaseModel):
     world_state_hash: Optional[str] = None
     notation_token_id: Optional[str] = None
     notation_token: Optional[Dict[str, Any]] = None
-    timing_features: Optional[Dict[str, Any]] = None
-    harmonic_state: Optional[Dict[str, Any]] = None
+    baseline_ref: Optional["BaselineRef"] = None
+    timing_features: Optional["TimingFeatures"] = None
+    harmonic_state: Optional["HarmonicState"] = None
+    harmonic_history: Optional[List[Dict[str, Any]]] = None
+    harmonic_timeline: Optional[Dict[str, Any]] = None
     chorus_state: Optional[Dict[str, Any]] = None
 
 
@@ -100,6 +103,47 @@ class NotationToken(BaseModel):
     expires_at: datetime
     status: str = "issued"
     signature_ref: Optional[str] = None
+
+
+class TimingFeatures(BaseModel):
+    sample_size: int
+    timestamps_ms: Optional[List[float]] = None
+    intervals_ms: List[float] = Field(default_factory=list)
+    last_interval_ms: Optional[float] = None
+    median_interval_ms: Optional[float] = None
+    mean_interval_ms: Optional[float] = None
+    jitter_ms: Optional[float] = None
+    jitter_norm: Optional[float] = None
+    drift_norm: Optional[float] = None
+    burstiness: Optional[float] = None
+    entropy_signature: Optional[float] = None
+    sequence_class: Optional[str] = None
+    dominant_frequency: Optional[float] = None
+
+
+class BaselineRef(BaseModel):
+    baseline_id: str
+    scope_type: str
+    actor_id: Optional[str] = None
+    tool_name: Optional[str] = None
+    target_domain: Optional[str] = None
+    environment: Optional[str] = None
+    version: str = "v1"
+    source: str = "harmonic_engine"
+    baseline_band: Optional[Dict[str, Any]] = None
+
+
+class HarmonicState(BaseModel):
+    resonance_score: float
+    discord_score: float
+    confidence: float
+    baseline_ref: Optional[BaselineRef] = None
+    mode_recommendation: Optional[str] = None
+    drift_norm: Optional[float] = None
+    jitter_norm: Optional[float] = None
+    burstiness: Optional[float] = None
+    entropy_signature: Optional[float] = None
+    rationale: List[str] = Field(default_factory=list)
 
 
 class ActionRequestEnvelope(BaseModel):

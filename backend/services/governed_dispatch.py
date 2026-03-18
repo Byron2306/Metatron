@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +23,21 @@ except Exception:
     from backend.services.notation_token import get_notation_token_service
 
 try:
+    from services.harmonic_engine import get_harmonic_engine
+except Exception:
+    from backend.services.harmonic_engine import get_harmonic_engine
+
+try:
+    from services.vns import vns
+except Exception:
+    from backend.services.vns import vns
+
+try:
+    from services.vns_alerts import vns_alert_service
+except Exception:
+    from backend.services.vns_alerts import vns_alert_service
+
+try:
     from services.world_events import emit_world_event
 except Exception:
     try:
@@ -43,6 +59,8 @@ class GovernedDispatchService:
         self.polyphonic = get_polyphonic_governance_service()
         self.epoch_service = get_governance_epoch_service(db)
         self.notation_tokens = get_notation_token_service(db)
+        self.harmonic = get_harmonic_engine(db)
+        self.environment = str(os.environ.get("ENVIRONMENT") or "local").lower()
 
     async def queue_gated_agent_command(
         self,
@@ -88,6 +106,12 @@ class GovernedDispatchService:
         )
         polyphonic_context = self.polyphonic.serialize_polyphonic_context(envelope)
         working_command_doc = dict(command_doc or {})
+        dispatch_created_at_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        working_command_doc["dispatch_created_at_ms"] = dispatch_created_at_ms
+        if isinstance(polyphonic_context, dict):
+            timeline = dict(polyphonic_context.get("harmonic_timeline") or {})
+            timeline["dispatch_created_at_ms"] = dispatch_created_at_ms
+            polyphonic_context["harmonic_timeline"] = timeline
         try:
             scope = str(
                 working_command_doc.get("target_domain")
@@ -151,6 +175,90 @@ class GovernedDispatchService:
                 working_command_doc["required_companions"] = notation_doc.get("required_companions", [])
         except Exception:
             # Keep dispatch non-breaking: gate layer will mark notation invalid if required.
+            pass
+        try:
+            target_domain = str(
+                working_command_doc.get("target_domain")
+                or (working_command_doc.get("parameters") or {}).get("target_domain")
+                or "global"
+            )
+            harmonic_observation = self.harmonic.score_observation(
+                actor_id=str(actor or "unknown"),
+                tool_name=str(
+                    working_command_doc.get("command_type")
+                    or working_command_doc.get("tool")
+                    or action_type
+                ),
+                target_domain=target_domain,
+                environment=self.environment,
+                stage="dispatch",
+                timestamp_ms=float(dispatch_created_at_ms),
+                operation=str(action_type),
+                context={
+                    "agent_id": agent_id,
+                    "command_id": working_command_doc.get("command_id"),
+                },
+            )
+            if isinstance(polyphonic_context, dict):
+                polyphonic_context["timing_features"] = harmonic_observation.get("timing_features")
+                polyphonic_context["baseline_ref"] = harmonic_observation.get("baseline_ref")
+                polyphonic_context["harmonic_state"] = harmonic_observation.get("harmonic_state")
+                history = list(polyphonic_context.get("harmonic_history") or [])
+                history.append(
+                    {
+                        "stage": "dispatch",
+                        "timestamp_ms": dispatch_created_at_ms,
+                        "harmonic_state": harmonic_observation.get("harmonic_state"),
+                    }
+                )
+                polyphonic_context["harmonic_history"] = history[-20:]
+                timeline = dict(polyphonic_context.get("harmonic_timeline") or {})
+                timeline.setdefault("dispatch_created_at_ms", dispatch_created_at_ms)
+                polyphonic_context["harmonic_timeline"] = timeline
+            working_command_doc["timing_features_at_dispatch"] = harmonic_observation.get("timing_features")
+            working_command_doc["harmonic_state_at_dispatch"] = harmonic_observation.get("harmonic_state")
+            working_command_doc["baseline_ref"] = harmonic_observation.get("baseline_ref")
+            if hasattr(vns, "update_domain_pulse"):
+                pulse_state = vns.update_domain_pulse(
+                    domain=target_domain,
+                    timing_features=harmonic_observation.get("timing_features") or {},
+                    harmonic_state=harmonic_observation.get("harmonic_state") or {},
+                    timestamp_ms=dispatch_created_at_ms,
+                )
+                if (
+                    pulse_state
+                    and float(pulse_state.get("pulse_stability_index") or 1.0) < 0.45
+                    and hasattr(vns_alert_service, "alert_pulse_instability_by_domain")
+                ):
+                    vns_alert_service.alert_pulse_instability_by_domain(pulse_state)
+            timing_features = harmonic_observation.get("timing_features") or {}
+            harmonic_state = harmonic_observation.get("harmonic_state") or {}
+            if (
+                float(timing_features.get("drift_norm") or 0.0) >= 0.6
+                and hasattr(vns_alert_service, "alert_harmonic_drift_detected")
+            ):
+                vns_alert_service.alert_harmonic_drift_detected(
+                    {
+                        "scope": target_domain,
+                        "action_type": action_type,
+                        "actor": actor,
+                        "drift_norm": timing_features.get("drift_norm"),
+                        "confidence": harmonic_state.get("confidence"),
+                    }
+                )
+            if (
+                float(timing_features.get("burstiness") or 0.0) >= 0.6
+                and hasattr(vns_alert_service, "alert_burst_cluster_detected")
+            ):
+                vns_alert_service.alert_burst_cluster_detected(
+                    {
+                        "scope": target_domain,
+                        "action_type": action_type,
+                        "burstiness": timing_features.get("burstiness"),
+                        "discord_score": harmonic_state.get("discord_score"),
+                    }
+                )
+        except Exception:
             pass
         if polyphonic_context:
             working_command_doc["polyphonic_context"] = polyphonic_context

@@ -21,6 +21,11 @@ except Exception:
     from backend.triune.metatron import MetatronService
     from backend.triune.michael import MichaelService
 
+try:
+    from services.vns import vns
+except Exception:
+    from backend.services.vns import vns
+
 
 class TriuneOrchestrator:
     """Central orchestration point for Triune reasoning over world-state changes.
@@ -54,6 +59,10 @@ class TriuneOrchestrator:
             "notation_token": polyphonic.get("notation_token") or ctx.get("notation_token"),
             "notation_token_id": polyphonic.get("notation_token_id") or ctx.get("notation_token_id"),
             "world_state_hash": polyphonic.get("world_state_hash") or ctx.get("world_state_hash"),
+            "timing_features": polyphonic.get("timing_features") or ctx.get("timing_features"),
+            "harmonic_state": polyphonic.get("harmonic_state") or ctx.get("harmonic_state"),
+            "baseline_ref": polyphonic.get("baseline_ref") or ctx.get("baseline_ref"),
+            "harmonic_timeline": polyphonic.get("harmonic_timeline") or ctx.get("harmonic_timeline"),
         }
 
     async def handle_world_change(
@@ -100,6 +109,17 @@ class TriuneOrchestrator:
         planning_context["notation_token"] = polyphonic_voice_ctx.get("notation_token")
         planning_context["notation_token_id"] = polyphonic_voice_ctx.get("notation_token_id")
         planning_context["world_state_hash"] = polyphonic_voice_ctx.get("world_state_hash")
+        planning_context["timing_features"] = polyphonic_voice_ctx.get("timing_features")
+        planning_context["harmonic_state"] = polyphonic_voice_ctx.get("harmonic_state")
+        planning_context["baseline_ref"] = polyphonic_voice_ctx.get("baseline_ref")
+        planning_context["harmonic_timeline"] = polyphonic_voice_ctx.get("harmonic_timeline")
+        target_domain = (
+            (polyphonic_voice_ctx.get("polyphonic_context") or {}).get("target_domain")
+            or context.get("target_domain")
+            or "global"
+        )
+        if hasattr(vns, "get_domain_pulse_state"):
+            planning_context["domain_pulse_summary"] = vns.get_domain_pulse_state(target_domain)
         planning_context["polyphonic_context"] = polyphonic_voice_ctx.get("polyphonic_context") or {}
         michael_plan = await self.michael.plan_actions(
             candidates=candidates,
@@ -120,6 +140,12 @@ class TriuneOrchestrator:
         loki_context["notation_token"] = polyphonic_voice_ctx.get("notation_token")
         loki_context["notation_token_id"] = polyphonic_voice_ctx.get("notation_token_id")
         loki_context["world_state_hash"] = polyphonic_voice_ctx.get("world_state_hash")
+        loki_context["timing_features"] = polyphonic_voice_ctx.get("timing_features")
+        loki_context["harmonic_state"] = polyphonic_voice_ctx.get("harmonic_state")
+        loki_context["baseline_ref"] = polyphonic_voice_ctx.get("baseline_ref")
+        loki_context["harmonic_timeline"] = polyphonic_voice_ctx.get("harmonic_timeline")
+        if hasattr(vns, "get_domain_pulse_state"):
+            loki_context["domain_pulse_summary"] = vns.get_domain_pulse_state(target_domain)
         loki_context["polyphonic_context"] = polyphonic_voice_ctx.get("polyphonic_context") or {}
         loki_advisory = await self.loki.challenge_plan(
             world_snapshot=world_snapshot,
@@ -146,6 +172,10 @@ class TriuneOrchestrator:
             "notation_token": polyphonic_voice_ctx.get("notation_token"),
             "notation_token_id": polyphonic_voice_ctx.get("notation_token_id"),
             "world_state_hash": polyphonic_voice_ctx.get("world_state_hash"),
+            "timing_features": polyphonic_voice_ctx.get("timing_features"),
+            "harmonic_state": polyphonic_voice_ctx.get("harmonic_state"),
+            "baseline_ref": polyphonic_voice_ctx.get("baseline_ref"),
+            "harmonic_timeline": polyphonic_voice_ctx.get("harmonic_timeline"),
             "metatron": metatron_assessment,
             "michael": {
                 "candidates": candidates,

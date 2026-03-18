@@ -11,6 +11,11 @@ try:
 except Exception:
     MetatronState = None
 
+try:
+    from services.vns import vns
+except Exception:
+    from backend.services.vns import vns
+
 router = APIRouter()
 
 try:
@@ -108,6 +113,31 @@ async def state(db=Depends(get_db)):
             governance_context["current_world_state_hash"] = active_epoch.world_state_hash
         if not governance_context.get("strictness_level"):
             governance_context["strictness_level"] = active_epoch.strictness_level
+    if hasattr(vns, "get_domain_pulse_state"):
+        governance_context["domain_pulse_global"] = vns.get_domain_pulse_state("global")
+    try:
+        latest_harmonic = await db.triune_outbound_queue.find_one(
+            {
+                "$or": [
+                    {"harmonic_state_at_executor_end": {"$exists": True}},
+                    {"harmonic_state_at_gate": {"$exists": True}},
+                ]
+            },
+            {"_id": 0},
+            sort=[("updated_at", -1)],
+        )
+        if latest_harmonic:
+            governance_context["latest_harmonic_state"] = (
+                latest_harmonic.get("harmonic_state_at_executor_end")
+                or latest_harmonic.get("harmonic_state_at_gate")
+            )
+            governance_context["latest_harmonic_timeline"] = (
+                (latest_harmonic.get("polyphonic_context") or {}).get("harmonic_timeline")
+                if isinstance(latest_harmonic.get("polyphonic_context"), dict)
+                else None
+            )
+    except Exception:
+        pass
     # header calculations (guard against missing DB)
     if hasattr(wm, "entities") and wm.entities is not None:
         total_entities = await wm.count_entities()
@@ -134,6 +164,8 @@ async def state(db=Depends(get_db)):
         "governance_epoch": governance_context.get("current_governance_epoch"),
         "world_state_hash": governance_context.get("current_world_state_hash"),
         "strictness_level": governance_context.get("strictness_level"),
+        "latest_harmonic_state": governance_context.get("latest_harmonic_state"),
+        "domain_pulse_global": governance_context.get("domain_pulse_global"),
     }
     # threat narrative based on latest campaign
     if hasattr(wm, "campaigns") and wm.campaigns is not None:

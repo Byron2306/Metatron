@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 try:
@@ -32,6 +32,38 @@ class GovernanceDecisionAuthority:
         self.epoch_service = get_governance_epoch_service(db)
         self.notation_tokens = get_notation_token_service(db)
 
+    @staticmethod
+    def interpret_harmonic_band(harmonic_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        state = harmonic_state or {}
+        resonance = float(state.get("resonance_score") or 0.0)
+        discord = float(state.get("discord_score") or 0.0)
+        confidence = float(state.get("confidence") or 0.0)
+        obligations = []
+        band = "normal"
+        release_delay_ms = 0
+        if confidence < 0.4:
+            band = "low_confidence_review"
+            obligations.append("manual_review_low_confidence")
+        elif discord >= 0.8:
+            band = "severe_discord"
+            obligations.extend(["tighten_scrutiny", "sandbox_recommended", "triune_recheck_before_release"])
+            release_delay_ms = 3000
+        elif discord >= 0.6 or resonance <= 0.4:
+            band = "moderate_discord"
+            obligations.extend(["tighten_scrutiny", "monitor_execution_timing"])
+            release_delay_ms = 1500
+        elif discord >= 0.4:
+            band = "mild_strain"
+            obligations.append("monitor_execution_timing")
+        return {
+            "band": band,
+            "obligations": obligations,
+            "release_delay_ms": release_delay_ms,
+            "confidence": confidence,
+            "discord_score": discord,
+            "resonance_score": resonance,
+        }
+
     async def _validate_notation_for_approval(self, decision: Dict[str, Any]) -> Dict[str, Any]:
         related_queue_id = decision.get("related_queue_id")
         if not related_queue_id:
@@ -60,8 +92,18 @@ class GovernanceDecisionAuthority:
                 "baseline_time": queue_doc.get("created_at"),
                 "observed_slot": payload.get("sequence_slot"),
                 "observed_companions": payload.get("observed_companions") or [],
-                "enforce_sequence_slot": False,
-                "enforce_required_companions": False,
+                **self.notation_tokens.resolve_enforcement_profile(
+                    genre_mode=(
+                        (active_epoch.genre_mode if active_epoch is not None else None)
+                        or (polyphonic.get("genre_mode") if isinstance(polyphonic, dict) else None)
+                        or queue_doc.get("genre_mode")
+                    ),
+                    strictness_level=(
+                        (active_epoch.strictness_level if active_epoch is not None else None)
+                        or (polyphonic.get("strictness_level") if isinstance(polyphonic, dict) else None)
+                        or queue_doc.get("strictness_level")
+                    ),
+                ),
             },
         )
         validation["queue_doc"] = queue_doc
@@ -86,8 +128,26 @@ class GovernanceDecisionAuthority:
         notation_valid = bool(notation_validation.get("valid"))
         notation_checks = notation_validation.get("checks") or {}
         notation_reason = ";".join(notation_validation.get("reasons") or []) or None
+        queue_doc = notation_validation.get("queue_doc") or {}
+        queue_polyphonic = (
+            queue_doc.get("polyphonic_context")
+            or (queue_doc.get("payload") or {}).get("polyphonic_context")
+            or {}
+        )
+        harmonic_state = (
+            (queue_polyphonic.get("harmonic_state") if isinstance(queue_polyphonic, dict) else None)
+            or queue_doc.get("harmonic_state_at_gate")
+            or queue_doc.get("harmonic_state")
+        )
+        harmonic_guidance = self.interpret_harmonic_band(harmonic_state)
+        harmonic_obligations = harmonic_guidance.get("obligations") or []
+        release_delay_ms = int(harmonic_guidance.get("release_delay_ms") or 0)
+        release_not_before = (
+            (datetime.now(timezone.utc) + timedelta(milliseconds=release_delay_ms)).isoformat()
+            if release_delay_ms > 0
+            else None
+        )
         if related_queue_id and not notation_valid:
-            queue_doc = notation_validation.get("queue_doc") or {}
             polyphonic_ctx = queue_doc.get("polyphonic_context") or (queue_doc.get("payload") or {}).get("polyphonic_context") or {}
             notation_token_id = (
                 (polyphonic_ctx.get("notation_token_id") if isinstance(polyphonic_ctx, dict) else None)
@@ -109,6 +169,9 @@ class GovernanceDecisionAuthority:
                         "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", False)),
                         "epoch_match": bool(notation_checks.get("epoch_match", False)),
                         "score_match": bool(notation_checks.get("score_match", False)),
+                        "harmonic_state": harmonic_state,
+                        "harmonic_band": harmonic_guidance.get("band"),
+                        "harmonic_obligations": harmonic_obligations,
                     }
                 },
             )
@@ -126,6 +189,9 @@ class GovernanceDecisionAuthority:
                         "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", False)),
                         "epoch_match": bool(notation_checks.get("epoch_match", False)),
                         "score_match": bool(notation_checks.get("score_match", False)),
+                        "harmonic_state": harmonic_state,
+                        "harmonic_band": harmonic_guidance.get("band"),
+                        "harmonic_obligations": harmonic_obligations,
                     }
                 },
             )
@@ -149,6 +215,8 @@ class GovernanceDecisionAuthority:
                             "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", False)),
                             "epoch_match": bool(notation_checks.get("epoch_match", False)),
                             "score_match": bool(notation_checks.get("score_match", False)),
+                            "harmonic_band": harmonic_guidance.get("band"),
+                            "harmonic_obligations": harmonic_obligations,
                         },
                         trigger_triune=False,
                         source=source,
@@ -180,6 +248,11 @@ class GovernanceDecisionAuthority:
                     "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", True)),
                     "epoch_match": bool(notation_checks.get("epoch_match", True)),
                     "score_match": bool(notation_checks.get("score_match", True)),
+                    "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
+                    "harmonic_state": harmonic_state,
+                    "harmonic_band": harmonic_guidance.get("band"),
+                    "harmonic_obligations": harmonic_obligations,
+                    "harmonic_release_not_before": release_not_before,
                 }
             },
         )
@@ -198,6 +271,11 @@ class GovernanceDecisionAuthority:
                         "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", True)),
                         "epoch_match": bool(notation_checks.get("epoch_match", True)),
                         "score_match": bool(notation_checks.get("score_match", True)),
+                        "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
+                        "harmonic_state": harmonic_state,
+                        "harmonic_band": harmonic_guidance.get("band"),
+                        "harmonic_obligations": harmonic_obligations,
+                        "harmonic_release_not_before": release_not_before,
                     }
                 },
             )
@@ -231,6 +309,9 @@ class GovernanceDecisionAuthority:
                         "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", True)),
                         "epoch_match": bool(notation_checks.get("epoch_match", True)),
                         "score_match": bool(notation_checks.get("score_match", True)),
+                        "harmonic_band": harmonic_guidance.get("band"),
+                        "harmonic_obligations": harmonic_obligations,
+                        "harmonic_release_not_before": release_not_before,
                     },
                     trigger_triune=False,
                     source=source,
@@ -243,6 +324,9 @@ class GovernanceDecisionAuthority:
             "decision_id": decision_id,
             "related_queue_id": related_queue_id,
             "execution_status": resolved_execution_status,
+            "harmonic_band": harmonic_guidance.get("band"),
+            "harmonic_obligations": harmonic_obligations,
+            "harmonic_release_not_before": release_not_before,
         }
 
     async def deny_decision(

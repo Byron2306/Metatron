@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 import secrets
@@ -12,6 +13,21 @@ try:
     from services.notation_token import get_notation_token_service
 except Exception:
     from backend.services.notation_token import get_notation_token_service
+
+try:
+    from services.harmonic_engine import get_harmonic_engine
+except Exception:
+    from backend.services.harmonic_engine import get_harmonic_engine
+
+try:
+    from services.vns import vns
+except Exception:
+    from backend.services.vns import vns
+
+try:
+    from services.vns_alerts import vns_alert_service
+except Exception:
+    from backend.services.vns_alerts import vns_alert_service
 
 try:
     from services.world_events import emit_world_event
@@ -47,6 +63,8 @@ class OutboundGateService:
         self.db = db
         self.epoch_service = get_governance_epoch_service(db)
         self.notation_tokens = get_notation_token_service(db)
+        self.harmonic = get_harmonic_engine(db)
+        self.environment = str(os.environ.get("ENVIRONMENT") or "local").lower()
 
     @staticmethod
     def _normalize_impact(impact_level: str) -> str:
@@ -69,6 +87,7 @@ class OutboundGateService:
         normalized_action = str(action_type or "unknown").strip().lower()
         normalized_impact = self._normalize_impact(impact_level)
         resolved_polyphonic_context = polyphonic_context or payload.get("polyphonic_context") or {}
+        gate_seen_at_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         voice_profile = (
             resolved_polyphonic_context.get("voice_profile")
             if isinstance(resolved_polyphonic_context, dict)
@@ -127,12 +146,18 @@ class OutboundGateService:
                     resolved_polyphonic_context["notation_auto_issued"] = True
             except Exception:
                 logger.debug("Failed auto-issuing notation token in gate_action", exc_info=True)
+        enforcement_profile = self.notation_tokens.resolve_enforcement_profile(
+            genre_mode=(active_epoch.genre_mode if active_epoch is not None else payload.get("genre_mode")),
+            strictness_level=(
+                active_epoch.strictness_level if active_epoch is not None else payload.get("strictness_level")
+            ),
+        )
         validation_context = {
             "baseline_time": payload.get("created_at") or payload.get("requested_at"),
             "observed_slot": payload.get("sequence_slot"),
             "observed_companions": payload.get("observed_companions") or [],
-            "enforce_sequence_slot": False,
-            "enforce_required_companions": False,
+            "enforce_sequence_slot": bool(enforcement_profile.get("enforce_sequence_slot", False)),
+            "enforce_required_companions": bool(enforcement_profile.get("enforce_required_companions", False)),
         }
         notation_validation = await self.notation_tokens.validate_notation_token(
             token=notation_token or notation_token_id,
@@ -159,6 +184,118 @@ class OutboundGateService:
                 notation_token_id = (notation_validation.get("token") or {}).get("token_id")
             if active_epoch is not None:
                 resolved_polyphonic_context["governance_epoch_descriptor"] = active_epoch_doc
+            resolved_polyphonic_context["notation_enforcement_profile"] = notation_validation.get(
+                "enforcement_profile"
+            )
+
+        dispatch_created_at_ms = payload.get("dispatch_created_at_ms")
+        if dispatch_created_at_ms is None and isinstance(resolved_polyphonic_context, dict):
+            dispatch_created_at_ms = (resolved_polyphonic_context.get("harmonic_timeline") or {}).get(
+                "dispatch_created_at_ms"
+            )
+        try:
+            dispatch_created_at_ms = int(float(dispatch_created_at_ms)) if dispatch_created_at_ms is not None else None
+        except Exception:
+            dispatch_created_at_ms = None
+        gate_lag_ms = (
+            max(0, int(gate_seen_at_ms - dispatch_created_at_ms))
+            if dispatch_created_at_ms is not None
+            else None
+        )
+        harmonic_observation: Dict[str, Any] = {}
+        try:
+            harmonic_observation = self.harmonic.score_observation(
+                actor_id=str(actor or "unknown"),
+                tool_name=str(payload.get("command_type") or payload.get("tool") or normalized_action),
+                target_domain=scope,
+                environment=self.environment,
+                stage="gate",
+                timestamp_ms=float(gate_seen_at_ms),
+                operation=normalized_action,
+                context={
+                    "impact_level": normalized_impact,
+                    "notation_valid": notation_valid,
+                    "gate_lag_ms": gate_lag_ms,
+                },
+            )
+            if isinstance(resolved_polyphonic_context, dict):
+                resolved_polyphonic_context["timing_features"] = harmonic_observation.get("timing_features")
+                resolved_polyphonic_context["harmonic_state"] = harmonic_observation.get("harmonic_state")
+                resolved_polyphonic_context["baseline_ref"] = harmonic_observation.get("baseline_ref")
+                history = list(resolved_polyphonic_context.get("harmonic_history") or [])
+                history.append(
+                    {
+                        "stage": "gate",
+                        "timestamp_ms": gate_seen_at_ms,
+                        "harmonic_state": harmonic_observation.get("harmonic_state"),
+                    }
+                )
+                resolved_polyphonic_context["harmonic_history"] = history[-20:]
+                timeline = dict(resolved_polyphonic_context.get("harmonic_timeline") or {})
+                if dispatch_created_at_ms is not None:
+                    timeline.setdefault("dispatch_created_at_ms", dispatch_created_at_ms)
+                timeline["gate_seen_at_ms"] = gate_seen_at_ms
+                if gate_lag_ms is not None:
+                    timeline["gate_lag_ms"] = gate_lag_ms
+                resolved_polyphonic_context["harmonic_timeline"] = timeline
+            if hasattr(vns, "update_domain_pulse"):
+                pulse_state = vns.update_domain_pulse(
+                    domain=scope,
+                    timing_features=harmonic_observation.get("timing_features") or {},
+                    harmonic_state=harmonic_observation.get("harmonic_state") or {},
+                    timestamp_ms=gate_seen_at_ms,
+                )
+                if (
+                    pulse_state
+                    and float(pulse_state.get("pulse_stability_index") or 1.0) < 0.45
+                    and hasattr(vns_alert_service, "alert_pulse_instability_by_domain")
+                ):
+                    vns_alert_service.alert_pulse_instability_by_domain(pulse_state)
+            timing_features = harmonic_observation.get("timing_features") or {}
+            if (
+                float(timing_features.get("drift_norm") or 0.0) >= 0.6
+                and hasattr(vns_alert_service, "alert_harmonic_drift_detected")
+            ):
+                vns_alert_service.alert_harmonic_drift_detected(
+                    {
+                        "scope": scope,
+                        "action_type": normalized_action,
+                        "actor": actor,
+                        "drift_norm": timing_features.get("drift_norm"),
+                        "confidence": float(
+                            (harmonic_observation.get("harmonic_state") or {}).get("confidence") or 0.0
+                        ),
+                    }
+                )
+            if (
+                float(timing_features.get("burstiness") or 0.0) >= 0.6
+                and hasattr(vns_alert_service, "alert_burst_cluster_detected")
+            ):
+                vns_alert_service.alert_burst_cluster_detected(
+                    {
+                        "scope": scope,
+                        "action_type": normalized_action,
+                        "burstiness": timing_features.get("burstiness"),
+                        "discord_score": float(
+                            (harmonic_observation.get("harmonic_state") or {}).get("discord_score") or 0.0
+                        ),
+                    }
+                )
+            discord = float((harmonic_observation.get("harmonic_state") or {}).get("discord_score") or 0.0)
+            if discord >= 0.7 and hasattr(vns_alert_service, "alert_discord_threshold_crossed"):
+                vns_alert_service.alert_discord_threshold_crossed(
+                    {
+                        "scope": scope,
+                        "action_type": normalized_action,
+                        "actor": actor,
+                        "discord_score": discord,
+                        "confidence": float(
+                            (harmonic_observation.get("harmonic_state") or {}).get("confidence") or 0.0
+                        ),
+                    }
+                )
+        except Exception:
+            logger.debug("Failed to compute gate harmonic observation", exc_info=True)
 
         now = datetime.now(timezone.utc).isoformat()
         queue_id = secrets.token_hex(8)
@@ -177,6 +314,13 @@ class OutboundGateService:
         payload_with_polyphonic = dict(payload or {})
         if resolved_polyphonic_context:
             payload_with_polyphonic["polyphonic_context"] = resolved_polyphonic_context
+        payload_with_polyphonic["gate_seen_at_ms"] = gate_seen_at_ms
+        if gate_lag_ms is not None:
+            payload_with_polyphonic["gate_lag_ms"] = gate_lag_ms
+        if harmonic_observation:
+            payload_with_polyphonic["timing_features_at_gate"] = harmonic_observation.get("timing_features")
+            payload_with_polyphonic["harmonic_state_at_gate"] = harmonic_observation.get("harmonic_state")
+            payload_with_polyphonic["baseline_ref"] = harmonic_observation.get("baseline_ref")
         if notation_token_id:
             payload_with_polyphonic["notation_token_id"] = notation_token_id
         if active_epoch is not None:
@@ -185,6 +329,17 @@ class OutboundGateService:
             payload_with_polyphonic.setdefault("genre_mode", active_epoch.genre_mode)
             payload_with_polyphonic.setdefault("strictness_level", active_epoch.strictness_level)
             payload_with_polyphonic.setdefault("world_state_hash", active_epoch.world_state_hash)
+
+        harmonic_state_at_gate = harmonic_observation.get("harmonic_state") if harmonic_observation else {}
+        harmonic_discord = float((harmonic_state_at_gate or {}).get("discord_score") or 0.0)
+        harmonic_confidence = float((harmonic_state_at_gate or {}).get("confidence") or 0.0)
+        harmonic_review_required = bool(
+            harmonic_discord >= 0.65
+            or (harmonic_discord >= 0.45 and harmonic_confidence < 0.4)
+        )
+        harmonic_mode_recommendation = (harmonic_state_at_gate or {}).get("mode_recommendation")
+        if harmonic_review_required:
+            requires_triune = True
 
         deny_for_notation = (
             (not notation_valid)
@@ -213,9 +368,17 @@ class OutboundGateService:
             "notation_token_id": notation_token_id,
             "notation_valid": notation_valid,
             "notation_failure_reason": notation_failure_reason,
+            "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
             "world_state_hash_match": world_state_hash_match,
             "epoch_match": epoch_match,
             "score_match": score_match,
+            "gate_seen_at_ms": gate_seen_at_ms,
+            "gate_lag_ms": gate_lag_ms,
+            "timing_features_at_gate": harmonic_observation.get("timing_features") if harmonic_observation else None,
+            "harmonic_state_at_gate": harmonic_observation.get("harmonic_state") if harmonic_observation else None,
+            "baseline_ref": harmonic_observation.get("baseline_ref") if harmonic_observation else None,
+            "harmonic_review_required": harmonic_review_required,
+            "harmonic_mode_recommendation": harmonic_mode_recommendation,
             "status": queue_status,
             "execution_status": execution_status,
             "created_at": now,
@@ -230,7 +393,7 @@ class OutboundGateService:
             "subject_id": subject_id,
             "actor": actor,
             "source": "outbound_gate",
-            "status": "pending",
+            "status": decision_status,
             "execution_status": execution_status,
             "voice_type": voice_profile.get("voice_type") if isinstance(voice_profile, dict) else None,
             "capability_class": voice_profile.get("capability_class") if isinstance(voice_profile, dict) else None,
@@ -243,9 +406,17 @@ class OutboundGateService:
             "notation_token_id": notation_token_id,
             "notation_valid": notation_valid,
             "notation_failure_reason": notation_failure_reason,
+            "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
             "world_state_hash_match": world_state_hash_match,
             "epoch_match": epoch_match,
             "score_match": score_match,
+            "gate_seen_at_ms": gate_seen_at_ms,
+            "gate_lag_ms": gate_lag_ms,
+            "timing_features_at_gate": harmonic_observation.get("timing_features") if harmonic_observation else None,
+            "harmonic_state_at_gate": harmonic_observation.get("harmonic_state") if harmonic_observation else None,
+            "baseline_ref": harmonic_observation.get("baseline_ref") if harmonic_observation else None,
+            "harmonic_review_required": harmonic_review_required,
+            "harmonic_mode_recommendation": harmonic_mode_recommendation,
             "status": decision_status,
             "created_at": now,
             "updated_at": now,
@@ -284,9 +455,16 @@ class OutboundGateService:
                         "notation_token_id": notation_token_id,
                         "notation_valid": notation_valid,
                         "notation_failure_reason": notation_failure_reason,
+                        "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
                         "world_state_hash_match": world_state_hash_match,
                         "epoch_match": epoch_match,
                         "score_match": score_match,
+                        "gate_seen_at_ms": gate_seen_at_ms,
+                        "gate_lag_ms": gate_lag_ms,
+                        "timing_features_at_gate": harmonic_observation.get("timing_features") if harmonic_observation else None,
+                        "harmonic_state_at_gate": harmonic_observation.get("harmonic_state") if harmonic_observation else None,
+                        "harmonic_review_required": harmonic_review_required,
+                        "harmonic_mode_recommendation": harmonic_mode_recommendation,
                     },
                     trigger_triune=requires_triune,
                     source="outbound_gate",
@@ -311,9 +489,16 @@ class OutboundGateService:
             "notation_token_id": notation_token_id,
             "notation_valid": notation_valid,
             "notation_failure_reason": notation_failure_reason,
+            "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
             "world_state_hash_match": world_state_hash_match,
             "epoch_match": epoch_match,
             "score_match": score_match,
+            "gate_seen_at_ms": gate_seen_at_ms,
+            "gate_lag_ms": gate_lag_ms,
+            "timing_features_at_gate": harmonic_observation.get("timing_features") if harmonic_observation else None,
+            "harmonic_state_at_gate": harmonic_observation.get("harmonic_state") if harmonic_observation else None,
+            "harmonic_review_required": harmonic_review_required,
+            "harmonic_mode_recommendation": harmonic_mode_recommendation,
             "message": (
                 "Action denied due to notation validation failure"
                 if deny_for_notation

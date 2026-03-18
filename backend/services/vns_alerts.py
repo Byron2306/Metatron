@@ -220,6 +220,72 @@ This is a high-confidence intrusion indicator. Immediate investigation recommend
 """
         
         self._send_alert(title, message, severity)
+
+    def alert_harmonic_drift_detected(self, drift_event: Dict[str, Any]):
+        alert_key = f"hgl:drift:{drift_event.get('scope')}:{drift_event.get('action_type')}"
+        drift_norm = float(drift_event.get("drift_norm") or 0.0)
+        severity = "medium" if drift_norm >= 0.6 else "low"
+        if not self._should_alert(alert_key, severity):
+            return
+        title = "HGL Harmonic Drift Detected"
+        message = f"""
+**Scope:** {drift_event.get('scope', 'global')}
+**Action Type:** {drift_event.get('action_type', 'unknown')}
+**Actor:** {drift_event.get('actor', 'unknown')}
+**Drift Norm:** {drift_norm:.3f}
+**Confidence:** {float(drift_event.get('confidence') or 0.0):.3f}
+"""
+        self._send_alert(title, message, severity)
+
+    def alert_burst_cluster_detected(self, burst_event: Dict[str, Any]):
+        alert_key = f"hgl:burst:{burst_event.get('scope')}:{burst_event.get('action_type')}"
+        burstiness = float(burst_event.get("burstiness") or 0.0)
+        severity = "medium" if burstiness >= 0.6 else "low"
+        if not self._should_alert(alert_key, severity):
+            return
+        title = "HGL Burst Cluster Detected"
+        message = f"""
+**Scope:** {burst_event.get('scope', 'global')}
+**Action Type:** {burst_event.get('action_type', 'unknown')}
+**Burstiness:** {burstiness:.3f}
+**Discord Score:** {float(burst_event.get('discord_score') or 0.0):.3f}
+"""
+        self._send_alert(title, message, severity)
+
+    def alert_discord_threshold_crossed(self, discord_event: Dict[str, Any]):
+        alert_key = f"hgl:discord:{discord_event.get('scope')}:{discord_event.get('action_type')}:{discord_event.get('actor')}"
+        discord = float(discord_event.get("discord_score") or 0.0)
+        confidence = float(discord_event.get("confidence") or 0.0)
+        severity = "high" if discord >= 0.85 and confidence >= 0.5 else "medium"
+        if not self._should_alert(alert_key, severity):
+            return
+        title = "HGL Discord Threshold Crossed"
+        message = f"""
+**Scope:** {discord_event.get('scope', 'global')}
+**Action Type:** {discord_event.get('action_type', 'unknown')}
+**Actor:** {discord_event.get('actor', 'unknown')}
+**Discord Score:** {discord:.3f}
+**Confidence:** {confidence:.3f}
+**Reason:** {discord_event.get('reason', 'n/a')}
+"""
+        self._send_alert(title, message, severity)
+
+    def alert_pulse_instability_by_domain(self, pulse_event: Dict[str, Any]):
+        domain = pulse_event.get("domain") or "global"
+        alert_key = f"hgl:pulse:{domain}"
+        pulse_stability = float(pulse_event.get("pulse_stability_index") or 1.0)
+        instability = max(0.0, 1.0 - pulse_stability)
+        severity = "medium" if instability >= 0.5 else "low"
+        if not self._should_alert(alert_key, severity):
+            return
+        title = "HGL Domain Pulse Instability"
+        message = f"""
+**Domain:** {domain}
+**Pulse Stability:** {pulse_stability:.3f}
+**Elevated Drift Count:** {int(pulse_event.get('elevated_drift_count') or 0)}
+**Sample Size:** {int(pulse_event.get('samples') or 0)}
+"""
+        self._send_alert(title, message, severity)
     
     def _send_alert(self, title: str, message: str, severity: str):
         """Send alert to all configured channels"""

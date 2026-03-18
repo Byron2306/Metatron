@@ -343,6 +343,50 @@ class TamperEvidentTelemetry:
         )
         
         return event
+
+    def record_harmonic_timeline(
+        self,
+        *,
+        trace_id: str,
+        timeline: Dict[str, Any],
+        baseline_ref: Optional[Dict[str, Any]] = None,
+        harmonic_state: Optional[Dict[str, Any]] = None,
+    ) -> Optional[SignedEvent]:
+        if not timeline:
+            return None
+        return self.ingest_event(
+            event_type="harmonic_timeline_recorded",
+            severity="low",
+            data={
+                "trace_id": trace_id,
+                "timeline": timeline,
+                "baseline_ref": baseline_ref or {},
+                "harmonic_state": harmonic_state or {},
+            },
+            trace_id=trace_id or None,
+        )
+
+    def store_harmonic_state(
+        self,
+        *,
+        trace_id: str,
+        state: Dict[str, Any],
+        contributors: Optional[Dict[str, Any]] = None,
+    ) -> Optional[SignedEvent]:
+        if not state:
+            return None
+        discord = float(state.get("discord_score") or 0.0)
+        severity = "high" if discord >= 0.8 else "medium" if discord >= 0.6 else "low"
+        return self.ingest_event(
+            event_type="harmonic_state_stored",
+            severity=severity,
+            data={
+                "trace_id": trace_id,
+                "harmonic_state": state,
+                "contributors": contributors or {},
+            },
+            trace_id=trace_id or None,
+        )
     
     # =========================================================================
     # AUDIT RECORDS

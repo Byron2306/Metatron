@@ -73,6 +73,26 @@ class NotationTokenService:
     DEFAULT_TTL_SECONDS = 10 * 60
     DEFAULT_ENTRY_WINDOW = [0, 300000]  # 0ms to 5min from baseline
 
+    @staticmethod
+    def resolve_enforcement_profile(
+        *,
+        genre_mode: Optional[str],
+        strictness_level: Optional[str],
+    ) -> Dict[str, bool]:
+        genre = str(genre_mode or "").strip().lower()
+        strictness = str(strictness_level or "").strip().lower()
+        enforce_sequence = False
+        enforce_companions = False
+        if strictness in {"strict", "high", "elevated"} or genre in {"fortified"}:
+            enforce_sequence = True
+        if strictness in {"emergency", "critical"} or genre in {"siege", "containment"}:
+            enforce_sequence = True
+            enforce_companions = True
+        return {
+            "enforce_sequence_slot": enforce_sequence,
+            "enforce_required_companions": enforce_companions,
+        }
+
     def __init__(self, db: Any = None):
         self.db = db
         self._cache: Dict[str, NotationToken] = {}
@@ -315,6 +335,19 @@ class NotationTokenService:
             reasons.append("notation_token_expired")
 
         resolved_epoch = self._resolve_epoch(active_epoch)
+        enforcement_profile = self.resolve_enforcement_profile(
+            genre_mode=(resolved_epoch.genre_mode if resolved_epoch is not None else resolved_token.genre_mode),
+            strictness_level=(resolved_epoch.strictness_level if resolved_epoch is not None else None),
+        )
+        enforce_sequence_slot = bool(
+            ctx.get("enforce_sequence_slot", enforcement_profile.get("enforce_sequence_slot", False))
+        )
+        enforce_required_companions = bool(
+            ctx.get(
+                "enforce_required_companions",
+                enforcement_profile.get("enforce_required_companions", False),
+            )
+        )
         if resolved_epoch is None:
             # No active epoch context means we can only validate token internals.
             checks["epoch_match"] = True
@@ -356,14 +389,14 @@ class NotationTokenService:
 
         observed_slot = ctx.get("observed_slot")
         checks["sequence_slot_valid"] = self.enforce_sequence_slot(resolved_token, observed_slot)
-        if not checks["sequence_slot_valid"] and bool(ctx.get("enforce_sequence_slot", False)):
+        if not checks["sequence_slot_valid"] and enforce_sequence_slot:
             reasons.append("notation_sequence_slot_violation")
 
         observed_companions = ctx.get("observed_companions") or []
         checks["required_companions_valid"] = self.enforce_required_companions(
             resolved_token, observed_companions
         )
-        if not checks["required_companions_valid"] and bool(ctx.get("enforce_required_companions", False)):
+        if not checks["required_companions_valid"] and enforce_required_companions:
             reasons.append("notation_required_companions_missing")
 
         checks["signature_valid"] = quantum_security.verify_notation_token_signature(
@@ -385,15 +418,21 @@ class NotationTokenService:
             checks["signature_valid"],
         )
         valid = all(mandatory)
-        if bool(ctx.get("enforce_sequence_slot", False)):
+        if enforce_sequence_slot:
             valid = valid and checks["sequence_slot_valid"]
-        if bool(ctx.get("enforce_required_companions", False)):
+        if enforce_required_companions:
             valid = valid and checks["required_companions_valid"]
         return {
             "valid": bool(valid),
             "reasons": reasons,
             "checks": checks,
             "token": _token_storage_doc(resolved_token),
+            "enforcement_profile": {
+                "enforce_sequence_slot": enforce_sequence_slot,
+                "enforce_required_companions": enforce_required_companions,
+                "genre_mode": resolved_token.genre_mode,
+                "strictness_level": resolved_epoch.strictness_level if resolved_epoch is not None else None,
+            },
         }
 
     async def revoke_notation_token(self, token_id: str, reason: Optional[str] = None) -> bool:
