@@ -16,6 +16,7 @@ from backend.services.governance_authority import GovernanceDecisionAuthority
 from backend.services.governance_executor import GovernanceExecutorService
 from backend.services.outbound_gate import OutboundGateService
 from backend.services.polyphonic_governance import get_polyphonic_governance_service
+from backend.services.notation_token import get_notation_token_service
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -1106,6 +1107,16 @@ async def report_command_result(
         raise HTTPException(status_code=409, detail="Command result conflict; state changed concurrently")
     
     command_results[command_id] = result
+    notation_service = get_notation_token_service(db)
+    notation_token_id = (
+        (command.get("polyphonic_context") or {}).get("notation_token_id")
+        or command.get("notation_token_id")
+    )
+    if notation_token_id:
+        await notation_service.consume_notation_token(
+            str(notation_token_id),
+            outcome="completed" if bool(result.get("success")) else "failed",
+        )
     await emit_world_event(
         db,
         event_type="agent_command_result_recorded",
@@ -1242,6 +1253,16 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
                                 "polyphonic_context": command.get("polyphonic_context") or {},
                             },
                         )
+                        notation_service = get_notation_token_service(db)
+                        notation_token_id = (
+                            (command.get("polyphonic_context") or {}).get("notation_token_id")
+                            or command.get("notation_token_id")
+                        )
+                        if notation_token_id:
+                            await notation_service.consume_notation_token(
+                                str(notation_token_id),
+                                outcome="completed" if data.get("success") else "failed",
+                            )
             
             elif data.get("type") == "status_update":
                 # Agent sending status update

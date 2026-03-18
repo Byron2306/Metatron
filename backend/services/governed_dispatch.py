@@ -12,6 +12,16 @@ except Exception:
     from backend.services.polyphonic_governance import get_polyphonic_governance_service
 
 try:
+    from services.governance_epoch import get_governance_epoch_service
+except Exception:
+    from backend.services.governance_epoch import get_governance_epoch_service
+
+try:
+    from services.notation_token import get_notation_token_service
+except Exception:
+    from backend.services.notation_token import get_notation_token_service
+
+try:
     from services.world_events import emit_world_event
 except Exception:
     try:
@@ -31,6 +41,8 @@ class GovernedDispatchService:
         self.db = db
         self.gate = OutboundGateService(db)
         self.polyphonic = get_polyphonic_governance_service()
+        self.epoch_service = get_governance_epoch_service(db)
+        self.notation_tokens = get_notation_token_service(db)
 
     async def queue_gated_agent_command(
         self,
@@ -75,19 +87,86 @@ class GovernedDispatchService:
             component_type="orchestration",
         )
         polyphonic_context = self.polyphonic.serialize_polyphonic_context(envelope)
+        working_command_doc = dict(command_doc or {})
+        try:
+            scope = str(
+                working_command_doc.get("target_domain")
+                or (working_command_doc.get("parameters") or {}).get("target_domain")
+                or "global"
+            )
+            active_epoch = await self.epoch_service.get_active_epoch(scope=scope)
+            world_state_snapshot = working_command_doc.get("world_state_snapshot")
+            if active_epoch is not None and isinstance(world_state_snapshot, dict):
+                incoming_hash = self.epoch_service.compute_world_state_hash(world_state_snapshot)
+                if incoming_hash != active_epoch.world_state_hash:
+                    active_epoch = await self.epoch_service.rotate_epoch(
+                        reason="world_state_hash_changed",
+                        world_state=world_state_snapshot,
+                        force=True,
+                        scope=scope,
+                        genre_mode=active_epoch.genre_mode,
+                        strictness_level=active_epoch.strictness_level,
+                    )
+            if active_epoch is not None:
+                active_epoch_doc = (
+                    active_epoch.model_dump() if hasattr(active_epoch, "model_dump") else active_epoch.dict()
+                )
+                voice_profile = (
+                    (polyphonic_context.get("voice_profile") or {})
+                    if isinstance(polyphonic_context, dict)
+                    else {}
+                )
+                notation = await self.notation_tokens.mint_notation_token(
+                    epoch_id=active_epoch.epoch_id,
+                    score_id=active_epoch.score_id,
+                    genre_mode=active_epoch.genre_mode,
+                    voice_role=str(voice_profile.get("voice_type") or "unknown_voice"),
+                    capability_class=str(voice_profile.get("capability_class") or "orchestration"),
+                    world_state_hash=active_epoch.world_state_hash,
+                    issued_to=str(agent_id or actor or "unknown"),
+                    entry_window_ms=working_command_doc.get("entry_window_ms") or [0, 300000],
+                    sequence_slot=working_command_doc.get("sequence_slot"),
+                    required_companions=working_command_doc.get("required_companions") or [],
+                    response_class=action_type,
+                    ttl_seconds=int(working_command_doc.get("notation_ttl_seconds") or 600),
+                )
+                notation_doc = notation.model_dump() if hasattr(notation, "model_dump") else notation.dict()
+                if isinstance(polyphonic_context, dict):
+                    polyphonic_context["governance_epoch"] = active_epoch.epoch_id
+                    polyphonic_context["score_id"] = active_epoch.score_id
+                    polyphonic_context["genre_mode"] = active_epoch.genre_mode
+                    polyphonic_context["strictness_level"] = active_epoch.strictness_level
+                    polyphonic_context["world_state_hash"] = active_epoch.world_state_hash
+                    polyphonic_context["notation_token_id"] = notation.token_id
+                    polyphonic_context["notation_token"] = notation_doc
+                    polyphonic_context["governance_epoch_descriptor"] = active_epoch_doc
+                working_command_doc["governance_epoch"] = active_epoch.epoch_id
+                working_command_doc["score_id"] = active_epoch.score_id
+                working_command_doc["genre_mode"] = active_epoch.genre_mode
+                working_command_doc["strictness_level"] = active_epoch.strictness_level
+                working_command_doc["world_state_hash"] = active_epoch.world_state_hash
+                working_command_doc["notation_token_id"] = notation.token_id
+                working_command_doc["entry_window_ms"] = notation_doc.get("entry_window_ms")
+                working_command_doc["sequence_slot"] = notation_doc.get("sequence_slot")
+                working_command_doc["required_companions"] = notation_doc.get("required_companions", [])
+        except Exception:
+            # Keep dispatch non-breaking: gate layer will mark notation invalid if required.
+            pass
+        if polyphonic_context:
+            working_command_doc["polyphonic_context"] = polyphonic_context
         queued = await self.gate.gate_action(
             action_type=action_type,
             actor=actor,
-            payload=command_doc,
+            payload=working_command_doc,
             impact_level=impact_level,
             subject_id=agent_id,
-            entity_refs=entity_refs or [agent_id, command_doc.get("command_id")],
+            entity_refs=entity_refs or [agent_id, working_command_doc.get("command_id")],
             requires_triune=requires_triune,
             polyphonic_context=polyphonic_context,
         )
 
         now = _iso_now()
-        persisted = dict(command_doc)
+        persisted = dict(working_command_doc)
         persisted.setdefault("agent_id", agent_id)
         persisted.setdefault("created_at", now)
         persisted["updated_at"] = now

@@ -30,6 +30,22 @@ except Exception:
         get_polyphonic_governance_service = None
 
 try:
+    from services.governance_epoch import get_governance_epoch_service
+except Exception:
+    try:
+        from backend.services.governance_epoch import get_governance_epoch_service
+    except Exception:
+        get_governance_epoch_service = None
+
+try:
+    from services.notation_token import get_notation_token_service
+except Exception:
+    try:
+        from backend.services.notation_token import get_notation_token_service
+    except Exception:
+        get_notation_token_service = None
+
+try:
     from services.world_events import emit_world_event
 except Exception:
     try:
@@ -1863,6 +1879,51 @@ class MCPServer:
             polyphonic_context = self.polyphonic_governance.serialize_polyphonic_context(envelope)
             if polyphonic_context:
                 payload["polyphonic_context"] = polyphonic_context
+        if (
+            polyphonic_context
+            and isinstance(polyphonic_context, dict)
+            and get_governance_epoch_service is not None
+            and get_notation_token_service is not None
+        ):
+            try:
+                epoch_service = get_governance_epoch_service(getattr(self, "db", None))
+                notation_service = get_notation_token_service(getattr(self, "db", None))
+                scope = str(payload.get("sector_to") or payload.get("target_domain") or "global")
+                active_epoch = await epoch_service.get_active_epoch(scope=scope)
+                if active_epoch is not None:
+                    voice_profile = polyphonic_context.get("voice_profile") or {}
+                    notation = await notation_service.mint_notation_token(
+                        epoch_id=active_epoch.epoch_id,
+                        score_id=active_epoch.score_id,
+                        genre_mode=active_epoch.genre_mode,
+                        voice_role=str(voice_profile.get("voice_type") or "gateway_tenor"),
+                        capability_class=str(voice_profile.get("capability_class") or "ingress"),
+                        world_state_hash=active_epoch.world_state_hash,
+                        issued_to=str(message.source or "unknown"),
+                        entry_window_ms=payload.get("entry_window_ms") or [0, 300000],
+                        sequence_slot=payload.get("sequence_slot"),
+                        required_companions=payload.get("required_companions") or [],
+                        response_class="mcp_tool_execution",
+                        ttl_seconds=int(payload.get("notation_ttl_seconds") or 600),
+                    )
+                    notation_doc = (
+                        notation.model_dump() if hasattr(notation, "model_dump") else notation.dict()
+                    )
+                    polyphonic_context["governance_epoch"] = active_epoch.epoch_id
+                    polyphonic_context["score_id"] = active_epoch.score_id
+                    polyphonic_context["genre_mode"] = active_epoch.genre_mode
+                    polyphonic_context["strictness_level"] = active_epoch.strictness_level
+                    polyphonic_context["world_state_hash"] = active_epoch.world_state_hash
+                    polyphonic_context["notation_token_id"] = notation.token_id
+                    polyphonic_context["notation_token"] = notation_doc
+                    payload["polyphonic_context"] = polyphonic_context
+                    payload["governance_epoch"] = active_epoch.epoch_id
+                    payload["score_id"] = active_epoch.score_id
+                    payload["genre_mode"] = active_epoch.genre_mode
+                    payload["world_state_hash"] = active_epoch.world_state_hash
+                    payload["notation_token_id"] = notation.token_id
+            except Exception:
+                logger.debug("Failed to mint notation token for MCP request", exc_info=True)
         high_impact_categories = {
             MCPToolCategory.EDR,
             MCPToolCategory.FIREWALL,
@@ -2215,6 +2276,11 @@ class MCPServer:
                 execution_params["_action"] = payload.get("action") or "mcp_tool_execution"
                 execution_params["_target"] = payload.get("target") or tool_id
                 execution_params["_polyphonic_context"] = polyphonic_context
+                execution_params["_notation_token_id"] = (
+                    payload.get("notation_token_id")
+                    or ((polyphonic_context.get("notation_token") or {}).get("token_id") if isinstance(polyphonic_context, dict) else None)
+                    or (polyphonic_context.get("notation_token_id") if isinstance(polyphonic_context, dict) else None)
+                )
                 if asyncio.iscoroutinefunction(handler):
                     result = await asyncio.wait_for(
                         handler(execution_params),

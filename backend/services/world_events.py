@@ -27,6 +27,9 @@ _ACTION_CRITICAL_MARKERS = (
     "cross_sector",
     "response_block",
     "response_unblock",
+    "governance_epoch",
+    "notation_token",
+    "world_state_hash_changed",
 )
 
 _STRATEGIC_MARKERS = (
@@ -37,6 +40,8 @@ _STRATEGIC_MARKERS = (
     "detection",
     "risk",
     "triune_periodic_tick",
+    "genre_mode_changed",
+    "score_id_changed",
 )
 
 _LOCAL_REFLEX_MARKERS = (
@@ -61,6 +66,8 @@ def classify_event_type(event_type: str, payload: Optional[Dict[str, Any]] = Non
         return EVENT_CLASS_LOCAL_REFLEX
 
     if payload.get("impact_level") in {"high", "critical"}:
+        return EVENT_CLASS_ACTION_CRITICAL_RECOMPUTE
+    if payload.get("notation_valid") is False:
         return EVENT_CLASS_ACTION_CRITICAL_RECOMPUTE
     if payload.get("risk_delta") or payload.get("predicted_next_sectors"):
         return EVENT_CLASS_STRATEGIC_RECOMPUTE
@@ -125,6 +132,12 @@ async def emit_world_event(
                 "source": source or "world_event_emitter",
                 "payload": payload,
                 "event_class": resolved_event_class,
+                "polyphonic_context": payload.get("polyphonic_context") if isinstance(payload, dict) else None,
+                "score_id": payload.get("score_id") if isinstance(payload, dict) else None,
+                "genre_mode": payload.get("genre_mode") if isinstance(payload, dict) else None,
+                "governance_epoch": payload.get("governance_epoch") if isinstance(payload, dict) else None,
+                "notation_token_id": payload.get("notation_token_id") if isinstance(payload, dict) else None,
+                "world_state_hash": payload.get("world_state_hash") if isinstance(payload, dict) else None,
             },
         )
 

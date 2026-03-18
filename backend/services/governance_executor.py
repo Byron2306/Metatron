@@ -10,6 +10,16 @@ except Exception:
     from backend.services.governed_dispatch import GovernedDispatchService
 
 try:
+    from services.governance_epoch import get_governance_epoch_service
+except Exception:
+    from backend.services.governance_epoch import get_governance_epoch_service
+
+try:
+    from services.notation_token import get_notation_token_service
+except Exception:
+    from backend.services.notation_token import get_notation_token_service
+
+try:
     from services.world_events import emit_world_event
 except Exception:
     try:
@@ -61,6 +71,8 @@ class GovernanceExecutorService:
     def __init__(self, db: Any):
         self.db = db
         self.dispatch = GovernedDispatchService(db)
+        self.epoch_service = get_governance_epoch_service(db)
+        self.notation_tokens = get_notation_token_service(db)
 
     @staticmethod
     def _governance_context_for_execution(
@@ -75,6 +87,65 @@ class GovernanceExecutorService:
             "queue_id": queue_id,
             "action_type": action_type,
         }
+
+    @staticmethod
+    def _notation_token_from_context(
+        queue_doc: Dict[str, Any],
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        polyphonic_context = queue_doc.get("polyphonic_context") or payload.get("polyphonic_context") or {}
+        token = (
+            (polyphonic_context.get("notation_token") if isinstance(polyphonic_context, dict) else None)
+            or payload.get("notation_token")
+            or None
+        )
+        token_id = (
+            (polyphonic_context.get("notation_token_id") if isinstance(polyphonic_context, dict) else None)
+            or payload.get("notation_token_id")
+            or queue_doc.get("notation_token_id")
+            or ((token or {}).get("token_id") if isinstance(token, dict) else None)
+        )
+        return {
+            "polyphonic_context": polyphonic_context,
+            "token": token,
+            "token_id": token_id,
+        }
+
+    async def _validate_notation_for_execution(
+        self,
+        *,
+        queue_doc: Dict[str, Any],
+        payload: Dict[str, Any],
+        enforce_sequence_slot: bool = True,
+    ) -> Dict[str, Any]:
+        notation_ctx = self._notation_token_from_context(queue_doc, payload)
+        scope = str(
+            payload.get("target_domain") or (payload.get("parameters") or {}).get("target_domain") or "global"
+        )
+        active_epoch = await self.epoch_service.get_active_epoch(scope=scope)
+        active_epoch_doc = (
+            active_epoch.model_dump() if hasattr(active_epoch, "model_dump") else active_epoch.dict()
+        ) if active_epoch is not None else None
+        return await self.notation_tokens.validate_notation_token(
+            token=notation_ctx.get("token") or notation_ctx.get("token_id"),
+            active_epoch=active_epoch_doc,
+            world_state_hash=active_epoch.world_state_hash if active_epoch is not None else None,
+            context={
+                "baseline_time": queue_doc.get("created_at") or payload.get("created_at"),
+                "observed_slot": payload.get("sequence_slot"),
+                "observed_companions": payload.get("observed_companions") or [],
+                "enforce_sequence_slot": enforce_sequence_slot,
+                "enforce_required_companions": False,
+            },
+        )
+
+    async def _mark_notation_execution_outcome(self, token_id: Optional[str], *, outcome: str) -> None:
+        if not token_id:
+            return
+        try:
+            await self.notation_tokens.consume_notation_token(str(token_id), outcome=outcome)
+        except Exception:
+            logger.debug("Failed to mark notation token %s outcome=%s", token_id, outcome, exc_info=True)
 
     async def _emit_execution_completion_event(
         self,
@@ -682,34 +753,135 @@ class GovernanceExecutorService:
         payload = queue_doc.get("payload") or {}
         polyphonic_context = queue_doc.get("polyphonic_context") or payload.get("polyphonic_context") or {}
         actor = queue_doc.get("actor") or "governance_executor"
+        notation_ctx = self._notation_token_from_context(queue_doc, payload)
+        notation_validation = await self._validate_notation_for_execution(
+            queue_doc=queue_doc,
+            payload=payload,
+            enforce_sequence_slot=True,
+        )
+        notation_valid = bool(notation_validation.get("valid"))
+        notation_checks = notation_validation.get("checks") or {}
+        notation_failure_reason = ";".join(notation_validation.get("reasons") or []) or None
+        if not notation_valid:
+            await self.db.triune_decisions.update_one(
+                {"decision_id": decision_id},
+                {
+                    "$set": {
+                        "execution_status": "failed",
+                        "execution_error": "notation_validation_failed",
+                        "notation_valid": False,
+                        "notation_failure_reason": notation_failure_reason,
+                        "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", False)),
+                        "epoch_match": bool(notation_checks.get("epoch_match", False)),
+                        "score_match": bool(notation_checks.get("score_match", False)),
+                        "updated_at": now,
+                    }
+                },
+            )
+            await self.db.triune_outbound_queue.update_one(
+                {"queue_id": related_queue_id},
+                {
+                    "$set": {
+                        "status": "approved_execution_failed",
+                        "execution_status": "failed",
+                        "notation_valid": False,
+                        "notation_failure_reason": notation_failure_reason,
+                        "world_state_hash_match": bool(notation_checks.get("world_state_hash_match", False)),
+                        "epoch_match": bool(notation_checks.get("epoch_match", False)),
+                        "score_match": bool(notation_checks.get("score_match", False)),
+                        "updated_at": now,
+                    }
+                },
+            )
+            await self._mark_notation_execution_outcome(
+                notation_ctx.get("token_id"),
+                outcome="failed",
+            )
+            if emit_world_event is not None:
+                await emit_world_event(
+                    self.db,
+                    event_type="governance_notation_validation_failed",
+                    entity_refs=[decision_id, related_queue_id, str(notation_ctx.get("token_id") or "")],
+                    payload={
+                        "action_type": action_type,
+                        "notation_valid": False,
+                        "notation_failure_reason": notation_failure_reason,
+                        "checks": notation_checks,
+                        "polyphonic_context": polyphonic_context if isinstance(polyphonic_context, dict) else None,
+                    },
+                    trigger_triune=True,
+                    source="governance_executor",
+                )
+            self._record_execution_audit(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=f"notation_validation_failed:{notation_failure_reason or 'unknown'}",
+                actor=actor,
+                command_id=payload.get("command_id") or queue_doc.get("action_id"),
+                command_type=payload.get("command_type") or action_type,
+                execution_id=payload.get("command_id") or queue_doc.get("action_id"),
+                trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
+                targets=[queue_doc.get("subject_id"), related_queue_id, notation_ctx.get("token_id")],
+            )
+            await self._emit_execution_completion_event(
+                decision_id=decision_id,
+                queue_id=related_queue_id,
+                action_type=action_type,
+                outcome="failed",
+                reason=f"notation_validation_failed:{notation_failure_reason or 'unknown'}",
+                command_id=payload.get("command_id") or queue_doc.get("action_id"),
+                command_type=payload.get("command_type") or action_type,
+                execution_id=payload.get("command_id") or queue_doc.get("action_id"),
+                trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
+            )
+            return {"outcome": "failed", "reason": "notation_validation_failed"}
 
         if action_type == "cross_sector_hardening":
             operation = str(payload.get("operation") or "").strip().lower()
             if operation in {"issue_token", "revoke_token", "revoke_principal_tokens"}:
-                return await self._execute_token_operation(
+                result = await self._execute_token_operation(
                     decision=decision,
                     queue_doc=queue_doc,
                     payload=payload,
                     operation=operation,
                     actor=actor,
                 )
+                await self._mark_notation_execution_outcome(
+                    notation_ctx.get("token_id"),
+                    outcome="completed" if result.get("outcome") == "executed" else "failed",
+                )
+                return result
 
         if action_type in self.DOMAIN_OPERATION_ACTIONS:
-            return await self._execute_domain_operation(
+            result = await self._execute_domain_operation(
                 decision=decision,
                 queue_doc=queue_doc,
                 payload=payload,
                 actor=actor,
                 action_type=action_type,
             )
+            await self._mark_notation_execution_outcome(
+                notation_ctx.get("token_id"),
+                outcome="completed" if result.get("outcome") == "executed" else "failed",
+            )
+            return result
 
         if action_type == "tool_execution":
-            return await self._execute_tool_runtime_operation(
+            result = await self._execute_tool_runtime_operation(
                 decision=decision,
                 queue_doc=queue_doc,
                 payload=payload,
                 actor=actor,
             )
+            await self._mark_notation_execution_outcome(
+                notation_ctx.get("token_id"),
+                outcome="completed" if result.get("outcome") == "executed" else "failed",
+            )
+            return result
 
         if action_type not in self.DISPATCHABLE_ACTIONS:
             await self.db.triune_outbound_queue.update_one(
@@ -747,6 +919,7 @@ class GovernanceExecutorService:
                 reason="unsupported_action_type",
                 polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
+            await self._mark_notation_execution_outcome(notation_ctx.get("token_id"), outcome="failed")
             return {"outcome": "skipped", "reason": "unsupported_action_type"}
 
         agent_id = queue_doc.get("subject_id") or payload.get("agent_id")
@@ -794,6 +967,7 @@ class GovernanceExecutorService:
                 execution_id=command_id,
                 polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
+            await self._mark_notation_execution_outcome(notation_ctx.get("token_id"), outcome="failed")
             return {"outcome": "failed", "reason": "missing_agent_or_command"}
 
         try:
@@ -918,6 +1092,7 @@ class GovernanceExecutorService:
                 trace_id=str(payload.get("trace_id") or ""),
                 polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
+            await self._mark_notation_execution_outcome(notation_ctx.get("token_id"), outcome="completed")
             return {"outcome": "executed"}
         except Exception as exc:
             logger.exception("Failed to execute approved decision %s: %s", decision_id, exc)
@@ -960,6 +1135,7 @@ class GovernanceExecutorService:
                 trace_id=str(payload.get("trace_id") or ""),
                 polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
+            await self._mark_notation_execution_outcome(notation_ctx.get("token_id"), outcome="failed")
             return {"outcome": "failed", "reason": "execution_exception"}
 
     async def _execute_token_operation(
@@ -986,6 +1162,8 @@ class GovernanceExecutorService:
                 from services.token_broker import token_broker
             except Exception:
                 from backend.services.token_broker import token_broker
+            if hasattr(token_broker, "set_db"):
+                token_broker.set_db(self.db)
 
             op_result: Dict[str, Any]
             if operation == "issue_token":
@@ -1007,6 +1185,10 @@ class GovernanceExecutorService:
                     max_uses=int(payload.get("max_uses") or 1),
                     constraints=payload.get("constraints") or {},
                     governance_context=governance_context,
+                    polyphonic_token_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
+                    future_notation_token_ref=(
+                        (polyphonic_context.get("notation_token_id") if isinstance(polyphonic_context, dict) else None)
+                    ),
                     issued_by=actor,
                 )
                 op_result = {

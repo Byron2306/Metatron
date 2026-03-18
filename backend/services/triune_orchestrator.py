@@ -49,6 +49,11 @@ class TriuneOrchestrator:
             "voice_type": voice_profile.get("voice_type"),
             "capability_class": voice_profile.get("capability_class"),
             "timbre_profile": voice_profile.get("timbre_profile"),
+            "score_id": polyphonic.get("score_id") or ctx.get("score_id"),
+            "genre_mode": polyphonic.get("genre_mode") or ctx.get("genre_mode"),
+            "notation_token": polyphonic.get("notation_token") or ctx.get("notation_token"),
+            "notation_token_id": polyphonic.get("notation_token_id") or ctx.get("notation_token_id"),
+            "world_state_hash": polyphonic.get("world_state_hash") or ctx.get("world_state_hash"),
         }
 
     async def handle_world_change(
@@ -90,6 +95,11 @@ class TriuneOrchestrator:
         planning_context["voice_type"] = polyphonic_voice_ctx.get("voice_type")
         planning_context["capability_class"] = polyphonic_voice_ctx.get("capability_class")
         planning_context["timbre_profile"] = polyphonic_voice_ctx.get("timbre_profile")
+        planning_context["score_id"] = polyphonic_voice_ctx.get("score_id")
+        planning_context["genre_mode"] = polyphonic_voice_ctx.get("genre_mode")
+        planning_context["notation_token"] = polyphonic_voice_ctx.get("notation_token")
+        planning_context["notation_token_id"] = polyphonic_voice_ctx.get("notation_token_id")
+        planning_context["world_state_hash"] = polyphonic_voice_ctx.get("world_state_hash")
         planning_context["polyphonic_context"] = polyphonic_voice_ctx.get("polyphonic_context") or {}
         michael_plan = await self.michael.plan_actions(
             candidates=candidates,
@@ -105,6 +115,11 @@ class TriuneOrchestrator:
         loki_context["voice_type"] = polyphonic_voice_ctx.get("voice_type")
         loki_context["capability_class"] = polyphonic_voice_ctx.get("capability_class")
         loki_context["timbre_profile"] = polyphonic_voice_ctx.get("timbre_profile")
+        loki_context["score_id"] = polyphonic_voice_ctx.get("score_id")
+        loki_context["genre_mode"] = polyphonic_voice_ctx.get("genre_mode")
+        loki_context["notation_token"] = polyphonic_voice_ctx.get("notation_token")
+        loki_context["notation_token_id"] = polyphonic_voice_ctx.get("notation_token_id")
+        loki_context["world_state_hash"] = polyphonic_voice_ctx.get("world_state_hash")
         loki_context["polyphonic_context"] = polyphonic_voice_ctx.get("polyphonic_context") or {}
         loki_advisory = await self.loki.challenge_plan(
             world_snapshot=world_snapshot,
@@ -126,6 +141,11 @@ class TriuneOrchestrator:
             "context": context,
             "world_snapshot": world_snapshot,
             "polyphonic_context": polyphonic_voice_ctx.get("polyphonic_context") or {},
+            "score_id": polyphonic_voice_ctx.get("score_id"),
+            "genre_mode": polyphonic_voice_ctx.get("genre_mode"),
+            "notation_token": polyphonic_voice_ctx.get("notation_token"),
+            "notation_token_id": polyphonic_voice_ctx.get("notation_token_id"),
+            "world_state_hash": polyphonic_voice_ctx.get("world_state_hash"),
             "metatron": metatron_assessment,
             "michael": {
                 "candidates": candidates,

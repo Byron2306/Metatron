@@ -3,6 +3,10 @@ from typing import Optional, List, Dict, Any
 from routers.dependencies import get_db
 from services.world_model import WorldModelService
 try:
+    from services.governance_epoch import get_governance_epoch_service
+except Exception:
+    from backend.services.governance_epoch import get_governance_epoch_service
+try:
     from schemas.triune_models import MetatronState
 except Exception:
     MetatronState = None
@@ -90,6 +94,20 @@ async def summary(db=Depends(get_db)):
 async def state(db=Depends(get_db)):
     """Return comprehensive metatron world-state for UI consumption."""
     wm = WorldModelService(db)
+    epoch_service = get_governance_epoch_service(db)
+    active_epoch = await epoch_service.get_active_epoch(scope="global")
+    governance_context = wm.get_governance_placeholders() if hasattr(wm, "get_governance_placeholders") else {}
+    if active_epoch is not None:
+        if not governance_context.get("current_governance_epoch"):
+            governance_context["current_governance_epoch"] = active_epoch.epoch_id
+        if not governance_context.get("current_score_id"):
+            governance_context["current_score_id"] = active_epoch.score_id
+        if not governance_context.get("current_genre_mode"):
+            governance_context["current_genre_mode"] = active_epoch.genre_mode
+        if not governance_context.get("current_world_state_hash"):
+            governance_context["current_world_state_hash"] = active_epoch.world_state_hash
+        if not governance_context.get("strictness_level"):
+            governance_context["strictness_level"] = active_epoch.strictness_level
     # header calculations (guard against missing DB)
     if hasattr(wm, "entities") and wm.entities is not None:
         total_entities = await wm.count_entities()
@@ -111,6 +129,11 @@ async def state(db=Depends(get_db)):
         "newest_narrative": None,
         "trust_drift": "stable",
         "ml_confidence": 0.0,
+        "score_id": governance_context.get("current_score_id"),
+        "genre_mode": governance_context.get("current_genre_mode"),
+        "governance_epoch": governance_context.get("current_governance_epoch"),
+        "world_state_hash": governance_context.get("current_world_state_hash"),
+        "strictness_level": governance_context.get("strictness_level"),
     }
     # threat narrative based on latest campaign
     if hasattr(wm, "campaigns") and wm.campaigns is not None:
@@ -171,6 +194,34 @@ async def state(db=Depends(get_db)):
                         "candidate": top.get("candidate") if isinstance(top, dict) else top,
                         "score": top.get("score") if isinstance(top, dict) else None,
                         "components": top.get("components") if isinstance(top, dict) else None,
+                        "score_id": (
+                            ((t.get("context") or {}).get("score_id"))
+                            or (((t.get("context") or {}).get("polyphonic_context") or {}).get("score_id")
+                                if isinstance((t.get("context") or {}).get("polyphonic_context"), dict) else None)
+                            or governance_context.get("current_score_id")
+                        ),
+                        "genre_mode": (
+                            ((t.get("context") or {}).get("genre_mode"))
+                            or (((t.get("context") or {}).get("polyphonic_context") or {}).get("genre_mode")
+                                if isinstance((t.get("context") or {}).get("polyphonic_context"), dict) else None)
+                            or governance_context.get("current_genre_mode")
+                        ),
+                        "notation_token": (
+                            ((t.get("context") or {}).get("notation_token"))
+                            or (((t.get("context") or {}).get("polyphonic_context") or {}).get("notation_token")
+                                if isinstance((t.get("context") or {}).get("polyphonic_context"), dict) else None)
+                        ),
+                        "world_state_hash": (
+                            ((t.get("context") or {}).get("world_state_hash"))
+                            or (((t.get("context") or {}).get("polyphonic_context") or {}).get("world_state_hash")
+                                if isinstance((t.get("context") or {}).get("polyphonic_context"), dict) else None)
+                            or governance_context.get("current_world_state_hash")
+                        ),
+                        "voice_role": (
+                            ((t.get("context") or {}).get("voice_type"))
+                            or ((((t.get("context") or {}).get("polyphonic_context") or {}).get("voice_profile") or {}).get("voice_type")
+                                if isinstance((t.get("context") or {}).get("polyphonic_context"), dict) else None)
+                        ),
                     })
     except Exception:
         # best-effort: do not fail the entire state response if triune collection is missing
@@ -186,6 +237,7 @@ async def state(db=Depends(get_db)):
         "hypotheses": hypotheses,
         "triune_analyses": triune_analyses,
         "timeline": timeline,
+        "governance_context": governance_context,
     }
     safe_resp = _json_safe(resp)
 

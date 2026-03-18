@@ -1,4 +1,21 @@
-from pydantic import BaseModel, Field
+try:
+    from pydantic import BaseModel, Field
+except Exception:
+    class BaseModel:  # type: ignore
+        def __init__(self, **kwargs):
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+        def dict(self):
+            return dict(self.__dict__)
+
+        def model_dump(self):
+            return self.dict()
+
+    def Field(default=None, default_factory=None):  # type: ignore
+        if default_factory is not None:
+            return default_factory()
+        return default
 from enum import Enum
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -51,13 +68,22 @@ class Campaign(BaseModel):
 
 class WorldModelService:
     """Simple service for managing the canonical world model."""
+    _governance_state: Dict[str, Optional[str]] = {
+        "current_genre_mode": None,
+        "current_score_id": None,
+        "current_governance_epoch": None,
+        "current_world_state_hash": None,
+        "strictness_level": None,
+    }
 
     def __init__(self, db: Any = None):
         self.db = db
         # Phase 1 placeholder fields for upcoming harmonic governance dimensions.
-        self.current_genre_mode: Optional[str] = None
-        self.current_score_id: Optional[str] = None
-        self.current_governance_epoch: Optional[str] = None
+        self.current_genre_mode: Optional[str] = self._governance_state.get("current_genre_mode")
+        self.current_score_id: Optional[str] = self._governance_state.get("current_score_id")
+        self.current_governance_epoch: Optional[str] = self._governance_state.get("current_governance_epoch")
+        self.current_world_state_hash: Optional[str] = self._governance_state.get("current_world_state_hash")
+        self.strictness_level: Optional[str] = self._governance_state.get("strictness_level")
         if db is not None:
             self.entities = db.world_entities
             self.edges = db.world_edges
@@ -71,6 +97,8 @@ class WorldModelService:
             "current_genre_mode": self.current_genre_mode,
             "current_score_id": self.current_score_id,
             "current_governance_epoch": self.current_governance_epoch,
+            "current_world_state_hash": self.current_world_state_hash,
+            "strictness_level": self.strictness_level,
         }
 
     def set_governance_placeholders(
@@ -79,11 +107,64 @@ class WorldModelService:
         current_genre_mode: Optional[str] = None,
         current_score_id: Optional[str] = None,
         current_governance_epoch: Optional[str] = None,
+        current_world_state_hash: Optional[str] = None,
+        strictness_level: Optional[str] = None,
     ) -> Dict[str, Optional[str]]:
         self.current_genre_mode = current_genre_mode
         self.current_score_id = current_score_id
         self.current_governance_epoch = current_governance_epoch
+        self.current_world_state_hash = current_world_state_hash
+        self.strictness_level = strictness_level
+        self._governance_state.update(
+            {
+                "current_genre_mode": self.current_genre_mode,
+                "current_score_id": self.current_score_id,
+                "current_governance_epoch": self.current_governance_epoch,
+                "current_world_state_hash": self.current_world_state_hash,
+                "strictness_level": self.strictness_level,
+            }
+        )
         return self.get_governance_placeholders()
+
+    def get_current_genre_mode(self) -> Optional[str]:
+        return self.current_genre_mode
+
+    def set_current_genre_mode(self, mode: Optional[str]) -> Optional[str]:
+        self.current_genre_mode = mode
+        self._governance_state["current_genre_mode"] = mode
+        return self.current_genre_mode
+
+    def get_current_score_id(self) -> Optional[str]:
+        return self.current_score_id
+
+    def set_current_score_id(self, score_id: Optional[str]) -> Optional[str]:
+        self.current_score_id = score_id
+        self._governance_state["current_score_id"] = score_id
+        return self.current_score_id
+
+    def get_active_epoch_ref(self) -> Optional[str]:
+        return self.current_governance_epoch
+
+    def set_active_epoch_ref(self, epoch_id: Optional[str]) -> Optional[str]:
+        self.current_governance_epoch = epoch_id
+        self._governance_state["current_governance_epoch"] = epoch_id
+        return self.current_governance_epoch
+
+    def get_current_world_state_hash(self) -> Optional[str]:
+        return self.current_world_state_hash
+
+    def set_current_world_state_hash(self, world_state_hash: Optional[str]) -> Optional[str]:
+        self.current_world_state_hash = world_state_hash
+        self._governance_state["current_world_state_hash"] = world_state_hash
+        return self.current_world_state_hash
+
+    def get_strictness_level(self) -> Optional[str]:
+        return self.strictness_level
+
+    def set_strictness_level(self, strictness_level: Optional[str]) -> Optional[str]:
+        self.strictness_level = strictness_level
+        self._governance_state["strictness_level"] = strictness_level
+        return self.strictness_level
 
     async def upsert_entity(self, entity: WorldEntity):
         # insert or update entity record

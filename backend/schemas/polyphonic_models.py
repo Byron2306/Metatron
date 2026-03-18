@@ -60,10 +60,46 @@ class PolyphonicContext(BaseModel):
     score_id: Optional[str] = None
     genre_mode: Optional[str] = None
     governance_epoch: Optional[str] = None
+    strictness_level: Optional[str] = None
+    world_state_hash: Optional[str] = None
     notation_token_id: Optional[str] = None
+    notation_token: Optional[Dict[str, Any]] = None
     timing_features: Optional[Dict[str, Any]] = None
     harmonic_state: Optional[Dict[str, Any]] = None
     chorus_state: Optional[Dict[str, Any]] = None
+
+
+class GovernanceEpoch(BaseModel):
+    epoch_id: str
+    score_id: str
+    genre_mode: str
+    strictness_level: str
+    world_state_hash: str
+    started_at: datetime
+    expires_at: datetime
+    reason: Optional[str] = None
+    status: str = "active"
+    scope: Optional[str] = None
+    signature_ref: Optional[str] = None
+
+
+class NotationToken(BaseModel):
+    token_id: str
+    epoch_id: str
+    score_id: str
+    genre_mode: str
+    voice_role: str
+    capability_class: str
+    entry_window_ms: Optional[List[int]] = None
+    sequence_slot: Optional[int] = None
+    required_companions: List[str] = Field(default_factory=list)
+    response_class: Optional[str] = None
+    world_state_hash: str
+    issued_to: str
+    issued_at: datetime
+    expires_at: datetime
+    status: str = "issued"
+    signature_ref: Optional[str] = None
 
 
 class ActionRequestEnvelope(BaseModel):

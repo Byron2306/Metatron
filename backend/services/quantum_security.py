@@ -16,6 +16,7 @@ import secrets
 import logging
 import asyncio
 import threading
+import json
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
@@ -122,6 +123,10 @@ class QuantumSecurityService:
         # Simulated quantum entropy pool
         self._entropy_pool = bytearray()
         self._refresh_entropy()
+        self._governance_signing_secret = os.environ.get(
+            "GOVERNANCE_NOTATION_SIGNING_SECRET",
+            secrets.token_hex(32),
+        ).encode("utf-8")
         
         logger.info(f"Quantum Security Service initialized (mode: {self.mode})")
 
@@ -517,6 +522,101 @@ class QuantumSecurityService:
         Quantum-safe HMAC using SHA3-256.
         """
         return hmac.new(key, data, hashlib.sha3_256).hexdigest()
+
+    # =========================================================================
+    # PHASE 2 GOVERNANCE / NOTATION SIGNATURES
+    # =========================================================================
+
+    @staticmethod
+    def _canonical_payload_bytes(payload: Dict[str, Any]) -> bytes:
+        sanitized = dict(payload or {})
+        sanitized.pop("signature", None)
+        sanitized.pop("signature_ref", None)
+        return json.dumps(sanitized, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+    def bind_world_state_hash(self, world_state_snapshot: Dict[str, Any]) -> str:
+        """Derive canonical world-state hash for epoch/token binding."""
+        return self.quantum_hash(self._canonical_payload_bytes(world_state_snapshot or {}))
+
+    def sign_governance_epoch(self, epoch_payload: Dict[str, Any]) -> Dict[str, Any]:
+        canonical = self._canonical_payload_bytes(epoch_payload)
+        data_hash = self.quantum_hash(canonical)
+        signature = self.quantum_hmac(self._governance_signing_secret, canonical)
+        signature_id = f"gvepochsig-{secrets.token_hex(8)}"
+        self.signatures[signature_id] = QuantumSignature(
+            signature_id=signature_id,
+            algorithm="HMAC-SHA3-256",
+            data_hash=data_hash,
+            signature=signature,
+            signer_key_id="governance_epoch_signer",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        self._emit_quantum_event(
+            "quantum_governance_epoch_signed",
+            [signature_id, str(epoch_payload.get("epoch_id") or "")],
+            {"data_hash": data_hash},
+            trigger_triune=False,
+        )
+        return {"signature_ref": signature_id, "signature": signature, "data_hash": data_hash}
+
+    def verify_governance_epoch_signature(
+        self,
+        epoch_payload: Dict[str, Any],
+        signature_ref: Optional[str] = None,
+        signature: Optional[str] = None,
+    ) -> bool:
+        canonical = self._canonical_payload_bytes(epoch_payload)
+        expected = self.quantum_hmac(self._governance_signing_secret, canonical)
+        if signature_ref:
+            stored = self.signatures.get(signature_ref)
+            if not stored:
+                return False
+            if stored.data_hash != self.quantum_hash(canonical):
+                return False
+            return hmac.compare_digest(stored.signature, expected)
+        if signature is None:
+            return False
+        return hmac.compare_digest(str(signature), expected)
+
+    def sign_notation_token(self, token_payload: Dict[str, Any]) -> Dict[str, Any]:
+        canonical = self._canonical_payload_bytes(token_payload)
+        data_hash = self.quantum_hash(canonical)
+        signature = self.quantum_hmac(self._governance_signing_secret, canonical)
+        signature_id = f"notesig-{secrets.token_hex(8)}"
+        self.signatures[signature_id] = QuantumSignature(
+            signature_id=signature_id,
+            algorithm="HMAC-SHA3-256",
+            data_hash=data_hash,
+            signature=signature,
+            signer_key_id="notation_token_signer",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        self._emit_quantum_event(
+            "quantum_notation_token_signed",
+            [signature_id, str(token_payload.get("token_id") or "")],
+            {"data_hash": data_hash},
+            trigger_triune=False,
+        )
+        return {"signature_ref": signature_id, "signature": signature, "data_hash": data_hash}
+
+    def verify_notation_token_signature(
+        self,
+        token_payload: Dict[str, Any],
+        signature_ref: Optional[str] = None,
+        signature: Optional[str] = None,
+    ) -> bool:
+        canonical = self._canonical_payload_bytes(token_payload)
+        expected = self.quantum_hmac(self._governance_signing_secret, canonical)
+        if signature_ref:
+            stored = self.signatures.get(signature_ref)
+            if not stored:
+                return False
+            if stored.data_hash != self.quantum_hash(canonical):
+                return False
+            return hmac.compare_digest(stored.signature, expected)
+        if signature is None:
+            return False
+        return hmac.compare_digest(str(signature), expected)
     
     # =========================================================================
     # STATUS & MANAGEMENT
