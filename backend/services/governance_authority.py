@@ -64,6 +64,23 @@ class GovernanceDecisionAuthority:
             "resonance_score": resonance,
         }
 
+    def apply_harmonic_obligations(
+        self,
+        *,
+        harmonic_state: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        guidance = self.interpret_harmonic_band(harmonic_state)
+        release_delay_ms = int(guidance.get("release_delay_ms") or 0)
+        return {
+            "harmonic_guidance": guidance,
+            "harmonic_obligations": list(guidance.get("obligations") or []),
+            "release_not_before": (
+                (datetime.now(timezone.utc) + timedelta(milliseconds=release_delay_ms)).isoformat()
+                if release_delay_ms > 0
+                else None
+            ),
+        }
+
     async def _validate_notation_for_approval(self, decision: Dict[str, Any]) -> Dict[str, Any]:
         related_queue_id = decision.get("related_queue_id")
         if not related_queue_id:
@@ -139,14 +156,10 @@ class GovernanceDecisionAuthority:
             or queue_doc.get("harmonic_state_at_gate")
             or queue_doc.get("harmonic_state")
         )
-        harmonic_guidance = self.interpret_harmonic_band(harmonic_state)
-        harmonic_obligations = harmonic_guidance.get("obligations") or []
-        release_delay_ms = int(harmonic_guidance.get("release_delay_ms") or 0)
-        release_not_before = (
-            (datetime.now(timezone.utc) + timedelta(milliseconds=release_delay_ms)).isoformat()
-            if release_delay_ms > 0
-            else None
-        )
+        harmonic_modulation = self.apply_harmonic_obligations(harmonic_state=harmonic_state)
+        harmonic_guidance = harmonic_modulation.get("harmonic_guidance") or {}
+        harmonic_obligations = harmonic_modulation.get("harmonic_obligations") or []
+        release_not_before = harmonic_modulation.get("release_not_before")
         if related_queue_id and not notation_valid:
             polyphonic_ctx = queue_doc.get("polyphonic_context") or (queue_doc.get("payload") or {}).get("polyphonic_context") or {}
             notation_token_id = (

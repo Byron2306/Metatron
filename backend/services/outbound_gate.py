@@ -71,6 +71,95 @@ class OutboundGateService:
         normalized = str(impact_level or "high").lower().strip()
         return normalized if normalized in IMPACT_ORDER else "high"
 
+    def attach_gate_timing_observation(
+        self,
+        *,
+        actor: str,
+        action_type: str,
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        target_domain: str,
+        impact_level: str,
+        notation_valid: bool,
+        gate_seen_at_ms: int,
+    ) -> Dict[str, Any]:
+        dispatch_created_at_ms = payload.get("dispatch_created_at_ms")
+        if dispatch_created_at_ms is None and isinstance(polyphonic_context, dict):
+            dispatch_created_at_ms = (polyphonic_context.get("harmonic_timeline") or {}).get(
+                "dispatch_created_at_ms"
+            )
+        try:
+            dispatch_created_at_ms = int(float(dispatch_created_at_ms)) if dispatch_created_at_ms is not None else None
+        except Exception:
+            dispatch_created_at_ms = None
+        gate_lag_ms = (
+            max(0, int(gate_seen_at_ms - dispatch_created_at_ms))
+            if dispatch_created_at_ms is not None
+            else None
+        )
+        harmonic_observation = self.harmonic.score_observation(
+            actor_id=str(actor or "unknown"),
+            tool_name=str(payload.get("command_type") or payload.get("tool") or action_type),
+            target_domain=target_domain,
+            environment=self.environment,
+            stage="gate",
+            timestamp_ms=float(gate_seen_at_ms),
+            operation=action_type,
+            context={
+                "impact_level": impact_level,
+                "notation_valid": notation_valid,
+                "gate_lag_ms": gate_lag_ms,
+            },
+        )
+        if isinstance(polyphonic_context, dict):
+            polyphonic_context["timing_features"] = harmonic_observation.get("timing_features")
+            polyphonic_context["harmonic_state"] = harmonic_observation.get("harmonic_state")
+            polyphonic_context["baseline_ref"] = harmonic_observation.get("baseline_ref")
+            history = list(polyphonic_context.get("harmonic_history") or [])
+            history.append(
+                {
+                    "stage": "gate",
+                    "timestamp_ms": gate_seen_at_ms,
+                    "harmonic_state": harmonic_observation.get("harmonic_state"),
+                }
+            )
+            polyphonic_context["harmonic_history"] = history[-20:]
+            timeline = dict(polyphonic_context.get("harmonic_timeline") or {})
+            if dispatch_created_at_ms is not None:
+                timeline.setdefault("dispatch_created_at_ms", dispatch_created_at_ms)
+            timeline["gate_seen_at_ms"] = gate_seen_at_ms
+            if gate_lag_ms is not None:
+                timeline["gate_lag_ms"] = gate_lag_ms
+            polyphonic_context["harmonic_timeline"] = timeline
+        return {
+            "dispatch_created_at_ms": dispatch_created_at_ms,
+            "gate_lag_ms": gate_lag_ms,
+            "harmonic_observation": harmonic_observation,
+        }
+
+    def refresh_harmonic_state(
+        self,
+        *,
+        actor: str,
+        action_type: str,
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        target_domain: str,
+        impact_level: str,
+        notation_valid: bool,
+        gate_seen_at_ms: int,
+    ) -> Dict[str, Any]:
+        return self.attach_gate_timing_observation(
+            actor=actor,
+            action_type=action_type,
+            payload=payload,
+            polyphonic_context=polyphonic_context,
+            target_domain=target_domain,
+            impact_level=impact_level,
+            notation_valid=notation_valid,
+            gate_seen_at_ms=gate_seen_at_ms,
+        )
+
     async def gate_action(
         self,
         *,
@@ -188,56 +277,27 @@ class OutboundGateService:
                 "enforcement_profile"
             )
 
-        dispatch_created_at_ms = payload.get("dispatch_created_at_ms")
-        if dispatch_created_at_ms is None and isinstance(resolved_polyphonic_context, dict):
-            dispatch_created_at_ms = (resolved_polyphonic_context.get("harmonic_timeline") or {}).get(
-                "dispatch_created_at_ms"
-            )
-        try:
-            dispatch_created_at_ms = int(float(dispatch_created_at_ms)) if dispatch_created_at_ms is not None else None
-        except Exception:
-            dispatch_created_at_ms = None
-        gate_lag_ms = (
-            max(0, int(gate_seen_at_ms - dispatch_created_at_ms))
-            if dispatch_created_at_ms is not None
-            else None
-        )
+        dispatch_created_at_ms = None
+        gate_lag_ms = None
         harmonic_observation: Dict[str, Any] = {}
         try:
-            harmonic_observation = self.harmonic.score_observation(
-                actor_id=str(actor or "unknown"),
-                tool_name=str(payload.get("command_type") or payload.get("tool") or normalized_action),
+            harmonic_payload = self.refresh_harmonic_state(
+                actor=str(actor),
+                action_type=normalized_action,
+                payload=payload,
+                polyphonic_context=(
+                    resolved_polyphonic_context
+                    if isinstance(resolved_polyphonic_context, dict)
+                    else {}
+                ),
                 target_domain=scope,
-                environment=self.environment,
-                stage="gate",
-                timestamp_ms=float(gate_seen_at_ms),
-                operation=normalized_action,
-                context={
-                    "impact_level": normalized_impact,
-                    "notation_valid": notation_valid,
-                    "gate_lag_ms": gate_lag_ms,
-                },
+                impact_level=normalized_impact,
+                notation_valid=notation_valid,
+                gate_seen_at_ms=gate_seen_at_ms,
             )
-            if isinstance(resolved_polyphonic_context, dict):
-                resolved_polyphonic_context["timing_features"] = harmonic_observation.get("timing_features")
-                resolved_polyphonic_context["harmonic_state"] = harmonic_observation.get("harmonic_state")
-                resolved_polyphonic_context["baseline_ref"] = harmonic_observation.get("baseline_ref")
-                history = list(resolved_polyphonic_context.get("harmonic_history") or [])
-                history.append(
-                    {
-                        "stage": "gate",
-                        "timestamp_ms": gate_seen_at_ms,
-                        "harmonic_state": harmonic_observation.get("harmonic_state"),
-                    }
-                )
-                resolved_polyphonic_context["harmonic_history"] = history[-20:]
-                timeline = dict(resolved_polyphonic_context.get("harmonic_timeline") or {})
-                if dispatch_created_at_ms is not None:
-                    timeline.setdefault("dispatch_created_at_ms", dispatch_created_at_ms)
-                timeline["gate_seen_at_ms"] = gate_seen_at_ms
-                if gate_lag_ms is not None:
-                    timeline["gate_lag_ms"] = gate_lag_ms
-                resolved_polyphonic_context["harmonic_timeline"] = timeline
+            dispatch_created_at_ms = harmonic_payload.get("dispatch_created_at_ms")
+            gate_lag_ms = harmonic_payload.get("gate_lag_ms")
+            harmonic_observation = harmonic_payload.get("harmonic_observation") or {}
             if hasattr(vns, "update_domain_pulse"):
                 pulse_state = vns.update_domain_pulse(
                     domain=scope,

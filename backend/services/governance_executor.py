@@ -245,6 +245,146 @@ class GovernanceExecutorService:
             pass
         return observation
 
+    def attach_execution_timing_observation(
+        self,
+        *,
+        actor: str,
+        action_type: str,
+        queue_doc: Dict[str, Any],
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        stage: str,
+        timestamp_ms: Optional[int] = None,
+        outcome: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self._attach_execution_timing_observation(
+            actor=actor,
+            action_type=action_type,
+            queue_doc=queue_doc,
+            payload=payload,
+            polyphonic_context=polyphonic_context,
+            stage=stage,
+            timestamp_ms=timestamp_ms,
+            outcome=outcome,
+        )
+
+    async def finalize_harmonic_state(
+        self,
+        *,
+        decision_id: Optional[str],
+        queue_id: Optional[str],
+        actor: str,
+        action_type: str,
+        queue_doc: Dict[str, Any],
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        outcome: str,
+        reason: Optional[str] = None,
+    ) -> None:
+        end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        obs = self.attach_execution_timing_observation(
+            actor=str(actor),
+            action_type=action_type,
+            queue_doc=queue_doc,
+            payload=payload,
+            polyphonic_context=polyphonic_context,
+            stage="executor_end",
+            timestamp_ms=end_ms,
+            outcome=outcome,
+        )
+        self.attach_execution_timing_observation(
+            actor=str(actor),
+            action_type=action_type,
+            queue_doc=queue_doc,
+            payload=payload,
+            polyphonic_context=polyphonic_context,
+            stage="audit_closed",
+            timestamp_ms=end_ms,
+            outcome=outcome,
+        )
+        payload["polyphonic_context"] = polyphonic_context
+        queue_doc["polyphonic_context"] = polyphonic_context
+        harmonic_state = obs.get("harmonic_state")
+        await self.db.triune_outbound_queue.update_one(
+            {"queue_id": queue_id},
+            {
+                "$set": {
+                    "executor_end_ms": end_ms,
+                    "polyphonic_context": polyphonic_context,
+                    "timing_features_at_executor_end": obs.get("timing_features"),
+                    "harmonic_state_at_executor_end": harmonic_state,
+                    "baseline_ref": obs.get("baseline_ref"),
+                    "updated_at": _iso_now(),
+                }
+            },
+        )
+        await self.db.triune_decisions.update_one(
+            {"decision_id": decision_id},
+            {
+                "$set": {
+                    "executor_end_ms": end_ms,
+                    "polyphonic_context": polyphonic_context,
+                    "timing_features_at_executor_end": obs.get("timing_features"),
+                    "harmonic_state_at_executor_end": harmonic_state,
+                    "baseline_ref": obs.get("baseline_ref"),
+                    "updated_at": _iso_now(),
+                }
+            },
+        )
+        timing_features = obs.get("timing_features") or {}
+        if (
+            float(timing_features.get("drift_norm") or 0.0) >= 0.6
+            and hasattr(vns_alert_service, "alert_harmonic_drift_detected")
+        ):
+            vns_alert_service.alert_harmonic_drift_detected(
+                {
+                    "scope": str(
+                        payload.get("target_domain")
+                        or (payload.get("parameters") or {}).get("target_domain")
+                        or queue_doc.get("target_domain")
+                        or "global"
+                    ),
+                    "action_type": action_type,
+                    "actor": actor,
+                    "drift_norm": timing_features.get("drift_norm"),
+                    "confidence": float((harmonic_state or {}).get("confidence") or 0.0),
+                }
+            )
+        if (
+            float(timing_features.get("burstiness") or 0.0) >= 0.6
+            and hasattr(vns_alert_service, "alert_burst_cluster_detected")
+        ):
+            vns_alert_service.alert_burst_cluster_detected(
+                {
+                    "scope": str(
+                        payload.get("target_domain")
+                        or (payload.get("parameters") or {}).get("target_domain")
+                        or queue_doc.get("target_domain")
+                        or "global"
+                    ),
+                    "action_type": action_type,
+                    "burstiness": timing_features.get("burstiness"),
+                    "discord_score": float((harmonic_state or {}).get("discord_score") or 0.0),
+                }
+            )
+        discord = float((harmonic_state or {}).get("discord_score") or 0.0)
+        if discord >= 0.75 and hasattr(vns_alert_service, "alert_discord_threshold_crossed"):
+            vns_alert_service.alert_discord_threshold_crossed(
+                {
+                    "scope": str(
+                        payload.get("target_domain")
+                        or (payload.get("parameters") or {}).get("target_domain")
+                        or queue_doc.get("target_domain")
+                        or "global"
+                    ),
+                    "action_type": action_type,
+                    "actor": actor,
+                    "discord_score": discord,
+                    "confidence": float((harmonic_state or {}).get("confidence") or 0.0),
+                    "reason": reason,
+                }
+            )
+
     async def _validate_notation_for_execution(
         self,
         *,
@@ -942,7 +1082,7 @@ class GovernanceExecutorService:
         executor_start_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         harmonic_pre: Dict[str, Any] = {}
         try:
-            harmonic_pre = self._attach_execution_timing_observation(
+            harmonic_pre = self.attach_execution_timing_observation(
                 actor=str(actor),
                 action_type=action_type,
                 queue_doc=queue_doc,
@@ -991,109 +1131,17 @@ class GovernanceExecutorService:
         notation_failure_reason = ";".join(notation_validation.get("reasons") or []) or None
         async def _finalize_harmonic(outcome: str, reason: Optional[str] = None) -> None:
             try:
-                end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-                obs = self._attach_execution_timing_observation(
+                await self.finalize_harmonic_state(
+                    decision_id=decision_id,
+                    queue_id=related_queue_id,
                     actor=str(actor),
                     action_type=action_type,
                     queue_doc=queue_doc,
                     payload=payload,
                     polyphonic_context=polyphonic_context,
-                    stage="executor_end",
-                    timestamp_ms=end_ms,
                     outcome=outcome,
+                    reason=reason,
                 )
-                self._attach_execution_timing_observation(
-                    actor=str(actor),
-                    action_type=action_type,
-                    queue_doc=queue_doc,
-                    payload=payload,
-                    polyphonic_context=polyphonic_context,
-                    stage="audit_closed",
-                    timestamp_ms=end_ms,
-                    outcome=outcome,
-                )
-                payload["polyphonic_context"] = polyphonic_context
-                queue_doc["polyphonic_context"] = polyphonic_context
-                harmonic_state = obs.get("harmonic_state")
-                await self.db.triune_outbound_queue.update_one(
-                    {"queue_id": related_queue_id},
-                    {
-                        "$set": {
-                            "executor_end_ms": end_ms,
-                            "polyphonic_context": polyphonic_context,
-                            "timing_features_at_executor_end": obs.get("timing_features"),
-                            "harmonic_state_at_executor_end": harmonic_state,
-                            "baseline_ref": obs.get("baseline_ref"),
-                            "updated_at": _iso_now(),
-                        }
-                    },
-                )
-                await self.db.triune_decisions.update_one(
-                    {"decision_id": decision_id},
-                    {
-                        "$set": {
-                            "executor_end_ms": end_ms,
-                            "polyphonic_context": polyphonic_context,
-                            "timing_features_at_executor_end": obs.get("timing_features"),
-                            "harmonic_state_at_executor_end": harmonic_state,
-                            "baseline_ref": obs.get("baseline_ref"),
-                            "updated_at": _iso_now(),
-                        }
-                    },
-                )
-                timing_features = obs.get("timing_features") or {}
-                if (
-                    float(timing_features.get("drift_norm") or 0.0) >= 0.6
-                    and hasattr(vns_alert_service, "alert_harmonic_drift_detected")
-                ):
-                    vns_alert_service.alert_harmonic_drift_detected(
-                        {
-                            "scope": str(
-                                payload.get("target_domain")
-                                or (payload.get("parameters") or {}).get("target_domain")
-                                or queue_doc.get("target_domain")
-                                or "global"
-                            ),
-                            "action_type": action_type,
-                            "actor": actor,
-                            "drift_norm": timing_features.get("drift_norm"),
-                            "confidence": float((harmonic_state or {}).get("confidence") or 0.0),
-                        }
-                    )
-                if (
-                    float(timing_features.get("burstiness") or 0.0) >= 0.6
-                    and hasattr(vns_alert_service, "alert_burst_cluster_detected")
-                ):
-                    vns_alert_service.alert_burst_cluster_detected(
-                        {
-                            "scope": str(
-                                payload.get("target_domain")
-                                or (payload.get("parameters") or {}).get("target_domain")
-                                or queue_doc.get("target_domain")
-                                or "global"
-                            ),
-                            "action_type": action_type,
-                            "burstiness": timing_features.get("burstiness"),
-                            "discord_score": float((harmonic_state or {}).get("discord_score") or 0.0),
-                        }
-                    )
-                discord = float((harmonic_state or {}).get("discord_score") or 0.0)
-                if discord >= 0.75 and hasattr(vns_alert_service, "alert_discord_threshold_crossed"):
-                    vns_alert_service.alert_discord_threshold_crossed(
-                        {
-                            "scope": str(
-                                payload.get("target_domain")
-                                or (payload.get("parameters") or {}).get("target_domain")
-                                or queue_doc.get("target_domain")
-                                or "global"
-                            ),
-                            "action_type": action_type,
-                            "actor": actor,
-                            "discord_score": discord,
-                            "confidence": float((harmonic_state or {}).get("confidence") or 0.0),
-                            "reason": reason,
-                        }
-                    )
             except Exception:
                 logger.debug("Failed to finalize harmonic state", exc_info=True)
         if not notation_valid:

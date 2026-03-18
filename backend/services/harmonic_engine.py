@@ -264,6 +264,10 @@ class HarmonicEngine:
                 "actor_tool_env",
             ),
             (
+                self._scope_key("actor_env", actor, env),
+                "actor_env",
+            ),
+            (
                 self._scope_key("tool_domain_env", tool, domain, env),
                 "tool_domain_env",
             ),
@@ -424,13 +428,19 @@ class HarmonicEngine:
             "environment": environment,
             "context": context or {},
         }
-        self._record_observation_across_scopes(
-            actor_id=actor_id,
-            tool_name=tool_name,
-            target_domain=target_domain,
-            environment=environment,
-            event=event,
-        )
+        resolved_context = context or {}
+        threat_state = str(resolved_context.get("threat_state") or "").strip().lower()
+        learn_baseline = bool(resolved_context.get("learn_baseline", True))
+        if threat_state in {"active", "elevated", "incident", "siege"}:
+            learn_baseline = False
+        if learn_baseline:
+            self._record_observation_across_scopes(
+                actor_id=actor_id,
+                tool_name=tool_name,
+                target_domain=target_domain,
+                environment=environment,
+                event=event,
+            )
         primary_scope_key = self._scope_key(
             "actor_tool_domain_env",
             actor_id or "*",
@@ -439,6 +449,8 @@ class HarmonicEngine:
             environment or "unknown",
         )
         primary_events = list(self._events_by_scope.get(primary_scope_key) or [])
+        if not learn_baseline:
+            primary_events = primary_events + [event]
         baseline_ref = self.select_baseline_scope(actor_id, tool_name, target_domain, environment)
         features = self.extract_timing_features(
             primary_events,
