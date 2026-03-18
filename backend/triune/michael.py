@@ -347,6 +347,56 @@ class MichaelService:
             elif sector in {"network", "data"}:
                 sector_readiness_changes["network"] = "tighten_egress_controls"
 
+        harmonic_state = (context or {}).get("harmonic_state") or {}
+        timing_features = (context or {}).get("timing_features") or {}
+        baseline_ref = (context or {}).get("baseline_ref") or {}
+        domain_pulse = (context or {}).get("domain_pulse_summary") or {}
+        discord_score = float(harmonic_state.get("discord_score") or 0.0)
+        resonance_score = float(harmonic_state.get("resonance_score") or 0.0)
+        confidence = float(harmonic_state.get("confidence") or 0.0)
+        tempo_volatility = float(
+            timing_features.get("jitter_norm")
+            or harmonic_state.get("jitter_norm")
+            or 0.0
+        )
+        if confidence < 0.4:
+            cadence_alert_level = "observe"
+            recommended_rhythm_shift = "hold_and_sample"
+        elif discord_score >= 0.8:
+            cadence_alert_level = "critical"
+            recommended_rhythm_shift = "slow_and_gate"
+        elif discord_score >= 0.6:
+            cadence_alert_level = "high"
+            recommended_rhythm_shift = "tighten_cadence"
+        elif discord_score >= 0.4 or resonance_score <= 0.45:
+            cadence_alert_level = "medium"
+            recommended_rhythm_shift = "monitor_drift"
+        else:
+            cadence_alert_level = "low"
+            recommended_rhythm_shift = "maintain_tempo"
+
+        coherence_rank_by_domain = []
+        if isinstance(domain_pulse, dict) and domain_pulse:
+            if "domain" in domain_pulse:
+                coherence_rank_by_domain = [
+                    {
+                        "domain": domain_pulse.get("domain"),
+                        "coherence": round(float(domain_pulse.get("pulse_stability_index") or 0.0), 4),
+                        "samples": int(domain_pulse.get("samples") or 0),
+                    }
+                ]
+            else:
+                coherence_rank_by_domain = [
+                    {
+                        "domain": d,
+                        "coherence": round(float((info or {}).get("pulse_stability_index") or 0.0), 4),
+                        "samples": int((info or {}).get("samples") or 0),
+                    }
+                    for d, info in domain_pulse.items()
+                    if isinstance(info, dict)
+                ]
+                coherence_rank_by_domain.sort(key=lambda row: row.get("coherence", 0.0), reverse=True)
+
         return {
             "policy_tier": policy_tier,
             "context": context,
@@ -372,6 +422,14 @@ class MichaelService:
                 "aatl_strategies": cognitive_augmented["aatl_strategies"],
                 "selected_candidate_source": cognitive_augmented["source_map"].get((top or {}).get("candidate", ""), "unknown"),
                 "cognitive_pressure": round(float(fused_signal.get("cognitive_pressure") or 0.0), 4),
+            },
+            "harmonic_interpretation": {
+                "tempo_volatility": round(tempo_volatility, 4),
+                "coherence_rank_by_domain": coherence_rank_by_domain,
+                "recommended_rhythm_shift": recommended_rhythm_shift,
+                "cadence_alert_level": cadence_alert_level,
+                "baseline_ref": baseline_ref,
+                "harmonic_state": harmonic_state,
             },
         }
 

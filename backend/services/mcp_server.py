@@ -22,6 +22,30 @@ import uuid
 from collections import deque
 
 try:
+    from services.polyphonic_governance import get_polyphonic_governance_service
+except Exception:
+    try:
+        from backend.services.polyphonic_governance import get_polyphonic_governance_service
+    except Exception:
+        get_polyphonic_governance_service = None
+
+try:
+    from services.governance_epoch import get_governance_epoch_service
+except Exception:
+    try:
+        from backend.services.governance_epoch import get_governance_epoch_service
+    except Exception:
+        get_governance_epoch_service = None
+
+try:
+    from services.notation_token import get_notation_token_service
+except Exception:
+    try:
+        from backend.services.notation_token import get_notation_token_service
+    except Exception:
+        get_notation_token_service = None
+
+try:
     from services.world_events import emit_world_event
 except Exception:
     try:
@@ -152,6 +176,11 @@ class MCPToolSchema:
     # Audit
     audit_level: str  # none, basic, full
     redact_fields: List[str]
+    # Phase 1 HGL metadata (classification only, no enforcement).
+    voice_type: Optional[str] = None
+    capability_class: Optional[str] = None
+    timbre_profile: Optional[str] = None
+    allowed_register: Optional[str] = None
 
 
 @dataclass
@@ -233,6 +262,9 @@ class MCPServer:
         
         # Signing key
         self.signing_key = _resolve_mcp_signing_key()
+        self.polyphonic_governance = (
+            get_polyphonic_governance_service() if get_polyphonic_governance_service is not None else None
+        )
         
         # Tool registry
         self.tools: Dict[str, MCPToolSchema] = {}
@@ -1746,6 +1778,19 @@ class MCPServer:
     
     def register_tool(self, schema: MCPToolSchema, handler: Callable = None):
         """Register a tool with the MCP server"""
+        if self.polyphonic_governance is not None:
+            voice_profile = self.polyphonic_governance.voice_registry.resolve_voice_for_action(
+                tool_name=schema.tool_id,
+                component_id="mcp_server",
+                route="mcp:tool_request",
+                component_type="ingress",
+            )
+            if voice_profile is not None:
+                schema.voice_type = schema.voice_type or voice_profile.voice_type
+                schema.capability_class = schema.capability_class or voice_profile.capability_class
+                schema.timbre_profile = schema.timbre_profile or voice_profile.timbre_profile
+                schema.allowed_register = schema.allowed_register or voice_profile.allowed_register
+                self.polyphonic_governance.voice_registry.register_tool_voice(schema.tool_id, voice_profile)
         self.tools[schema.tool_id] = schema
         if handler:
             self.tool_handlers[schema.tool_id] = handler
@@ -1800,7 +1845,85 @@ class MCPServer:
             return self._error_response(message, f"Unknown tool: {tool_id}")
         
         tool = self.tools[tool_id]
-        payload = message.payload
+        payload = dict(message.payload or {})
+        polyphonic_context: Dict[str, Any] = {}
+        if self.polyphonic_governance is not None:
+            policy_refs: List[str] = []
+            if payload.get("policy_decision_id"):
+                policy_refs.append(str(payload.get("policy_decision_id")))
+            if payload.get("decision_id"):
+                policy_refs.append(str(payload.get("decision_id")))
+            envelope = self.polyphonic_governance.build_action_request_envelope(
+                actor_id=str(message.source or "unknown"),
+                actor_type="mcp_principal",
+                operation="mcp_tool_execution",
+                parameters=payload.get("params") if isinstance(payload.get("params"), dict) else {},
+                tool_name=tool_id,
+                resource_uris=[str(payload.get("target"))] if payload.get("target") else [],
+                context_refs={
+                    "request_id": message.message_id,
+                    "trace_id": message.trace_id,
+                    "decision_id": str(payload.get("decision_id") or payload.get("policy_decision_id") or ""),
+                },
+                policy_refs=policy_refs,
+                evidence_hashes=[],
+                target_domain=payload.get("sector_to"),
+            )
+            envelope = self.polyphonic_governance.attach_voice_profile(
+                envelope,
+                component_id="mcp_server",
+                route="mcp:tool_request",
+                tool_name=tool_id,
+                component_type="ingress",
+            )
+            polyphonic_context = self.polyphonic_governance.serialize_polyphonic_context(envelope)
+            if polyphonic_context:
+                payload["polyphonic_context"] = polyphonic_context
+        if (
+            polyphonic_context
+            and isinstance(polyphonic_context, dict)
+            and get_governance_epoch_service is not None
+            and get_notation_token_service is not None
+        ):
+            try:
+                epoch_service = get_governance_epoch_service(getattr(self, "db", None))
+                notation_service = get_notation_token_service(getattr(self, "db", None))
+                scope = str(payload.get("sector_to") or payload.get("target_domain") or "global")
+                active_epoch = await epoch_service.get_active_epoch(scope=scope)
+                if active_epoch is not None:
+                    voice_profile = polyphonic_context.get("voice_profile") or {}
+                    notation = await notation_service.mint_notation_token(
+                        epoch_id=active_epoch.epoch_id,
+                        score_id=active_epoch.score_id,
+                        genre_mode=active_epoch.genre_mode,
+                        voice_role=str(voice_profile.get("voice_type") or "gateway_tenor"),
+                        capability_class=str(voice_profile.get("capability_class") or "ingress"),
+                        world_state_hash=active_epoch.world_state_hash,
+                        issued_to=str(message.source or "unknown"),
+                        entry_window_ms=payload.get("entry_window_ms") or [0, 300000],
+                        sequence_slot=payload.get("sequence_slot"),
+                        required_companions=payload.get("required_companions") or [],
+                        response_class="mcp_tool_execution",
+                        ttl_seconds=int(payload.get("notation_ttl_seconds") or 600),
+                    )
+                    notation_doc = (
+                        notation.model_dump() if hasattr(notation, "model_dump") else notation.dict()
+                    )
+                    polyphonic_context["governance_epoch"] = active_epoch.epoch_id
+                    polyphonic_context["score_id"] = active_epoch.score_id
+                    polyphonic_context["genre_mode"] = active_epoch.genre_mode
+                    polyphonic_context["strictness_level"] = active_epoch.strictness_level
+                    polyphonic_context["world_state_hash"] = active_epoch.world_state_hash
+                    polyphonic_context["notation_token_id"] = notation.token_id
+                    polyphonic_context["notation_token"] = notation_doc
+                    payload["polyphonic_context"] = polyphonic_context
+                    payload["governance_epoch"] = active_epoch.epoch_id
+                    payload["score_id"] = active_epoch.score_id
+                    payload["genre_mode"] = active_epoch.genre_mode
+                    payload["world_state_hash"] = active_epoch.world_state_hash
+                    payload["notation_token_id"] = notation.token_id
+            except Exception:
+                logger.debug("Failed to mint notation token for MCP request", exc_info=True)
         high_impact_categories = {
             MCPToolCategory.EDR,
             MCPToolCategory.FIREWALL,
@@ -1909,6 +2032,9 @@ class MCPServer:
                         "governance_queue_id": resolved_queue_id,
                         "token_id": execution.token_id,
                         "trace_id": message.trace_id,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if polyphonic_context else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if polyphonic_context else None),
+                        "polyphonic_context": polyphonic_context,
                         "pre_observation": boundary_pre_observation,
                         "post_observation": boundary_post_observation,
                         "boundary_contract": contract_to_dict(boundary_contract) if contract_to_dict else {},
@@ -1944,6 +2070,9 @@ class MCPServer:
                     "trace_id": message.trace_id,
                     "crossings_per_minute": crossings_per_minute,
                     "threshold": throttle_threshold,
+                    "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if polyphonic_context else None),
+                    "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if polyphonic_context else None),
+                    "polyphonic_context": polyphonic_context,
                 },
                 trigger_triune=True,
             )
@@ -1961,6 +2090,7 @@ class MCPServer:
                     "output": execution.output,
                     "error": execution.error,
                     "audit_hash": execution.audit_hash,
+                    "polyphonic_context": polyphonic_context,
                     "boundary": {
                         "pre": boundary_pre_observation,
                         "post": boundary_post_observation,
@@ -1991,11 +2121,13 @@ class MCPServer:
                             "params": payload.get("params", {}),
                             "trace_id": message.trace_id,
                             "request_message_id": message.message_id,
+                            "polyphonic_context": polyphonic_context,
                         },
                         impact_level="critical",
                         subject_id=tool_id,
                         entity_refs=[tool_id, message.source, message.message_id],
                         requires_triune=True,
+                        polyphonic_context=polyphonic_context,
                     )
                     execution.status = "queued_for_triune_approval"
                     execution.output = {
@@ -2028,6 +2160,9 @@ class MCPServer:
                     "trace_id": message.trace_id,
                     "requires_governance": True,
                     "governance_error": governance_error,
+                    "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if polyphonic_context else None),
+                    "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if polyphonic_context else None),
+                    "polyphonic_context": polyphonic_context,
                 },
                 trigger_triune=True,
             )
@@ -2045,6 +2180,7 @@ class MCPServer:
                     "output": execution.output,
                     "error": execution.error,
                     "audit_hash": execution.audit_hash,
+                    "polyphonic_context": polyphonic_context,
                     "boundary": {
                         "pre": boundary_pre_observation,
                         "post": boundary_post_observation,
@@ -2099,6 +2235,9 @@ class MCPServer:
                         "trace_id": message.trace_id,
                         "has_error": True,
                         "token_validation_failed": True,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if polyphonic_context else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if polyphonic_context else None),
+                        "polyphonic_context": polyphonic_context,
                     },
                     trigger_triune=True,
                 )
@@ -2116,6 +2255,7 @@ class MCPServer:
                         "output": execution.output,
                         "error": execution.error,
                         "audit_hash": execution.audit_hash,
+                        "polyphonic_context": polyphonic_context,
                         "boundary": {
                             "pre": boundary_pre_observation,
                             "post": boundary_post_observation,
@@ -2135,6 +2275,12 @@ class MCPServer:
                 execution_params["_principal_identity"] = payload.get("principal_identity")
                 execution_params["_action"] = payload.get("action") or "mcp_tool_execution"
                 execution_params["_target"] = payload.get("target") or tool_id
+                execution_params["_polyphonic_context"] = polyphonic_context
+                execution_params["_notation_token_id"] = (
+                    payload.get("notation_token_id")
+                    or ((polyphonic_context.get("notation_token") or {}).get("token_id") if isinstance(polyphonic_context, dict) else None)
+                    or (polyphonic_context.get("notation_token_id") if isinstance(polyphonic_context, dict) else None)
+                )
                 if asyncio.iscoroutinefunction(handler):
                     result = await asyncio.wait_for(
                         handler(execution_params),
@@ -2194,6 +2340,9 @@ class MCPServer:
                 "execution_id": execution.execution_id,
                 "trace_id": message.trace_id,
                 "has_error": execution.error is not None,
+                "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if polyphonic_context else None),
+                "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if polyphonic_context else None),
+                "polyphonic_context": polyphonic_context,
             },
             trigger_triune=execution.status in {"failed", "timeout"},
         )
@@ -2213,6 +2362,7 @@ class MCPServer:
                 "output": execution.output,
                 "error": execution.error,
                 "audit_hash": execution.audit_hash,
+                "polyphonic_context": polyphonic_context,
                 "boundary": {
                     "pre": boundary_pre_observation,
                     "post": boundary_post_observation,
@@ -2327,7 +2477,11 @@ class MCPServer:
                 "category": t.category.value,
                 "version": t.version,
                 "required_trust_state": t.required_trust_state,
-                "rate_limit": t.rate_limit
+                "rate_limit": t.rate_limit,
+                "voice_type": t.voice_type,
+                "capability_class": t.capability_class,
+                "timbre_profile": t.timbre_profile,
+                "allowed_register": t.allowed_register,
             }
             for t in self.tools.values()
         ]

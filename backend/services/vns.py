@@ -176,6 +176,10 @@ class VirtualNetworkSensor:
         self.dns_queries: deque = deque(maxlen=50000)
         self.tls_fingerprints: Dict[str, TLSFingerprint] = {}
         self.beacon_detections: deque = deque(maxlen=1000)
+        self.domain_pulse_windows: Dict[str, deque] = defaultdict(lambda: deque(maxlen=128))
+        self.domain_pulse_state: Dict[str, Dict[str, Any]] = {}
+        self.edge_mesh_windows: Dict[str, deque] = defaultdict(lambda: deque(maxlen=64))
+        self.edge_mesh_state: Dict[str, Dict[str, Any]] = {}
         
         # Indexes
         self.flows_by_ip: Dict[str, List[str]] = defaultdict(list)
@@ -209,6 +213,114 @@ class VirtualNetworkSensor:
         self.canary_ports: set = set()
         
         logger.info("Virtual Network Sensor initialized")
+
+    def update_domain_pulse(
+        self,
+        *,
+        domain: str,
+        timing_features: Dict[str, Any],
+        harmonic_state: Optional[Dict[str, Any]] = None,
+        timestamp_ms: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        normalized_domain = str(domain or "global")
+        jitter_norm = float(timing_features.get("jitter_norm") or 0.0)
+        drift_norm = float(timing_features.get("drift_norm") or 0.0)
+        interval_mean = float(timing_features.get("mean_interval_ms") or timing_features.get("median_interval_ms") or 0.0)
+        discord = float((harmonic_state or {}).get("discord_score") or 0.0)
+        sample_size = int(timing_features.get("sample_size") or 0)
+        point = {
+            "timestamp_ms": int(timestamp_ms or datetime.now(timezone.utc).timestamp() * 1000),
+            "mean_interval_ms": interval_mean,
+            "jitter_norm": jitter_norm,
+            "drift_norm": drift_norm,
+            "discord_score": discord,
+            "sample_size": sample_size,
+        }
+        self.domain_pulse_windows[normalized_domain].append(point)
+        window = list(self.domain_pulse_windows[normalized_domain])
+        n = max(1, len(window))
+        recent_mean_cadence = sum(max(0.0, float(item.get("mean_interval_ms") or 0.0)) for item in window) / n
+        recent_jitter_band = sum(max(0.0, float(item.get("jitter_norm") or 0.0)) for item in window) / n
+        elevated_drift_count = sum(1 for item in window if float(item.get("drift_norm") or 0.0) >= 0.5)
+        pulse_instability = min(
+            1.0,
+            (0.45 * recent_jitter_band) + (0.35 * (elevated_drift_count / n)) + (0.2 * sum(float(item.get("discord_score") or 0.0) for item in window) / n),
+        )
+        state = {
+            "domain": normalized_domain,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "samples": n,
+            "recent_mean_cadence_ms": round(recent_mean_cadence, 6),
+            "recent_jitter_band": round(recent_jitter_band, 6),
+            "pulse_stability_index": round(max(0.0, 1.0 - pulse_instability), 6),
+            "elevated_drift_count": int(elevated_drift_count),
+            "latest_discord_score": round(discord, 6),
+        }
+        self.domain_pulse_state[normalized_domain] = state
+        return state
+
+    def get_domain_pulse_state(self, domain: Optional[str] = None) -> Dict[str, Any]:
+        if domain:
+            return self.domain_pulse_state.get(str(domain), {})
+        return dict(self.domain_pulse_state)
+
+    def update_edge_mesh_state(
+        self,
+        *,
+        action_id: str,
+        edge_type: str,
+        participant: str,
+        timestamp_ms: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if not action_id:
+            return {}
+        ts_ms = float(timestamp_ms if timestamp_ms is not None else datetime.now(timezone.utc).timestamp() * 1000.0)
+        key = str(action_id)
+        self.edge_mesh_windows[key].append(
+            {
+                "participant": str(participant),
+                "timestamp_ms": ts_ms,
+                "edge_type": str(edge_type or "unknown"),
+            }
+        )
+        state = self.assess_local_entrainment(action_id=key)
+        self.edge_mesh_state[key] = state
+        return state
+
+    def assess_local_entrainment(self, *, action_id: str) -> Dict[str, Any]:
+        points = list(self.edge_mesh_windows.get(str(action_id)) or [])
+        if not points:
+            return {}
+        ordered = sorted(points, key=lambda row: float(row.get("timestamp_ms") or 0.0))
+        participants = [str(row.get("participant") or "") for row in ordered if row.get("participant")]
+        unique = list(dict.fromkeys(participants))
+        intervals = []
+        for idx in range(1, len(ordered)):
+            delta = float(ordered[idx].get("timestamp_ms") or 0.0) - float(ordered[idx - 1].get("timestamp_ms") or 0.0)
+            intervals.append(max(0.0, delta))
+        mean_interval = (sum(intervals) / len(intervals)) if intervals else 0.0
+        jitter = 0.0
+        if len(intervals) > 1:
+            try:
+                import statistics
+                jitter = float(statistics.pstdev(intervals))
+            except Exception:
+                jitter = 0.0
+        instability = 0.0
+        if mean_interval > 0:
+            instability = min(1.0, jitter / mean_interval)
+        pulse_coherence = max(0.0, 1.0 - instability)
+        return {
+            "action_id": str(action_id),
+            "edge_type": str(ordered[0].get("edge_type") or "unknown"),
+            "samples": len(ordered),
+            "participants": unique,
+            "mean_interval_ms": round(mean_interval, 6),
+            "jitter_ms": round(jitter, 6),
+            "pulse_coherence": round(pulse_coherence, 6),
+            "mesh_state": "scattered" if pulse_coherence < 0.4 else "strained" if pulse_coherence < 0.7 else "entrained",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
     
     def _get_zone(self, ip: str) -> str:
         """Determine network zone for IP"""
@@ -631,7 +743,9 @@ class VirtualNetworkSensor:
             "beacon_detections": len(self.beacon_detections),
             "canary_ips": len(self.canary_ips),
             "canary_domains": len(self.canary_domains),
-            "canary_ports": len(self.canary_ports)
+            "canary_ports": len(self.canary_ports),
+            "domain_pulse_domains": len(self.domain_pulse_state),
+            "edge_mesh_edges": len(self.edge_mesh_state),
         }
     
     def validate_endpoint_telemetry(self, endpoint_ip: str,

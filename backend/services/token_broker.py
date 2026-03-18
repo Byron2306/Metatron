@@ -51,6 +51,9 @@ class CapabilityToken:
     nonce: str
     governance_decision_id: Optional[str] = None
     governance_queue_id: Optional[str] = None
+    # Phase 1 placeholder seams for polyphonic notation/token work.
+    polyphonic_token_context: Optional[Dict[str, Any]] = None
+    future_notation_token_ref: Optional[str] = None
 
 
 @dataclass
@@ -117,8 +120,12 @@ class TokenBroker:
         # Access audit log
         self.access_log: List[Dict] = []
         self.token_admin_audit_log: List[Dict] = []
+        self.db = None
         
         logger.info("Token Broker / Secrets Vault initialized")
+
+    def set_db(self, db: Any) -> None:
+        self.db = db
 
     @staticmethod
     def _governance_required_for_admin_actions() -> bool:
@@ -315,6 +322,8 @@ class TokenBroker:
                     tool_id: str = None, ttl_seconds: int = 300,
                     max_uses: int = 1, constraints: Dict = None,
                     governance_context: Optional[Dict[str, Any]] = None,
+                    polyphonic_token_context: Optional[Dict[str, Any]] = None,
+                    future_notation_token_ref: Optional[str] = None,
                     issued_by: str = "unknown") -> CapabilityToken:
         """
         Issue a scoped capability token.
@@ -380,6 +389,8 @@ class TokenBroker:
             nonce=nonce,
             governance_decision_id=governance.get("decision_id"),
             governance_queue_id=governance.get("queue_id"),
+            polyphonic_token_context=polyphonic_token_context or None,
+            future_notation_token_ref=future_notation_token_ref or None,
         )
         
         self.active_tokens[token_id] = token
@@ -389,7 +400,14 @@ class TokenBroker:
             token_id=token_id,
             principal=principal,
             governance_context=governance,
-            metadata={"action": action, "targets": targets, "tool_id": tool_id, "ttl_seconds": ttl_seconds},
+            metadata={
+                "action": action,
+                "targets": targets,
+                "tool_id": tool_id,
+                "ttl_seconds": ttl_seconds,
+                "future_notation_token_ref": future_notation_token_ref,
+                "polyphonic_token_context": polyphonic_token_context or {},
+            },
         )
         
         logger.info(
@@ -568,6 +586,77 @@ class TokenBroker:
             "access_log_size": len(self.access_log),
             "token_admin_audit_log_size": len(self.token_admin_audit_log),
         }
+
+    # =========================================================================
+    # PHASE 2 NOTATION TOKEN BRIDGE METHODS
+    # =========================================================================
+
+    async def issue_notation_token(self, **kwargs) -> Dict[str, Any]:
+        try:
+            from services.notation_token import get_notation_token_service
+        except Exception:
+            from backend.services.notation_token import get_notation_token_service
+        svc = get_notation_token_service(self.db)
+        token = await svc.mint_notation_token(**kwargs)
+        return token.model_dump() if hasattr(token, "model_dump") else token.dict()
+
+    async def validate_notation_token(
+        self,
+        token: Any,
+        active_epoch: Any,
+        world_state_hash: Optional[str],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        try:
+            from services.notation_token import get_notation_token_service
+        except Exception:
+            from backend.services.notation_token import get_notation_token_service
+        svc = get_notation_token_service(self.db)
+        return await svc.validate_notation_token(
+            token=token,
+            active_epoch=active_epoch,
+            world_state_hash=world_state_hash,
+            context=context or {},
+        )
+
+    async def bind_token_to_epoch(
+        self,
+        token_id: str,
+        *,
+        epoch_id: str,
+        score_id: str,
+        genre_mode: str,
+    ) -> bool:
+        if self.db is None or not hasattr(self.db, "notation_tokens"):
+            return False
+        result = await self.db.notation_tokens.update_one(
+            {"token_id": str(token_id)},
+            {
+                "$set": {
+                    "epoch_id": str(epoch_id),
+                    "score_id": str(score_id),
+                    "genre_mode": str(genre_mode),
+                }
+            },
+        )
+        return bool(getattr(result, "modified_count", 0))
+
+    async def bind_token_to_world_state(self, token_id: str, *, world_state_hash: str) -> bool:
+        if self.db is None or not hasattr(self.db, "notation_tokens"):
+            return False
+        result = await self.db.notation_tokens.update_one(
+            {"token_id": str(token_id)},
+            {"$set": {"world_state_hash": str(world_state_hash)}},
+        )
+        return bool(getattr(result, "modified_count", 0))
+
+    async def revoke_notation_tokens_for_epoch(self, epoch_id: str, reason: Optional[str] = None) -> int:
+        try:
+            from services.notation_token import get_notation_token_service
+        except Exception:
+            from backend.services.notation_token import get_notation_token_service
+        svc = get_notation_token_service(self.db)
+        return await svc.revoke_notation_tokens_for_epoch(str(epoch_id), reason=reason)
 
 
 # Global singleton

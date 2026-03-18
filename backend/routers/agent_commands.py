@@ -15,6 +15,11 @@ from backend.services.governed_dispatch import GovernedDispatchService
 from backend.services.governance_authority import GovernanceDecisionAuthority
 from backend.services.governance_executor import GovernanceExecutorService
 from backend.services.outbound_gate import OutboundGateService
+from backend.services.polyphonic_governance import get_polyphonic_governance_service
+from backend.services.notation_token import get_notation_token_service
+from backend.services.harmonic_engine import get_harmonic_engine
+from backend.services.vns import vns
+from backend.services.vns_alerts import vns_alert_service
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -74,6 +79,96 @@ command_results: Dict[str, Dict] = {}
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _to_epoch_ms(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(float(value))
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except Exception:
+        pass
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        return None
+
+
+def _build_result_stage_harmonic_context(
+    *,
+    db: Any,
+    command: Dict[str, Any],
+    result_success: bool,
+    stage: str,
+) -> Dict[str, Any]:
+    polyphonic_context = dict(command.get("polyphonic_context") or {})
+    timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    dispatch_ms = _to_epoch_ms(
+        command.get("dispatch_created_at_ms")
+        or (polyphonic_context.get("harmonic_timeline") or {}).get("dispatch_created_at_ms")
+    )
+    tool_name = str(command.get("command_type") or command.get("tool") or "agent_command")
+    target_domain = str(
+        command.get("target_domain")
+        or (command.get("parameters") or {}).get("target_domain")
+        or "global"
+    )
+    harmonic_engine = get_harmonic_engine(db)
+    observation = harmonic_engine.score_observation(
+        actor_id=str(command.get("agent_id") or command.get("actor") or "agent"),
+        tool_name=tool_name,
+        target_domain=target_domain,
+        environment="local",
+        stage=stage,
+        timestamp_ms=float(timestamp_ms),
+        operation=str(command.get("command_type") or "agent_command"),
+        context={"result_success": bool(result_success), "command_id": command.get("command_id")},
+    )
+    polyphonic_context["timing_features"] = observation.get("timing_features")
+    polyphonic_context["harmonic_state"] = observation.get("harmonic_state")
+    polyphonic_context["baseline_ref"] = observation.get("baseline_ref")
+    history = list(polyphonic_context.get("harmonic_history") or [])
+    history.append(
+        {
+            "stage": stage,
+            "timestamp_ms": timestamp_ms,
+            "harmonic_state": observation.get("harmonic_state"),
+        }
+    )
+    polyphonic_context["harmonic_history"] = history[-30:]
+    timeline = dict(polyphonic_context.get("harmonic_timeline") or {})
+    if dispatch_ms is not None:
+        timeline.setdefault("dispatch_created_at_ms", dispatch_ms)
+        timeline["closure_lag_ms"] = max(0, timestamp_ms - dispatch_ms)
+    timeline["audit_closed_at_ms"] = timestamp_ms
+    polyphonic_context["harmonic_timeline"] = timeline
+    try:
+        if hasattr(vns, "update_domain_pulse"):
+            pulse = vns.update_domain_pulse(
+                domain=target_domain,
+                timing_features=observation.get("timing_features") or {},
+                harmonic_state=observation.get("harmonic_state") or {},
+                timestamp_ms=timestamp_ms,
+            )
+            if (
+                pulse
+                and float(pulse.get("pulse_stability_index") or 1.0) < 0.45
+                and hasattr(vns_alert_service, "alert_pulse_instability_by_domain")
+            ):
+                vns_alert_service.alert_pulse_instability_by_domain(pulse)
+    except Exception:
+        pass
+    return polyphonic_context
 
 
 def _transition_entry(
@@ -830,6 +925,30 @@ async def create_command(
         "executed_at": None,
         "result": None
     }
+    polyphonic = get_polyphonic_governance_service()
+    envelope = polyphonic.build_action_request_envelope(
+        actor_id=str(current_user.get("email", current_user.get("id")) or "unknown"),
+        actor_type="user",
+        operation="agent_command_create",
+        parameters=request.parameters or {},
+        tool_name=request.command_type,
+        resource_uris=[request.agent_id],
+        context_refs={
+            "request_id": command_id,
+            "session_id": str(current_user.get("session_id") or ""),
+        },
+        policy_refs=[],
+        evidence_hashes=[],
+        target_domain="agent_control_zone",
+    )
+    envelope = polyphonic.attach_voice_profile(
+        envelope,
+        component_id="agent_commands_router",
+        route="/agent-commands/create",
+        tool_name=request.command_type,
+        component_type="ingress",
+    )
+    command["polyphonic_context"] = polyphonic.serialize_polyphonic_context(envelope)
     
     dispatch = GovernedDispatchService(db)
     action_type = "cross_sector_hardening" if request.command_type in {"remediate_compliance", "remove_persistence"} else "agent_command"
@@ -841,6 +960,8 @@ async def create_command(
         impact_level="critical" if command["risk_level"] in {"high", "critical"} else "high",
         entity_refs=[request.agent_id, command_id],
         requires_triune=True,
+        route="/agent-commands/create",
+        component_id="agent_commands_router",
     )
     gated = queued.get("queued", {})
     command = queued.get("command", command)
@@ -851,7 +972,15 @@ async def create_command(
         event_type="agent_command_created",
         trigger_triune=True,
         entity_refs=[request.agent_id, command_id],
-        payload={"command_type": request.command_type, "priority": request.priority, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")},
+        payload={
+            "command_type": request.command_type,
+            "priority": request.priority,
+            "queue_id": gated.get("queue_id"),
+            "decision_id": gated.get("decision_id"),
+            "polyphonic_context": command.get("polyphonic_context"),
+            "voice_type": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("voice_type"),
+            "capability_class": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("capability_class"),
+        },
     )
     
     # Remove MongoDB _id before returning
@@ -908,6 +1037,7 @@ async def approve_command(
             "approved_by": approved_by,
             "approved_at": _iso_now(),
             "approval_notes": approval.notes,
+            "polyphonic_context": command.get("polyphonic_context") or {},
         },
         transition_metadata={"approved": bool(approval.approved)},
     )
@@ -932,6 +1062,7 @@ async def approve_command(
             subject_id=command.get("agent_id"),
             entity_refs=[command.get("agent_id"), command_id],
             requires_triune=True,
+            polyphonic_context=command.get("polyphonic_context") or {},
         )
         await db.agent_commands.update_one(
             {"command_id": command_id},
@@ -984,6 +1115,9 @@ async def approve_command(
             "approved": bool(approval.approved),
             "notes": approval.notes,
             "actor": current_user.get("email", current_user.get("id")),
+            "polyphonic_context": command.get("polyphonic_context") or {},
+            "voice_type": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("voice_type"),
+            "capability_class": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("capability_class"),
         },
     )
     
@@ -1048,6 +1182,12 @@ async def report_command_result(
 
     next_status = "completed" if result.get("success") else "failed"
     current_version = int(command.get("state_version") or 0)
+    updated_polyphonic_context = _build_result_stage_harmonic_context(
+        db=db,
+        command=command,
+        result_success=bool(result.get("success")),
+        stage="command_result_reported",
+    )
     transitioned = await _guarded_command_transition(
         db,
         command_id=command_id,
@@ -1059,18 +1199,35 @@ async def report_command_result(
         extra_updates={
             "executed_at": _iso_now(),
             "result": result,
+            "polyphonic_context": updated_polyphonic_context,
         },
     )
     if not transitioned:
         raise HTTPException(status_code=409, detail="Command result conflict; state changed concurrently")
     
     command_results[command_id] = result
+    notation_service = get_notation_token_service(db)
+    notation_token_id = (
+        (command.get("polyphonic_context") or {}).get("notation_token_id")
+        or command.get("notation_token_id")
+    )
+    if notation_token_id:
+        await notation_service.consume_notation_token(
+            str(notation_token_id),
+            outcome="completed" if bool(result.get("success")) else "failed",
+        )
     await emit_world_event(
         db,
         event_type="agent_command_result_recorded",
         trigger_triune=False,
         entity_refs=[command.get("agent_id"), command_id],
-        payload={"success": bool(result.get("success")), "result": result},
+        payload={
+            "success": bool(result.get("success")),
+            "result": result,
+            "polyphonic_context": updated_polyphonic_context,
+            "voice_type": ((updated_polyphonic_context.get("voice_profile") or {}).get("voice_type")),
+            "capability_class": ((updated_polyphonic_context.get("voice_profile") or {}).get("capability_class")),
+        },
     )
 
     return {"status": "recorded"}
@@ -1181,6 +1338,12 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
                 if command:
                     status = str(command.get("status") or "").lower().strip()
                     if status not in COMMAND_TERMINAL_STATUSES:
+                        updated_polyphonic_context = _build_result_stage_harmonic_context(
+                            db=db,
+                            command=command,
+                            result_success=bool(data.get("success")),
+                            stage="command_result_websocket",
+                        )
                         await _guarded_command_transition(
                             db,
                             command_id=command_id,
@@ -1192,8 +1355,19 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
                             extra_updates={
                                 "executed_at": _iso_now(),
                                 "result": data.get("result", {}),
+                                "polyphonic_context": updated_polyphonic_context,
                             },
                         )
+                        notation_service = get_notation_token_service(db)
+                        notation_token_id = (
+                            (command.get("polyphonic_context") or {}).get("notation_token_id")
+                            or command.get("notation_token_id")
+                        )
+                        if notation_token_id:
+                            await notation_service.consume_notation_token(
+                                str(notation_token_id),
+                                outcome="completed" if data.get("success") else "failed",
+                            )
             
             elif data.get("type") == "status_update":
                 # Agent sending status update
