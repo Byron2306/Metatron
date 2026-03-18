@@ -30,6 +30,17 @@ _ACTION_CRITICAL_MARKERS = (
     "governance_epoch",
     "notation_token",
     "world_state_hash_changed",
+    "edge_opened",
+    "state_bound_to_action",
+    "governance_authorized",
+    "executor_started",
+    "executor_completed",
+    "audit_closed",
+    "edge_settled",
+    "edge_chorus_fractured",
+    "policy_bind_completed",
+    "policy_obligations_emitted",
+    "policy_resolution_class",
 )
 
 _STRATEGIC_MARKERS = (

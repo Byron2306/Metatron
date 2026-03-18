@@ -134,6 +134,7 @@ class TamperEvidentTelemetry:
         
         # Trace context
         self.active_traces: Dict[str, Dict] = {}
+        self.edge_observation_index: Dict[str, Dict[str, Any]] = {}
         
         logger.info("Tamper-Evident Telemetry Service initialized")
 
@@ -387,6 +388,75 @@ class TamperEvidentTelemetry:
             },
             trace_id=trace_id or None,
         )
+
+    def record_edge_sequence(
+        self,
+        *,
+        action_id: str,
+        edge_type: str,
+        sequence: List[str],
+        timeline: Optional[Dict[str, Any]] = None,
+        trace_id: Optional[str] = None,
+    ) -> Optional[SignedEvent]:
+        if not action_id:
+            return None
+        event = self.ingest_event(
+            event_type="edge_sequence_recorded",
+            severity="low",
+            data={
+                "action_id": action_id,
+                "edge_type": edge_type,
+                "sequence": list(sequence or []),
+                "timeline": timeline or {},
+            },
+            trace_id=trace_id or None,
+        )
+        entry = self.edge_observation_index.setdefault(action_id, {})
+        entry["action_id"] = action_id
+        entry["edge_type"] = edge_type
+        entry["sequence"] = list(sequence or [])
+        entry["timeline"] = dict(timeline or {})
+        return event
+
+    def record_participant_appearance(
+        self,
+        *,
+        action_id: str,
+        edge_type: str,
+        participant: str,
+        timestamp_ms: Optional[float] = None,
+        trace_id: Optional[str] = None,
+    ) -> Optional[SignedEvent]:
+        if not action_id or not participant:
+            return None
+        ts_ms = float(timestamp_ms if timestamp_ms is not None else datetime.now(timezone.utc).timestamp() * 1000.0)
+        event = self.ingest_event(
+            event_type="edge_participant_appearance",
+            severity="low",
+            data={
+                "action_id": action_id,
+                "edge_type": edge_type,
+                "participant": participant,
+                "timestamp_ms": ts_ms,
+            },
+            trace_id=trace_id or None,
+        )
+        entry = self.edge_observation_index.setdefault(action_id, {})
+        entry["action_id"] = action_id
+        entry["edge_type"] = edge_type
+        participants = list(entry.get("participants") or [])
+        if participant not in participants:
+            participants.append(participant)
+        entry["participants"] = participants
+        timestamps = dict(entry.get("participant_timestamps_ms") or {})
+        timestamps[participant] = ts_ms
+        entry["participant_timestamps_ms"] = timestamps
+        return event
+
+    def replay_edge_observation(self, action_id: str) -> Dict[str, Any]:
+        if not action_id:
+            return {}
+        return dict(self.edge_observation_index.get(action_id) or {})
     
     # =========================================================================
     # AUDIT RECORDS

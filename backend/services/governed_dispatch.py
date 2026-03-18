@@ -62,6 +62,15 @@ class GovernedDispatchService:
         self.harmonic = get_harmonic_engine(db)
         self.environment = str(os.environ.get("ENVIRONMENT") or "local").lower()
 
+    @staticmethod
+    def _edge_type_for_action(action_type: str) -> Optional[str]:
+        action = str(action_type or "").strip().lower()
+        if action in {"agent_command", "swarm_command"}:
+            return "agent_command_execution"
+        if action in {"mcp_tool_execution", "tool_execution"}:
+            return "mcp_tool_invocation"
+        return "outbound_gated_action"
+
     async def queue_gated_agent_command(
         self,
         *,
@@ -107,11 +116,30 @@ class GovernedDispatchService:
         polyphonic_context = self.polyphonic.serialize_polyphonic_context(envelope)
         working_command_doc = dict(command_doc or {})
         dispatch_created_at_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        action_id = (
+            working_command_doc.get("command_id")
+            or working_command_doc.get("action_id")
+            or f"act_{dispatch_created_at_ms}"
+        )
         working_command_doc["dispatch_created_at_ms"] = dispatch_created_at_ms
+        edge_type = self._edge_type_for_action(action_type)
         if isinstance(polyphonic_context, dict):
             timeline = dict(polyphonic_context.get("harmonic_timeline") or {})
             timeline["dispatch_created_at_ms"] = dispatch_created_at_ms
             polyphonic_context["harmonic_timeline"] = timeline
+            polyphonic_context["edge_type"] = edge_type
+            polyphonic_context["edge_observation"] = {
+                "action_id": str(action_id),
+                "edge_type": edge_type,
+                "observed_participants": ["dispatch"],
+                "observed_sequence": ["dispatch"],
+                "timestamps_ms": {"dispatch": float(dispatch_created_at_ms)},
+                "audit_events": [],
+                "state_events": [],
+                "vns_events": [],
+                "missing_participants": [],
+                "unexpected_participants": [],
+            }
         try:
             scope = str(
                 working_command_doc.get("target_domain")
@@ -164,6 +192,22 @@ class GovernedDispatchService:
                     polyphonic_context["notation_token_id"] = notation.token_id
                     polyphonic_context["notation_token"] = notation_doc
                     polyphonic_context["governance_epoch_descriptor"] = active_epoch_doc
+                    edge_observation = dict(polyphonic_context.get("edge_observation") or {})
+                    edge_observation["state_events"] = list(
+                        dict.fromkeys((edge_observation.get("state_events") or []) + ["state_bound_to_action"])
+                    )
+                    ts_map = dict(edge_observation.get("timestamps_ms") or {})
+                    ts_map.setdefault("world_state_bind", float(dispatch_created_at_ms))
+                    edge_observation["timestamps_ms"] = ts_map
+                    participants = list(edge_observation.get("observed_participants") or [])
+                    if "world_state_bind" not in participants:
+                        participants.append("world_state_bind")
+                    edge_observation["observed_participants"] = participants
+                    sequence = list(edge_observation.get("observed_sequence") or [])
+                    if "world_state_bind" not in sequence:
+                        sequence.append("world_state_bind")
+                    edge_observation["observed_sequence"] = sequence
+                    polyphonic_context["edge_observation"] = edge_observation
                 working_command_doc["governance_epoch"] = active_epoch.epoch_id
                 working_command_doc["score_id"] = active_epoch.score_id
                 working_command_doc["genre_mode"] = active_epoch.genre_mode
@@ -173,6 +217,27 @@ class GovernedDispatchService:
                 working_command_doc["entry_window_ms"] = notation_doc.get("entry_window_ms")
                 working_command_doc["sequence_slot"] = notation_doc.get("sequence_slot")
                 working_command_doc["required_companions"] = notation_doc.get("required_companions", [])
+                if emit_world_event is not None:
+                    try:
+                        await emit_world_event(
+                            self.db,
+                            event_type="state_bound_to_action",
+                            entity_refs=[str(agent_id or ""), str(action_id), str(active_epoch.epoch_id)],
+                            payload={
+                                "action_id": str(action_id),
+                                "edge_type": edge_type,
+                                "world_state_hash": active_epoch.world_state_hash,
+                                "governance_epoch": active_epoch.epoch_id,
+                                "score_id": active_epoch.score_id,
+                                "genre_mode": active_epoch.genre_mode,
+                                "notation_token_id": notation.token_id,
+                                "dispatch_created_at_ms": dispatch_created_at_ms,
+                            },
+                            trigger_triune=False,
+                            source="governed_dispatch",
+                        )
+                    except Exception:
+                        pass
         except Exception:
             # Keep dispatch non-breaking: gate layer will mark notation invalid if required.
             pass

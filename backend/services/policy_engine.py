@@ -513,6 +513,39 @@ class PolicyEngine:
             },
             trigger_triune=base_tier in {ApprovalTier.REQUIRE_APPROVAL, ApprovalTier.TWO_PERSON},
         )
+        policy_resolution_class = self._policy_resolution_class(True, base_tier)
+        obligations = self._policy_obligations_for_tier(base_tier)
+        self._emit_policy_event(
+            event_type="policy_bind_completed",
+            entity_refs=[decision.decision_id, principal],
+            payload={
+                "decision_id": decision.decision_id,
+                "action": action,
+                "approval_tier": base_tier.value,
+                "policy_resolution_class": policy_resolution_class,
+            },
+            trigger_triune=False,
+        )
+        self._emit_policy_event(
+            event_type="policy_obligations_emitted",
+            entity_refs=[decision.decision_id, principal],
+            payload={
+                "decision_id": decision.decision_id,
+                "action": action,
+                "obligations": obligations,
+                "policy_resolution_class": policy_resolution_class,
+            },
+            trigger_triune=False,
+        )
+        self._emit_policy_event(
+            event_type="policy_resolution_class",
+            entity_refs=[decision.decision_id, principal],
+            payload={
+                "decision_id": decision.decision_id,
+                "policy_resolution_class": policy_resolution_class,
+            },
+            trigger_triune=False,
+        )
         self._persist_policy_decision(decision, status="pending" if decision.decision_id in self.pending_approvals else "permitted")
         
         return decision
@@ -553,6 +586,27 @@ class PolicyEngine:
             },
             trigger_triune=True,
         )
+        self._emit_policy_event(
+            event_type="policy_bind_completed",
+            entity_refs=[decision.decision_id, principal],
+            payload={
+                "decision_id": decision.decision_id,
+                "action": action,
+                "policy_resolution_class": self._policy_resolution_class(False, decision.approval_tier),
+                "permitted": False,
+                "denial_reason": reason,
+            },
+            trigger_triune=True,
+        )
+        self._emit_policy_event(
+            event_type="policy_resolution_class",
+            entity_refs=[decision.decision_id, principal],
+            payload={
+                "decision_id": decision.decision_id,
+                "policy_resolution_class": self._policy_resolution_class(False, decision.approval_tier),
+            },
+            trigger_triune=True,
+        )
         self._persist_policy_decision(decision, status="denied")
         
         return decision
@@ -567,6 +621,28 @@ class PolicyEngine:
             "permitted": decision.permitted
         }
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
+
+    @staticmethod
+    def _policy_obligations_for_tier(tier: ApprovalTier) -> List[str]:
+        if tier == ApprovalTier.AUTO:
+            return ["record_only"]
+        if tier == ApprovalTier.SUGGEST:
+            return ["operator_visibility", "monitor_closure"]
+        if tier == ApprovalTier.REQUIRE_APPROVAL:
+            return ["require_human_approval", "monitor_closure"]
+        return ["require_two_person_approval", "heightened_audit_anchor"]
+
+    @staticmethod
+    def _policy_resolution_class(permitted: bool, tier: ApprovalTier) -> str:
+        if not permitted:
+            return "denied"
+        if tier == ApprovalTier.AUTO:
+            return "auto_permit"
+        if tier == ApprovalTier.SUGGEST:
+            return "suggested_with_obligations"
+        if tier == ApprovalTier.REQUIRE_APPROVAL:
+            return "approval_required"
+        return "two_person_required"
     
     def approve(self, decision_id: str, approver: str) -> Tuple[bool, str]:
         """Approve a pending decision"""
@@ -605,6 +681,15 @@ class PolicyEngine:
                 payload={"two_person": True},
                 trigger_triune=True,
             )
+            self._emit_policy_event(
+                event_type="policy_resolution_class",
+                entity_refs=[decision_id, approver],
+                payload={
+                    "decision_id": decision_id,
+                    "policy_resolution_class": self._policy_resolution_class(True, decision.approval_tier),
+                },
+                trigger_triune=False,
+            )
             return True, "Two-person approval complete. Action permitted."
         
         else:
@@ -615,6 +700,15 @@ class PolicyEngine:
                 entity_refs=[decision_id, approver],
                 payload={"two_person": False},
                 trigger_triune=True,
+            )
+            self._emit_policy_event(
+                event_type="policy_resolution_class",
+                entity_refs=[decision_id, approver],
+                payload={
+                    "decision_id": decision_id,
+                    "policy_resolution_class": self._policy_resolution_class(True, decision.approval_tier),
+                },
+                trigger_triune=False,
             )
             return True, "Approval granted. Action permitted."
     
@@ -634,6 +728,17 @@ class PolicyEngine:
                 payload={"reason": reason},
                 trigger_triune=True,
             )
+            if decision is not None:
+                self._emit_policy_event(
+                    event_type="policy_resolution_class",
+                    entity_refs=[decision_id, denier],
+                    payload={
+                        "decision_id": decision_id,
+                        "policy_resolution_class": self._policy_resolution_class(False, decision.approval_tier),
+                        "reason": reason,
+                    },
+                    trigger_triune=True,
+                )
             return True
         return False
     

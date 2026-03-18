@@ -25,6 +25,11 @@ except Exception:
     from backend.services.harmonic_engine import get_harmonic_engine
 
 try:
+    from services.chorus_engine import get_chorus_engine
+except Exception:
+    from backend.services.chorus_engine import get_chorus_engine
+
+try:
     from services.vns import vns
 except Exception:
     from backend.services.vns import vns
@@ -50,6 +55,16 @@ except Exception:
     except Exception:
         tamper_evident_telemetry = None
 
+try:
+    from audit_logging import record_edge_closure, record_closure_lag, record_settlement_state
+except Exception:
+    try:
+        from backend.audit_logging import record_edge_closure, record_closure_lag, record_settlement_state
+    except Exception:
+        record_edge_closure = None
+        record_closure_lag = None
+        record_settlement_state = None
+
 logger = logging.getLogger(__name__)
 
 _governance_executor_task: Optional[asyncio.Task] = None
@@ -57,6 +72,16 @@ _governance_executor_task: Optional[asyncio.Task] = None
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _model_dump(model: Any) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()  # type: ignore[no-any-return]
+    if hasattr(model, "dict"):
+        return model.dict()  # type: ignore[no-any-return]
+    if hasattr(model, "__dict__"):
+        return dict(model.__dict__)  # type: ignore[no-any-return]
+    return dict(model)
 
 
 class GovernanceExecutorService:
@@ -89,6 +114,7 @@ class GovernanceExecutorService:
         self.epoch_service = get_governance_epoch_service(db)
         self.notation_tokens = get_notation_token_service(db)
         self.harmonic = get_harmonic_engine(db)
+        self.chorus = get_chorus_engine(db)
         self.environment = str(os.environ.get("ENVIRONMENT") or "local").lower()
 
     @staticmethod
@@ -227,6 +253,48 @@ class GovernanceExecutorService:
             if end is not None:
                 timeline["closure_lag_ms"] = max(0, ts_ms - end)
         polyphonic_context["harmonic_timeline"] = timeline
+        edge_observation = dict(polyphonic_context.get("edge_observation") or {})
+        participant = None
+        step_name = None
+        if stage == "executor_start":
+            participant = "executor"
+            step_name = "executor_started"
+        elif stage == "executor_end":
+            participant = "executor"
+            step_name = "executor_completed"
+        elif stage == "audit_closed":
+            participant = "audit_closure"
+            step_name = "audit_closure"
+        if participant and step_name:
+            participants = list(edge_observation.get("observed_participants") or [])
+            if participant not in participants:
+                participants.append(participant)
+            edge_observation["observed_participants"] = participants
+            sequence = list(edge_observation.get("observed_sequence") or [])
+            if step_name not in sequence:
+                sequence.append(step_name)
+            edge_observation["observed_sequence"] = sequence
+            timestamps = dict(edge_observation.get("timestamps_ms") or {})
+            timestamps[step_name] = float(ts_ms)
+            edge_observation["timestamps_ms"] = timestamps
+            state_events = list(edge_observation.get("state_events") or [])
+            if step_name not in state_events:
+                state_events.append(step_name)
+            edge_observation["state_events"] = state_events
+            polyphonic_context["edge_observation"] = edge_observation
+            if hasattr(vns, "update_edge_mesh_state"):
+                mesh_state = vns.update_edge_mesh_state(
+                    action_id=str(payload.get("command_id") or queue_doc.get("action_id") or queue_doc.get("queue_id") or ""),
+                    edge_type=str(polyphonic_context.get("edge_type") or queue_doc.get("edge_type") or "agent_command_execution"),
+                    participant=participant,
+                    timestamp_ms=float(ts_ms),
+                )
+                if mesh_state and mesh_state.get("mesh_state") in {"strained", "scattered"}:
+                    vns_events = list(edge_observation.get("vns_events") or [])
+                    if "pulse_instability_warning" not in vns_events:
+                        vns_events.append("pulse_instability_warning")
+                    edge_observation["vns_events"] = vns_events
+                    polyphonic_context["edge_observation"] = edge_observation
         try:
             if hasattr(vns, "update_domain_pulse"):
                 pulse_state = vns.update_domain_pulse(
@@ -385,6 +453,287 @@ class GovernanceExecutorService:
                 }
             )
 
+    def build_execution_edge_observation(
+        self,
+        *,
+        action_id: str,
+        action_type: str,
+        queue_doc: Dict[str, Any],
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        outcome: str,
+    ) -> Dict[str, Any]:
+        edge_type = (
+            (polyphonic_context.get("edge_type") if isinstance(polyphonic_context, dict) else None)
+            or queue_doc.get("edge_type")
+            or ("agent_command_execution" if action_type in {"agent_command", "swarm_command"} else "outbound_gated_action")
+        )
+        edge_context = (
+            (polyphonic_context.get("edge_context") if isinstance(polyphonic_context, dict) else None)
+            or queue_doc.get("edge_context")
+            or {}
+        )
+        base_observation = (
+            (polyphonic_context.get("edge_observation") if isinstance(polyphonic_context, dict) else None)
+            or {}
+        )
+        harmonic_timeline = (
+            (polyphonic_context.get("harmonic_timeline") if isinstance(polyphonic_context, dict) else None)
+            or {}
+        )
+        observed_participants = list(base_observation.get("observed_participants") or edge_context.get("observed_participants") or [])
+        for participant in ["executor", "audit_closure"]:
+            if participant not in observed_participants:
+                observed_participants.append(participant)
+        observed_sequence = list(base_observation.get("observed_sequence") or edge_context.get("observed_sequence") or [])
+        for step in ["executor_started", "executor_completed", "audit_closure", "edge_settled"]:
+            if step not in observed_sequence:
+                observed_sequence.append(step)
+        timestamps_ms = dict(base_observation.get("timestamps_ms") or edge_context.get("timestamps_ms") or {})
+        if harmonic_timeline.get("executor_start_ms") is not None:
+            timestamps_ms["executor_started"] = float(harmonic_timeline.get("executor_start_ms"))
+            timestamps_ms.setdefault("executor", float(harmonic_timeline.get("executor_start_ms")))
+        if harmonic_timeline.get("executor_end_ms") is not None:
+            timestamps_ms["executor_completed"] = float(harmonic_timeline.get("executor_end_ms"))
+        if harmonic_timeline.get("audit_closed_at_ms") is not None:
+            timestamps_ms["audit_closure"] = float(harmonic_timeline.get("audit_closed_at_ms"))
+            timestamps_ms["audit_closed"] = float(harmonic_timeline.get("audit_closed_at_ms"))
+            timestamps_ms["edge_settled"] = float(harmonic_timeline.get("audit_closed_at_ms"))
+        state_events = list(base_observation.get("state_events") or edge_context.get("state_events") or [])
+        for event_name in ["executor_started", "executor_completed", "edge_settled"]:
+            if event_name not in state_events:
+                state_events.append(event_name)
+        audit_events = list(base_observation.get("audit_events") or edge_context.get("audit_events") or [])
+        if "audit_closed" not in audit_events:
+            audit_events.append("audit_closed")
+        vns_events = list(base_observation.get("vns_events") or edge_context.get("vns_events") or [])
+        mesh_state = vns.assess_local_entrainment(action_id=str(action_id)) if hasattr(vns, "assess_local_entrainment") else {}
+        if mesh_state and mesh_state.get("mesh_state") in {"scattered", "strained"}:
+            if "pulse_instability_warning" not in vns_events:
+                vns_events.append("pulse_instability_warning")
+        observation_model = self.chorus.collect_edge_participants(
+            action_id=str(action_id),
+            context={
+                "edge_type": edge_type,
+                "observed_participants": observed_participants,
+                "observed_sequence": observed_sequence,
+                "timestamps_ms": timestamps_ms,
+                "audit_events": audit_events,
+                "state_events": state_events,
+                "vns_events": vns_events,
+            },
+        )
+        return _model_dump(observation_model)
+
+    async def attach_chorus_state_to_action(
+        self,
+        *,
+        decision_id: Optional[str],
+        queue_id: Optional[str],
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        spec: Dict[str, Any],
+        observation: Dict[str, Any],
+        chorus_state: Dict[str, Any],
+    ) -> None:
+        polyphonic_context["chorus_spec"] = spec
+        polyphonic_context["edge_observation"] = observation
+        polyphonic_context["chorus_state"] = chorus_state
+        payload["polyphonic_context"] = polyphonic_context
+        update_fields = {
+            "polyphonic_context": polyphonic_context,
+            "chorus_spec": spec,
+            "edge_observation": observation,
+            "chorus_state": chorus_state,
+            "resolution_class": chorus_state.get("resolution_class"),
+            "dissonance_class": chorus_state.get("dissonance_class"),
+            "updated_at": _iso_now(),
+        }
+        await self.db.triune_outbound_queue.update_one(
+            {"queue_id": queue_id},
+            {"$set": update_fields},
+        )
+        await self.db.triune_decisions.update_one(
+            {"decision_id": decision_id},
+            {"$set": update_fields},
+        )
+
+    async def finalize_chorus_state(
+        self,
+        *,
+        decision_id: Optional[str],
+        queue_id: Optional[str],
+        action_id: str,
+        action_type: str,
+        actor: str,
+        outcome: str,
+        payload: Dict[str, Any],
+        queue_doc: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        edge_type = (
+            (polyphonic_context.get("edge_type") if isinstance(polyphonic_context, dict) else None)
+            or queue_doc.get("edge_type")
+            or ("agent_command_execution" if action_type in {"agent_command", "swarm_command"} else "outbound_gated_action")
+        )
+        spec_model = self.chorus.load_edge_chorus_spec(
+            edge_type=str(edge_type),
+            genre_mode=str(payload.get("genre_mode") or polyphonic_context.get("genre_mode") or ""),
+        )
+        observation_doc = self.build_execution_edge_observation(
+            action_id=str(action_id),
+            action_type=action_type,
+            queue_doc=queue_doc,
+            payload=payload,
+            polyphonic_context=polyphonic_context,
+            outcome=outcome,
+        )
+        observation_model = self.chorus.collect_edge_participants(
+            action_id=str(action_id),
+            context=observation_doc,
+        )
+        chorus_state_model = self.chorus.assemble_chorus_state(
+            spec=spec_model,
+            observation=observation_model,
+        )
+        spec_doc = _model_dump(spec_model)
+        observation_dump = _model_dump(observation_model)
+        chorus_state = _model_dump(chorus_state_model)
+
+        await self.attach_chorus_state_to_action(
+            decision_id=decision_id,
+            queue_id=queue_id,
+            payload=payload,
+            polyphonic_context=polyphonic_context,
+            spec=spec_doc,
+            observation=observation_dump,
+            chorus_state=chorus_state,
+        )
+
+        if tamper_evident_telemetry is not None:
+            try:
+                tamper_evident_telemetry.set_db(self.db)
+                if hasattr(tamper_evident_telemetry, "record_edge_sequence"):
+                    tamper_evident_telemetry.record_edge_sequence(
+                        action_id=str(action_id),
+                        edge_type=str(edge_type),
+                        sequence=observation_dump.get("observed_sequence") or [],
+                        timeline=observation_dump.get("timestamps_ms") or {},
+                        trace_id=str(payload.get("trace_id") or ""),
+                    )
+                if hasattr(tamper_evident_telemetry, "record_participant_appearance"):
+                    for participant in observation_dump.get("observed_participants") or []:
+                        tamper_evident_telemetry.record_participant_appearance(
+                            action_id=str(action_id),
+                            edge_type=str(edge_type),
+                            participant=str(participant),
+                            timestamp_ms=(observation_dump.get("timestamps_ms") or {}).get(str(participant)),
+                            trace_id=str(payload.get("trace_id") or ""),
+                        )
+            except Exception:
+                logger.debug("Failed to record chorus telemetry", exc_info=True)
+
+        settlement_timeout_ms = int(spec_doc.get("settlement_timeout_ms") or 0)
+        opened = float((observation_dump.get("timestamps_ms") or {}).get("edge_opened") or 0.0)
+        settled = float((observation_dump.get("timestamps_ms") or {}).get("edge_settled") or 0.0)
+        settlement_lag_ms = max(0.0, settled - opened) if opened and settled else None
+        if record_edge_closure is not None:
+            try:
+                await record_edge_closure(
+                    edge_type=str(edge_type),
+                    action_id=str(action_id),
+                    actor=f"service:{actor or 'governance_executor'}",
+                    closure_completed=True,
+                    closure_lag_ms=settlement_lag_ms,
+                    settlement_timeout_ms=settlement_timeout_ms or None,
+                    evidence_anchors_present=bool(observation_dump.get("audit_events")),
+                    details={"resolution_class": chorus_state.get("resolution_class"), "dissonance_class": chorus_state.get("dissonance_class")},
+                )
+                if settlement_lag_ms is not None:
+                    await record_closure_lag(
+                        edge_type=str(edge_type),
+                        action_id=str(action_id),
+                        closure_lag_ms=settlement_lag_ms,
+                        settlement_timeout_ms=settlement_timeout_ms or None,
+                        actor=f"service:{actor or 'governance_executor'}",
+                    )
+                await record_settlement_state(
+                    edge_type=str(edge_type),
+                    action_id=str(action_id),
+                    settlement_state=str(chorus_state.get("resolution_class") or "unknown"),
+                    actor=f"service:{actor or 'governance_executor'}",
+                    details={"reason": reason, "outcome": outcome},
+                )
+            except Exception:
+                logger.debug("Failed to record edge closure audit", exc_info=True)
+
+        if emit_world_event is not None:
+            try:
+                event_type = "edge_chorus_fractured" if str(chorus_state.get("resolution_class")) in {"dissonant", "fractured"} else "edge_settled"
+                await emit_world_event(
+                    self.db,
+                    event_type=event_type,
+                    entity_refs=[decision_id, queue_id, str(action_id)],
+                    payload={
+                        "action_id": str(action_id),
+                        "edge_type": str(edge_type),
+                        "outcome": outcome,
+                        "reason": reason,
+                        "chorus_state": chorus_state,
+                        "edge_observation": observation_dump,
+                        "polyphonic_context": polyphonic_context or None,
+                    },
+                    trigger_triune=str(chorus_state.get("resolution_class")) in {"dissonant", "fractured"},
+                    source="governance_executor",
+                )
+                await emit_world_event(
+                    self.db,
+                    event_type="audit_closed",
+                    entity_refs=[decision_id, queue_id, str(action_id)],
+                    payload={
+                        "action_id": str(action_id),
+                        "edge_type": str(edge_type),
+                        "audit_events": observation_dump.get("audit_events") or [],
+                        "timestamps_ms": observation_dump.get("timestamps_ms") or {},
+                        "chorus_state": chorus_state,
+                        "polyphonic_context": polyphonic_context or None,
+                    },
+                    trigger_triune=False,
+                    source="governance_executor",
+                )
+            except Exception:
+                logger.debug("Failed to emit chorus world events", exc_info=True)
+
+        mesh_state = vns.assess_local_entrainment(action_id=str(action_id)) if hasattr(vns, "assess_local_entrainment") else {}
+        if mesh_state and float(mesh_state.get("pulse_coherence") or 1.0) < 0.55 and hasattr(vns_alert_service, "alert_edge_entrainment_warning"):
+            vns_alert_service.alert_edge_entrainment_warning(mesh_state)
+        if str(chorus_state.get("resolution_class") or "") in {"dissonant", "fractured"} and hasattr(vns_alert_service, "alert_chorus_fracture_warning"):
+            vns_alert_service.alert_chorus_fracture_warning(
+                {
+                    "action_id": str(action_id),
+                    "edge_type": str(edge_type),
+                    "resolution_class": chorus_state.get("resolution_class"),
+                    "dissonance_class": chorus_state.get("dissonance_class"),
+                    "rationale": chorus_state.get("rationale") or [],
+                }
+            )
+        if settlement_lag_ms is not None and settlement_timeout_ms and settlement_lag_ms > settlement_timeout_ms and hasattr(vns_alert_service, "alert_settlement_timeout_warning"):
+            vns_alert_service.alert_settlement_timeout_warning(
+                {
+                    "action_id": str(action_id),
+                    "edge_type": str(edge_type),
+                    "settlement_lag_ms": settlement_lag_ms,
+                    "settlement_timeout_ms": settlement_timeout_ms,
+                }
+            )
+        return {
+            "chorus_spec": spec_doc,
+            "edge_observation": observation_dump,
+            "chorus_state": chorus_state,
+            "mesh_state": mesh_state,
+        }
+
     async def _validate_notation_for_execution(
         self,
         *,
@@ -479,6 +828,14 @@ class GovernanceExecutorService:
             entity_refs=refs,
             payload=payload,
             trigger_triune=outcome == "failed",
+            source="governance_executor",
+        )
+        await emit_world_event(
+            self.db,
+            event_type="executor_completed",
+            entity_refs=refs,
+            payload=payload,
+            trigger_triune=outcome in {"failed", "skipped"},
             source="governance_executor",
         )
 
@@ -1119,6 +1476,19 @@ class GovernanceExecutorService:
                     }
                 },
             )
+            if emit_world_event is not None:
+                await emit_world_event(
+                    self.db,
+                    event_type="executor_started",
+                    entity_refs=[decision_id, related_queue_id, str(queue_doc.get("action_id") or "")],
+                    payload={
+                        "action_type": action_type,
+                        "executor_start_ms": executor_start_ms,
+                        "polyphonic_context": polyphonic_context or None,
+                    },
+                    trigger_triune=False,
+                    source="governance_executor",
+                )
         except Exception:
             logger.debug("Failed to attach pre-execution harmonic observation", exc_info=True)
         notation_ctx = self._notation_token_from_context(queue_doc, payload)
@@ -1129,6 +1499,13 @@ class GovernanceExecutorService:
         notation_valid = bool(notation_validation.get("valid"))
         notation_checks = notation_validation.get("checks") or {}
         notation_failure_reason = ";".join(notation_validation.get("reasons") or []) or None
+        resolved_action_id = str(
+            payload.get("command_id")
+            or queue_doc.get("action_id")
+            or related_queue_id
+            or decision_id
+            or ""
+        )
         async def _finalize_harmonic(outcome: str, reason: Optional[str] = None) -> None:
             try:
                 await self.finalize_harmonic_state(
@@ -1142,8 +1519,20 @@ class GovernanceExecutorService:
                     outcome=outcome,
                     reason=reason,
                 )
+                await self.finalize_chorus_state(
+                    decision_id=decision_id,
+                    queue_id=related_queue_id,
+                    action_id=resolved_action_id,
+                    action_type=action_type,
+                    actor=str(actor),
+                    outcome=outcome,
+                    payload=payload,
+                    queue_doc=queue_doc,
+                    polyphonic_context=polyphonic_context,
+                    reason=reason,
+                )
             except Exception:
-                logger.debug("Failed to finalize harmonic state", exc_info=True)
+                logger.debug("Failed to finalize harmonic/chorus state", exc_info=True)
         if not notation_valid:
             await self.db.triune_decisions.update_one(
                 {"decision_id": decision_id},

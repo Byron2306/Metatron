@@ -20,6 +20,11 @@ except Exception:
     from backend.services.harmonic_engine import get_harmonic_engine
 
 try:
+    from services.chorus_engine import get_chorus_engine
+except Exception:
+    from backend.services.chorus_engine import get_chorus_engine
+
+try:
     from services.vns import vns
 except Exception:
     from backend.services.vns import vns
@@ -56,6 +61,16 @@ MANDATORY_HIGH_IMPACT_ACTIONS = {
 }
 
 
+def _model_dump(model: Any) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()  # type: ignore[no-any-return]
+    if hasattr(model, "dict"):
+        return model.dict()  # type: ignore[no-any-return]
+    if hasattr(model, "__dict__"):
+        return dict(model.__dict__)  # type: ignore[no-any-return]
+    return dict(model)
+
+
 class OutboundGateService:
     """Central outbound gate used before high-impact action execution."""
 
@@ -64,12 +79,137 @@ class OutboundGateService:
         self.epoch_service = get_governance_epoch_service(db)
         self.notation_tokens = get_notation_token_service(db)
         self.harmonic = get_harmonic_engine(db)
+        self.chorus = get_chorus_engine(db)
         self.environment = str(os.environ.get("ENVIRONMENT") or "local").lower()
 
     @staticmethod
     def _normalize_impact(impact_level: str) -> str:
         normalized = str(impact_level or "high").lower().strip()
         return normalized if normalized in IMPACT_ORDER else "high"
+
+    @staticmethod
+    def _edge_type_for_action(action_type: str) -> Optional[str]:
+        action = str(action_type or "").strip().lower()
+        if action in {"agent_command", "swarm_command"}:
+            return "agent_command_execution"
+        if action in {"mcp_tool_execution", "tool_execution"}:
+            return "mcp_tool_invocation"
+        if action in MANDATORY_HIGH_IMPACT_ACTIONS:
+            return "outbound_gated_action"
+        return None
+
+    def attach_required_companions(
+        self,
+        *,
+        payload: Dict[str, Any],
+        spec: Dict[str, Any],
+    ) -> List[str]:
+        existing = [str(x) for x in (payload.get("required_companions") or []) if x]
+        required = [str(x) for x in (spec.get("required_companions") or []) if x]
+        merged = list(dict.fromkeys(existing + required))
+        payload["required_companions"] = merged
+        return merged
+
+    def open_edge_context(
+        self,
+        *,
+        action_type: str,
+        action_id: str,
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        gate_seen_at_ms: int,
+        world_state_bound: bool,
+    ) -> Dict[str, Any]:
+        edge_type = self._edge_type_for_action(action_type)
+        if not edge_type:
+            return {}
+        spec_obj = self.chorus.load_edge_chorus_spec(
+            edge_type=edge_type,
+            genre_mode=str(payload.get("genre_mode") or polyphonic_context.get("genre_mode") or ""),
+        )
+        spec = _model_dump(spec_obj)
+        required_companions = self.attach_required_companions(payload=payload, spec=spec)
+        dispatch_ts = payload.get("dispatch_created_at_ms")
+        try:
+            dispatch_ts = int(float(dispatch_ts)) if dispatch_ts is not None else None
+        except Exception:
+            dispatch_ts = None
+        observed_participants = ["outbound_gate"]
+        observed_sequence = ["outbound_gate"]
+        state_events = ["edge_opened"]
+        timestamps_ms = {"edge_opened": float(gate_seen_at_ms), "outbound_gate": float(gate_seen_at_ms)}
+        if dispatch_ts is not None:
+            observed_participants.insert(0, "dispatch")
+            observed_sequence.insert(0, "dispatch")
+            timestamps_ms["dispatch"] = float(dispatch_ts)
+        if world_state_bound:
+            insertion_index = 1 if observed_participants and observed_participants[0] == "dispatch" else 0
+            observed_participants.insert(insertion_index, "world_state_bind")
+            observed_sequence.insert(insertion_index, "world_state_bind")
+            state_events.append("state_bound_to_action")
+            timestamps_ms["world_state_bind"] = float(gate_seen_at_ms)
+        edge_context = {
+            "edge_type": edge_type,
+            "action_id": action_id,
+            "required_companions": required_companions,
+            "required_participants": list(spec.get("required_participants") or []),
+            "optional_participants": list(spec.get("optional_participants") or []),
+            "expected_sequence": list(spec.get("expected_sequence") or []),
+            "settlement_timeout_ms": spec.get("settlement_timeout_ms"),
+            "observed_participants": observed_participants,
+            "observed_sequence": observed_sequence,
+            "timestamps_ms": timestamps_ms,
+            "state_events": state_events,
+            "audit_events": [],
+            "vns_events": [],
+            "opened_at_ms": int(gate_seen_at_ms),
+        }
+        polyphonic_context["chorus_spec"] = spec
+        polyphonic_context["edge_observation"] = {
+            "action_id": action_id,
+            "edge_type": edge_type,
+            "observed_participants": observed_participants,
+            "observed_sequence": observed_sequence,
+            "timestamps_ms": timestamps_ms,
+            "audit_events": [],
+            "state_events": state_events,
+            "vns_events": [],
+            "missing_participants": [],
+            "unexpected_participants": [],
+        }
+        polyphonic_context["edge_type"] = edge_type
+        polyphonic_context["edge_context"] = edge_context
+        return edge_context
+
+    async def emit_edge_opened_event(
+        self,
+        *,
+        edge_context: Dict[str, Any],
+        refs: List[str],
+        actor: str,
+    ) -> None:
+        if emit_world_event is None or self.db is None or not edge_context:
+            return
+        try:
+            await emit_world_event(
+                self.db,
+                event_type="edge_opened",
+                entity_refs=refs,
+                payload={
+                    "edge_type": edge_context.get("edge_type"),
+                    "action_id": edge_context.get("action_id"),
+                    "actor": actor,
+                    "required_participants": edge_context.get("required_participants") or [],
+                    "required_companions": edge_context.get("required_companions") or [],
+                    "settlement_timeout_ms": edge_context.get("settlement_timeout_ms"),
+                    "state_events": edge_context.get("state_events") or [],
+                    "timestamps_ms": edge_context.get("timestamps_ms") or {},
+                },
+                trigger_triune=False,
+                source="outbound_gate",
+            )
+        except Exception:
+            logger.debug("Failed to emit edge_opened event", exc_info=True)
 
     def attach_gate_timing_observation(
         self,
@@ -277,6 +417,31 @@ class OutboundGateService:
                 "enforcement_profile"
             )
 
+        action_id = payload.get("command_id") or payload.get("action_id") or secrets.token_hex(8)
+        world_state_bound = bool(
+            (active_epoch is not None and active_epoch.world_state_hash)
+            or payload.get("world_state_hash")
+            or (
+                resolved_polyphonic_context.get("world_state_hash")
+                if isinstance(resolved_polyphonic_context, dict)
+                else None
+            )
+        )
+        edge_context: Dict[str, Any] = (
+            self.open_edge_context(
+                action_type=normalized_action,
+                action_id=str(action_id),
+                payload=payload,
+                polyphonic_context=(
+                    resolved_polyphonic_context if isinstance(resolved_polyphonic_context, dict) else {}
+                ),
+                gate_seen_at_ms=gate_seen_at_ms,
+                world_state_bound=world_state_bound,
+            )
+            if isinstance(resolved_polyphonic_context, dict)
+            else {}
+        )
+
         dispatch_created_at_ms = None
         gate_lag_ms = None
         harmonic_observation: Dict[str, Any] = {}
@@ -311,6 +476,8 @@ class OutboundGateService:
                     and hasattr(vns_alert_service, "alert_pulse_instability_by_domain")
                 ):
                     vns_alert_service.alert_pulse_instability_by_domain(pulse_state)
+                    if edge_context:
+                        (edge_context.setdefault("vns_events", [])).append("pulse_instability_warning")
             timing_features = harmonic_observation.get("timing_features") or {}
             if (
                 float(timing_features.get("drift_norm") or 0.0) >= 0.6
@@ -327,6 +494,8 @@ class OutboundGateService:
                         ),
                     }
                 )
+                if edge_context:
+                    (edge_context.setdefault("vns_events", [])).append("harmonic_drift_detected")
             if (
                 float(timing_features.get("burstiness") or 0.0) >= 0.6
                 and hasattr(vns_alert_service, "alert_burst_cluster_detected")
@@ -341,6 +510,8 @@ class OutboundGateService:
                         ),
                     }
                 )
+                if edge_context:
+                    (edge_context.setdefault("vns_events", [])).append("burst_cluster_detected")
             discord = float((harmonic_observation.get("harmonic_state") or {}).get("discord_score") or 0.0)
             if discord >= 0.7 and hasattr(vns_alert_service, "alert_discord_threshold_crossed"):
                 vns_alert_service.alert_discord_threshold_crossed(
@@ -354,13 +525,33 @@ class OutboundGateService:
                         ),
                     }
                 )
+                if edge_context:
+                    (edge_context.setdefault("vns_events", [])).append("discord_threshold_crossed")
         except Exception:
             logger.debug("Failed to compute gate harmonic observation", exc_info=True)
+
+        if edge_context and isinstance(resolved_polyphonic_context, dict):
+            edge_observation = dict(resolved_polyphonic_context.get("edge_observation") or {})
+            if not edge_observation:
+                edge_observation = {
+                    "action_id": str(action_id),
+                    "edge_type": edge_context.get("edge_type"),
+                    "observed_participants": [],
+                    "observed_sequence": [],
+                    "timestamps_ms": {},
+                    "audit_events": [],
+                    "state_events": [],
+                    "vns_events": [],
+                    "missing_participants": [],
+                    "unexpected_participants": [],
+                }
+            edge_observation["vns_events"] = list(dict.fromkeys(edge_context.get("vns_events") or []))
+            resolved_polyphonic_context["edge_observation"] = edge_observation
+            resolved_polyphonic_context["edge_context"] = edge_context
 
         now = datetime.now(timezone.utc).isoformat()
         queue_id = secrets.token_hex(8)
         decision_id = secrets.token_hex(8)
-        action_id = payload.get("command_id") or payload.get("action_id") or secrets.token_hex(8)
 
         refs = [r for r in (entity_refs or []) if r]
         if subject_id and subject_id not in refs:
@@ -374,6 +565,11 @@ class OutboundGateService:
         payload_with_polyphonic = dict(payload or {})
         if resolved_polyphonic_context:
             payload_with_polyphonic["polyphonic_context"] = resolved_polyphonic_context
+        if edge_context:
+            payload_with_polyphonic["edge_type"] = edge_context.get("edge_type")
+            payload_with_polyphonic["edge_context"] = edge_context
+            payload_with_polyphonic["required_companions"] = edge_context.get("required_companions") or []
+            payload_with_polyphonic["settlement_timeout_ms"] = edge_context.get("settlement_timeout_ms")
         payload_with_polyphonic["gate_seen_at_ms"] = gate_seen_at_ms
         if gate_lag_ms is not None:
             payload_with_polyphonic["gate_lag_ms"] = gate_lag_ms
@@ -420,6 +616,8 @@ class OutboundGateService:
             "voice_type": voice_profile.get("voice_type") if isinstance(voice_profile, dict) else None,
             "capability_class": voice_profile.get("capability_class") if isinstance(voice_profile, dict) else None,
             "polyphonic_context": resolved_polyphonic_context or None,
+            "edge_type": edge_context.get("edge_type") if edge_context else None,
+            "edge_context": edge_context or None,
             "governance_epoch": active_epoch.epoch_id if active_epoch is not None else None,
             "score_id": active_epoch.score_id if active_epoch is not None else None,
             "genre_mode": active_epoch.genre_mode if active_epoch is not None else None,
@@ -458,6 +656,8 @@ class OutboundGateService:
             "voice_type": voice_profile.get("voice_type") if isinstance(voice_profile, dict) else None,
             "capability_class": voice_profile.get("capability_class") if isinstance(voice_profile, dict) else None,
             "polyphonic_context": resolved_polyphonic_context or None,
+            "edge_type": edge_context.get("edge_type") if edge_context else None,
+            "edge_context": edge_context or None,
             "governance_epoch": active_epoch.epoch_id if active_epoch is not None else None,
             "score_id": active_epoch.score_id if active_epoch is not None else None,
             "genre_mode": active_epoch.genre_mode if active_epoch is not None else None,
@@ -494,6 +694,13 @@ class OutboundGateService:
             logger.exception("Failed to gate outbound action '%s': %s", normalized_action, exc)
             raise
 
+        if edge_context:
+            await self.emit_edge_opened_event(
+                edge_context=edge_context,
+                refs=refs + [action_id, queue_id, decision_id],
+                actor=str(actor or "unknown"),
+            )
+
         if emit_world_event is not None and self.db is not None:
             try:
                 await emit_world_event(
@@ -508,6 +715,8 @@ class OutboundGateService:
                         "voice_type": voice_profile.get("voice_type") if isinstance(voice_profile, dict) else None,
                         "capability_class": voice_profile.get("capability_class") if isinstance(voice_profile, dict) else None,
                         "polyphonic_context": resolved_polyphonic_context or None,
+                        "edge_type": edge_context.get("edge_type") if edge_context else None,
+                        "edge_context": edge_context or None,
                         "governance_epoch": active_epoch.epoch_id if active_epoch is not None else None,
                         "score_id": active_epoch.score_id if active_epoch is not None else None,
                         "genre_mode": active_epoch.genre_mode if active_epoch is not None else None,
@@ -542,6 +751,8 @@ class OutboundGateService:
             "voice_type": voice_profile.get("voice_type") if isinstance(voice_profile, dict) else None,
             "capability_class": voice_profile.get("capability_class") if isinstance(voice_profile, dict) else None,
             "polyphonic_context": resolved_polyphonic_context or None,
+            "edge_type": edge_context.get("edge_type") if edge_context else None,
+            "edge_context": edge_context or None,
             "governance_epoch": active_epoch.epoch_id if active_epoch is not None else None,
             "score_id": active_epoch.score_id if active_epoch is not None else None,
             "genre_mode": active_epoch.genre_mode if active_epoch is not None else None,

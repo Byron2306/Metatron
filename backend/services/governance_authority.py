@@ -12,6 +12,11 @@ except Exception:
     from backend.services.notation_token import get_notation_token_service
 
 try:
+    from services.chorus_engine import get_chorus_engine
+except Exception:
+    from backend.services.chorus_engine import get_chorus_engine
+
+try:
     from services.world_events import emit_world_event
 except Exception:
     try:
@@ -24,6 +29,16 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _model_dump(model: Any) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()  # type: ignore[no-any-return]
+    if hasattr(model, "dict"):
+        return model.dict()  # type: ignore[no-any-return]
+    if hasattr(model, "__dict__"):
+        return dict(model.__dict__)  # type: ignore[no-any-return]
+    return dict(model)
+
+
 class GovernanceDecisionAuthority:
     """Canonical transition service for triune decision authority state."""
 
@@ -31,6 +46,7 @@ class GovernanceDecisionAuthority:
         self.db = db
         self.epoch_service = get_governance_epoch_service(db)
         self.notation_tokens = get_notation_token_service(db)
+        self.chorus = get_chorus_engine(db)
 
     @staticmethod
     def interpret_harmonic_band(harmonic_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -151,6 +167,49 @@ class GovernanceDecisionAuthority:
             or (queue_doc.get("payload") or {}).get("polyphonic_context")
             or {}
         )
+        if not isinstance(queue_polyphonic, dict):
+            queue_polyphonic = {}
+        approval_ts_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        edge_observation = dict(queue_polyphonic.get("edge_observation") or {})
+        if edge_observation:
+            participants = list(edge_observation.get("observed_participants") or [])
+            for participant in ["policy_bind", "governance_authority"]:
+                if participant not in participants:
+                    participants.append(participant)
+            edge_observation["observed_participants"] = participants
+            sequence = list(edge_observation.get("observed_sequence") or [])
+            for step in ["policy_bind", "governance_authority"]:
+                if step not in sequence:
+                    sequence.append(step)
+            edge_observation["observed_sequence"] = sequence
+            timestamps_ms = dict(edge_observation.get("timestamps_ms") or {})
+            timestamps_ms.setdefault("policy_bind", float(approval_ts_ms))
+            timestamps_ms["governance_authority"] = float(approval_ts_ms)
+            edge_observation["timestamps_ms"] = timestamps_ms
+            state_events = list(edge_observation.get("state_events") or [])
+            for event_name in ["policy_bind_completed", "governance_authorized"]:
+                if event_name not in state_events:
+                    state_events.append(event_name)
+            edge_observation["state_events"] = state_events
+            queue_polyphonic["edge_observation"] = edge_observation
+            try:
+                edge_type = str(queue_polyphonic.get("edge_type") or "agent_command_execution")
+                spec_model = self.chorus.load_edge_chorus_spec(
+                    edge_type=edge_type,
+                    genre_mode=str(queue_polyphonic.get("genre_mode") or queue_doc.get("genre_mode") or ""),
+                )
+                observation_model = self.chorus.collect_edge_participants(
+                    action_id=str(queue_doc.get("action_id") or related_queue_id or decision_id),
+                    context=edge_observation,
+                )
+                chorus_state_model = self.chorus.assemble_chorus_state(
+                    spec=spec_model,
+                    observation=observation_model,
+                )
+                queue_polyphonic["chorus_spec"] = _model_dump(spec_model)
+                queue_polyphonic["chorus_state"] = _model_dump(chorus_state_model)
+            except Exception:
+                pass
         harmonic_state = (
             (queue_polyphonic.get("harmonic_state") if isinstance(queue_polyphonic, dict) else None)
             or queue_doc.get("harmonic_state_at_gate")
@@ -185,6 +244,7 @@ class GovernanceDecisionAuthority:
                         "harmonic_state": harmonic_state,
                         "harmonic_band": harmonic_guidance.get("band"),
                         "harmonic_obligations": harmonic_obligations,
+                        "polyphonic_context": queue_polyphonic or None,
                     }
                 },
             )
@@ -205,6 +265,7 @@ class GovernanceDecisionAuthority:
                         "harmonic_state": harmonic_state,
                         "harmonic_band": harmonic_guidance.get("band"),
                         "harmonic_obligations": harmonic_obligations,
+                        "polyphonic_context": queue_polyphonic or None,
                     }
                 },
             )
@@ -266,6 +327,7 @@ class GovernanceDecisionAuthority:
                     "harmonic_band": harmonic_guidance.get("band"),
                     "harmonic_obligations": harmonic_obligations,
                     "harmonic_release_not_before": release_not_before,
+                    "polyphonic_context": queue_polyphonic or None,
                 }
             },
         )
@@ -289,6 +351,7 @@ class GovernanceDecisionAuthority:
                         "harmonic_band": harmonic_guidance.get("band"),
                         "harmonic_obligations": harmonic_obligations,
                         "harmonic_release_not_before": release_not_before,
+                        "polyphonic_context": queue_polyphonic or None,
                     }
                 },
             )
@@ -325,6 +388,21 @@ class GovernanceDecisionAuthority:
                         "harmonic_band": harmonic_guidance.get("band"),
                         "harmonic_obligations": harmonic_obligations,
                         "harmonic_release_not_before": release_not_before,
+                    },
+                    trigger_triune=False,
+                    source=source,
+                )
+                await emit_world_event(
+                    self.db,
+                    event_type="governance_authorized",
+                    entity_refs=[decision_id, related_queue_id],
+                    payload={
+                        "actor": actor,
+                        "action_id": (queue_doc or {}).get("action_id"),
+                        "edge_type": ((queue_polyphonic or {}).get("edge_type") or (queue_doc or {}).get("edge_type")),
+                        "approved_at_ms": approval_ts_ms,
+                        "policy_resolution_class": "governance_authorized",
+                        "polyphonic_context": queue_polyphonic or None,
                     },
                     trigger_triune=False,
                     source=source,

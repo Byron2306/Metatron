@@ -286,6 +286,57 @@ This is a high-confidence intrusion indicator. Immediate investigation recommend
 **Sample Size:** {int(pulse_event.get('samples') or 0)}
 """
         self._send_alert(title, message, severity)
+
+    def alert_edge_entrainment_warning(self, edge_event: Dict[str, Any]):
+        edge_type = edge_event.get("edge_type") or "unknown"
+        action_id = edge_event.get("action_id") or "unknown"
+        alert_key = f"chorus:entrainment:{edge_type}:{action_id}"
+        pulse_coherence = float(edge_event.get("pulse_coherence") or 0.0)
+        severity = "medium" if pulse_coherence < 0.45 else "low"
+        if not self._should_alert(alert_key, severity):
+            return
+        title = "Edge Entrainment Warning"
+        message = f"""
+**Edge Type:** {edge_type}
+**Action ID:** {action_id}
+**Pulse Coherence:** {pulse_coherence:.3f}
+**Mesh State:** {edge_event.get('mesh_state', 'unknown')}
+**Participants:** {', '.join(edge_event.get('participants') or [])}
+"""
+        self._send_alert(title, message, severity)
+
+    def alert_chorus_fracture_warning(self, fracture_event: Dict[str, Any]):
+        edge_type = fracture_event.get("edge_type") or "unknown"
+        action_id = fracture_event.get("action_id") or "unknown"
+        alert_key = f"chorus:fracture:{edge_type}:{action_id}"
+        severity = "high"
+        if not self._should_alert(alert_key, severity):
+            return
+        title = "Chorus Fracture Warning"
+        message = f"""
+**Edge Type:** {edge_type}
+**Action ID:** {action_id}
+**Resolution Class:** {fracture_event.get('resolution_class', 'fractured')}
+**Dissonance Class:** {fracture_event.get('dissonance_class', 'choral_fracture')}
+**Rationale:** {', '.join(fracture_event.get('rationale') or [])}
+"""
+        self._send_alert(title, message, severity)
+
+    def alert_settlement_timeout_warning(self, settlement_event: Dict[str, Any]):
+        edge_type = settlement_event.get("edge_type") or "unknown"
+        action_id = settlement_event.get("action_id") or "unknown"
+        alert_key = f"chorus:settlement:{edge_type}:{action_id}"
+        severity = "medium"
+        if not self._should_alert(alert_key, severity):
+            return
+        title = "Edge Settlement Timeout Warning"
+        message = f"""
+**Edge Type:** {edge_type}
+**Action ID:** {action_id}
+**Settlement Lag (ms):** {float(settlement_event.get('settlement_lag_ms') or 0.0):.1f}
+**Timeout (ms):** {int(settlement_event.get('settlement_timeout_ms') or 0)}
+"""
+        self._send_alert(title, message, severity)
     
     def _send_alert(self, title: str, message: str, severity: str):
         """Send alert to all configured channels"""

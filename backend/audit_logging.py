@@ -309,6 +309,86 @@ audit = AuditLogger()
 # CONVENIENCE FUNCTIONS
 # =============================================================================
 
+async def record_edge_closure(
+    *,
+    edge_type: str,
+    action_id: str,
+    actor: str = "SYSTEM:governance",
+    closure_completed: bool = True,
+    closure_lag_ms: Optional[float] = None,
+    settlement_timeout_ms: Optional[int] = None,
+    evidence_anchors_present: Optional[bool] = None,
+    details: Optional[Dict[str, Any]] = None,
+):
+    """Record structured edge closure events for Phase 4 chorus scoring."""
+    payload = dict(details or {})
+    payload.update(
+        {
+            "edge_type": edge_type,
+            "action_id": action_id,
+            "closure_completed": bool(closure_completed),
+            "closure_lag_ms": closure_lag_ms,
+            "settlement_timeout_ms": settlement_timeout_ms,
+            "evidence_anchors_present": evidence_anchors_present,
+        }
+    )
+    await audit.log(
+        category=AuditCategory.SECURITY_EVENT,
+        action="edge_closure",
+        description=f"Edge closure recorded for {edge_type}:{action_id}",
+        actor=actor,
+        target_type="edge_action",
+        target_id=action_id,
+        severity=AuditSeverity.INFO if closure_completed else AuditSeverity.WARNING,
+        details=payload,
+        result="success" if closure_completed else "partial",
+    )
+
+
+async def record_closure_lag(
+    *,
+    edge_type: str,
+    action_id: str,
+    closure_lag_ms: float,
+    settlement_timeout_ms: Optional[int] = None,
+    actor: str = "SYSTEM:governance",
+):
+    """Record closure latency with timeout context."""
+    await record_edge_closure(
+        edge_type=edge_type,
+        action_id=action_id,
+        actor=actor,
+        closure_completed=True,
+        closure_lag_ms=closure_lag_ms,
+        settlement_timeout_ms=settlement_timeout_ms,
+        evidence_anchors_present=None,
+        details={"closure_lag_class": "delayed" if settlement_timeout_ms and closure_lag_ms > settlement_timeout_ms else "within_band"},
+    )
+
+
+async def record_settlement_state(
+    *,
+    edge_type: str,
+    action_id: str,
+    settlement_state: str,
+    actor: str = "SYSTEM:governance",
+    details: Optional[Dict[str, Any]] = None,
+):
+    """Record post-execution settlement verdict for edge-level replay."""
+    payload = dict(details or {})
+    payload.update({"edge_type": edge_type, "action_id": action_id, "settlement_state": settlement_state})
+    await audit.log(
+        category=AuditCategory.SECURITY_EVENT,
+        action="edge_settlement_state",
+        description=f"Settlement state for {edge_type}:{action_id} -> {settlement_state}",
+        actor=actor,
+        target_type="edge_action",
+        target_id=action_id,
+        severity=AuditSeverity.INFO if settlement_state in {"settled", "consonant"} else AuditSeverity.WARNING,
+        details=payload,
+        result="success" if settlement_state in {"settled", "consonant"} else "partial",
+    )
+
 async def log_auth_event(
     action: str,
     actor: str,

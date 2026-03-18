@@ -69,7 +69,9 @@ class PolyphonicContext(BaseModel):
     harmonic_state: Optional["HarmonicState"] = None
     harmonic_history: Optional[List[Dict[str, Any]]] = None
     harmonic_timeline: Optional[Dict[str, Any]] = None
-    chorus_state: Optional[Dict[str, Any]] = None
+    chorus_spec: Optional[Dict[str, Any]] = None
+    edge_observation: Optional[Dict[str, Any]] = None
+    chorus_state: Optional["ChorusState"] = None
 
 
 class GovernanceEpoch(BaseModel):
@@ -143,6 +145,44 @@ class HarmonicState(BaseModel):
     jitter_norm: Optional[float] = None
     burstiness: Optional[float] = None
     entropy_signature: Optional[float] = None
+    rationale: List[str] = Field(default_factory=list)
+
+
+class ChorusSpec(BaseModel):
+    edge_type: str
+    required_participants: List[str] = Field(default_factory=list)
+    optional_participants: List[str] = Field(default_factory=list)
+    expected_sequence: List[str] = Field(default_factory=list)
+    timing_tolerances_ms: Dict[str, Any] = Field(default_factory=dict)
+    required_audit_events: List[str] = Field(default_factory=list)
+    required_state_events: List[str] = Field(default_factory=list)
+    required_companions: List[str] = Field(default_factory=list)
+    settlement_timeout_ms: Optional[int] = None
+    genre_overrides: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
+
+class EdgeObservation(BaseModel):
+    action_id: str
+    edge_type: str
+    observed_participants: List[str] = Field(default_factory=list)
+    observed_sequence: List[str] = Field(default_factory=list)
+    timestamps_ms: Dict[str, float] = Field(default_factory=dict)
+    audit_events: List[str] = Field(default_factory=list)
+    state_events: List[str] = Field(default_factory=list)
+    vns_events: List[str] = Field(default_factory=list)
+    missing_participants: List[str] = Field(default_factory=list)
+    unexpected_participants: List[str] = Field(default_factory=list)
+
+
+class ChorusState(BaseModel):
+    chorus_quality: float
+    companion_presence_score: float
+    sequence_resolution_score: float
+    mesh_entrainment_score: float
+    audit_closure_score: float
+    settlement_score: float
+    resolution_class: str
+    dissonance_class: Optional[str] = None
     rationale: List[str] = Field(default_factory=list)
 
 
