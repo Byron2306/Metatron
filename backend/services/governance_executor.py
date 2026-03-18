@@ -89,9 +89,12 @@ class GovernanceExecutorService:
         token_id: Optional[str] = None,
         execution_id: Optional[str] = None,
         trace_id: Optional[str] = None,
+        polyphonic_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         if emit_world_event is None:
             return
+        resolved_polyphonic = polyphonic_context if isinstance(polyphonic_context, dict) else {}
+        voice_profile = resolved_polyphonic.get("voice_profile") if isinstance(resolved_polyphonic.get("voice_profile"), dict) else {}
         refs = [r for r in [decision_id, queue_id, command_id, token_id, execution_id] if r]
         payload = {
             "decision_id": decision_id,
@@ -104,6 +107,9 @@ class GovernanceExecutorService:
             "token_id": token_id,
             "execution_id": execution_id,
             "trace_id": trace_id,
+            "polyphonic_context": resolved_polyphonic or None,
+            "voice_type": voice_profile.get("voice_type"),
+            "capability_class": voice_profile.get("capability_class"),
         }
         await emit_world_event(
             self.db,
@@ -129,11 +135,18 @@ class GovernanceExecutorService:
         token_id: Optional[str] = None,
         execution_id: Optional[str] = None,
         trace_id: Optional[str] = None,
+        polyphonic_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         if tamper_evident_telemetry is None:
             return
         try:
             tamper_evident_telemetry.set_db(self.db)
+            resolved_polyphonic = polyphonic_context if isinstance(polyphonic_context, dict) else {}
+            voice_profile = (
+                resolved_polyphonic.get("voice_profile")
+                if isinstance(resolved_polyphonic.get("voice_profile"), dict)
+                else {}
+            )
             resolved_targets = [str(t) for t in (targets or []) if t]
             if not resolved_targets:
                 resolved_targets = [str(x) for x in [queue_id, command_id, token_id] if x]
@@ -151,6 +164,8 @@ class GovernanceExecutorService:
                 constraints={
                     "command_type": command_type,
                     "reason": reason,
+                    "voice_type": voice_profile.get("voice_type"),
+                    "capability_class": voice_profile.get("capability_class"),
                 },
                 result="success" if outcome == "executed" else ("denied" if outcome == "skipped" else "failed"),
                 result_details=reason,
@@ -279,6 +294,7 @@ class GovernanceExecutorService:
     ) -> Dict[str, Any]:
         decision_id = decision.get("decision_id")
         related_queue_id = queue_doc.get("queue_id")
+        polyphonic_context = queue_doc.get("polyphonic_context") or payload.get("polyphonic_context") or {}
         now = _iso_now()
         try:
             op_result = await self._run_domain_operation(action_type=action_type, payload=payload)
@@ -290,6 +306,7 @@ class GovernanceExecutorService:
                         "released_at": now,
                         "updated_at": now,
                         "execution_result": op_result,
+                        "polyphonic_context": polyphonic_context or None,
                     }
                 },
             )
@@ -301,6 +318,9 @@ class GovernanceExecutorService:
                         "executed_at": now,
                         "updated_at": now,
                         "execution_result": op_result,
+                        "polyphonic_context": polyphonic_context or None,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if isinstance(polyphonic_context, dict) else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if isinstance(polyphonic_context, dict) else None),
                     }
                 },
             )
@@ -309,7 +329,12 @@ class GovernanceExecutorService:
                     self.db,
                     event_type="governance_domain_operation_executed",
                     entity_refs=[decision_id, related_queue_id, action_type],
-                    payload=op_result,
+                    payload={
+                        **op_result,
+                        "polyphonic_context": polyphonic_context or None,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if isinstance(polyphonic_context, dict) else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if isinstance(polyphonic_context, dict) else None),
+                    },
                     trigger_triune=False,
                     source="governance_executor",
                 )
@@ -332,6 +357,7 @@ class GovernanceExecutorService:
                 token_id=resolved_token_id,
                 execution_id=resolved_execution_id,
                 trace_id=resolved_trace_id,
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[
                     payload.get("agent_id"),
                     payload.get("entry_id"),
@@ -351,6 +377,7 @@ class GovernanceExecutorService:
                 token_id=resolved_token_id,
                 execution_id=resolved_execution_id,
                 trace_id=resolved_trace_id,
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "executed", "result": op_result}
         except Exception as exc:
@@ -391,6 +418,7 @@ class GovernanceExecutorService:
                 token_id=str(payload.get("token_id") or ""),
                 execution_id=str(payload.get("entry_id") or payload.get("ip") or f"{action_type}:{decision_id}"),
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[
                     payload.get("agent_id"),
                     payload.get("entry_id"),
@@ -410,6 +438,7 @@ class GovernanceExecutorService:
                 token_id=str(payload.get("token_id") or ""),
                 execution_id=str(payload.get("entry_id") or payload.get("ip") or f"{action_type}:{decision_id}"),
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "failed", "reason": "domain_operation_exception"}
 
@@ -423,6 +452,7 @@ class GovernanceExecutorService:
     ) -> Dict[str, Any]:
         decision_id = decision.get("decision_id")
         related_queue_id = queue_doc.get("queue_id")
+        polyphonic_context = queue_doc.get("polyphonic_context") or payload.get("polyphonic_context") or {}
         now = _iso_now()
         tool = str(payload.get("tool") or "").strip().lower()
         runtime_target = str(payload.get("runtime_target") or "server").strip().lower()
@@ -472,6 +502,7 @@ class GovernanceExecutorService:
                         "released_at": now,
                         "updated_at": now,
                         "execution_result": op_result,
+                        "polyphonic_context": polyphonic_context or None,
                     }
                 },
             )
@@ -483,6 +514,9 @@ class GovernanceExecutorService:
                         "executed_at": now,
                         "updated_at": now,
                         "execution_result": op_result,
+                        "polyphonic_context": polyphonic_context or None,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if isinstance(polyphonic_context, dict) else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if isinstance(polyphonic_context, dict) else None),
                     }
                 },
             )
@@ -491,7 +525,12 @@ class GovernanceExecutorService:
                     self.db,
                     event_type="governance_tool_execution_executed",
                     entity_refs=[decision_id, related_queue_id, tool, str(job.get("id"))],
-                    payload=op_result,
+                    payload={
+                        **op_result,
+                        "polyphonic_context": polyphonic_context or None,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if isinstance(polyphonic_context, dict) else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if isinstance(polyphonic_context, dict) else None),
+                    },
                     trigger_triune=False,
                     source="governance_executor",
                 )
@@ -505,6 +544,7 @@ class GovernanceExecutorService:
                 command_type=f"tool:{tool}",
                 execution_id=str(job.get("id") or f"{tool}:{decision_id}"),
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[tool, runtime_target, agent_id, related_queue_id],
             )
             await self._emit_execution_completion_event(
@@ -517,6 +557,7 @@ class GovernanceExecutorService:
                 command_type=f"tool:{tool}",
                 execution_id=str(job.get("id") or f"{tool}:{decision_id}"),
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "executed", "result": op_result}
         except Exception as exc:
@@ -551,6 +592,7 @@ class GovernanceExecutorService:
                 command_type=f"tool:{tool}",
                 execution_id=str(payload.get("command_id") or f"{tool}:{decision_id}"),
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[tool, runtime_target, agent_id, related_queue_id],
             )
             await self._emit_execution_completion_event(
@@ -562,6 +604,7 @@ class GovernanceExecutorService:
                 command_type=f"tool:{tool}",
                 execution_id=str(payload.get("command_id") or f"{tool}:{decision_id}"),
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "failed", "reason": "tool_execution_exception"}
 
@@ -637,6 +680,7 @@ class GovernanceExecutorService:
 
         action_type = str(queue_doc.get("action_type") or "").lower()
         payload = queue_doc.get("payload") or {}
+        polyphonic_context = queue_doc.get("polyphonic_context") or payload.get("polyphonic_context") or {}
         actor = queue_doc.get("actor") or "governance_executor"
 
         if action_type == "cross_sector_hardening":
@@ -692,6 +736,7 @@ class GovernanceExecutorService:
                 outcome="skipped",
                 reason="unsupported_action_type",
                 actor=actor,
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[related_queue_id, decision_id, action_type],
             )
             await self._emit_execution_completion_event(
@@ -700,6 +745,7 @@ class GovernanceExecutorService:
                 action_type=action_type,
                 outcome="skipped",
                 reason="unsupported_action_type",
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "skipped", "reason": "unsupported_action_type"}
 
@@ -734,6 +780,7 @@ class GovernanceExecutorService:
                 actor=actor,
                 command_id=command_id,
                 command_type=command_type,
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[agent_id, command_id, related_queue_id],
             )
             await self._emit_execution_completion_event(
@@ -745,6 +792,7 @@ class GovernanceExecutorService:
                 command_id=command_id,
                 command_type=command_type,
                 execution_id=command_id,
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "failed", "reason": "missing_agent_or_command"}
 
@@ -758,6 +806,7 @@ class GovernanceExecutorService:
                 decision_id=decision_id,
                 queue_id=related_queue_id,
                 metadata={"action_type": action_type, "source": "governance_executor"},
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
 
             await self.db.agent_commands.update_many(
@@ -785,6 +834,7 @@ class GovernanceExecutorService:
                             "scope": {"zone_from": "governance", "zone_to": "agent_control_zone"},
                             "contract_version": "endpoint-boundary.v1",
                         },
+                        "polyphonic_context": polyphonic_context or None,
                     },
                     "$inc": {"state_version": 1},
                     "$push": {
@@ -810,19 +860,35 @@ class GovernanceExecutorService:
                         "status": "released_to_execution",
                         "released_at": now,
                         "updated_at": now,
+                        "polyphonic_context": polyphonic_context or None,
                     }
                 },
             )
             await self.db.triune_decisions.update_one(
                 {"decision_id": decision_id},
-                {"$set": {"execution_status": "executed", "executed_at": now, "updated_at": now}},
+                {
+                    "$set": {
+                        "execution_status": "executed",
+                        "executed_at": now,
+                        "updated_at": now,
+                        "polyphonic_context": polyphonic_context or None,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if isinstance(polyphonic_context, dict) else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if isinstance(polyphonic_context, dict) else None),
+                    }
+                },
             )
             if emit_world_event is not None:
                 await emit_world_event(
                     self.db,
                     event_type="governance_decision_executed",
                     entity_refs=[decision_id, related_queue_id, agent_id, command_id],
-                    payload={"action_type": action_type, "command_type": command_type},
+                    payload={
+                        "action_type": action_type,
+                        "command_type": command_type,
+                        "polyphonic_context": polyphonic_context or None,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if isinstance(polyphonic_context, dict) else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if isinstance(polyphonic_context, dict) else None),
+                    },
                     trigger_triune=False,
                     source="governance_executor",
                 )
@@ -837,6 +903,7 @@ class GovernanceExecutorService:
                 token_id=str(payload.get("token_id") or ""),
                 execution_id=command_id,
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[agent_id, command_id, related_queue_id],
             )
             await self._emit_execution_completion_event(
@@ -849,6 +916,7 @@ class GovernanceExecutorService:
                 token_id=str(payload.get("token_id") or ""),
                 execution_id=command_id,
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "executed"}
         except Exception as exc:
@@ -876,6 +944,7 @@ class GovernanceExecutorService:
                 token_id=str(payload.get("token_id") or ""),
                 execution_id=command_id,
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[agent_id, command_id, related_queue_id],
             )
             await self._emit_execution_completion_event(
@@ -889,6 +958,7 @@ class GovernanceExecutorService:
                 token_id=str(payload.get("token_id") or ""),
                 execution_id=command_id,
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "failed", "reason": "execution_exception"}
 
@@ -905,6 +975,7 @@ class GovernanceExecutorService:
         related_queue_id = queue_doc.get("queue_id")
         action_type = str(queue_doc.get("action_type") or "").lower()
         now = _iso_now()
+        polyphonic_context = queue_doc.get("polyphonic_context") or payload.get("polyphonic_context") or {}
         governance_context = self._governance_context_for_execution(
             decision_id=decision_id,
             queue_id=related_queue_id,
@@ -980,6 +1051,7 @@ class GovernanceExecutorService:
                         "released_at": now,
                         "updated_at": now,
                         "execution_result": op_result,
+                        "polyphonic_context": polyphonic_context or None,
                     }
                 },
             )
@@ -991,6 +1063,9 @@ class GovernanceExecutorService:
                         "executed_at": now,
                         "updated_at": now,
                         "execution_result": op_result,
+                        "polyphonic_context": polyphonic_context or None,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if isinstance(polyphonic_context, dict) else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if isinstance(polyphonic_context, dict) else None),
                     }
                 },
             )
@@ -999,7 +1074,12 @@ class GovernanceExecutorService:
                     self.db,
                     event_type="governance_token_operation_executed",
                     entity_refs=[decision_id, related_queue_id, operation],
-                    payload=op_result,
+                    payload={
+                        **op_result,
+                        "polyphonic_context": polyphonic_context or None,
+                        "voice_type": ((polyphonic_context.get("voice_profile") or {}).get("voice_type") if isinstance(polyphonic_context, dict) else None),
+                        "capability_class": ((polyphonic_context.get("voice_profile") or {}).get("capability_class") if isinstance(polyphonic_context, dict) else None),
+                    },
                     trigger_triune=False,
                     source="governance_executor",
                 )
@@ -1015,6 +1095,7 @@ class GovernanceExecutorService:
                 execution_id=resolved_token_id or f"{operation}:{decision_id}",
                 trace_id=resolved_trace_id,
                 command_type=operation,
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[payload.get("principal"), resolved_token_id, related_queue_id],
             )
             await self._emit_execution_completion_event(
@@ -1027,6 +1108,7 @@ class GovernanceExecutorService:
                 token_id=resolved_token_id,
                 execution_id=resolved_token_id or f"{operation}:{decision_id}",
                 trace_id=resolved_trace_id,
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "executed", "result": op_result}
         except Exception as exc:
@@ -1062,6 +1144,7 @@ class GovernanceExecutorService:
                 token_id=str(payload.get("token_id") or ""),
                 execution_id=str(payload.get("token_id") or f"{operation}:{decision_id}"),
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
                 targets=[payload.get("principal"), payload.get("token_id"), related_queue_id],
             )
             await self._emit_execution_completion_event(
@@ -1074,6 +1157,7 @@ class GovernanceExecutorService:
                 token_id=str(payload.get("token_id") or ""),
                 execution_id=str(payload.get("token_id") or f"{operation}:{decision_id}"),
                 trace_id=str(payload.get("trace_id") or ""),
+                polyphonic_context=polyphonic_context if isinstance(polyphonic_context, dict) else None,
             )
             return {"outcome": "failed", "reason": "token_operation_exception"}
 

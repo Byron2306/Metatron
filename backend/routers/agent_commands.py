@@ -15,6 +15,7 @@ from backend.services.governed_dispatch import GovernedDispatchService
 from backend.services.governance_authority import GovernanceDecisionAuthority
 from backend.services.governance_executor import GovernanceExecutorService
 from backend.services.outbound_gate import OutboundGateService
+from backend.services.polyphonic_governance import get_polyphonic_governance_service
 try:
     from services.world_events import emit_world_event
 except Exception:
@@ -830,6 +831,30 @@ async def create_command(
         "executed_at": None,
         "result": None
     }
+    polyphonic = get_polyphonic_governance_service()
+    envelope = polyphonic.build_action_request_envelope(
+        actor_id=str(current_user.get("email", current_user.get("id")) or "unknown"),
+        actor_type="user",
+        operation="agent_command_create",
+        parameters=request.parameters or {},
+        tool_name=request.command_type,
+        resource_uris=[request.agent_id],
+        context_refs={
+            "request_id": command_id,
+            "session_id": str(current_user.get("session_id") or ""),
+        },
+        policy_refs=[],
+        evidence_hashes=[],
+        target_domain="agent_control_zone",
+    )
+    envelope = polyphonic.attach_voice_profile(
+        envelope,
+        component_id="agent_commands_router",
+        route="/agent-commands/create",
+        tool_name=request.command_type,
+        component_type="ingress",
+    )
+    command["polyphonic_context"] = polyphonic.serialize_polyphonic_context(envelope)
     
     dispatch = GovernedDispatchService(db)
     action_type = "cross_sector_hardening" if request.command_type in {"remediate_compliance", "remove_persistence"} else "agent_command"
@@ -841,6 +866,8 @@ async def create_command(
         impact_level="critical" if command["risk_level"] in {"high", "critical"} else "high",
         entity_refs=[request.agent_id, command_id],
         requires_triune=True,
+        route="/agent-commands/create",
+        component_id="agent_commands_router",
     )
     gated = queued.get("queued", {})
     command = queued.get("command", command)
@@ -851,7 +878,15 @@ async def create_command(
         event_type="agent_command_created",
         trigger_triune=True,
         entity_refs=[request.agent_id, command_id],
-        payload={"command_type": request.command_type, "priority": request.priority, "queue_id": gated.get("queue_id"), "decision_id": gated.get("decision_id")},
+        payload={
+            "command_type": request.command_type,
+            "priority": request.priority,
+            "queue_id": gated.get("queue_id"),
+            "decision_id": gated.get("decision_id"),
+            "polyphonic_context": command.get("polyphonic_context"),
+            "voice_type": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("voice_type"),
+            "capability_class": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("capability_class"),
+        },
     )
     
     # Remove MongoDB _id before returning
@@ -908,6 +943,7 @@ async def approve_command(
             "approved_by": approved_by,
             "approved_at": _iso_now(),
             "approval_notes": approval.notes,
+            "polyphonic_context": command.get("polyphonic_context") or {},
         },
         transition_metadata={"approved": bool(approval.approved)},
     )
@@ -932,6 +968,7 @@ async def approve_command(
             subject_id=command.get("agent_id"),
             entity_refs=[command.get("agent_id"), command_id],
             requires_triune=True,
+            polyphonic_context=command.get("polyphonic_context") or {},
         )
         await db.agent_commands.update_one(
             {"command_id": command_id},
@@ -984,6 +1021,9 @@ async def approve_command(
             "approved": bool(approval.approved),
             "notes": approval.notes,
             "actor": current_user.get("email", current_user.get("id")),
+            "polyphonic_context": command.get("polyphonic_context") or {},
+            "voice_type": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("voice_type"),
+            "capability_class": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("capability_class"),
         },
     )
     
@@ -1059,6 +1099,7 @@ async def report_command_result(
         extra_updates={
             "executed_at": _iso_now(),
             "result": result,
+            "polyphonic_context": command.get("polyphonic_context") or {},
         },
     )
     if not transitioned:
@@ -1070,7 +1111,13 @@ async def report_command_result(
         event_type="agent_command_result_recorded",
         trigger_triune=False,
         entity_refs=[command.get("agent_id"), command_id],
-        payload={"success": bool(result.get("success")), "result": result},
+        payload={
+            "success": bool(result.get("success")),
+            "result": result,
+            "polyphonic_context": command.get("polyphonic_context") or {},
+            "voice_type": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("voice_type"),
+            "capability_class": ((command.get("polyphonic_context") or {}).get("voice_profile") or {}).get("capability_class"),
+        },
     )
 
     return {"status": "recorded"}
@@ -1192,6 +1239,7 @@ async def agent_websocket(websocket: WebSocket, agent_id: str):
                             extra_updates={
                                 "executed_at": _iso_now(),
                                 "result": data.get("result", {}),
+                                "polyphonic_context": command.get("polyphonic_context") or {},
                             },
                         )
             

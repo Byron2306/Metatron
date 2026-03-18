@@ -51,10 +51,17 @@ class OutboundGateService:
         subject_id: Optional[str] = None,
         entity_refs: Optional[List[str]] = None,
         requires_triune: bool = True,
+        polyphonic_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Queue action for approval. Mandatory for high-impact action types."""
         normalized_action = str(action_type or "unknown").strip().lower()
         normalized_impact = self._normalize_impact(impact_level)
+        resolved_polyphonic_context = polyphonic_context or payload.get("polyphonic_context") or {}
+        voice_profile = (
+            resolved_polyphonic_context.get("voice_profile")
+            if isinstance(resolved_polyphonic_context, dict)
+            else {}
+        )
 
         # Governance hardening: these paths cannot skip triune and cannot be low impact.
         if normalized_action in MANDATORY_HIGH_IMPACT_ACTIONS:
@@ -70,6 +77,15 @@ class OutboundGateService:
         refs = [r for r in (entity_refs or []) if r]
         if subject_id and subject_id not in refs:
             refs.insert(0, subject_id)
+        if isinstance(voice_profile, dict):
+            if voice_profile.get("component_id"):
+                refs.append(str(voice_profile.get("component_id")))
+            if voice_profile.get("voice_type"):
+                refs.append(str(voice_profile.get("voice_type")))
+
+        payload_with_polyphonic = dict(payload or {})
+        if resolved_polyphonic_context:
+            payload_with_polyphonic["polyphonic_context"] = resolved_polyphonic_context
 
         queue_doc = {
             "queue_id": queue_id,
@@ -78,7 +94,10 @@ class OutboundGateService:
             "subject_id": subject_id,
             "actor": actor,
             "impact_level": normalized_impact,
-            "payload": payload,
+            "payload": payload_with_polyphonic,
+            "voice_type": voice_profile.get("voice_type") if isinstance(voice_profile, dict) else None,
+            "capability_class": voice_profile.get("capability_class") if isinstance(voice_profile, dict) else None,
+            "polyphonic_context": resolved_polyphonic_context or None,
             "status": "pending",
             "execution_status": "awaiting_decision",
             "created_at": now,
@@ -95,6 +114,9 @@ class OutboundGateService:
             "source": "outbound_gate",
             "status": "pending",
             "execution_status": "awaiting_decision",
+            "voice_type": voice_profile.get("voice_type") if isinstance(voice_profile, dict) else None,
+            "capability_class": voice_profile.get("capability_class") if isinstance(voice_profile, dict) else None,
+            "polyphonic_context": resolved_polyphonic_context or None,
             "created_at": now,
             "updated_at": now,
             "notes": f"Queued for triune approval: {normalized_action}",
@@ -118,6 +140,9 @@ class OutboundGateService:
                         "action_type": normalized_action,
                         "impact_level": normalized_impact,
                         "actor": actor,
+                        "voice_type": voice_profile.get("voice_type") if isinstance(voice_profile, dict) else None,
+                        "capability_class": voice_profile.get("capability_class") if isinstance(voice_profile, dict) else None,
+                        "polyphonic_context": resolved_polyphonic_context or None,
                     },
                     trigger_triune=requires_triune,
                     source="outbound_gate",
@@ -132,6 +157,9 @@ class OutboundGateService:
             "decision_id": decision_id,
             "action_type": normalized_action,
             "impact_level": normalized_impact,
+            "voice_type": voice_profile.get("voice_type") if isinstance(voice_profile, dict) else None,
+            "capability_class": voice_profile.get("capability_class") if isinstance(voice_profile, dict) else None,
+            "polyphonic_context": resolved_polyphonic_context or None,
             "message": "Action queued for triune approval",
         }
 

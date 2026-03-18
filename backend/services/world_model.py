@@ -54,6 +54,10 @@ class WorldModelService:
 
     def __init__(self, db: Any = None):
         self.db = db
+        # Phase 1 placeholder fields for upcoming harmonic governance dimensions.
+        self.current_genre_mode: Optional[str] = None
+        self.current_score_id: Optional[str] = None
+        self.current_governance_epoch: Optional[str] = None
         if db is not None:
             self.entities = db.world_entities
             self.edges = db.world_edges
@@ -61,6 +65,25 @@ class WorldModelService:
 
     def set_database(self, db: Any):
         self.__init__(db)
+
+    def get_governance_placeholders(self) -> Dict[str, Optional[str]]:
+        return {
+            "current_genre_mode": self.current_genre_mode,
+            "current_score_id": self.current_score_id,
+            "current_governance_epoch": self.current_governance_epoch,
+        }
+
+    def set_governance_placeholders(
+        self,
+        *,
+        current_genre_mode: Optional[str] = None,
+        current_score_id: Optional[str] = None,
+        current_governance_epoch: Optional[str] = None,
+    ) -> Dict[str, Optional[str]]:
+        self.current_genre_mode = current_genre_mode
+        self.current_score_id = current_score_id
+        self.current_governance_epoch = current_governance_epoch
+        return self.get_governance_placeholders()
 
     async def upsert_entity(self, entity: WorldEntity):
         # insert or update entity record

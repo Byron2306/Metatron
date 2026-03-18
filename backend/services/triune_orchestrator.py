@@ -37,6 +37,20 @@ class TriuneOrchestrator:
         self.michael = MichaelService(db)
         self.loki = LokiService(db)
 
+    @staticmethod
+    def _extract_polyphonic_voice_context(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        ctx = context or {}
+        polyphonic = ctx.get("polyphonic_context") if isinstance(ctx, dict) else {}
+        if not isinstance(polyphonic, dict):
+            polyphonic = {}
+        voice_profile = polyphonic.get("voice_profile") if isinstance(polyphonic.get("voice_profile"), dict) else {}
+        return {
+            "polyphonic_context": polyphonic or {},
+            "voice_type": voice_profile.get("voice_type"),
+            "capability_class": voice_profile.get("capability_class"),
+            "timbre_profile": voice_profile.get("timbre_profile"),
+        }
+
     async def handle_world_change(
         self,
         event_type: str,
@@ -68,10 +82,15 @@ class TriuneOrchestrator:
             or metatron_assessment.get("approval_tier_suggestion")
             or "standard"
         )
+        polyphonic_voice_ctx = self._extract_polyphonic_voice_context(context)
         planning_context = dict(context)
         planning_context["metatron_belief"] = metatron_assessment.get("metatron_belief") or {}
         planning_context["metatron_predicted_next_sectors"] = metatron_assessment.get("predicted_next_sectors") or []
         planning_context["cognitive_signal"] = (world_snapshot.get("cognition") or {}).get("fused_signal") or {}
+        planning_context["voice_type"] = polyphonic_voice_ctx.get("voice_type")
+        planning_context["capability_class"] = polyphonic_voice_ctx.get("capability_class")
+        planning_context["timbre_profile"] = polyphonic_voice_ctx.get("timbre_profile")
+        planning_context["polyphonic_context"] = polyphonic_voice_ctx.get("polyphonic_context") or {}
         michael_plan = await self.michael.plan_actions(
             candidates=candidates,
             world_snapshot=world_snapshot,
@@ -83,6 +102,10 @@ class TriuneOrchestrator:
         loki_context["metatron_policy_tier"] = policy_tier
         loki_context["michael_selected_action"] = (michael_plan.get("selected_action") or {}).get("candidate")
         loki_context["metatron_predicted_next_sectors"] = metatron_assessment.get("predicted_next_sectors") or []
+        loki_context["voice_type"] = polyphonic_voice_ctx.get("voice_type")
+        loki_context["capability_class"] = polyphonic_voice_ctx.get("capability_class")
+        loki_context["timbre_profile"] = polyphonic_voice_ctx.get("timbre_profile")
+        loki_context["polyphonic_context"] = polyphonic_voice_ctx.get("polyphonic_context") or {}
         loki_advisory = await self.loki.challenge_plan(
             world_snapshot=world_snapshot,
             michael_plan=michael_plan,
@@ -102,6 +125,7 @@ class TriuneOrchestrator:
             "entity_ids": entity_ids,
             "context": context,
             "world_snapshot": world_snapshot,
+            "polyphonic_context": polyphonic_voice_ctx.get("polyphonic_context") or {},
             "metatron": metatron_assessment,
             "michael": {
                 "candidates": candidates,

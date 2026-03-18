@@ -51,6 +51,9 @@ class CapabilityToken:
     nonce: str
     governance_decision_id: Optional[str] = None
     governance_queue_id: Optional[str] = None
+    # Phase 1 placeholder seams for polyphonic notation/token work.
+    polyphonic_token_context: Optional[Dict[str, Any]] = None
+    future_notation_token_ref: Optional[str] = None
 
 
 @dataclass
@@ -315,6 +318,8 @@ class TokenBroker:
                     tool_id: str = None, ttl_seconds: int = 300,
                     max_uses: int = 1, constraints: Dict = None,
                     governance_context: Optional[Dict[str, Any]] = None,
+                    polyphonic_token_context: Optional[Dict[str, Any]] = None,
+                    future_notation_token_ref: Optional[str] = None,
                     issued_by: str = "unknown") -> CapabilityToken:
         """
         Issue a scoped capability token.
@@ -380,6 +385,8 @@ class TokenBroker:
             nonce=nonce,
             governance_decision_id=governance.get("decision_id"),
             governance_queue_id=governance.get("queue_id"),
+            polyphonic_token_context=polyphonic_token_context or None,
+            future_notation_token_ref=future_notation_token_ref or None,
         )
         
         self.active_tokens[token_id] = token
@@ -389,7 +396,14 @@ class TokenBroker:
             token_id=token_id,
             principal=principal,
             governance_context=governance,
-            metadata={"action": action, "targets": targets, "tool_id": tool_id, "ttl_seconds": ttl_seconds},
+            metadata={
+                "action": action,
+                "targets": targets,
+                "tool_id": tool_id,
+                "ttl_seconds": ttl_seconds,
+                "future_notation_token_ref": future_notation_token_ref,
+                "polyphonic_token_context": polyphonic_token_context or {},
+            },
         )
         
         logger.info(

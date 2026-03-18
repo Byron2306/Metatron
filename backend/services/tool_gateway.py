@@ -20,6 +20,16 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
+try:
+    from services.voice_registry import get_voice_registry
+except Exception:
+    from backend.services.voice_registry import get_voice_registry
+
+try:
+    from schemas.polyphonic_models import VoiceProfile
+except Exception:
+    from backend.schemas.polyphonic_models import VoiceProfile
+
 
 @dataclass
 class ToolDefinition:
@@ -46,6 +56,11 @@ class ToolDefinition:
     # Audit
     capture_output: bool
     redact_patterns: List[str]
+    # Phase 1 Harmonic Governance Layer scaffolding
+    voice_type: Optional[str] = None
+    capability_class: Optional[str] = None
+    timbre_profile: Optional[str] = None
+    allowed_register: Optional[str] = None
 
 
 @dataclass
@@ -239,8 +254,29 @@ class ToolGateway:
     
     def register_tool(self, tool: ToolDefinition):
         """Register a tool in the gateway"""
+        profile = self.get_tool_voice_profile(tool.tool_id)
+        if profile is not None:
+            tool.voice_type = tool.voice_type or profile.voice_type
+            tool.capability_class = tool.capability_class or profile.capability_class
+            tool.timbre_profile = tool.timbre_profile or profile.timbre_profile
+            tool.allowed_register = tool.allowed_register or profile.allowed_register
         self.tools[tool.tool_id] = tool
+        if profile is not None:
+            registry = get_voice_registry()
+            registry.register_tool_voice(tool.tool_id, profile)
         logger.info(f"GATEWAY: Registered tool '{tool.tool_id}'")
+
+    def get_tool_voice_profile(self, tool_name: str) -> Optional[VoiceProfile]:
+        """Resolve a tool-scoped voice profile for governance context."""
+        if not tool_name:
+            return None
+        registry = get_voice_registry()
+        return registry.resolve_voice_for_action(
+            tool_name=tool_name,
+            component_id="tool_gateway",
+            route="tool_gateway",
+            component_type="orchestration",
+        )
     
     def list_tools(self) -> List[Dict]:
         """List available tools"""
@@ -250,7 +286,11 @@ class ToolGateway:
                 "name": t.name,
                 "description": t.description,
                 "requires_approval": t.requires_approval,
-                "min_trust_state": t.min_trust_state
+                "min_trust_state": t.min_trust_state,
+                "voice_type": t.voice_type,
+                "capability_class": t.capability_class,
+                "timbre_profile": t.timbre_profile,
+                "allowed_register": t.allowed_register,
             }
             for t in self.tools.values()
         ]
