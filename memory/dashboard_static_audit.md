@@ -1,20 +1,42 @@
-# Dashboard Static Wiring Audit
+# Dashboard and Route Wiring Audit (Current Snapshot)
 
-- Backend routes total: 397
-- Frontend call-sites checked: 66
-- Matched call-sites: 65
-- Unmatched call-sites: 1
-- Buttons without clear action attrs: 7
+**Last Updated:** 2026-04-14  
+**Scope:** Static route and API surface sanity snapshot
 
-## Unmatched call-sites
-- frontend/src/pages/MLPredictionPage.jsx:66 -> /api/ml/predict/X (dynamic-type-path)
-  - expr: ${API_URL}/api/ml/predict/${type}
+---
 
-## Buttons without clear action attrs
-- frontend/src/pages/HoneypotsPage.jsx:276
-- frontend/src/pages/AgentsPage.jsx:230
-- frontend/src/pages/UnifiedAgentPage.jsx:369
-- frontend/src/pages/UnifiedAgentPage.jsx:373
-- frontend/src/pages/UnifiedAgentPage.jsx:377
-- frontend/src/pages/UnifiedAgentPage.jsx:381
-- frontend/src/pages/ThreatsPage.jsx:272
+## Backend Route Surface
+
+- `backend/server.py` `include_router(...)` registrations: **65**
+- `backend/routers/*.py` route handlers (`@router.get/post/put/delete/patch`): **high-volume multi-domain surface**
+- Mixed prefix strategy:
+  - `/api/*` primary
+  - `/api/v1/cspm/*`
+  - `/api/v1/identity/*`
+  - compatibility aliases in selected domains
+
+## Frontend Routing Surface
+
+- Route entries in `frontend/src/App.js`: **65**
+- Guard model: `ProtectedRoute` + auth context
+- Pattern: workspace consolidation with redirect aliases
+
+## Static Compatibility Observations
+
+1. Frontend route model is workspace/tab-centric and intentionally maps many feature routes into consolidated workspaces.
+2. Backend keeps compatibility/alias registrations in some domains, which helps continuity but expands maintenance surface.
+3. Static counts should not be interpreted as contract correctness; dynamic API contract tests remain required for enforcement.
+
+## Recommended Audit Automation
+
+For future updates, generate and store:
+
+- OpenAPI endpoint diff vs previous baseline
+- frontend fetch URL extraction diff vs backend route inventory
+- high-risk route auth dependency verification (mutating endpoints)
+
+This file is intentionally concise and count-oriented; detailed behavioral analysis lives in:
+
+- `memory/FEATURE_REALITY_MATRIX.md`
+- `memory/FEATURE_REALITY_REPORT.md`
+- `memory/SYSTEM_CRITICAL_EVALUATION.md`
