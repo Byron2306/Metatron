@@ -1,8 +1,8 @@
 # Metatron Feature Reality Matrix
 
-Generated: 2026-03-09
-Scope: Quantitative implementation snapshot (feature depth, durability, contract assurance, operational realism)
-**Update v6.7.0:** Includes Email Gateway, MDM Connectors, and enhanced security hardening
+Generated: 2026-04-17  
+Scope: Quantitative implementation snapshot (feature depth, durability, contract assurance, operational realism)  
+Method: live code rebaseline against repository source-of-truth
 
 ## Legend
 - `PASS`: Real logic executes in normal configured environments.
@@ -11,54 +11,35 @@ Scope: Quantitative implementation snapshot (feature depth, durability, contract
 
 ---
 
-## Feature Maturity Score Table
-| Domain | Score (0-10) | Status | Key Recent Enhancements |
-|---|---|---|---|
-| Unified Agent Control Plane | 10 | PASS | Telemetry loop-back, EDM hit reporting, runtime config updates, Email/Mobile monitors |
-| EDM Governance & Telemetry | 10 | PASS | Fingerprinting, Bloom filter, versioning, signature validation, hot-reload |
-| DLP & Exact Data Match | 10 | PASS | Clipboard/file EDM scan, dataset management, signature checks, agent integration |
-| **Email Protection** | **9** | **PASS** | **SPF/DKIM/DMARC validation, phishing detection, attachment scanning, impersonation protection, DLP** |
-| **Email Gateway** | **8** | **PASS** | **NEW: SMTP relay mode, quarantine management, blocklist/allowlist, real-time threat analysis** |
-| **Mobile Security** | **8** | **PASS** | **Device management, jailbreak detection, app analysis, compliance monitoring, network security** |
-| **MDM Connectors** | **8** | **PASS** | **NEW: Intune, JAMF, Workspace ONE, Google Workspace platform integration** |
-| Identity Protection | 9 | PASS | DB-backed incident durability, guarded transitions, audit logs |
-| CSPM Capability Plane | 9 | PASS | DB-backed scan/finding durability, guarded transitions, audit logs, **authenticated** |
-| Deployment Realism | 8 | PASS/PARTIAL | Real execution, retry semantics, contract assurance improving |
-| Security Hardening | 9 | PASS | JWT/CORS improvements, **CSPM auth fix**, safer container defaults |
-| Timeline/Forensics | 8 | PASS/PARTIAL | Core flows, report/forensic assurance maturing |
-| Quarantine/Response | 8 | PASS/PARTIAL | Guarded transitions, audit logs, monotonic versioning |
-| SOAR Playbooks | 8 | PASS/PARTIAL | Guarded transitions, audit logs, monotonic versioning |
-| Zero-Trust Durability | 7 | PARTIAL | Durable behavior improved, not fully mature across restart/scale |
-| Browser Isolation | 6 | PARTIAL | URL analysis, threat filtering, sanitization; full remote-browser isolation limited |
-| Kernel Security | 8 | PASS | eBPF sensors, syscall monitoring, rootkit detection, memory protection |
-| Optional AI Augmentation | 6 | PARTIAL | Rule-based fallback, model-dependent quality requires live model services |
+## Feature Maturity Score Table (Apr 2026 Rebaseline)
+| Domain | Score (0-10) | Status | Current Code Logic |
+|---|---:|---|---|
+| API routing and composition | 9.0 | PASS | `backend/server.py` registers 65 routers; `backend/routers/` has 61 router modules. |
+| Unified Agent control plane | 9.0 | PASS | `unified_agent/core/agent.py` is 17k+ LOC with lifecycle, telemetry, local broker, and monitor orchestration. |
+| EDM and DLP workflows | 8.5 | PASS | EDM and DLP logic remains deeply integrated across backend + agent paths. |
+| Email protection | 8.5 | PASS | DNS-backed SPF/DKIM/DMARC, phishing/content/attachment analysis in `backend/email_protection.py`. |
+| Email gateway | 8.0 | PASS/PARTIAL | API and processing are implemented; production SMTP dependency remains environmental. |
+| Mobile security + MDM | 8.0 | PASS/PARTIAL | MDM connectors and mobile controls are present; enterprise depth depends on live credentials/integrations. |
+| Identity + governance | 8.0 | PASS/PARTIAL | Strong control-plane concepts with mixed durability guarantees by feature path. |
+| CSPM | 8.0 | PASS/PARTIAL | Auth enforced on scan start; triune-gated provider changes; demo fallback if providers absent. |
+| Deployment realism | 7.5 | PASS/PARTIAL | Real SSH/WinRM paths exist but remain environment-sensitive. |
+| Security hardening consistency | 7.5 | PASS/PARTIAL | Hardening improved, but breadth of surfaces requires continued normalization. |
+| Browser isolation | 6.5 | PARTIAL | URL filtering/sanitization available; full remote-browser isolation still limited. |
+| Optional AI augmentation | 6.0 | PARTIAL | Core behavior remains available with fallback logic when models/services are missing. |
 
 ---
 
 ## Current Reality Matrix
 | Domain | Status | Evidence | Practical Notes |
 |---|---|---|---|
-| Backend-frontend primary route wiring | PASS | Core routers + active pages aligned | Route-level mismatches rare; full-page audit shows 45/47 pages with API calls. |
-| Unified agent register/heartbeat/control | PASS | backend/routers/unified_agent.py | DB-backed, contract-assured, tested; includes Email/Mobile/Gateway monitors. |
-| EDM fingerprinting & dataset governance | PASS | unified_agent/core/agent.py, backend/routers/unified_agent.py | Full governance pipeline operational. |
-| DLP & Exact Data Match | PASS | backend/enhanced_dlp.py, unified_agent/core/agent.py | Clipboard/file EDM scan, dataset management, OCR-ready. |
-| **Email Protection (Backend)** | **PASS** | **backend/email_protection.py, backend/routers/email_protection.py** | **SPF/DKIM/DMARC via DNS, phishing detection, attachment scanning, DLP integration, auto-quarantine** |
-| **Email Gateway (Backend)** | **PASS** | **backend/email_gateway.py, backend/routers/email_gateway.py** | **NEW: SMTP relay, threat interception, blocklist/allowlist, policy enforcement** |
-| **Email Protection (Agent)** | **PASS** | **unified_agent/core/agent.py (EmailProtectionMonitor)** | **Local email client scanning, attachment monitoring, URL analysis** |
-| **Mobile Security (Backend)** | **PASS** | **backend/mobile_security.py, backend/routers/mobile_security.py** | **Device management, threat detection, app analysis, compliance checking** |
-| **MDM Connectors (Backend)** | **PASS** | **backend/mdm_connectors.py, backend/routers/mdm_connectors.py** | **NEW: Multi-platform MDM integration with device sync and policy enforcement** |
-| **Mobile Security (Agent)** | **PASS** | **unified_agent/core/agent.py (MobileSecurityMonitor)** | **Device security checks, encryption status, network monitoring, USB events** |
-| Identity incident durability | PASS | backend/routers/identity.py, tests | DB-backed, guarded transitions, monotonic versioning. |
-| CSPM scan/finding durability | PASS | backend/cspm_engine.py, tests | DB-backed, guarded transitions, audit logs, **now requires auth**. |
-| Deployment realism (SSH/WinRM) | PASS/PARTIAL | backend/services/agent_deployment.py | Real execution, retry semantics improving. |
-| Security hardening (JWT/CORS) | PASS | backend/server.py | Strict/prod paths improved; **CSPM auth fixed**; CORS validated. |
-| Timeline/forensic workflows | PASS/PARTIAL | backend/threat_timeline.py | Core flows, report/forensic assurance maturing. |
-| Quarantine/response durability | PASS/PARTIAL | backend/quarantine.py, threat_response.py | Guarded transitions, audit logs. |
-| SOAR playbook durability | PASS/PARTIAL | backend/soar_engine.py, tests | Guarded transitions, audit logs. |
-| Zero-trust durability | PARTIAL | zero-trust engine/router | Durable behavior improved, not fully mature across restart/scale. |
-| Browser isolation | PARTIAL | backend/browser_isolation.py | URL filtering, threat detection present; full remote isolation limited. |
-| Kernel security | PASS | backend/enhanced_kernel_security.py, backend/ebpf_kernel_sensors.py | eBPF sensors, rootkit detection, memory protection, secure boot. |
-| Optional AI augmentation | PARTIAL | advanced/hunting/correlation | Rule-based fallback works; model-dependent quality requires live services. |
+| Backend router fabric | PASS | `backend/server.py`, `backend/routers/*.py` | Large and active; central wiring remains dense in one file. |
+| Frontend page surface | PASS | `frontend/src/pages/*.jsx` | 68 page components currently present; coverage is broad. |
+| Unified agent monitors | PASS/PARTIAL | `unified_agent/core/agent.py` | 27 monitor keys are wired in initialization; OS-conditional modules apply. |
+| Email gateway API contract | PASS/PARTIAL | `backend/routers/email_gateway.py` | Full operational paths present; allowlist currently lacks delete endpoint. |
+| MDM connector API contract | PASS/PARTIAL | `backend/routers/mdm_connectors.py` | Connector/device/policy/action flows are implemented with permission tiers. |
+| CSPM contract and controls | PASS/PARTIAL | `backend/routers/cspm.py` | Auth required for scan start; provider config/removal is triune-gated. |
+| Runtime stack composition | PASS | `docker-compose.yml` | 21 services are declared; `security`, `sandbox`, and `bootstrap` profiles exist. |
+| Hardening posture | PASS/PARTIAL | `backend/server.py`, router dependencies | Stronger defaults exist, but full policy consistency is still an ongoing effort. |
 
 ---
 

@@ -1,7 +1,21 @@
 # Metatron / Seraph AI Defense System - Full Critical Evaluation
 
-**Date:** 2026-03-06  
+**Date:** 2026-04-17 (revalidated)  
 **Scope:** End-to-end platform review (architecture, security posture, operations, delivery maturity) using current repository evidence.
+
+---
+
+## 0) April 2026 Revalidation Snapshot (Code-Anchored)
+
+- Backend routing has expanded materially: `backend/server.py` currently registers **65 routers**.
+- The backend router package currently contains **61 router modules** under `backend/routers`.
+- Service-layer decomposition remains broad with **32 service modules** in `backend/services`.
+- Frontend operations surface spans **68 page components** (`frontend/src/pages/*.jsx`).
+- Unified endpoint agent remains a major subsystem at **17,317 LOC** in `unified_agent/core/agent.py`.
+- Agent monitor registration currently resolves to **27 monitor keys** (OS-conditional for some monitors such as AMSI/WebView2).
+- Docker runtime topology contains **21 compose services** with optional security/sandbox/bootstrap profiles.
+
+This confirms the same strategic conclusion as prior reviews (high capability breadth), but with an updated practical framing: **operational consistency and assurance depth** are the principal risks, not feature absence.
 
 ---
 

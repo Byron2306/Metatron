@@ -1,12 +1,44 @@
 # Metatron/Seraph AI Defender - System-Wide Evaluation Report
-**Date:** March 9, 2026  
-**Version:** v6.7.0  
-**Scope:** Comprehensive evaluation including Email Gateway, MDM Connectors, and Security Hardening  
+**Date:** April 17, 2026  
+**Version:** code-rebaseline  
+**Scope:** System-wide evaluation refreshed against current repository logic  
 **Classification:** Strategic Assessment (Code-Evidence Based)
 
 ---
 
 ## Executive Summary
+
+### Apr 2026 Code-Rebaseline Addendum
+
+This report now includes a current-state addendum grounded in the live repository, superseding fixed March assumptions where counts and contracts changed.
+
+#### Current architecture snapshot (verified)
+
+| Metric | Current State (Apr 2026) |
+|--------|---------------------------|
+| Backend router files | 61 (`backend/routers/*.py`, excluding `__init__.py`) |
+| Registered routers | 65 (`app.include_router(...)` in `backend/server.py`) |
+| Backend service modules | 32 (`backend/services/*.py`, excluding `__init__.py`) |
+| Frontend page components | 68 (`frontend/src/pages/*.jsx`) |
+| Unified agent file size | 17,317 LOC (`unified_agent/core/agent.py`) |
+| Unified agent monitor keys | 27 keys currently wired in `UnifiedAgent.__init__` |
+| Docker Compose services | 21 (`docker-compose.yml`) |
+
+#### Current operational interpretation
+
+- The platform is **operational and broad**, but maturity varies by domain and environment dependencies.
+- Core platform operation remains real across API, agent telemetry, response, and most security surfaces.
+- Remaining risk concentration is around production credentials, integration depth, and assurance consistency (not lack of features).
+
+#### Notable corrections vs older assumptions
+
+- CSPM mutation endpoints (`/providers`, remove provider) are now triune-gated and queued in `backend/routers/cspm.py`.
+- CSPM scan supports auth + demo fallback semantics when no providers are configured.
+- Email Gateway allowlist endpoints currently expose `GET` and `POST`; no router-level `DELETE /allowlist` route is present.
+- MDM sync has both async background (`POST /api/mdm/sync`) and blocking (`POST /api/mdm/sync/now`) modes.
+- Operational health checks in compose commonly align to `http://localhost:8001/api/health` (backend) and `/api/health` through nginx, not legacy `localhost:8000/health`.
+
+---
 
 This report updates the March 2026 system-wide evaluation to reflect the significant capability expansion with Email Gateway and MDM Connectors. The platform has materially closed all previously identified Tier 3 domain expansion gaps, establishing itself as a **comprehensive unified security fabric**.
 

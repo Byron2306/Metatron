@@ -1,11 +1,28 @@
 # Metatron Security Features Analysis
-**Generated:** March 9, 2026  
+**Generated:** April 17, 2026  
 **Classification:** Code-Evidence Rebaseline  
-**Version:** v6.7.0 - Email Gateway + MDM Connectors + Security Hardening
+**Version:** April 2026 operational summary
 
 ## Overview
 
 This analysis provides a comprehensive assessment of Metatron security features against current repository evidence, including the Email Gateway, MDM Connectors, and security hardening additions.
+
+## April 2026 Security Summary (Updated)
+
+### Confirmed platform security footprint
+- **Backend API and service mesh is broad and active** (`backend/server.py`): 65 router registrations, including governance, identity, CSPM, email, mobile, MDM, deception, and triune surfaces.
+- **Endpoint agent protection depth is substantial** (`unified_agent/core/agent.py`): 17k+ LOC, with 27 active monitor keys wired (OS-conditional monitors such as AMSI/WebView2 on Windows).
+- **Runtime stack includes security profiles** (`docker-compose.yml`): baseline + optional security (`trivy`, `falco`, `suricata`, `zeek`, `volatility`) and sandbox (`cuckoo`, `cuckoo-web`) components.
+
+### Notable security logic updates reflected in code
+- **CSPM hardening path**: `/api/v1/cspm/scan` requires authenticated user (`Depends(get_current_user)`), and provider mutation flows are triune-gated in `backend/routers/cspm.py`.
+- **Email gateway path**: API supports stats/process/quarantine/policy/blocklist/allowlist operations under auth/permission checks (`backend/routers/email_gateway.py`).
+- **MDM control path**: connector and destructive device actions enforce role checks (`check_permission("admin")` for admin routes in `backend/routers/mdm_connectors.py`).
+
+### Current security caveats (code-realistic)
+- Some advanced controls still depend on environment credentials/integration availability (SMTP relay credentials, MDM tenant credentials, cloud provider credentials).
+- Security coverage breadth is strong, but assurance depth is uneven across all legacy/optional paths.
+- Governance durability and contract invariants remain an area to harden further under restart/scale scenarios.
 
 ---
 

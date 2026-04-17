@@ -1,5 +1,8 @@
 # Metatron Run-Mode Contract (Source of Truth)
 
+**Last Updated:** 2026-04-17  
+**Evidence Basis:** `docker-compose.yml`, `backend/server.py`, `frontend` runtime behavior.
+
 ## Goal
 Define what is **required** vs **optional** so operators can run the platform predictably and understand why some dashboard features may be unavailable.
 
@@ -22,6 +25,10 @@ Behavior contract:
 
 ## 3) Profile-Based Optional Integrations
 These are intentionally profile-gated and not required for baseline operation.
+
+### bootstrap profile
+- `admin-bootstrap`
+- `ollama-pull`
 
 ### security profile
 - `trivy`
@@ -52,9 +59,10 @@ These are intentionally profile-gated and not required for baseline operation.
 
 ## 6) Health Validation Sequence
 1. `docker compose ps`
-2. `curl -fsS http://localhost:8000/health`
-3. `curl -fsS http://localhost:3000` (or deployed frontend URL)
-4. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
+2. `curl -fsS http://localhost:8001/api/health` (backend direct)
+3. `curl -fsS http://localhost:3000` (frontend direct)
+4. `curl -kfsS https://localhost/api/health` (if nginx is enabled)
+5. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
 
 ## 7) Known Wiring Risks (from latest static audit)
 - High-confidence API mismatch fixed:
@@ -69,16 +77,23 @@ These are intentionally profile-gated and not required for baseline operation.
 - At least one page each from: Threats, Alerts, Agents, Settings can load data successfully.
 - Optional integration pages degrade gracefully if their service is not enabled.
 
-## 9) Consolidated Reality Conditions (2026-03-04)
+## 9) Current Stack Topology Snapshot (Apr 2026)
+- `docker-compose.yml` currently defines **21 services**.
+- Primary always-on local stack is typically:
+  - `mongodb`, `redis`, `backend`, `frontend` (plus `nginx` when terminating TLS/proxying).
+- Security profile adds host-sensor and scanning services (e.g., trivy/falco/suricata/zeek/volatility).
+- Sandbox profile adds Cuckoo stack (`cuckoo-mongo`, `cuckoo`, `cuckoo-web`).
+
+## 10) Consolidated Reality Conditions (2026-03-04)
 
 These conditions align run-mode expectations with the critical evaluation and feature reality artifacts.
 
-### 9.1 Must-pass operational contracts
+### 10.1 Must-pass operational contracts
 - Swarm group/tag/device assignment flows should be available end-to-end.
 - Threats/Alerts/Timeline/Zero-Trust pages should load and execute their core read paths.
 - Threat response routes should remain functional even when optional providers (Twilio/OpenClaw) are unavailable.
 
-### 9.2 Known degraded/conditional contracts
+### 10.2 Known degraded/conditional contracts
 - Unified deployment endpoint currently represents a queued/simulated flow unless backed by real deployment execution plumbing.
 - WinRM auto-deployment is conditional on:
   - valid credentials (password-based auth),
@@ -86,7 +101,7 @@ These conditions align run-mode expectations with the critical evaluation and fe
   - remote endpoint availability (port/protocol/security policy).
 - OpenClaw integration is optional and should never block core SOC operation.
 
-### 9.3 Contract integrity risks to monitor
+### 10.3 Contract integrity risks to monitor
 - Unified command schema mismatch risk between frontend and backend payload models.
 - Threat-response OpenClaw analyze payload mapping mismatch risk.
 - Mixed frontend API base strategy (`REACT_APP_BACKEND_URL` hard dependency in some pages vs `/api` fallback in others).
@@ -94,14 +109,14 @@ These conditions align run-mode expectations with the critical evaluation and fe
 - Script/default URL drift across `localhost:8001`, `localhost:8002`, and legacy cloud defaults.
 - Validation script mismatch risk (`/api/zero-trust/overview` probe not aligned to active router paths).
 
-### 9.4 Updated "Working" interpretation
+### 10.4 Updated "Working" interpretation
 System is considered **working** when:
 1. Core required services are healthy.
 2. Core SOC workflows (threats, alerts, timeline, zero-trust read/evaluate) execute successfully.
 3. Optional integrations fail gracefully with explicit status and no cascading core failure.
 4. Deployment success states correspond to verified execution, not simulation-only completion.
 
-## 10) Acceptance Changelog (2026-03-04)
+## 11) Acceptance Changelog (2026-03-04)
 
 - Added writable runtime data-path fallback behavior for backend services to prevent startup failure in restricted environments.
 - Aligned backend integration tests to current API contracts (response shapes, permissions, and agent-download artifact behavior).

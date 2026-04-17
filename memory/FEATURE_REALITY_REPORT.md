@@ -1,36 +1,31 @@
 # Feature Reality Report
 
-Generated: 2026-03-09
-Version: v6.7.0
+Generated: 2026-04-17  
+Version: code-rebaseline  
 Scope: Qualitative implementation narrative (feature depth, durability, contract assurance, operational realism)
-**Update:** Comprehensive assessment including Email Gateway, MDM Connectors, and Security Hardening
 
-## Executive Verdict
-Metatron has achieved **enterprise-grade security platform** status with full Email Gateway and MDM Connectors capabilities. The platform now provides comprehensive protection across endpoints, cloud, network, identity, email (including gateway mode), and mobile devices (including MDM integration). All previously identified Tier 3 domain expansion gaps have been closed. Core domains are operational, DB-backed, and contract-assured.
+## Executive Verdict (Code-Rebased)
+The platform remains broad and operational, but the most accurate description today is: **feature-rich with mixed maturity**. Core surfaces are real and wired (`backend/server.py` includes 65 router registrations), the agent is substantial (`unified_agent/core/agent.py` at 17k+ LOC), and key domains (EDR, response, email, mobile, CSPM, governance) are implemented.  
+
+The largest current gap is not missing features; it is **consistency under production constraints** (credentialed integrations, durable governance state patterns, and verification depth).
 
 ---
 
-## Feature Maturity Table
-| Domain | Score (0-10) | Status | Key Recent Enhancements |
-|---|---|---|---|
-| Unified Agent Control Plane | 10 | PASS | Full telemetry, Email/Mobile/Gateway monitor integration |
-| EDM Governance & Telemetry | 10 | PASS | Complete governance pipeline |
-| DLP & Exact Data Match | 10 | PASS | Enhanced with OCR-ready architecture |
-| **Email Protection** | **9** | **PASS** | **SPF/DKIM/DMARC, phishing, attachment scanning, impersonation, DLP** |
-| **Email Gateway** | **8.5** | **PASS** | **NEW: SMTP relay, quarantine, blocklist/allowlist, policy engine** |
-| **Mobile Security** | **8.5** | **PASS** | **Device management, jailbreak detection, app analysis, compliance** |
-| **MDM Connectors** | **8.5** | **PASS** | **NEW: Intune, JAMF, Workspace ONE, Google Workspace** |
-| Identity Protection | 9 | PASS | DB-backed incident durability |
-| CSPM Capability Plane | 9 | PASS | Multi-cloud with audit trails, **now authenticated** |
-| Deployment Realism | 8 | PASS/PARTIAL | Real execution paths |
-| Security Hardening | 9 | PASS | **CSPM auth fix**, enhanced CORS |
-| Timeline/Forensics | 8 | PASS/PARTIAL | Core flows operational |
-| Quarantine/Response | 8 | PASS/PARTIAL | Guarded transitions |
-| SOAR Playbooks | 8 | PASS/PARTIAL | Audit logging complete |
-| Kernel Security | 8.5 | PASS | eBPF sensors, rootkit detection |
-| Zero-Trust Durability | 7 | PARTIAL | Improving across restart scenarios |
-| Browser Isolation | 6.5 | PARTIAL | URL analysis, filtering, sanitization |
-| Optional AI Augmentation | 6 | PARTIAL | Rule-based fallback operational |
+## Feature Maturity Table (Apr 2026 Rebaseline)
+| Domain | Score (0-10) | Status | Current Code Logic Notes |
+|---|---:|---|---|
+| API surface and routing | 9.0 | PASS | 61 backend router files, 65 registered routers in `backend/server.py`. |
+| Unified agent control plane | 9.0 | PASS | Agent lifecycle + heartbeat/control present; 27 monitor keys currently wired by default/OS in `core/agent.py`. |
+| EDM and DLP | 8.5 | PASS | EDM pipelines and DLP integration are present with governance workflows. |
+| Email protection | 8.5 | PASS | DNS-based auth checks and analysis logic in `backend/email_protection.py`. |
+| Email gateway | 8.0 | PASS/PARTIAL | Inline processing, quarantine, policies, block/allow management; production SMTP integration still environment-dependent. |
+| Mobile security + MDM | 8.0 | PASS/PARTIAL | Mobile and MDM services are implemented; production sync depth depends on live tenant credentials/webhooks. |
+| Identity + governance | 8.0 | PASS/PARTIAL | Identity and governance routers/services exist, with mixed durability guarantees across paths. |
+| CSPM | 8.0 | PASS/PARTIAL | Scan endpoint requires auth; provider mutate operations are triune-gated; demo fallback exists when no providers configured. |
+| Deployment realism | 7.5 | PASS/PARTIAL | Real SSH/WinRM deployment paths exist with conditional runtime requirements. |
+| Security hardening baseline | 7.5 | PASS/PARTIAL | Stronger CORS and token checks in key paths; still broad surface to normalize. |
+| Browser isolation | 6.5 | PARTIAL | Filtering/sanitization is present; full remote-browser isolation remains limited. |
+| Optional AI augmentation | 6.0 | PARTIAL | Works with fallback behavior; quality depends on model/runtime availability. |
 
 ---
 
@@ -51,13 +46,14 @@ Email Gateway provides enterprise SMTP relay capabilities:
 
 **API Endpoints (`backend/routers/email_gateway.py`):**
 - `GET /api/email-gateway/stats` - Gateway statistics
+- `POST /api/email-gateway/process` - Process/test an email through gateway logic
 - `GET /api/email-gateway/quarantine` - List quarantined messages
 - `POST /api/email-gateway/quarantine/{id}/release` - Release from quarantine
 - `DELETE /api/email-gateway/quarantine/{id}` - Delete from quarantine
 - `GET/POST/DELETE /api/email-gateway/blocklist` - Manage blocklist
-- `GET/POST/DELETE /api/email-gateway/allowlist` - Manage allowlist
+- `GET/POST /api/email-gateway/allowlist` - Manage allowlist (no delete route currently implemented)
 - `GET /api/email-gateway/policies` - View policies
-- `POST /api/email-gateway/process` - Test email processing
+- `PUT /api/email-gateway/policies/{policy_name}` - Update policy settings
 
 **What's Real:**
 - Full SMTP gateway framework with inline processing
@@ -92,9 +88,12 @@ MDM Connectors provides enterprise mobile device management integration:
 - `DELETE /api/mdm/connectors/{name}` - Remove connector
 - `POST /api/mdm/connectors/{name}/connect` - Connect to platform
 - `POST /api/mdm/connectors/{name}/disconnect` - Disconnect
+- `POST /api/mdm/sync` - Async background sync
 - `GET /api/mdm/devices` - List devices
+- `POST /api/mdm/devices/{id}/action` - Execute generic action
 - `POST /api/mdm/devices/{id}/lock` - Lock device
 - `POST /api/mdm/devices/{id}/wipe` - Wipe device
+- `POST /api/mdm/devices/{id}/retire` - Retire device
 - `GET /api/mdm/policies` - List policies
 - `GET /api/mdm/platforms` - Available platforms
 - `POST /api/mdm/sync/now` - Force sync
