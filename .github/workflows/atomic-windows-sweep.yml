@@ -1,0 +1,66 @@
+name: Atomic Windows Sweep (S5 Promotion)
+
+# Runs 80 Windows-only Gold techniques 3x on clean Windows runners.
+# Each pass produces run_*.json artifacts in the WinRM format so the
+# evidence bundle scores them as real execution (clean_runs >= 3 → S5).
+#
+# After all 3 passes complete, download all artifacts and run:
+#   python scripts/import_gha_artifacts.py --artifacts-dir ~/Downloads/sweep-artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      techniques:
+        description: "Comma-separated technique IDs (empty = all 80 Windows Gold)"
+        required: false
+        default: ""
+
+jobs:
+  sweep:
+    name: "Pass ${{ matrix.pass }}"
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        pass: [1, 2, 3]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Disable Windows Defender real-time protection
+        shell: powershell
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $true `
+            -DisableIOAVProtection $true `
+            -DisableBehaviorMonitoring $true `
+            -DisableBlockAtFirstSeen $true `
+            -DisableScriptScanning $true
+          Write-Host "Defender real-time protection disabled"
+
+      - name: Install Invoke-AtomicRedTeam + atomics catalog
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'SilentlyContinue'
+          IEX (IWR 'https://raw.githubusercontent.com/redcanaryco/invoke-atomicredteam/master/install-atomicredteam.ps1' -UseBasicParsing)
+          Install-AtomicRedTeam -getAtomics -Force -noPayloads
+          Write-Host "ART installed to C:\AtomicRedTeam"
+
+      - name: Run Windows atomic sweep (pass ${{ matrix.pass }})
+        shell: cmd
+        env:
+          SWEEP_TECHNIQUES: ${{ inputs.techniques }}
+          SWEEP_PASS: ${{ matrix.pass }}
+          SWEEP_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          python scripts\run_windows_local_sweep.py ^
+            --output-dir results\pass-${{ matrix.pass }} ^
+            --pass-idx ${{ matrix.pass }} ^
+            --run-number ${{ github.run_number }}
+
+      - name: Upload sweep results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-sweep-pass-${{ matrix.pass }}-run${{ github.run_number }}
+          path: results\pass-${{ matrix.pass }}\
+          retention-days: 30
