@@ -30,13 +30,16 @@ from pathlib import Path
 MODULE_PATH = r"C:\AtomicRedTeam\invoke-atomicredteam\Invoke-AtomicRedTeam.psd1"
 ATOMIC_ROOT = r"C:\AtomicRedTeam\atomics"
 
-# 80 Windows-only Gold techniques that need 3 clean runs for S5 promotion.
+# Phase 1 (26 done): T1006,T1010,T1012,T1020,T1021.002-004,T1021.006,T1025,T1039,
+#   T1041,T1047,T1072,T1091,T1095,T1106,T1112,T1119,T1120,T1123,T1125,T1127,
+#   T1127.001,T1129,T1133,T1134.002
+
+# Phase 2: remaining 54 + 6 partial-clean retries.
+# T1134.x token-manipulation techniques run LAST at concurrency=1 to prevent
+# the spawned impersonation process from killing the runner mid-sweep.
 WINDOWS_GOLD = [
-    "T1006", "T1010", "T1012", "T1020", "T1021.001", "T1021.002", "T1021.003",
-    "T1021.004", "T1021.006", "T1025", "T1039", "T1041", "T1047", "T1072",
-    "T1091", "T1095", "T1106", "T1112", "T1119", "T1120", "T1123", "T1125",
-    "T1127", "T1127.001", "T1129", "T1133", "T1134.001", "T1134.002", "T1134.004",
-    "T1134.005", "T1137", "T1137.001", "T1137.002", "T1137.004", "T1137.006",
+    # Remaining 54 (not yet run)
+    "T1021.001", "T1137", "T1137.001", "T1137.002", "T1137.004", "T1137.006",
     "T1187", "T1197", "T1202", "T1204.002", "T1204.003", "T1207", "T1216",
     "T1216.001", "T1218", "T1218.001", "T1218.002", "T1218.003", "T1218.004",
     "T1218.005", "T1218.007", "T1218.008", "T1218.009", "T1218.010", "T1218.011",
@@ -44,6 +47,10 @@ WINDOWS_GOLD = [
     "T1505.004", "T1505.005", "T1539", "T1550.002", "T1550.003", "T1558.001",
     "T1558.002", "T1558.003", "T1558.004", "T1563.002", "T1566.001", "T1566.002",
     "T1570", "T1573", "T1615", "T1620", "T1622", "T1649", "T1654",
+    # Partial-clean retries (need 1-2 more clean runs for S5)
+    "T1095", "T1112", "T1127", "T1127.001", "T1133",
+    # T1134.x token-manipulation — run last to contain runner-kill risk
+    "T1134.001", "T1134.002", "T1134.004", "T1134.005",
 ]
 
 
@@ -63,6 +70,12 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
     run_id = uuid.uuid4().hex
     started = datetime.now(timezone.utc).isoformat()
 
+    # CREATE_NEW_PROCESS_GROUP isolates the PowerShell child and its descendants
+    # so token-manipulation techniques (T1134.x) can't signal/kill this process.
+    _creation_flags = 0
+    if sys.platform == "win32":
+        _creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
+
     try:
         proc = subprocess.run(
             [
@@ -76,6 +89,7 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
             timeout=300,
             encoding="utf-8",
             errors="ignore",
+            creationflags=_creation_flags,
         )
         raw_stdout = proc.stdout or ""
         raw_exit = proc.returncode
@@ -159,7 +173,7 @@ def main():
     parser.add_argument("--pass-idx", type=int, default=1)
     parser.add_argument("--run-number", type=int, default=1)
     parser.add_argument("--techniques", default="")
-    parser.add_argument("--concurrency", type=int, default=3)
+    parser.add_argument("--concurrency", type=int, default=1)
     args = parser.parse_args()
 
     # Techniques: CLI flag > env var > full WINDOWS_GOLD list
