@@ -1,27 +1,36 @@
 name: Atomic Windows Sweep (S5 Promotion)
 
-# Runs 80 Windows-only Gold techniques 3x on clean Windows runners.
-# Each pass produces run_*.json artifacts in the WinRM format so the
-# evidence bundle scores them as real execution (clean_runs >= 3 → S5).
+# Runs Windows-only Gold techniques 3x on clean Windows runners.
+# Techniques are split into 4 batches so each job finishes in ~30 min:
+#   batch 1-3: safe techniques at concurrency=3
+#   batch 4:   T1134.x token-manipulation at concurrency=1 (runner-kill safe)
+# Each job produces run_*.json artifacts (execution_mode=remote_winrm) so
+# the evidence bundle scores them as real execution (clean_runs >= 3 → S5).
 #
-# After all 3 passes complete, download all artifacts and run:
+# After all jobs complete, download artifacts and run:
 #   python scripts/import_gha_artifacts.py --artifacts-dir ~/Downloads/sweep-artifacts
 
 on:
   workflow_dispatch:
     inputs:
       techniques:
-        description: "Comma-separated technique IDs (empty = all 80 Windows Gold)"
+        description: "Comma-separated technique IDs (empty = run the selected batch)"
         required: false
         default: ""
+      batches:
+        description: "Comma-separated batch numbers to run (default: 1,2,3,4)"
+        required: false
+        default: "1,2,3,4"
 
 jobs:
   sweep:
-    name: "Pass ${{ matrix.pass }}"
+    name: "Batch ${{ matrix.batch }} Pass ${{ matrix.pass }}"
     runs-on: windows-latest
+    timeout-minutes: 45
     strategy:
       matrix:
         pass: [1, 2, 3]
+        batch: [1, 2, 3, 4]
       fail-fast: false
 
     steps:
@@ -45,7 +54,7 @@ jobs:
           Install-AtomicRedTeam -getAtomics -Force -noPayloads
           Write-Host "ART installed to C:\AtomicRedTeam"
 
-      - name: Run Windows atomic sweep (pass ${{ matrix.pass }})
+      - name: Run Windows atomic sweep (batch ${{ matrix.batch }} pass ${{ matrix.pass }})
         shell: cmd
         env:
           SWEEP_TECHNIQUES: ${{ inputs.techniques }}
@@ -53,14 +62,16 @@ jobs:
           SWEEP_RUN_NUMBER: ${{ github.run_number }}
         run: |
           python scripts\run_windows_local_sweep.py ^
-            --output-dir results\pass-${{ matrix.pass }} ^
+            --output-dir results\batch-${{ matrix.batch }}-pass-${{ matrix.pass }} ^
             --pass-idx ${{ matrix.pass }} ^
-            --run-number ${{ github.run_number }}
+            --run-number ${{ github.run_number }} ^
+            --batch ${{ matrix.batch }} ^
+            --concurrency 3
 
       - name: Upload sweep results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: windows-sweep-pass-${{ matrix.pass }}-run${{ github.run_number }}
-          path: results\pass-${{ matrix.pass }}\
+          name: windows-sweep-b${{ matrix.batch }}-p${{ matrix.pass }}-run${{ github.run_number }}
+          path: results\batch-${{ matrix.batch }}-pass-${{ matrix.pass }}\
           retention-days: 30

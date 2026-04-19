@@ -30,21 +30,38 @@ from pathlib import Path
 MODULE_PATH = r"C:\AtomicRedTeam\invoke-atomicredteam\Invoke-AtomicRedTeam.psd1"
 ATOMIC_ROOT = r"C:\AtomicRedTeam\atomics"
 
-# 80 Windows-only Gold techniques that need 3 clean runs for S5 promotion.
-WINDOWS_GOLD = [
-    "T1006", "T1010", "T1012", "T1020", "T1021.001", "T1021.002", "T1021.003",
-    "T1021.004", "T1021.006", "T1025", "T1039", "T1041", "T1047", "T1072",
-    "T1091", "T1095", "T1106", "T1112", "T1119", "T1120", "T1123", "T1125",
-    "T1127", "T1127.001", "T1129", "T1133", "T1134.001", "T1134.002", "T1134.004",
-    "T1134.005", "T1137", "T1137.001", "T1137.002", "T1137.004", "T1137.006",
+# Safe techniques — run at full concurrency (no token-manipulation risk).
+# Split into 3 batches so each GHA job finishes in ~30 min.
+_SAFE_B1 = [
+    "T1021.001", "T1137", "T1137.001", "T1137.002", "T1137.004", "T1137.006",
     "T1187", "T1197", "T1202", "T1204.002", "T1204.003", "T1207", "T1216",
     "T1216.001", "T1218", "T1218.001", "T1218.002", "T1218.003", "T1218.004",
+]
+_SAFE_B2 = [
     "T1218.005", "T1218.007", "T1218.008", "T1218.009", "T1218.010", "T1218.011",
     "T1219", "T1220", "T1221", "T1482", "T1490", "T1505.002", "T1505.003",
-    "T1505.004", "T1505.005", "T1539", "T1550.002", "T1550.003", "T1558.001",
-    "T1558.002", "T1558.003", "T1558.004", "T1563.002", "T1566.001", "T1566.002",
-    "T1570", "T1573", "T1615", "T1620", "T1622", "T1649", "T1654",
+    "T1505.004", "T1505.005", "T1539", "T1550.002", "T1550.003",
 ]
+_SAFE_B3 = [
+    "T1558.001", "T1558.002", "T1558.003", "T1558.004", "T1563.002",
+    "T1566.001", "T1566.002", "T1570", "T1573", "T1615", "T1620", "T1622",
+    "T1649", "T1654",
+    # Partial-clean retries (need 1-2 more clean runs for S5)
+    "T1095", "T1112", "T1127", "T1127.001", "T1133",
+]
+
+# Token-manipulation — MUST run sequentially (concurrency=1) to prevent the
+# spawned impersonation process from signalling / killing the runner.
+_T1134 = [
+    "T1134.001", "T1134.002", "T1134.004", "T1134.005",
+]
+
+# Full ordered list (T1134.x always last)
+WINDOWS_GOLD = _SAFE_B1 + _SAFE_B2 + _SAFE_B3 + _T1134
+
+# Batch map used by --batch N.  Batch 4 = T1134.x; the script forces
+# concurrency=1 for that batch regardless of --concurrency.
+_BATCH_MAP = {1: _SAFE_B1, 2: _SAFE_B2, 3: _SAFE_B3, 4: _T1134}
 
 
 def _ps_command(technique: str) -> str:
@@ -63,6 +80,12 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
     run_id = uuid.uuid4().hex
     started = datetime.now(timezone.utc).isoformat()
 
+    # CREATE_NEW_PROCESS_GROUP isolates the PowerShell child and its descendants
+    # so token-manipulation techniques (T1134.x) can't signal/kill this process.
+    _creation_flags = 0
+    if sys.platform == "win32":
+        _creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
+
     try:
         proc = subprocess.run(
             [
@@ -76,6 +99,7 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
             timeout=300,
             encoding="utf-8",
             errors="ignore",
+            creationflags=_creation_flags,
         )
         raw_stdout = proc.stdout or ""
         raw_exit = proc.returncode
@@ -100,7 +124,15 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
             status = "skipped"
             outcome = "no_execution_marker"
 
-        stdout = raw_stdout[-8000:]
+        # Keep head + tail so "Executing test:" blocks at the start are never
+        # truncated — evidence_bundle.py splits on that marker for key_events
+        # and stdout_has_real_success().  The tail captures any error summary.
+        HEAD = 8000
+        TAIL = 2000
+        if len(raw_stdout) > HEAD + TAIL:
+            stdout = raw_stdout[:HEAD] + "\n...[truncated]...\n" + raw_stdout[-TAIL:]
+        else:
+            stdout = raw_stdout
         stderr = ""
 
     except subprocess.TimeoutExpired:
@@ -160,50 +192,86 @@ def main():
     parser.add_argument("--run-number", type=int, default=1)
     parser.add_argument("--techniques", default="")
     parser.add_argument("--concurrency", type=int, default=3)
+    parser.add_argument(
+        "--batch", type=int, default=0,
+        help="Run a named batch: 1=B1, 2=B2, 3=B3, 4=T1134.x (0=all)",
+    )
     args = parser.parse_args()
 
-    # Techniques: CLI flag > env var > full WINDOWS_GOLD list
+    # Technique selection: explicit list > --batch > env var > full WINDOWS_GOLD
     raw = args.techniques or os.environ.get("SWEEP_TECHNIQUES", "")
     if raw.strip():
         techniques = [t.strip().upper() for t in raw.split(",") if t.strip()]
+    elif args.batch in _BATCH_MAP:
+        techniques = list(_BATCH_MAP[args.batch])
     else:
         techniques = list(WINDOWS_GOLD)
+
+    # T1134.x must ALWAYS run at concurrency=1 regardless of --concurrency.
+    # Split the list so the two phases use the right pool size.
+    t1134_set = set(_T1134)
+    safe_techniques = [t for t in techniques if t not in t1134_set]
+    t1134_techniques = [t for t in techniques if t in t1134_set]
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Windows GHA sweep — pass={args.pass_idx} run={args.run_number}", flush=True)
-    print(f"Techniques: {len(techniques)}  Concurrency: {args.concurrency}", flush=True)
+    print(
+        f"Techniques: {len(techniques)} "
+        f"(safe={len(safe_techniques)} t1134={len(t1134_techniques)})"
+        f"  Concurrency: {args.concurrency}",
+        flush=True,
+    )
     print(f"Output: {output_dir}", flush=True)
     print(flush=True)
 
     success = failed = skipped = completed = 0
+    total = len(techniques)
 
-    def worker(technique):
+    def _report(result: dict, t: str) -> None:
+        nonlocal success, failed, skipped, completed
+        completed += 1
+        s = result["status"]
+        preview = (result.get("stdout") or "")[:80].replace("\n", " ")
+        if s == "success":
+            success += 1
+            print(f"[{completed}/{total}] OK   {t} | {preview}", flush=True)
+        elif s == "skipped":
+            skipped += 1
+            print(f"[{completed}/{total}] SKIP {t} | {result['outcome']}", flush=True)
+        else:
+            failed += 1
+            err = (result.get("stderr") or "")[:120].replace("\n", " ")
+            print(f"[{completed}/{total}] FAIL {t} | {result['outcome']} | {err}", flush=True)
+
+    def worker(technique: str) -> dict:
         return run_one(technique, output_dir, args.pass_idx, args.run_number)
 
-    with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
-        futures = {pool.submit(worker, t): t for t in techniques}
-        for future in as_completed(futures):
-            t = futures[future]
-            completed += 1
-            try:
-                result = future.result()
-                s = result["status"]
-                preview = (result.get("stdout") or "")[:80].replace("\n", " ")
-                if s == "success":
-                    success += 1
-                    print(f"[{completed}/{len(techniques)}] OK   {t} | {preview}", flush=True)
-                elif s == "skipped":
-                    skipped += 1
-                    print(f"[{completed}/{len(techniques)}] SKIP {t} | {result['outcome']}", flush=True)
-                else:
+    # Phase 1: safe techniques at full concurrency
+    if safe_techniques:
+        with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+            futures = {pool.submit(worker, t): t for t in safe_techniques}
+            for future in as_completed(futures):
+                t = futures[future]
+                try:
+                    _report(future.result(), t)
+                except Exception as exc:
                     failed += 1
-                    err = (result.get("stderr") or "")[:120].replace("\n", " ")
-                    print(f"[{completed}/{len(techniques)}] FAIL {t} | {result['outcome']} | {err}", flush=True)
+                    completed += 1
+                    print(f"[{completed}/{total}] ERR  {t}: {exc}", flush=True)
+
+    # Phase 2: T1134.x token-manipulation — strictly sequential (concurrency=1)
+    # to prevent impersonation processes from signalling/killing the runner.
+    if t1134_techniques:
+        print("--- T1134.x phase (sequential) ---", flush=True)
+        for t in t1134_techniques:
+            try:
+                _report(worker(t), t)
             except Exception as exc:
                 failed += 1
-                print(f"[{completed}/{len(techniques)}] ERR  {t}: {exc}", flush=True)
+                completed += 1
+                print(f"[{completed}/{total}] ERR  {t}: {exc}", flush=True)
 
     print("=" * 60, flush=True)
     print(f"Pass {args.pass_idx} done.  OK={success}  Skip={skipped}  Fail={failed}", flush=True)
