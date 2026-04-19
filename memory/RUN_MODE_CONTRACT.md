@@ -1,114 +1,164 @@
-# Metatron Run-Mode Contract (Source of Truth)
+# Metatron/Seraph Run-Mode Contract (Updated April 2026)
 
 ## Goal
-Define what is **required** vs **optional** so operators can run the platform predictably and understand why some dashboard features may be unavailable.
 
-## 1) Required Core (must be up)
-- `mongodb`
-- `backend`
-- `frontend`
+Define the real runtime contract of the current codebase so deployment and validation are grounded in what actually runs today.
 
-If any of these are down, the dashboard is not considered healthy.
+## 1) Required core services
 
-## 2) Default Optional Integrations (degraded mode if down)
-- `wireguard`
-- `elasticsearch`
-- `kibana`
-- `ollama`
+These components are required for the primary product API path:
 
-Behavior contract:
-- UI should remain usable when optional services are down.
-- Related pages/features may show degraded status, warnings, or partial data.
+1. `backend/server.py` (FastAPI app, port 8001)
+2. MongoDB (`MONGO_URL`, database set via `DB_NAME`)
+3. Frontend SPA (`frontend/`) if UI access is required
 
-## 3) Profile-Based Optional Integrations
-These are intentionally profile-gated and not required for baseline operation.
+Behavioral contract:
 
-### security profile
-- `trivy`
-- `falco`
-- `suricata`
+- Backend starts and mounts routers under `/api` plus selected `/api/v1` routers.
+- Authentication and permission checks are enforced by `backend/routers/dependencies.py`.
+- Health endpoint must respond on `GET /api/health`.
 
-### sandbox profile
-- `cuckoo`
-- `cuckoo-web`
+## 2) Optional-but-supported operational dependencies
 
-## 4) Runtime Launch Modes
-### Minimal reliable mode
-`docker compose up -d mongodb backend frontend`
+These are optional at runtime; feature areas degrade if absent:
 
-### Recommended local full mode
-`docker compose up -d mongodb backend frontend wireguard elasticsearch kibana ollama`
+- Redis / Celery (`docker-compose.yml`: `redis`, `celery-worker`, `celery-beat`)
+- Elasticsearch + Kibana
+- Trivy, Falco, Suricata, Zeek, Cuckoo
+- WireGuard
+- Ollama
+- Unified-agent side API (`unified_agent/server_api.py`) and Flask dashboard
 
-### Extended security mode
-`docker compose --profile security up -d`
+Contract:
 
-### Sandbox mode
-`docker compose --profile sandbox up -d`
+- Missing optional dependencies must not break core API startup.
+- Related feature endpoints may return degraded status or partial data.
 
-## 5) API Routing Contract
-- Frontend calls backend via `${REACT_APP_BACKEND_URL}/api/...`.
-- In production behind reverse proxy, same-origin `/api` routing should be preferred.
-- Backend routers are mounted under `/api` in `backend/server.py`.
+## 3) Runtime launch modes
 
-## 6) Health Validation Sequence
-1. `docker compose ps`
-2. `curl -fsS http://localhost:8000/health`
-3. `curl -fsS http://localhost:3000` (or deployed frontend URL)
-4. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
+### Mode A: Backend-only API mode
 
-## 7) Known Wiring Risks (from latest static audit)
-- High-confidence API mismatch fixed:
-  - `SettingsPage` endpoint updated from `/api/elasticsearch/status` to `/api/settings/elasticsearch/status`.
-- Dashboard UX mismatch fixed:
-  - "View All" buttons on dashboard now navigate to `/threats` and `/alerts`.
-- Remaining UI gaps are primarily feature-completeness gaps (buttons rendered without action handlers), not fatal routing failures.
+Use when validating server contracts quickly.
 
-## 8) Acceptance Criteria for "Working"
-- Core services up and healthy.
-- Login works and main dashboard loads without fatal errors.
-- At least one page each from: Threats, Alerts, Agents, Settings can load data successfully.
-- Optional integration pages degrade gracefully if their service is not enabled.
+- Start: `uvicorn backend.server:app --host 0.0.0.0 --port 8001`
+- Requires MongoDB connectivity (or mock mode via env where configured)
 
-## 9) Consolidated Reality Conditions (2026-03-04)
+### Mode B: Local full-stack dev mode
 
-These conditions align run-mode expectations with the critical evaluation and feature reality artifacts.
+Use for backend + frontend integration.
 
-### 9.1 Must-pass operational contracts
-- Swarm group/tag/device assignment flows should be available end-to-end.
-- Threats/Alerts/Timeline/Zero-Trust pages should load and execute their core read paths.
-- Threat response routes should remain functional even when optional providers (Twilio/OpenClaw) are unavailable.
+- Backend: `backend/server.py` or uvicorn command above
+- Frontend: `frontend` (`craco start` or containerized nginx build path)
 
-### 9.2 Known degraded/conditional contracts
-- Unified deployment endpoint currently represents a queued/simulated flow unless backed by real deployment execution plumbing.
-- WinRM auto-deployment is conditional on:
-  - valid credentials (password-based auth),
-  - `pywinrm` installed,
-  - remote endpoint availability (port/protocol/security policy).
-- OpenClaw integration is optional and should never block core SOC operation.
+### Mode C: Compose baseline mode
 
-### 9.3 Contract integrity risks to monitor
-- Unified command schema mismatch risk between frontend and backend payload models.
-- Threat-response OpenClaw analyze payload mapping mismatch risk.
-- Mixed frontend API base strategy (`REACT_APP_BACKEND_URL` hard dependency in some pages vs `/api` fallback in others).
-- Script ecosystem endpoint drift (`/api/agent/*` legacy paths vs active `/api/swarm` and `/api/unified` contracts).
-- Script/default URL drift across `localhost:8001`, `localhost:8002`, and legacy cloud defaults.
-- Validation script mismatch risk (`/api/zero-trust/overview` probe not aligned to active router paths).
+Use `docker-compose.yml` to run multi-service stack.
 
-### 9.4 Updated "Working" interpretation
-System is considered **working** when:
-1. Core required services are healthy.
-2. Core SOC workflows (threats, alerts, timeline, zero-trust read/evaluate) execute successfully.
-3. Optional integrations fail gracefully with explicit status and no cascading core failure.
-4. Deployment success states correspond to verified execution, not simulation-only completion.
+- Service definitions: 21
+- Core dev path uses: `mongodb`, `backend`, `frontend` (plus optional stack)
 
-## 10) Acceptance Changelog (2026-03-04)
+### Mode D: Extended security profile
 
-- Added writable runtime data-path fallback behavior for backend services to prevent startup failure in restricted environments.
-- Aligned backend integration tests to current API contracts (response shapes, permissions, and agent-download artifact behavior).
-- Removed test warning sources from VPN/browser integration tests (no non-`None` test returns).
-- Final targeted acceptance subset result:
-  - `backend/tests/test_audit_timeline_openclaw.py`
-  - `backend/tests/test_unified_agent_hunting.py`
-  - `backend/tests/test_vpn_zerotrust_browser.py`
-  - `backend/tests/test_agent_download.py`
-  - outcome: **94 passed, 5 skipped, 0 failed**
+Enable optional sensors/services (Falco, Suricata, Zeek, Trivy, Cuckoo, volatility helper) for deeper telemetry and detection workflows.
+
+## 4) API routing contract
+
+Primary contract:
+
+- Most routers mount under `/api`.
+- Selected routers are pre-prefixed with `/api/v1/*` and mounted directly:
+  - `/api/v1/cspm`
+  - `/api/v1/identity`
+  - `/api/v1/attack-paths`
+  - `/api/v1/secure-boot`
+  - `/api/v1/kernel`
+
+Compatibility contract:
+
+- Deception router mounted at both `/api/deception` and `/api/v1/deception`.
+
+## 5) Auth and machine-token contract
+
+User auth:
+
+- JWT-based auth (`JWT_SECRET`) via bearer token dependencies.
+- Role-based permissions (`admin`, `analyst`, `viewer`) with capability checks.
+
+Machine/M2M auth:
+
+- Shared token dependencies (`require_machine_token`, `optional_machine_token`) in:
+  - `world_ingest`
+  - `integrations`
+  - `advanced`
+  - `enterprise`
+  - `identity`
+  - `swarm`
+  - `loki`
+  - `agent_commands`
+  - `cli_events`
+
+WebSocket token enforcement:
+
+- `/ws/agent/{agent_id}` validates machine token via `verify_websocket_machine_token`.
+
+## 6) Governance + command dispatch contract
+
+Operationally impactful commands are designed to pass through governance queueing:
+
+- Queueing and gating: `backend/services/governed_dispatch.py`
+- Decision authority transitions: `backend/services/governance_authority.py`
+- Approved execution processing: `backend/services/governance_executor.py`
+- API surface: `backend/routers/governance.py`
+
+Expected decision states:
+
+- pending -> approved/denied
+- approved decisions may move to `pending_executor` then execution outcomes
+
+## 7) Data/storage contract
+
+Primary store:
+
+- MongoDB for users, threats, alerts, triune/governance state, command queues, integrations jobs, and world model collections.
+
+Writable filesystem paths:
+
+- Resolved through `backend/runtime_paths.py::ensure_data_dir()`
+- Primary default: `/var/lib/anti-ai-defense`
+- Fallback default: `/tmp/anti-ai-defense`
+
+Agent-side/local state:
+
+- `unified_agent/server_api.py` uses local JSON persistence for `agents_db.json`, `alerts_db.json`, `deployments_db.json`.
+
+## 8) Acceptance criteria for “working”
+
+Minimum healthy state:
+
+1. `GET /api/health` returns healthy response.
+2. Auth flow can create/login user and resolve `/api/auth/me`.
+3. Core pages can fetch their primary backend data sources.
+4. Governance queue path can create/read pending decisions.
+5. No fatal startup exception from missing optional integrations.
+
+Extended healthy state:
+
+1. Integrations jobs can be queued and queried (`/api/integrations/jobs`).
+2. World ingest M2M endpoints accept valid machine token calls.
+3. Unified-agent command/heartbeat paths operate end-to-end.
+
+## 9) Known contract caveats (current)
+
+1. A few legacy frontend call-sites still reference non-canonical endpoints (`/api/data`, `/api/login`, `/api/admin/users`).
+2. `unified_agent/server_api.py` still describes proxying to `server_old.py` in docstrings/comments even while backend mainline is `backend/server.py`.
+3. Compose includes a large optional matrix; not all services are required for base functional runs.
+
+## 10) Contract maintenance triggers
+
+Update this document whenever:
+
+- a router prefix changes,
+- a new machine-token surface is added,
+- governance states or dispatch behavior change,
+- startup dependencies in `server.py` are altered.
+
