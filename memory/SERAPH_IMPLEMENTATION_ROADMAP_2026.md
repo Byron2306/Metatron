@@ -1,9 +1,21 @@
 # Seraph AI Defender — Technical Implementation Roadmap (2026)
 
-**Date:** 2026-03-04  
-**Derived from:** `memory/SERAPH_COMPETITIVE_WHITEPAPER_2026.md`  
+**Date:** 2026-03-04 (strategy baseline)  
+**Last reality refresh:** 2026-04-19  
+**Derived from:** `memory/SERAPH_COMPETITIVE_WHITEPAPER_2026.md` and code-verified review artifacts  
 **Horizon:** 12 months (rolling)  
 **Goal:** Converge to enterprise-grade operational confidence while preserving Seraph’s adaptive and composable strengths.
+
+## Reality Refresh Summary (2026-04-19)
+
+This roadmap remains directionally valid, but implementation reality now requires these corrections:
+
+1. Core platform breadth is materially real across backend/router mesh, unified agent control, email protection, email gateway, mobile security, CSPM, and governance services.
+2. MDM breadth is partially overstated in older docs:
+   - Intune and JAMF connector classes are implemented.
+   - Workspace ONE and Google Workspace are currently declared in enum/UI metadata but not implemented in connector manager runtime classes.
+3. Security hardening claims around JWT/CORS/CSPM auth gating are generally valid and should remain first-class in execution priorities.
+4. Program execution should prioritize **runtime truth and contract integrity** over additional breadth claims until declared-vs-implemented gaps are closed.
 
 ---
 

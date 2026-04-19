@@ -1,159 +1,76 @@
-# Metatron Feature Reality Matrix
+# Feature Reality Matrix (Code-Verified)
 
-Generated: 2026-03-09
-Scope: Quantitative implementation snapshot (feature depth, durability, contract assurance, operational realism)
-**Update v6.7.0:** Includes Email Gateway, MDM Connectors, and enhanced security hardening
+Generated: 2026-04-19  
+Scope: Quantitative snapshot of currently implemented behavior from repository code
 
 ## Legend
-- `PASS`: Real logic executes in normal configured environments.
-- `PARTIAL`: Real implementation exists but depends on optional runtime prerequisites, durability, or assurance depth.
-- `LIMITED`: Present only as compatibility layer, simulation-safe path, or reduced-depth implementation.
+- `PASS`: Implemented and wired with active backend/API or agent runtime behavior.
+- `PARTIAL`: Implemented but with material limits, placeholder breadth, or mixed durability model.
+- `LIMITED`: Exposed in UI/contracts but not fully backed by implementation.
 
 ---
 
 ## Feature Maturity Score Table
-| Domain | Score (0-10) | Status | Key Recent Enhancements |
-|---|---|---|---|
-| Unified Agent Control Plane | 10 | PASS | Telemetry loop-back, EDM hit reporting, runtime config updates, Email/Mobile monitors |
-| EDM Governance & Telemetry | 10 | PASS | Fingerprinting, Bloom filter, versioning, signature validation, hot-reload |
-| DLP & Exact Data Match | 10 | PASS | Clipboard/file EDM scan, dataset management, signature checks, agent integration |
-| **Email Protection** | **9** | **PASS** | **SPF/DKIM/DMARC validation, phishing detection, attachment scanning, impersonation protection, DLP** |
-| **Email Gateway** | **8** | **PASS** | **NEW: SMTP relay mode, quarantine management, blocklist/allowlist, real-time threat analysis** |
-| **Mobile Security** | **8** | **PASS** | **Device management, jailbreak detection, app analysis, compliance monitoring, network security** |
-| **MDM Connectors** | **8** | **PASS** | **NEW: Intune, JAMF, Workspace ONE, Google Workspace platform integration** |
-| Identity Protection | 9 | PASS | DB-backed incident durability, guarded transitions, audit logs |
-| CSPM Capability Plane | 9 | PASS | DB-backed scan/finding durability, guarded transitions, audit logs, **authenticated** |
-| Deployment Realism | 8 | PASS/PARTIAL | Real execution, retry semantics, contract assurance improving |
-| Security Hardening | 9 | PASS | JWT/CORS improvements, **CSPM auth fix**, safer container defaults |
-| Timeline/Forensics | 8 | PASS/PARTIAL | Core flows, report/forensic assurance maturing |
-| Quarantine/Response | 8 | PASS/PARTIAL | Guarded transitions, audit logs, monotonic versioning |
-| SOAR Playbooks | 8 | PASS/PARTIAL | Guarded transitions, audit logs, monotonic versioning |
-| Zero-Trust Durability | 7 | PARTIAL | Durable behavior improved, not fully mature across restart/scale |
-| Browser Isolation | 6 | PARTIAL | URL analysis, threat filtering, sanitization; full remote-browser isolation limited |
-| Kernel Security | 8 | PASS | eBPF sensors, syscall monitoring, rootkit detection, memory protection |
-| Optional AI Augmentation | 6 | PARTIAL | Rule-based fallback, model-dependent quality requires live model services |
+
+| Domain | Score (0-10) | Status | Evidence Highlights |
+|---|---:|---|---|
+| Backend Router Mesh | 9.0 | PASS | `backend/server.py` includes broad `/api` and `/api/v1` router composition |
+| Unified Agent Control Plane | 9.0 | PASS | `backend/routers/unified_agent.py` (register/heartbeat/commands/deployments/EDM) |
+| Endpoint Monitor Fleet | 9.0 | PASS | `unified_agent/core/agent.py` monitor registry includes email/mobile/kernel/ransomware/etc. |
+| EDM + DLP Governance | 8.8 | PASS | Unified EDM dataset/version/publish/rollback routes + agent telemetry loops |
+| Email Protection | 8.8 | PASS | `backend/email_protection.py` + `backend/routers/email_protection.py` |
+| Email Gateway | 8.5 | PASS | `backend/email_gateway.py` + `backend/routers/email_gateway.py` |
+| Mobile Security | 8.5 | PASS | `backend/mobile_security.py` + `backend/routers/mobile_security.py` |
+| MDM Connectors | 6.8 | PARTIAL | Intune/JAMF implemented; Workspace ONE/Google Workspace listed but not implemented in manager |
+| CSPM | 8.6 | PASS/PARTIAL | Auth + DB durability paths present; mixed in-memory/global state still used |
+| Identity + Governance Planes | 8.2 | PASS/PARTIAL | Rich controls and routes; assurance consistency is ongoing |
+| Zero Trust + Browser Isolation | 7.5 | PARTIAL | Feature-complete APIs with uneven depth depending on scenario |
+| Kernel/Secure Boot | 8.0 | PASS/PARTIAL | Secure boot + kernel sensors wired; maturity depends on host/runtime conditions |
 
 ---
 
 ## Current Reality Matrix
-| Domain | Status | Evidence | Practical Notes |
+
+| Domain | Status | Code Evidence | Practical Notes |
 |---|---|---|---|
-| Backend-frontend primary route wiring | PASS | Core routers + active pages aligned | Route-level mismatches rare; full-page audit shows 45/47 pages with API calls. |
-| Unified agent register/heartbeat/control | PASS | backend/routers/unified_agent.py | DB-backed, contract-assured, tested; includes Email/Mobile/Gateway monitors. |
-| EDM fingerprinting & dataset governance | PASS | unified_agent/core/agent.py, backend/routers/unified_agent.py | Full governance pipeline operational. |
-| DLP & Exact Data Match | PASS | backend/enhanced_dlp.py, unified_agent/core/agent.py | Clipboard/file EDM scan, dataset management, OCR-ready. |
-| **Email Protection (Backend)** | **PASS** | **backend/email_protection.py, backend/routers/email_protection.py** | **SPF/DKIM/DMARC via DNS, phishing detection, attachment scanning, DLP integration, auto-quarantine** |
-| **Email Gateway (Backend)** | **PASS** | **backend/email_gateway.py, backend/routers/email_gateway.py** | **NEW: SMTP relay, threat interception, blocklist/allowlist, policy enforcement** |
-| **Email Protection (Agent)** | **PASS** | **unified_agent/core/agent.py (EmailProtectionMonitor)** | **Local email client scanning, attachment monitoring, URL analysis** |
-| **Mobile Security (Backend)** | **PASS** | **backend/mobile_security.py, backend/routers/mobile_security.py** | **Device management, threat detection, app analysis, compliance checking** |
-| **MDM Connectors (Backend)** | **PASS** | **backend/mdm_connectors.py, backend/routers/mdm_connectors.py** | **NEW: Multi-platform MDM integration with device sync and policy enforcement** |
-| **Mobile Security (Agent)** | **PASS** | **unified_agent/core/agent.py (MobileSecurityMonitor)** | **Device security checks, encryption status, network monitoring, USB events** |
-| Identity incident durability | PASS | backend/routers/identity.py, tests | DB-backed, guarded transitions, monotonic versioning. |
-| CSPM scan/finding durability | PASS | backend/cspm_engine.py, tests | DB-backed, guarded transitions, audit logs, **now requires auth**. |
-| Deployment realism (SSH/WinRM) | PASS/PARTIAL | backend/services/agent_deployment.py | Real execution, retry semantics improving. |
-| Security hardening (JWT/CORS) | PASS | backend/server.py | Strict/prod paths improved; **CSPM auth fixed**; CORS validated. |
-| Timeline/forensic workflows | PASS/PARTIAL | backend/threat_timeline.py | Core flows, report/forensic assurance maturing. |
-| Quarantine/response durability | PASS/PARTIAL | backend/quarantine.py, threat_response.py | Guarded transitions, audit logs. |
-| SOAR playbook durability | PASS/PARTIAL | backend/soar_engine.py, tests | Guarded transitions, audit logs. |
-| Zero-trust durability | PARTIAL | zero-trust engine/router | Durable behavior improved, not fully mature across restart/scale. |
-| Browser isolation | PARTIAL | backend/browser_isolation.py | URL filtering, threat detection present; full remote isolation limited. |
-| Kernel security | PASS | backend/enhanced_kernel_security.py, backend/ebpf_kernel_sensors.py | eBPF sensors, rootkit detection, memory protection, secure boot. |
-| Optional AI augmentation | PARTIAL | advanced/hunting/correlation | Rule-based fallback works; model-dependent quality requires live services. |
+| API Composition | PASS | `backend/server.py` | Extensive router inclusion across SOC, agent, enterprise, triune, and security domains. |
+| Auth + RBAC Controls | PASS | `backend/routers/dependencies.py` | JWT resolution hardening, role checks, and permission dependencies are active. |
+| Unified Agent Lifecycle | PASS | `backend/routers/unified_agent.py` | Register/heartbeat/command paths are comprehensive and DB-integrated. |
+| EDM Rollout + Dataset Governance | PASS | `backend/routers/unified_agent.py` | Dataset versions, publish, rollback, and rollout progression endpoints are present. |
+| Email Protection APIs | PASS | `backend/routers/email_protection.py` | Analyze/auth/DLP/quarantine/protected-users and sender/domain list operations. |
+| Email Gateway APIs | PASS | `backend/routers/email_gateway.py` | Stats/process/quarantine/policy/blocklist/allowlist endpoints with auth guards. |
+| Mobile Security APIs | PASS | `backend/routers/mobile_security.py` | Device, threat, compliance, app analysis, and dashboard endpoints wired. |
+| MDM Connector APIs | PARTIAL | `backend/routers/mdm_connectors.py` | API exposes 4-platform catalog; backend connector manager supports Intune/JAMF only. |
+| MDM Connector Runtime | PARTIAL | `backend/mdm_connectors.py` | `MDMPlatform` enum includes 4 platforms, but manager adds only Intune/JAMF. |
+| CSPM Auth + Governance | PASS | `backend/routers/cspm.py` | Scan start requires authenticated user and uses outbound gating + world events. |
+| CSPM Data Durability | PASS/PARTIAL | `backend/routers/cspm.py` | DB-backed scans/findings with transition logs exist; still coupled with in-memory globals. |
+| Frontend Routing + Workspaces | PASS | `frontend/src/App.js` | Consolidated workspace-style routing with tab redirects and guarded app shell. |
+| Frontend MDM UX | PARTIAL | `frontend/src/pages/MDMConnectorsPage.jsx` | UI advertises 4 connector platforms; practical backend support is currently 2. |
 
 ---
 
-## Email Gateway Feature Details (NEW)
-| Capability | Implementation | Status |
-|---|---|---|
-| SMTP Relay Mode | Inline message processing | PASS |
-| Threat Analysis Engine | Multi-layer threat scoring | PASS |
-| Sender Blocklist | Email/domain/IP blocking | PASS |
-| Sender Allowlist | Trusted sender bypass | PASS |
-| Quarantine Management | Message isolation and release | PASS |
-| Policy Engine | Configurable security policies | PASS |
-| Real-time Processing | Sub-second threat detection | PASS |
-| Statistics Dashboard | Processing metrics and analytics | PASS |
-| Email Test Mode | Safe email analysis testing | PASS |
-| Enterprise Authentication | Role-based access control | PASS |
+## Corrected Claims vs Older Documentation
 
-## MDM Connectors Feature Details (NEW)
-| Capability | Implementation | Status |
-|---|---|---|
-| Microsoft Intune | Azure AD integrated MDM | PASS |
-| JAMF Pro | Apple device management | PASS |
-| VMware Workspace ONE | Cross-platform UEM | PASS |
-| Google Workspace | Android Enterprise / Chrome OS | PASS |
-| Device Sync | Multi-platform device inventory | PASS |
-| Compliance Policies | Policy-based device checks | PASS |
-| Remote Actions | Lock, wipe, sync commands | PASS |
-| Device Dashboard | Compliance overview | PASS |
+1. **MDM platform support is not fully 4-platform operational in runtime manager code.**  
+   - Intune and JAMF are implemented connector classes.  
+   - Workspace ONE and Google Workspace are currently exposed as options/metadata but not wired connector classes in `MDMConnectorManager.add_connector`.
 
-## Email Protection Feature Details
-| Capability | Implementation | Status |
-|---|---|---|
-| SPF Record Validation | DNS TXT record lookup and parsing | PASS |
-| DKIM Record Validation | DNS lookup with selector support | PASS |
-| DMARC Record Validation | Policy extraction and enforcement check | PASS |
-| Phishing Detection | Keyword analysis, lookalike domain detection | PASS |
-| URL Analysis | Shortener detection, IP-based URLs, suspicious TLDs | PASS |
-| Attachment Scanning | Extension checks, entropy analysis, signature detection | PASS |
-| Impersonation Detection | Executive/VIP lookalike, display name spoofing | PASS |
-| DLP Integration | Sensitive data pattern matching (CC, SSN, API keys) | PASS |
-| Auto-Quarantine | High-risk email isolation | PASS |
-| Protected Users Management | Executive and VIP protection lists | PASS |
+2. **Email Gateway and Email Protection claims are broadly accurate and materially implemented.**
 
-## Mobile Security Feature Details
-| Capability | Implementation | Status |
-|---|---|---|
-| Device Registration | iOS/Android device enrollment | PASS |
-| Device Status Tracking | Compliance score, risk assessment | PASS |
-| Jailbreak/Root Detection | Platform-specific indicators | PASS |
-| App Security Analysis | OWASP Mobile Top 10 checks | PASS |
-| Permission Analysis | Dangerous permission detection | PASS |
-| Network Security | Rogue WiFi detection, MITM detection | PASS |
-| USB Monitoring | External device event tracking | PASS |
-| Compliance Monitoring | Policy-based device compliance | PASS |
-| Encryption Status | Platform encryption verification | PASS |
-| Threat Lifecycle Management | Detection, tracking, resolution | PASS |
+3. **CSPM hardening claim is valid for authentication and guarded actions; durability model is improved but still hybrid (DB + in-memory state).**
 
 ---
 
-## Acceptance Snapshot (Last Verified)
-- Last known targeted acceptance subset result: `96 passed, 5 skipped, 0 failed` (2026-03-09 context).
-- Email Protection API tests: All 10 endpoints functional.
-- Email Gateway API tests: All 9 endpoints functional (2026-03-09).
-- Mobile Security API tests: All 8 endpoints functional.
-- MDM Connectors API tests: All 12 endpoints functional (2026-03-09).
-- CSPM authentication fix verified.
-- Interpretation: Contract alignment for selected critical suites is excellent.
+## Open Gaps (Most Actionable)
 
----
-
-## Gaps Closed in v6.7.0
-| Previous Gap | Status | Resolution |
-|---|---|---|
-| Email gateway/SMTP relay mode | ✅ CLOSED | Full SMTP gateway implemented |
-| MDM platform connectors | ✅ CLOSED | Intune, JAMF, Workspace ONE, Google Workspace |
-| CSPM public endpoint | ✅ CLOSED | Authentication dependency added |
-| Enhanced kernel security | ✅ CLOSED | Rootkit detection, memory protection |
-| Enhanced DLP | ✅ CLOSED | OCR-ready, classification, enforcement |
-
-## Remaining Gaps
-1. **Browser Isolation:** Full remote browser isolation with pixel streaming.
-2. **Real-time SMTP:** Production SMTP server integration for true mail relay.
-3. **Live MDM:** Production MDM platform credentials for real device sync.
-4. **Contract assurance automation:** Extend invariant pattern to deployment and EDM paths.
-5. **Verification depth:** Expand regression and denial-path tests.
+1. Add Workspace ONE and Google Workspace connector classes and manager integration.
+2. Reduce contract drift between frontend-advertised capabilities and backend runtime support.
+3. Replace sync helper patterns that call `asyncio.run(...)` in background contexts with cleaner async execution strategy.
+4. Continue converging on fully durable state (less mixed in-memory/global control-plane state).
 
 ---
 
 ## Bottom Line
-Metatron now shows **exceptional implementation reality** across all security domains with **comprehensive capability coverage** in Email Gateway, MDM Connectors, and enhanced security hardening. The platform now covers:
-- **Email Security:** Full-scope threat detection with SMTP gateway mode
-- **Mobile Security:** Enterprise MDM integration with multi-platform support
-- **Endpoint Security:** eBPF kernel sensors, rootkit detection, memory protection
-- **Cloud Security:** CSPM with proper authentication
 
-Feature scores reflect maturity and operational realism as of March 2026. 
-
-**Overall Platform Maturity: 8.5/10** (up from 8.0/10 prior to Email Gateway/MDM additions)
+The platform is strong, broad, and active across backend, agent, and frontend layers.  
+The most material documentation correction is MDM breadth: **2 connectors implemented (Intune/JAMF), 2 connectors currently listed but not implemented in runtime manager behavior**.
