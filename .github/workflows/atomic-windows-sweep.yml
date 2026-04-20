@@ -94,13 +94,14 @@ jobs:
       - name: Install Invoke-AtomicRedTeam + atomics catalog
         shell: bash
         run: |
-          IFS=$'\n\t'
-          set -e
+          ART_BASE="$HOME/AtomicRedTeam"
+          echo "ART_BASE=$ART_BASE" >> "$GITHUB_ENV"
           pwsh -NonInteractive -ExecutionPolicy Bypass -Command "
             \$ErrorActionPreference = 'SilentlyContinue'
             IEX (IWR 'https://raw.githubusercontent.com/redcanaryco/invoke-atomicredteam/master/install-atomicredteam.ps1' -UseBasicParsing)
-            Install-AtomicRedTeam -getAtomics -Force -noPayloads
-            Write-Host 'ART installed'
+            \$artBase = \$env:HOME + '/AtomicRedTeam'
+            Install-AtomicRedTeam -InstallPath \$artBase -getAtomics -Force -noPayloads
+            Write-Host \"ART installed to \$artBase\"
           "
 
       - name: Run macOS atomic sweep (pass ${{ matrix.pass }})

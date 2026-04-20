@@ -26,8 +26,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-ATOMIC_ROOT = "/usr/local/AtomicRedTeam/atomics"
-MODULE_PATH = "/usr/local/AtomicRedTeam/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1"
+# GHA macos-latest runner installs ART to $HOME/AtomicRedTeam by default.
+# Allow override via env var for local/custom runners.
+_ART_BASE = os.environ.get("ART_BASE", os.path.expanduser("~/AtomicRedTeam"))
+ATOMIC_ROOT = os.path.join(_ART_BASE, "atomics")
+MODULE_PATH = os.path.join(_ART_BASE, "invoke-atomicredteam", "Invoke-AtomicRedTeam.psd1")
 
 MACOS_TECHNIQUES = [
     "T1056.002",
@@ -41,12 +44,16 @@ MACOS_TECHNIQUES = [
 
 
 def _ps_command(technique: str) -> str:
+    # Re-resolve at call time so env vars set after module import are honoured.
+    art_base = os.environ.get("ART_BASE", os.path.expanduser("~/AtomicRedTeam"))
+    mod = os.path.join(art_base, "invoke-atomicredteam", "Invoke-AtomicRedTeam.psd1")
+    atomics = os.path.join(art_base, "atomics")
     return (
         f"$ErrorActionPreference='Continue';"
-        f"Import-Module '{MODULE_PATH}' -ErrorAction SilentlyContinue;"
-        f"$env:PathToAtomicsFolder='{ATOMIC_ROOT}';"
-        f"Invoke-AtomicTest {technique} -PathToAtomicsFolder '{ATOMIC_ROOT}' -GetPrereqs 2>&1 | Out-Null;"
-        f"Invoke-AtomicTest {technique} -PathToAtomicsFolder '{ATOMIC_ROOT}' 2>&1"
+        f"Import-Module '{mod}' -ErrorAction SilentlyContinue;"
+        f"$env:PathToAtomicsFolder='{atomics}';"
+        f"Invoke-AtomicTest {technique} -PathToAtomicsFolder '{atomics}' -GetPrereqs 2>&1 | Out-Null;"
+        f"Invoke-AtomicTest {technique} -PathToAtomicsFolder '{atomics}' 2>&1"
     )
 
 
