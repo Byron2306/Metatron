@@ -31,7 +31,8 @@ MODULE_PATH = r"C:\AtomicRedTeam\invoke-atomicredteam\Invoke-AtomicRedTeam.psd1"
 ATOMIC_ROOT = r"C:\AtomicRedTeam\atomics"
 
 # Safe techniques — run at full concurrency (no token-manipulation risk).
-# Split into 3 batches so each GHA job finishes in ~30 min.
+# Split into 7 batches so each GHA job finishes in ~30 min.
+# Batches 1-3: original set.  Batches 5-8: expansion (111 additional Windows techniques).
 _SAFE_B1 = [
     "T1021.001", "T1137", "T1137.001", "T1137.002", "T1137.004", "T1137.006",
     "T1187", "T1197", "T1202", "T1204.002", "T1204.003", "T1207", "T1216",
@@ -56,12 +57,52 @@ _T1134 = [
     "T1134.001", "T1134.002", "T1134.004", "T1134.005",
 ]
 
-# Full ordered list (T1134.x always last)
-WINDOWS_GOLD = _SAFE_B1 + _SAFE_B2 + _SAFE_B3 + _T1134
+# ── Expansion batches (111 additional Windows-only techniques) ──────────────
+# Batch 5: Credential access & OS credential dumping
+_SAFE_B5 = [
+    "T1003", "T1003.001", "T1003.002", "T1003.003", "T1003.004", "T1003.005",
+    "T1003.006", "T1006", "T1010", "T1012", "T1016.002", "T1020", "T1021.002",
+    "T1021.003", "T1021.004", "T1021.006", "T1025", "T1027.006", "T1027.007",
+    "T1036", "T1036.007",
+]
+# Batch 6: Discovery, collection, lateral movement
+_SAFE_B6 = [
+    "T1037.001", "T1039", "T1041", "T1047", "T1053.005", "T1055", "T1055.001",
+    "T1055.002", "T1055.003", "T1055.004", "T1055.011", "T1055.012", "T1055.015",
+    "T1056.002", "T1056.004", "T1059", "T1059.001", "T1059.003", "T1059.005",
+    "T1059.007", "T1059.010",
+]
+# Batch 7: Defence evasion, persistence, privilege escalation
+_SAFE_B7 = [
+    "T1070.001", "T1070.005", "T1071.004", "T1072", "T1074", "T1078.001",
+    "T1087", "T1090", "T1091", "T1106", "T1110", "T1110.002", "T1114",
+    "T1114.001", "T1119", "T1120", "T1123", "T1125", "T1129", "T1132", "T1136",
+    "T1195", "T1204", "T1222", "T1222.001",
+]
+# Batch 8: Boot/logon, event-triggered, process injection, credential stores
+_SAFE_B8 = [
+    "T1484.001", "T1491.001", "T1497", "T1505", "T1518", "T1542.001",
+    "T1543.003", "T1546.001", "T1546.002", "T1546.003", "T1546.007",
+    "T1546.008", "T1546.009", "T1546.010", "T1546.011", "T1546.012",
+    "T1546.013", "T1546.015", "T1547.001", "T1547.002", "T1547.003",
+    "T1547.004", "T1547.005", "T1547.008", "T1547.009", "T1547.010",
+    "T1547.012", "T1547.014", "T1547.015", "T1548.002", "T1552.002",
+    "T1552.006", "T1553.003", "T1553.005", "T1553.006", "T1555",
+    "T1555.004", "T1556.002", "T1557.001", "T1559", "T1559.002",
+    "T1560", "T1562.002", "T1562.009", "T1564.002", "T1564.003",
+    "T1564.004", "T1564.006", "T1567", "T1567.003", "T1569.001",
+    "T1574.001", "T1574.008", "T1574.009", "T1574.011", "T1574.012",
+    "T1592.001", "T1606",
+]
 
-# Batch map used by --batch N.  Batch 4 = T1134.x; the script forces
-# concurrency=1 for that batch regardless of --concurrency.
-_BATCH_MAP = {1: _SAFE_B1, 2: _SAFE_B2, 3: _SAFE_B3, 4: _T1134}
+# Full ordered list (T1134.x always last)
+WINDOWS_GOLD = _SAFE_B1 + _SAFE_B2 + _SAFE_B3 + _SAFE_B5 + _SAFE_B6 + _SAFE_B7 + _SAFE_B8 + _T1134
+
+# Batch map used by --batch N.  Batch 4 = T1134.x (sequential); 5-8 = expansion.
+_BATCH_MAP = {
+    1: _SAFE_B1, 2: _SAFE_B2, 3: _SAFE_B3, 4: _T1134,
+    5: _SAFE_B5, 6: _SAFE_B6, 7: _SAFE_B7, 8: _SAFE_B8,
+}
 
 
 def _ps_command(technique: str) -> str:

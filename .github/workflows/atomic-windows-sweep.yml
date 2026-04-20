@@ -1,9 +1,10 @@
 name: Atomic Windows Sweep (S5 Promotion)
 
 # Runs Windows-only Gold techniques 3x on clean Windows runners.
-# Techniques are split into 4 batches so each job finishes in ~30 min:
-#   batch 1-3: safe techniques at concurrency=3
+# Techniques are split into 8 batches so each job finishes in ~30 min:
+#   batch 1-3: original safe techniques at concurrency=3
 #   batch 4:   T1134.x token-manipulation at concurrency=1 (runner-kill safe)
+#   batch 5-8: expansion (111 additional Windows techniques)
 # Each job produces run_*.json artifacts (execution_mode=remote_winrm) so
 # the evidence bundle scores them as real execution (clean_runs >= 3 → S5).
 #
@@ -18,19 +19,19 @@ on:
         required: false
         default: ""
       batches:
-        description: "Comma-separated batch numbers to run (default: 1,2,3,4)"
+        description: "Comma-separated batch numbers to run (default: 1,2,3,4,5,6,7,8)"
         required: false
-        default: "1,2,3,4"
+        default: "1,2,3,4,5,6,7,8"
 
 jobs:
   sweep:
     name: "Batch ${{ matrix.batch }} Pass ${{ matrix.pass }}"
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     strategy:
       matrix:
         pass: [1, 2, 3]
-        batch: [1, 2, 3, 4]
+        batch: [1, 2, 3, 4, 5, 6, 7, 8]
       fail-fast: false
 
     steps:
@@ -75,3 +76,49 @@ jobs:
           name: windows-sweep-b${{ matrix.batch }}-p${{ matrix.pass }}-run${{ github.run_number }}
           path: results\batch-${{ matrix.batch }}-pass-${{ matrix.pass }}\
           retention-days: 30
+
+  # macOS job — covers 7 techniques that only have macOS atomics:
+  # T1056.002 T1078.001 T1123 T1518 T1547.015 T1564.002 T1569.001
+  sweep-macos:
+    name: "macOS Pass ${{ matrix.pass }}"
+    runs-on: macos-latest
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        pass: [1, 2, 3]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Invoke-AtomicRedTeam + atomics catalog
+        shell: bash
+        run: |
+          IFS=$'\n\t'
+          set -e
+          pwsh -NonInteractive -ExecutionPolicy Bypass -Command "
+            \$ErrorActionPreference = 'SilentlyContinue'
+            IEX (IWR 'https://raw.githubusercontent.com/redcanaryco/invoke-atomicredteam/master/install-atomicredteam.ps1' -UseBasicParsing)
+            Install-AtomicRedTeam -getAtomics -Force -noPayloads
+            Write-Host 'ART installed'
+          "
+
+      - name: Run macOS atomic sweep (pass ${{ matrix.pass }})
+        shell: bash
+        env:
+          SWEEP_PASS: ${{ matrix.pass }}
+          SWEEP_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          python3 scripts/run_macos_local_sweep.py \
+            --output-dir results/macos-pass-${{ matrix.pass }} \
+            --pass-idx ${{ matrix.pass }} \
+            --run-number ${{ github.run_number }}
+
+      - name: Upload macOS sweep results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-sweep-p${{ matrix.pass }}-run${{ github.run_number }}
+          path: results/macos-pass-${{ matrix.pass }}/
+          retention-days: 30
+
