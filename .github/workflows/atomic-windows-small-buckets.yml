@@ -25,14 +25,44 @@ on:
         default: ""
 
 jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+    steps:
+      - name: Generate bucket matrix
+        id: generate
+        run: |
+          # Parse the buckets input
+          if [ -z "${{ inputs.buckets }}" ]; then
+            BUCKETS="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20"
+          else
+            BUCKETS="${{ inputs.buckets }}"
+          fi
+          
+          # Create matrix JSON
+          BUCKET_ARRAY=($(echo $BUCKETS | tr ',' ' '))
+          MATRIX="{\"bucket\": ["
+          FIRST=true
+          for bucket in "${BUCKET_ARRAY[@]}"; do
+            if [ "$FIRST" = true ]; then
+              FIRST=false
+            else
+              MATRIX+=","
+            fi
+            MATRIX+="{\"id\": $bucket}"
+          done
+          MATRIX+="], \"pass\": [1,2,3]}"
+          
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
   sweep-small-bucket:
-    name: "Bucket ${{ matrix.bucket }} (Pass ${{ matrix.pass }})"
+    name: "Bucket ${{ matrix.bucket.id }} (Pass ${{ matrix.pass }})"
     runs-on: windows-latest
+    needs: generate-matrix
     timeout-minutes: 45  # Shorter timeout for smaller batches
     strategy:
-      matrix:
-        pass: [1, 2, 3]  # 3 passes for S5 validation
-        bucket: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
       fail-fast: false
       max-parallel: 1  # Sequential execution for reliability
 
@@ -84,7 +114,7 @@ jobs:
           C:\Sysmon\Sysmon64.exe -accepteula -i C:\sysmon-config.xml 2>&1 | Out-Null
           Write-Host "Sysmon installed"
 
-      - name: Run Windows atomic sweep (bucket ${{ matrix.bucket }} pass ${{ matrix.pass }})
+      - name: Run Windows atomic sweep (bucket ${{ matrix.bucket.id }} pass ${{ matrix.pass }})
         shell: cmd
         env:
           SWEEP_TECHNIQUES: ${{ inputs.techniques }}
@@ -92,10 +122,10 @@ jobs:
           SWEEP_RUN_NUMBER: ${{ github.run_number }}
         run: |
           python scripts\run_windows_small_buckets.py ^
-            --output-dir results\bucket-${{ matrix.bucket }}-pass-${{ matrix.pass }} ^
+            --output-dir results\bucket-${{ matrix.bucket.id }}-pass-${{ matrix.pass }} ^
             --pass-idx ${{ matrix.pass }} ^
             --run-number ${{ github.run_number }} ^
-            --bucket ${{ matrix.bucket }} ^
+            --bucket ${{ matrix.bucket.id }} ^
             --concurrency 2
 
       - name: Export Sysmon events to JSON
