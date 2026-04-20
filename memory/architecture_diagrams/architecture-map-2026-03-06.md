@@ -1,14 +1,21 @@
-# Metatron Full Architecture Map (March 6, 2026)
+# Metatron Full Architecture Map (April 20, 2026 Rebaseline)
 
 ## 1) System Topology at a Glance
 
 - Primary stack: `frontend` (React) + `backend` (FastAPI) + `mongodb`.
 - Security/ops stack: `elasticsearch`, `kibana`, `wireguard`, optional `ollama`, `trivy`, `falco`, `suricata`, `cuckoo`.
+- Async workers: `celery-worker` + `celery-beat` backed by Redis (`docker-compose.yml`, `backend/celery_app.py`).
 - Entry channels:
 - Web UI routes from `frontend/src/App.js` (47 route entries, including redirects).
 - REST API under `/api/*` and `/api/v1/*`.
 - WebSockets under `/ws/*`.
 - Endpoint-agent control plane under `/api/unified/*` and `/api/swarm/*`.
+
+## Rebaseline highlights (newly emphasized)
+
+- World ingest now clearly feeds an intelligence loop: ingest -> `WorldModelService.calculate_risk` -> `emit_world_event` -> `TriuneOrchestrator` (conditional on event class).
+- Governed dispatch is concretely linked to execution through queue + decision + executor services.
+- Frontend API root behavior is normalized in `frontend/src/lib/api.js` with same-origin `/api` fallback.
 
 ## 2) Frontend Architecture (Local and Remote Use)
 

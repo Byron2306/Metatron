@@ -1,11 +1,36 @@
 # Metatron Security Features Analysis
-**Generated:** March 9, 2026  
+**Generated:** April 20, 2026 (rebaseline)  
 **Classification:** Code-Evidence Rebaseline  
-**Version:** v6.7.0 - Email Gateway + MDM Connectors + Security Hardening
+**Version:** Current code-state refresh
 
 ## Overview
 
 This analysis provides a comprehensive assessment of Metatron security features against current repository evidence, including the Email Gateway, MDM Connectors, and security hardening additions.
+
+## Rebaseline Summary (April 2026)
+
+The current codebase shows a real, integrated control-flow across security services:
+
+1. **Ingest and risk recomputation are active in primary and async paths**  
+   - HTTP ingest router: `backend/routers/world_ingest.py`  
+   - Async ingest tasks: `backend/tasks/world_ingest_tasks.py`  
+   - Risk model: `backend/services/world_model.py`
+
+2. **World events can actively trigger triune orchestration**  
+   - Event emitter/classification/triggering: `backend/services/world_events.py`  
+   - Orchestration pipeline (Metatron -> Michael -> Loki + beacon cascade): `backend/services/triune_orchestrator.py`
+
+3. **Governed action lifecycle is explicitly implemented**  
+   - Queueing and decision records: `backend/services/outbound_gate.py`  
+   - Gated command queue integration: `backend/services/governed_dispatch.py`  
+   - Human/API approval flows: `backend/routers/governance.py`  
+   - Approved decision execution: `backend/services/governance_executor.py`
+
+4. **Unified endpoint runtime remains deep and policy-aware**  
+   - Multi-monitor telemetry + EDM controls + triune approval toggles: `unified_agent/core/agent.py`
+
+5. **Backend/frontend integration contract is more stable for base URL handling**  
+   - API root normalization and same-origin fallback: `frontend/src/lib/api.js`
 
 ---
 

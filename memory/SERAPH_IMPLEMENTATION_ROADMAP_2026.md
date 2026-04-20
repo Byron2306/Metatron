@@ -16,6 +16,17 @@ Deliver a **Governed Adaptive Defense Fabric** with:
 - measurable detection quality,
 - enterprise-ready reliability and evidence.
 
+### April 2026 rebaseline context
+
+The current repository already contains code-realized foundations that this roadmap should treat as starting points, not future concepts:
+
+- Active world ingest + risk recomputation paths (`backend/routers/world_ingest.py`, `backend/services/world_model.py`).
+- Active triune orchestration (`backend/services/world_events.py`, `backend/services/triune_orchestrator.py`).
+- Active governed queue/approval/execution paths (`backend/services/outbound_gate.py`, `backend/routers/governance.py`, `backend/services/governance_executor.py`).
+- Active unified-agent policy-aware runtime (`unified_agent/core/agent.py`).
+
+Roadmap emphasis should therefore prioritize **consistency, verification, and operational hardening** over net-new architecture invention.
+
 ## Program constraints
 - No direct feature-cloning strategy.
 - No expansion of integration breadth without quality gates.

@@ -1,12 +1,29 @@
 # Feature Reality Report
 
-Generated: 2026-03-09
-Version: v6.7.0
+Generated: 2026-04-20 (rebaseline)
+Version: Current code-state refresh
 Scope: Qualitative implementation narrative (feature depth, durability, contract assurance, operational realism)
-**Update:** Comprehensive assessment including Email Gateway, MDM Connectors, and Security Hardening
+**Update:** Revalidated against active world ingest, triune orchestration, governed dispatch, and unified-agent monitor logic
 
 ## Executive Verdict
-Metatron has achieved **enterprise-grade security platform** status with full Email Gateway and MDM Connectors capabilities. The platform now provides comprehensive protection across endpoints, cloud, network, identity, email (including gateway mode), and mobile devices (including MDM integration). All previously identified Tier 3 domain expansion gaps have been closed. Core domains are operational, DB-backed, and contract-assured.
+Metatron is currently a **high-capability governed security platform** with a real end-to-end control loop across ingestion, reasoning, approval, and execution. The most important reality shift since early March is that key orchestration paths are now visibly connected in code: ingest events update world-state risk, triune reasoning runs on trigger classes, governed actions are queued for approval, and approved decisions are released into command delivery queues.
+
+### Code-Validated Summary (April 2026)
+
+1. **Ingest and world-state risk updates are active**  
+   `backend/routers/world_ingest.py` and `backend/tasks/world_ingest_tasks.py` feed `WorldModelService` (`backend/services/world_model.py`) and recalculate entity risk.
+
+2. **Triune is implemented as an operational pipeline, not only conceptually**  
+   `backend/services/world_events.py` invokes `TriuneOrchestrator` on triune-triggering event classes; `backend/services/triune_orchestrator.py` runs Metatron -> Michael -> Loki + beacon cascade.
+
+3. **Governed commanding is structurally present**  
+   `backend/services/outbound_gate.py`, `backend/services/governed_dispatch.py`, `backend/routers/governance.py`, and `backend/services/governance_executor.py` provide queue/approve/deny/execute semantics.
+
+4. **Unified endpoint runtime remains a core differentiator**  
+   `unified_agent/core/agent.py` implements broad monitor coverage (including email/mobile monitors), EDM signature/version controls, and optional triune approval gating before remediation.
+
+5. **Frontend API base handling is more robust than prior snapshots**  
+   `frontend/src/lib/api.js` normalizes `REACT_APP_BACKEND_URL` and defaults to same-origin `/api`, reducing environment-induced misrouting.
 
 ---
 

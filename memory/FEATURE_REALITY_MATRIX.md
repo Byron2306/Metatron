@@ -1,13 +1,21 @@
 # Metatron Feature Reality Matrix
 
-Generated: 2026-03-09
+Generated: 2026-04-20 (rebaseline)
 Scope: Quantitative implementation snapshot (feature depth, durability, contract assurance, operational realism)
-**Update v6.7.0:** Includes Email Gateway, MDM Connectors, and enhanced security hardening
+**Update:** Revalidated against active ingest -> triune -> governance -> execution code paths
 
 ## Legend
 - `PASS`: Real logic executes in normal configured environments.
 - `PARTIAL`: Real implementation exists but depends on optional runtime prerequisites, durability, or assurance depth.
 - `LIMITED`: Present only as compatibility layer, simulation-safe path, or reduced-depth implementation.
+
+## Rebaseline Summary (April 2026)
+
+- `PASS` for world ingest + risk recomputation + event emission (`backend/routers/world_ingest.py`, `backend/services/world_model.py`, `backend/services/world_events.py`).
+- `PASS` for triune orchestration flow execution (`backend/services/triune_orchestrator.py`).
+- `PASS` for governed queue/approval/execution pathways (`backend/services/outbound_gate.py`, `backend/services/governed_dispatch.py`, `backend/routers/governance.py`, `backend/services/governance_executor.py`).
+- `PASS` for unified agent monitor/telemetry breadth and EDM signature-version controls (`unified_agent/core/agent.py`).
+- `PARTIAL` remains where production credentials/integration depth are environment-dependent (SMTP relay operations, live MDM connectivity, some optional AI/service dependencies).
 
 ---
 

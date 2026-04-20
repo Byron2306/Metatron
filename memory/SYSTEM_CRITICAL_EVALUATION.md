@@ -1,25 +1,42 @@
 # Metatron / Seraph AI Defense System - Full Critical Evaluation
 
-**Date:** 2026-03-06  
+**Date:** 2026-04-20 (rebaseline)  
 **Scope:** End-to-end platform review (architecture, security posture, operations, delivery maturity) using current repository evidence.
 
 ---
 
 ## 1) Executive Summary
 
-Metatron remains an unusually ambitious, feature-dense cyber defense platform with strong breadth across SOC workflows, autonomous response, AI-assisted analytics, SOAR, swarm/agent operations, and governance-oriented control planes.
+This critical evaluation has been refreshed against active code paths in `backend/`, `frontend/`, and `unified_agent/`. The current system has real, connected control loops (ingest -> world model risk -> triune reasoning -> governance queueing -> approved execution) rather than isolated feature islands.
 
 ### Overall assessment (rebaselined)
 
 - Innovation and capability breadth: **Very high**
 - Architecture depth: **High**
-- Operational maturity: **Medium to Medium-High**
-- Security hardening maturity: **Medium (improving, still uneven across legacy surfaces)**
-- Production readiness (enterprise-grade): **Partial but stronger than prior snapshot**
+- Operational maturity: **Medium-High (improving)**
+- Security hardening maturity: **Medium-High**
+- Production readiness (enterprise-grade): **Partial, with stronger real-path execution than prior snapshots**
+
+### Code-validated reality snapshot
+
+1. **Core API and startup orchestration are active and broad**  
+   `backend/server.py` wires the primary router mesh and starts CCE, network discovery, deployment service, integrations scheduler, and governance executor at startup.
+
+2. **World-state pipeline is operational**  
+   `backend/routers/world_ingest.py` and `backend/tasks/world_ingest_tasks.py` feed `WorldModelService` (`backend/services/world_model.py`) and then emit world events via `backend/services/world_events.py`.
+
+3. **Triune loop is not conceptual; it is implemented**  
+   `backend/services/triune_orchestrator.py` performs Metatron assessment, Michael plan generation, Loki challenge, and beacon cascade handling on triune-triggering events.
+
+4. **Governed command lifecycle is concrete**  
+   `OutboundGateService` + `GovernedDispatchService` queue sensitive actions, `/api/governance/*` handles approval/denial, and `GovernanceExecutorService` releases approved actions into command delivery queues.
+
+5. **Unified agent depth is substantial and integrated**  
+   `unified_agent/core/agent.py` includes EDM dataset signature/version logic, multi-monitor telemetry, and optional triune approval gating for remediation actions.
 
 ### Bottom line
 
-The platform is advanced and materially more production-aligned than earlier March assessments. Core constraints are now less about missing capability and more about consistency: contract stability, comprehensive hardening normalization, durable governance state, and test/assurance depth.
+The platform is now best described as a **high-capability governed security fabric with real end-to-end orchestration paths**. Remaining critical risks are concentrated in consistency engineering (contract discipline, startup coupling, durability semantics under scale/restart, and broader automated assurance), not in raw feature absence.
 
 ---
 

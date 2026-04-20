@@ -1,33 +1,45 @@
 # Metatron/Seraph AI Defender - System-Wide Evaluation Report
-**Date:** March 9, 2026  
-**Version:** v6.7.0  
-**Scope:** Comprehensive evaluation including Email Gateway, MDM Connectors, and Security Hardening  
+**Date:** April 20, 2026 (rebaseline)  
+**Version:** Current code-state refresh  
+**Scope:** Platform-wide architecture and control-flow validation across backend, frontend, unified agent, ingest pipeline, and governance execution  
 **Classification:** Strategic Assessment (Code-Evidence Based)
 
 ---
 
 ## Executive Summary
 
-This report updates the March 2026 system-wide evaluation to reflect the significant capability expansion with Email Gateway and MDM Connectors. The platform has materially closed all previously identified Tier 3 domain expansion gaps, establishing itself as a **comprehensive unified security fabric**.
+This summary has been rebaselined against the current repository implementation. The platform is a **broad, integrated security control plane** centered on a FastAPI backend (`backend/server.py`), a React frontend (`frontend/src/App.js` + `frontend/src/lib/api.js`), and a large endpoint runtime (`unified_agent/core/agent.py`).
 
-### Key Metrics (Updated)
+### Current Code-Validated Logic (April 2026)
 
-| Metric | Prior Snapshot (Mar 9 AM) | Current (Mar 9 PM) | Delta |
-|--------|---------------------------|-------------------|-------|
-| Implemented Features | 97+ | 115+ | +18 |
-| Partial Features | 3 | 2 | -1 |
-| Domain Coverage | 10 domains | 12 domains | +2 |
-| Overall Implementation | ~83-87% | ~90-94% | +5-7% |
-| Email Protection Maturity | 8/10 | 9/10 | +1 |
-| Email Gateway Maturity | Not implemented | 8.5/10 | NEW |
-| Mobile Security Maturity | 7/10 | 8.5/10 | +1.5 |
-| MDM Connectors Maturity | Not implemented | 8.5/10 | NEW |
-| Security Hardening | Medium-High | High | +1 level |
-| Composite Maturity Score | 4.0/5 | 4.3/5 | +0.3 |
+1. **Backend composition remains router-dense but functional at scale**  
+   `backend/server.py` wires a large `/api` surface and starts background services (CCE worker, network discovery, deployment service, integrations scheduler, governance executor).
+
+2. **World ingest -> risk -> intelligence loop is real and active**  
+   `backend/routers/world_ingest.py` writes entities/edges/detections and calls:
+   - `WorldModelService.calculate_risk()` in `backend/services/world_model.py`
+   - `emit_world_event()` in `backend/services/world_events.py`
+   - `TriuneOrchestrator.handle_world_change()` when trigger conditions match.
+
+3. **Triune reasoning pipeline is concretely implemented**  
+   `backend/services/triune_orchestrator.py` executes:
+   - Metatron assessment (`assess_world_state`)
+   - Michael planning (`plan_actions`)
+   - Loki challenge (`challenge_plan`)
+   - beacon cascade reflex handling.
+
+4. **Governed action flow is implemented end-to-end**  
+   High-impact actions are queued through `OutboundGateService` / `GovernedDispatchService`, surfaced in `/api/governance/*`, and released by `GovernanceExecutorService` after approval.
+
+5. **Unified agent remains one of the deepest implementation surfaces**  
+   `unified_agent/core/agent.py` includes broad monitor coverage, EDM dataset signature/version checks, triune-approval-aware remediation toggles, and telemetry/heartbeat pathways into `/api/unified/*`.
+
+6. **Frontend/backend coupling is more stable than earlier snapshots**  
+   `frontend/src/lib/api.js` now normalizes backend URL selection and falls back cleanly to same-origin `/api` when `REACT_APP_BACKEND_URL` is absent or invalid.
 
 ### Bottom Line
 
-Metatron is now a **comprehensive enterprise security fabric** with full coverage across endpoints, cloud, network, identity, email, and mobile devices. All major domain gaps have been closed, with remaining work focused on production integrations.
+The current platform is a **high-capability, integrated security fabric with real orchestration pathways** (ingest -> triune -> governance -> execution). Remaining risks are now concentrated in consistency and assurance depth (contract governance, startup coupling, and broader regression hardening), not core feature absence.
 
 ---
 
