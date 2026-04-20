@@ -416,6 +416,147 @@ def sigma_rule_matches_stdout(rule: Dict[str, Any], stdout: str) -> bool:
         return any(block_results.values())
 
 
+# Sysmon EventID → Sigma logsource category mapping
+_SYSMON_CATEGORY_MAP: Dict[int, str] = {
+    1: "process_creation",
+    3: "network_connection",
+    7: "image_load",
+    10: "process_access",
+    11: "file_event",
+    12: "registry_add",
+    13: "registry_set",
+    14: "registry_delete",
+    17: "pipe_created",
+    18: "pipe_connected",
+    22: "dns_query",
+    25: "process_tampering",
+}
+
+# Sigma field name → Sysmon XML field name (case-insensitive lookup)
+_SIGMA_TO_SYSMON_FIELD: Dict[str, str] = {
+    "image": "Image",
+    "commandline": "CommandLine",
+    "parentimage": "ParentImage",
+    "parentcommandline": "ParentCommandLine",
+    "targetfilename": "TargetFilename",
+    "targetobject": "TargetObject",
+    "destinationport": "DestinationPort",
+    "destinationip": "DestinationIp",
+    "destinationhostname": "DestinationHostname",
+    "initiated": "Initiated",
+    "details": "Details",
+    "hashes": "Hashes",
+    "pipename": "PipeName",
+    "queryname": "QueryName",
+    "imphash": "Imphash",
+    "originalfilename": "OriginalFileName",
+}
+
+
+def _sigma_field_value(event: Dict[str, Any], sigma_field: str) -> str:
+    """Resolve a sigma field name to its value in a Sysmon event dict."""
+    mapped = _SIGMA_TO_SYSMON_FIELD.get(sigma_field.lower().replace("|", "").replace("\\|", ""))
+    if mapped and mapped in event:
+        return str(event[mapped] or "")
+    # Fallback: case-insensitive key search
+    sigma_lower = sigma_field.lower().split("|")[0]
+    for k, v in event.items():
+        if k.lower() == sigma_lower:
+            return str(v or "")
+    return ""
+
+
+def _sigma_eval_block_against_event(block: Dict[str, Any], event: Dict[str, Any]) -> bool:
+    """Evaluate one Sigma selection block against a single Sysmon event dict (AND logic)."""
+    if not isinstance(block, dict):
+        return False
+    for field_spec, patterns in block.items():
+        if not isinstance(patterns, list):
+            patterns = [patterns]
+        field_name = field_spec.split("|")[0]
+        modifier = field_spec.split("|")[1] if "|" in field_spec else ""
+        field_val = _sigma_field_value(event, field_name).lower()
+        field_hit = False
+        for pat in patterns:
+            pat_str = str(pat).lower()
+            if not pat_str:
+                continue
+            if modifier == "endswith":
+                if field_val.endswith(pat_str):
+                    field_hit = True
+                    break
+            elif modifier == "startswith":
+                if field_val.startswith(pat_str):
+                    field_hit = True
+                    break
+            elif modifier == "contains":
+                if pat_str in field_val:
+                    field_hit = True
+                    break
+            elif modifier == "re":
+                try:
+                    if re.search(pat_str, field_val):
+                        field_hit = True
+                        break
+                except Exception:
+                    pass
+            else:
+                if pat_str == field_val or pat_str in field_val:
+                    field_hit = True
+                    break
+        if not field_hit:
+            return False
+    return True
+
+
+def sigma_rule_matches_sysmon(rule: Dict[str, Any], sysmon_events: List[Dict[str, Any]]) -> bool:
+    """
+    Evaluate a Sigma rule against a list of Sysmon event dicts (structured fields).
+    Returns True if any event satisfies the rule's compound condition.
+    """
+    detection = rule.get("detection") or {}
+    if not detection:
+        return False
+
+    # Filter events by logsource category
+    logsource = rule.get("logsource") or {}
+    category = str(logsource.get("category") or "").lower()
+    if category:
+        relevant_eids = [eid for eid, cat in _SYSMON_CATEGORY_MAP.items() if cat == category]
+        if relevant_eids:
+            events = [e for e in sysmon_events if int(e.get("EventID") or 0) in relevant_eids]
+        else:
+            events = sysmon_events
+    else:
+        events = sysmon_events
+
+    if not events:
+        return False
+
+    for event in events:
+        block_results: Dict[str, bool] = {}
+        for block_name, block_val in detection.items():
+            if block_name == "condition":
+                continue
+            if not isinstance(block_val, dict):
+                continue
+            block_results[block_name] = _sigma_eval_block_against_event(block_val, event)
+
+        if not block_results:
+            continue
+
+        condition = str(detection.get("condition", "selection")).lower()
+        try:
+            if _sigma_eval_condition(condition, block_results):
+                return True
+        except Exception:
+            if any(block_results.values()):
+                return True
+
+    return False
+
+
+
 _SANDBOX_NOISE_RE = re.compile(
     r"^.*(?:"
     r"Operation not permitted"
@@ -627,6 +768,19 @@ class EvidenceBundleManager:
                 if not run_is_real_sandbox_execution(data):
                     continue
                 stdout_text = str(data.get("stdout") or "")
+                # Load Sysmon events if co-located (from GHA Windows sweep)
+                sysmon_events: List[Dict] = []
+                sysmon_file = run_file.parent / "sysmon_events.json"
+                if not sysmon_file.exists():
+                    # Also check a sysmon file named with the run_id
+                    run_stem = run_file.stem  # e.g. run_abc123
+                    sysmon_file = run_file.parent / f"{run_stem}_sysmon.json"
+                if sysmon_file.exists():
+                    try:
+                        raw = json.loads(sysmon_file.read_text(encoding="utf-8"))
+                        sysmon_events = raw if isinstance(raw, list) else []
+                    except Exception:
+                        pass
                 run_summary = {
                     "run_id": str(data.get("run_id") or run_file.stem.replace("run_", "")),
                     "job_id": str(data.get("job_id") or ""),
@@ -641,6 +795,7 @@ class EvidenceBundleManager:
                     "stdout_sha256": sha256_of(stdout_text),
                     "stderr_sha256": sha256_of(str(data.get("stderr") or "")),
                     "real_execution": True,
+                    "sysmon_events": sysmon_events,
                 }
                 for tech in (data.get("techniques_executed") or []):
                     result[str(tech).strip().upper()].append(run_summary)
@@ -1092,6 +1247,14 @@ class EvidenceBundleManager:
         combined_stdout = " ".join(str(r.get("stdout") or "") for r in tech_runs)
         is_vns_evidence = "[VNS]" in combined_stdout and "[PCAP]" not in combined_stdout
         is_pcap_evidence = "[PCAP]" in combined_stdout
+
+        # Collect Sysmon events from Windows GHA runs (structured field matching)
+        all_sysmon_events: List[Dict] = []
+        for r in tech_runs:
+            for ev in (r.get("sysmon_events") or []):
+                if isinstance(ev, dict):
+                    all_sysmon_events.append(ev)
+
         sigma_matches: List[Dict] = []
         for r in tech_sigma:
             rule_file = str(r.get("rule_file") or "")
@@ -1126,12 +1289,14 @@ class EvidenceBundleManager:
                                     ("/tmp/", "/etc/", "/dev/", "file", "write", "read",
                                      "chmod", "chown", "mkdir"))
             else:
-                # Curated rules: evaluate the rule's actual detection logic
-                # against the combined sandbox stdout. For Windows-specific rules
-                # running on a Linux sandbox, patterns won't appear in stdout and
-                # the rule correctly returns False — that's honest. For Linux rules,
-                # the detection block is evaluated with full compound condition support.
-                rule_matched = sigma_rule_matches_stdout(r, combined_stdout) if combined_stdout else False
+                # Curated rules: try Sysmon structured events first (highest fidelity),
+                # then fall back to stdout pattern matching for Linux sandbox runs.
+                if all_sysmon_events:
+                    rule_matched = sigma_rule_matches_sysmon(r, all_sysmon_events)
+                    if not rule_matched and combined_stdout:
+                        rule_matched = sigma_rule_matches_stdout(r, combined_stdout)
+                else:
+                    rule_matched = sigma_rule_matches_stdout(r, combined_stdout) if combined_stdout else False
             sigma_matches.append({
                 **{k: v for k, v in r.items() if k != "detection"},  # strip detection from TVR output
                 "matched": rule_matched,

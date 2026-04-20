@@ -47,6 +47,10 @@ def find_run_files(directory: Path) -> list[Path]:
     return sorted(directory.rglob("run_*.json"))
 
 
+def find_sysmon_files(directory: Path) -> list[Path]:
+    return sorted(directory.rglob("sysmon_events.json"))
+
+
 def filter_by_techniques(run_files: list[Path], technique_filter: set[str]) -> list[Path]:
     if not technique_filter:
         return run_files
@@ -63,26 +67,45 @@ def filter_by_techniques(run_files: list[Path], technique_filter: set[str]) -> l
 
 
 def copy_to_container(run_files: list[Path], container: str, dry_run: bool) -> int:
-    """Copy run_*.json files into the container's atomic-validation dir."""
+    """Copy run_*.json files (and any co-located sysmon_events.json) into the container."""
     if not run_files:
         print("No run files to copy.", flush=True)
         return 0
 
     copied = 0
+    seen_sysmon_dirs: set[Path] = set()
     for run_file in run_files:
         dest = f"{container}:{CONTAINER_RESULTS_DIR}/{run_file.name}"
         if dry_run:
             print(f"  [dry-run] would copy {run_file.name} → container", flush=True)
             copied += 1
-            continue
-        result = subprocess.run(
-            ["docker", "cp", str(run_file), dest],
-            capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            copied += 1
         else:
-            print(f"  WARN: failed to copy {run_file.name}: {result.stderr.strip()}", flush=True)
+            result = subprocess.run(
+                ["docker", "cp", str(run_file), dest],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                copied += 1
+            else:
+                print(f"  WARN: failed to copy {run_file.name}: {result.stderr.strip()}", flush=True)
+
+        # Copy sysmon_events.json from the same directory (once per directory)
+        run_dir = run_file.parent
+        if run_dir not in seen_sysmon_dirs:
+            seen_sysmon_dirs.add(run_dir)
+            sysmon_file = run_dir / "sysmon_events.json"
+            if sysmon_file.exists():
+                # Name it alongside the first run file in this dir for co-location
+                sysmon_dest = f"{container}:{CONTAINER_RESULTS_DIR}/sysmon_{run_dir.name}.json"
+                if dry_run:
+                    print(f"  [dry-run] would copy sysmon_events.json ({run_dir.name}) → container", flush=True)
+                else:
+                    result = subprocess.run(
+                        ["docker", "cp", str(sysmon_file), sysmon_dest],
+                        capture_output=True, text=True
+                    )
+                    if result.returncode != 0:
+                        print(f"  WARN: failed to copy sysmon_events.json: {result.stderr.strip()}", flush=True)
 
     return copied
 
@@ -275,11 +298,11 @@ def main():
     print(f"\nSummary: {len(promoted)} promoted, {len(stayed)} unchanged, {len(errors)} errors", flush=True)
 
     # If 3 passes were provided and techniques still didn't promote, explain why
-    stalled = [(tid, passes) for tid, _, _, passes in stayed if passes >= 3]
+    stalled = [(tid, passes) for tid, tier, score, passes in stayed if passes >= 3 and score < 5]
     if stalled:
         print(f"\nTechniques with 3+ passes that did NOT reach S5 ({len(stalled)}):", flush=True)
         print("  (Check: sigma rules matched? stdout clean? 'Executing test:' present?)", flush=True)
-        for tid, passes in stalled[:20]:
+        for tid, passes in stalled:
             print(f"  {tid} ({passes} passes)", flush=True)
 
     print("=" * 64, flush=True)

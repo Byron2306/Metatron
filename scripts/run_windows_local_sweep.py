@@ -79,29 +79,38 @@ _SAFE_B7 = [
     "T1114.001", "T1119", "T1120", "T1123", "T1125", "T1129", "T1132", "T1136",
     "T1195", "T1204", "T1222", "T1222.001",
 ]
-# Batch 8: Boot/logon, event-triggered, process injection, credential stores
-_SAFE_B8 = [
+# Batch 8a: Boot/logon persistence (T1546, T1547 first half)
+_SAFE_B8A = [
     "T1484.001", "T1491.001", "T1497", "T1505", "T1518", "T1542.001",
     "T1543.003", "T1546.001", "T1546.002", "T1546.003", "T1546.007",
     "T1546.008", "T1546.009", "T1546.010", "T1546.011", "T1546.012",
-    "T1546.013", "T1546.015", "T1547.001", "T1547.002", "T1547.003",
-    "T1547.004", "T1547.005", "T1547.008", "T1547.009", "T1547.010",
-    "T1547.012", "T1547.014", "T1547.015", "T1548.002", "T1552.002",
-    "T1552.006", "T1553.003", "T1553.005", "T1553.006", "T1555",
-    "T1555.004", "T1556.002", "T1557.001", "T1559", "T1559.002",
-    "T1560", "T1562.002", "T1562.009", "T1564.002", "T1564.003",
-    "T1564.004", "T1564.006", "T1567", "T1567.003", "T1569.001",
+    "T1546.013", "T1546.015", "T1547.001", "T1547.002",
+]
+# Batch 8b: Boot/logon persistence (T1547 second half + credential access)
+_SAFE_B8B = [
+    "T1547.003", "T1547.004", "T1547.005", "T1547.008", "T1547.009",
+    "T1547.010", "T1547.012", "T1547.014", "T1547.015", "T1548.002",
+    "T1552.002", "T1552.006", "T1553.003", "T1553.005", "T1553.006",
+    "T1555", "T1555.004", "T1556.002", "T1557.001",
+]
+# Batch 8c: Exfil, evasion, injection, C2
+_SAFE_B8C = [
+    "T1559", "T1559.002", "T1560", "T1562.002", "T1562.009",
+    "T1564.002", "T1564.003", "T1564.004", "T1564.006",
+    "T1567", "T1567.003", "T1569.001",
     "T1574.001", "T1574.008", "T1574.009", "T1574.011", "T1574.012",
     "T1592.001", "T1606",
 ]
 
 # Full ordered list (T1134.x always last)
-WINDOWS_GOLD = _SAFE_B1 + _SAFE_B2 + _SAFE_B3 + _SAFE_B5 + _SAFE_B6 + _SAFE_B7 + _SAFE_B8 + _T1134
+WINDOWS_GOLD = _SAFE_B1 + _SAFE_B2 + _SAFE_B3 + _SAFE_B5 + _SAFE_B6 + _SAFE_B7 + _SAFE_B8A + _SAFE_B8B + _SAFE_B8C + _T1134
 
 # Batch map used by --batch N.  Batch 4 = T1134.x (sequential); 5-8 = expansion.
+# Batches 8, 9, 10 = former B8 split into three ~20-technique sub-batches.
 _BATCH_MAP = {
     1: _SAFE_B1, 2: _SAFE_B2, 3: _SAFE_B3, 4: _T1134,
-    5: _SAFE_B5, 6: _SAFE_B6, 7: _SAFE_B7, 8: _SAFE_B8,
+    5: _SAFE_B5, 6: _SAFE_B6, 7: _SAFE_B7,
+    8: _SAFE_B8A, 9: _SAFE_B8B, 10: _SAFE_B8C,
 }
 
 

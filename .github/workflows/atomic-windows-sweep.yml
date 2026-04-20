@@ -1,10 +1,11 @@
 name: Atomic Windows Sweep (S5 Promotion)
 
 # Runs Windows-only Gold techniques 3x on clean Windows runners.
-# Techniques are split into 8 batches so each job finishes in ~30 min:
+# Techniques are split into 10 batches so each job finishes in <60 min:
 #   batch 1-3: original safe techniques at concurrency=3
 #   batch 4:   T1134.x token-manipulation at concurrency=1 (runner-kill safe)
-#   batch 5-8: expansion (111 additional Windows techniques)
+#   batch 5-7: expansion (T1003/discovery/evasion)
+#   batch 8-10: former B8 split (boot/logon/persistence/injection) ~20 each
 # Each job produces run_*.json artifacts (execution_mode=remote_winrm) so
 # the evidence bundle scores them as real execution (clean_runs >= 3 → S5).
 #
@@ -19,19 +20,19 @@ on:
         required: false
         default: ""
       batches:
-        description: "Comma-separated batch numbers to run (default: 1,2,3,4,5,6,7,8)"
+        description: "Comma-separated batch numbers to run (default: 1,2,3,4,5,6,7,8,9,10)"
         required: false
-        default: "1,2,3,4,5,6,7,8"
+        default: "1,2,3,4,5,6,7,8,9,10"
 
 jobs:
   sweep:
     name: "Batch ${{ matrix.batch }} Pass ${{ matrix.pass }}"
     runs-on: windows-latest
-    timeout-minutes: 50
+    timeout-minutes: 90
     strategy:
       matrix:
         pass: [1, 2, 3]
-        batch: [1, 2, 3, 4, 5, 6, 7, 8]
+        batch: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
       fail-fast: false
 
     steps:
@@ -55,6 +56,33 @@ jobs:
           Install-AtomicRedTeam -getAtomics -Force -noPayloads
           Write-Host "ART installed to C:\AtomicRedTeam"
 
+      - name: Install Sysmon + configure for ATT&CK telemetry
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'SilentlyContinue'
+          # Download Sysmon
+          Invoke-WebRequest -Uri 'https://download.sysinternals.com/files/Sysmon.zip' -OutFile C:\sysmon.zip -UseBasicParsing
+          Expand-Archive C:\sysmon.zip -DestinationPath C:\Sysmon -Force
+          # Minimal Sysmon config: capture process create, network, file, registry, pipe
+          $cfg = @'
+          <Sysmon schemaversion="4.90">
+            <EventFiltering>
+              <RuleGroup name="" groupRelation="or">
+                <ProcessCreate onmatch="exclude"/>
+                <NetworkConnect onmatch="exclude"/>
+                <FileCreate onmatch="exclude"/>
+                <RegistryEvent onmatch="exclude"/>
+                <CreateRemoteThread onmatch="exclude"/>
+                <RawAccessRead onmatch="exclude"/>
+                <ProcessAccess onmatch="exclude"/>
+              </RuleGroup>
+            </EventFiltering>
+          </Sysmon>
+          '@
+          $cfg | Out-File C:\sysmon-config.xml -Encoding UTF8
+          C:\Sysmon\Sysmon64.exe -accepteula -i C:\sysmon-config.xml 2>&1 | Out-Null
+          Write-Host "Sysmon installed"
+
       - name: Run Windows atomic sweep (batch ${{ matrix.batch }} pass ${{ matrix.pass }})
         shell: cmd
         env:
@@ -68,6 +96,61 @@ jobs:
             --run-number ${{ github.run_number }} ^
             --batch ${{ matrix.batch }} ^
             --concurrency 3
+
+      - name: Export Sysmon events to JSON
+        shell: powershell
+        if: always()
+        run: |
+          $ErrorActionPreference = 'SilentlyContinue'
+          $outDir = "results\batch-${{ matrix.batch }}-pass-${{ matrix.pass }}"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          # Export Sysmon operational log (Event ID 1=ProcessCreate,3=NetworkConnect,
+          # 11=FileCreate,12/13/14=Registry,25=ProcessTampering)
+          $events = Get-WinEvent -LogName 'Microsoft-Windows-Sysmon/Operational' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Id -in @(1,3,7,10,11,12,13,14,17,18,22,25) } |
+            ForEach-Object {
+              $xml = [xml]$_.ToXml()
+              $data = @{ EventID = $_.Id; TimeCreated = $_.TimeCreated.ToString('o') }
+              foreach ($field in $xml.Event.EventData.Data) {
+                if ($field.Name) { $data[$field.Name] = $field.'#text' }
+              }
+              $data
+            }
+          if ($events) {
+            $events | ConvertTo-Json -Depth 5 | Out-File "$outDir\sysmon_events.json" -Encoding UTF8
+            Write-Host "Exported $($events.Count) Sysmon events"
+          } else {
+            Write-Host "No Sysmon events captured"
+          }
+
+      - name: Embed Sysmon events into run JSON files
+        shell: python
+        if: always()
+        run: |
+          import json, os
+          from pathlib import Path
+          out_dir = Path(r"results\batch-${{ matrix.batch }}-pass-${{ matrix.pass }}")
+          sysmon_file = out_dir / "sysmon_events.json"
+          if not sysmon_file.exists():
+              print("No sysmon_events.json to embed")
+              raise SystemExit(0)
+          try:
+              events = json.loads(sysmon_file.read_text(encoding="utf-8"))
+              if not isinstance(events, list):
+                  raise ValueError("Expected list")
+          except Exception as e:
+              print(f"Failed to load sysmon_events.json: {e}")
+              raise SystemExit(0)
+          count = 0
+          for run_file in sorted(out_dir.glob("run_*.json")):
+              try:
+                  data = json.loads(run_file.read_text(encoding="utf-8"))
+                  data["sysmon_events"] = events
+                  run_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                  count += 1
+              except Exception as e:
+                  print(f"  WARN: could not patch {run_file.name}: {e}")
+          print(f"Embedded {len(events)} Sysmon events into {count} run files")
 
       - name: Upload sweep results
         uses: actions/upload-artifact@v4
