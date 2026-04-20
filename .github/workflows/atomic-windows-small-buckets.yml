@@ -99,20 +99,20 @@ jobs:
           <Sysmon schemaversion="4.90">
             <EventFiltering>
               <RuleGroup name="" groupRelation="or">
-                <ProcessCreate onmatch="exclude"/>
-                <NetworkConnect onmatch="exclude"/>
-                <FileCreate onmatch="exclude"/>
-                <RegistryEvent onmatch="exclude"/>
-                <CreateRemoteThread onmatch="exclude"/>
-                <RawAccessRead onmatch="exclude"/>
-                <ProcessAccess onmatch="exclude"/>
+                <ProcessCreate onmatch="include"/>
+                <NetworkConnect onmatch="include"/>
+                <FileCreate onmatch="include"/>
+                <RegistryEvent onmatch="include"/>
+                <CreateRemoteThread onmatch="include"/>
+                <RawAccessRead onmatch="include"/>
+                <ProcessAccess onmatch="include"/>
               </RuleGroup>
             </EventFiltering>
           </Sysmon>
           '@
           $cfg | Out-File C:\sysmon-config.xml -Encoding UTF8
           C:\Sysmon\Sysmon64.exe -accepteula -i C:\sysmon-config.xml 2>&1 | Out-Null
-          Write-Host "Sysmon installed"
+          Write-Host "Sysmon installed and configured to capture events"
 
       - name: Run Windows atomic sweep (bucket ${{ matrix.bucket.id }} pass ${{ matrix.pass }})
         shell: cmd
@@ -133,7 +133,7 @@ jobs:
         if: always()
         run: |
           $ErrorActionPreference = 'SilentlyContinue'
-          $outDir = "results\bucket-${{ matrix.bucket }}-pass-${{ matrix.pass }}"
+          $outDir = "results\bucket-${{ matrix.bucket.id }}-pass-${{ matrix.pass }}"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
           # Export Sysmon operational log (Event ID 1=ProcessCreate,3=NetworkConnect,
           # 11=FileCreate,12/13/14=Registry,25=ProcessTampering)
@@ -160,7 +160,7 @@ jobs:
         run: |
           import json, os
           from pathlib import Path
-          out_dir = Path(r"results\bucket-${{ matrix.bucket }}-pass-${{ matrix.pass }}")
+          out_dir = Path(r"results\bucket-${{ matrix.bucket.id }}-pass-${{ matrix.pass }}")
           sysmon_file = out_dir / "sysmon_events.json"
           if not sysmon_file.exists():
               print("No sysmon_events.json to embed")
