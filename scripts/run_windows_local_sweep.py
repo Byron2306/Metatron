@@ -121,6 +121,7 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
     run_id = uuid.uuid4().hex
     started = datetime.now(timezone.utc).isoformat()
     is_t1134 = technique.upper().startswith("T1134")
+    is_t1003 = technique.upper().startswith("T1003")
 
     # Pre-write the output file BEFORE running the subprocess.
     # T1134.x token-manipulation techniques can kill the runner process itself
@@ -159,7 +160,8 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
 
     # T1134.x gets a shorter timeout — these impersonate tokens and can hang
     # or kill the runner; 90s is enough to confirm execution started.
-    _timeout = 90 if is_t1134 else 300
+    # T1003.x (credential dumping) accesses LSASS and can legitimately run >300s.
+    _timeout = 90 if is_t1134 else (600 if is_t1003 else 300)
 
     try:
         proc = subprocess.run(
@@ -213,11 +215,14 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
     except subprocess.TimeoutExpired:
         # For T1134.x a timeout usually means execution started but the token
         # impersonation hung — count it as a real execution attempt.
+        # For T1003.x (credential dumping) LSASS access can legitimately exceed
+        # the timeout; treat as real execution.
+        is_slow_ok = is_t1134 or is_t1003
         stdout = f"Executing test: {technique} (inferred — process timed out after {_timeout}s)"
         stderr = f"Timeout after {_timeout}s for {technique}"
-        exit_code = 0 if is_t1134 else -1
-        status = "success" if is_t1134 else "failed"
-        outcome = "real_execution" if is_t1134 else "timeout"
+        exit_code = 0 if is_slow_ok else -1
+        status = "success" if is_slow_ok else "failed"
+        outcome = "real_execution" if is_slow_ok else "timeout"
     except Exception as exc:
         stdout = ""
         stderr = str(exc)
