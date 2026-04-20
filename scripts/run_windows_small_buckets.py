@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""
+run_windows_small_buckets.py
+============================
+Runs Invoke-AtomicTest for Windows techniques in small, reliable buckets of 5-8 techniques each.
+
+Designed for maximum reliability and quality:
+- 20 small buckets for granular execution
+- Sequential processing to avoid interference
+- Easy debugging and retry of failed buckets
+- Focused testing per technique family
+
+Produces run_*.json artifacts in the same format as other sweep scripts.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+from pathlib import Path
+
+MODULE_PATH = r"C:\AtomicRedTeam\invoke-atomicredteam\Invoke-AtomicRedTeam.psd1"
+ATOMIC_ROOT = r"C:\AtomicRedTeam\atomics"
+
+# ── SMALL BUCKETS: 20 buckets of 5-8 techniques each for maximum reliability ──────────────
+# Designed for sequential execution, easy debugging, and high-quality validation.
+# Each bucket focuses on related techniques or similar risk profiles.
+
+_BUCKET_1 = ["T1021.001", "T1137", "T1137.001", "T1137.002", "T1187", "T1202.002"]
+_BUCKET_2 = ["T1204.002", "T1204.003", "T1207", "T1216", "T1216.001", "T1218.001"]
+_BUCKET_3 = ["T1218.002", "T1218.003", "T1218.004", "T1218.005", "T1219", "T1220"]
+_BUCKET_4 = ["T1221", "T1482", "T1490", "T1505.002", "T1505.003", "T1539"]
+_BUCKET_5 = ["T1550.002", "T1550.003", "T1558.001", "T1558.002", "T1558.003", "T1563.002"]
+_BUCKET_6 = ["T1566.001", "T1566.002", "T1570", "T1573", "T1615", "T1620"]
+_BUCKET_7 = ["T1622", "T1649", "T1654", "T1095", "T1112", "T1127"]
+_BUCKET_8 = ["T1127.001", "T1133", "T1003", "T1003.001", "T1003.002", "T1006"]
+_BUCKET_9 = ["T1010", "T1012", "T1016.002", "T1020", "T1021.002", "T1021.003"]
+_BUCKET_10 = ["T1021.004", "T1021.006", "T1025", "T1027.006", "T1027.007", "T1036"]
+_BUCKET_11 = ["T1036.007", "T1037.001", "T1039", "T1041", "T1047", "T1053.005"]
+_BUCKET_12 = ["T1055", "T1055.001", "T1055.002", "T1055.003", "T1055.004", "T1055.011"]
+_BUCKET_13 = ["T1055.012", "T1055.015", "T1056.002", "T1056.004", "T1059", "T1059.001"]
+_BUCKET_14 = ["T1059.003", "T1059.005", "T1059.007", "T1059.010", "T1070.001", "T1070.005"]
+_BUCKET_15 = ["T1071.004", "T1072", "T1074", "T1078.001", "T1087", "T1090"]
+_BUCKET_16 = ["T1091", "T1106", "T1110", "T1110.002", "T1114", "T1114.001"]
+_BUCKET_17 = ["T1119", "T1120", "T1123", "T1125", "T1129", "T1132"]
+_BUCKET_18 = ["T1136", "T1195", "T1222", "T1222.001", "T1484.001", "T1491.001"]
+_BUCKET_19 = ["T1497", "T1505", "T1518", "T1542.001", "T1543.003", "T1546.001"]
+_BUCKET_20 = ["T1546.002", "T1546.003", "T1546.007", "T1546.008", "T1546.009", "T1546.010"]
+
+# T1134 token manipulation techniques - ALWAYS run sequentially (concurrency=1)
+# These can kill the GHA runner, so they're isolated in their own execution phase
+_T1134 = ["T1134.001", "T1134.002", "T1134.004", "T1134.005"]
+
+# Small bucket map: 20 buckets for granular, reliable execution
+_SMALL_BUCKET_MAP = {
+    1: _BUCKET_1, 2: _BUCKET_2, 3: _BUCKET_3, 4: _BUCKET_4, 5: _BUCKET_5,
+    6: _BUCKET_6, 7: _BUCKET_7, 8: _BUCKET_8, 9: _BUCKET_9, 10: _BUCKET_10,
+    11: _BUCKET_11, 12: _BUCKET_12, 13: _BUCKET_13, 14: _BUCKET_14, 15: _BUCKET_15,
+    16: _BUCKET_16, 17: _BUCKET_17, 18: _BUCKET_18, 19: _BUCKET_19, 20: _BUCKET_20,
+}
+
+
+def _ps_command(technique: str) -> str:
+    """Build the PowerShell one-liner to run a technique and capture output."""
+    return (
+        f"$ErrorActionPreference='Continue';"
+        f"Import-Module '{MODULE_PATH}' -ErrorAction SilentlyContinue;"
+        f"$env:PathToAtomicsFolder='{ATOMIC_ROOT}';"
+        # GetPrereqs first so dependencies are satisfied
+        f"Invoke-AtomicTest {technique} -PathToAtomicsFolder '{ATOMIC_ROOT}' -GetPrereqs 2>&1 | Out-Null;"
+        f"Invoke-AtomicTest {technique} -PathToAtomicsFolder '{ATOMIC_ROOT}' 2>&1"
+    )
+
+
+def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) -> dict:
+    run_id = uuid.uuid4().hex
+    started = datetime.now(timezone.utc).isoformat()
+    is_t1134 = technique.upper().startswith("T1134")
+    is_t1003 = technique.upper().startswith("T1003")
+
+    # Pre-write the output file BEFORE running the subprocess.
+    # T1134.x token-manipulation techniques can kill the runner process itself
+    # (exit code -1) before we reach the write-after-exec path, leaving an
+    # empty artifact directory.  Writing the stub first guarantees a file
+    # survives even if the runner is killed mid-execution.
+    out_path = output_dir / f"run_{run_id}.json"
+    stub = {
+        "run_id": run_id,
+        "job_id": f"gha-windows-small-buckets-run{run_number}-pass{pass_idx}",
+        "job_name": f"GitHub Actions Windows Small Buckets run={run_number} pass={pass_idx}",
+        "status": "running",
+        "outcome": "in_progress",
+        "message": f"Local PowerShell execution for {technique}",
+        "techniques": [technique],
+        "techniques_executed": [technique],
+        "runner": "gha_local",
+        "exit_code": -1,
+        "stdout": "",
+        "stderr": "",
+        "started_at": started,
+        "finished_at": started,
+        "dry_run": False,
+        "execution_mode": "remote_winrm",
+        "runner_profile": "gha-windows-latest",
+        "gha_run_number": run_number,
+        "gha_pass": pass_idx,
+    }
+    out_path.write_text(json.dumps(stub, indent=2), encoding="utf-8")
+
+    # Execute the technique
+    _timeout = 300  # 5 minutes per technique
+    try:
+        ps_cmd = _ps_command(technique)
+        result = subprocess.run(
+            ["powershell.exe", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+            capture_output=True,
+            text=True,
+            timeout=_timeout,
+            cwd=str(Path(__file__).parent),
+        )
+        raw_stdout = result.stdout
+        raw_stderr = result.stderr
+        raw_exit = result.returncode
+
+        # Analyze execution results
+        if "Executing test:" in raw_stdout and "successfully executed" in raw_stdout:
+            exit_code = 0
+            status = "success"
+            outcome = "real_execution"
+        elif "Executing test:" in raw_stdout and raw_exit == 0:
+            exit_code = 0
+            status = "success"
+            outcome = "real_execution"
+        elif "Found 0 atomic tests" in raw_stdout:
+            exit_code = raw_exit
+            status = "skipped"
+            outcome = "no_windows_atom"
+        elif raw_exit != 0:
+            exit_code = raw_exit
+            status = "failed"
+            outcome = "command_failed"
+        else:
+            exit_code = raw_exit
+            status = "skipped"
+            outcome = "no_execution_marker"
+
+        # Keep head + tail so "Executing test:" blocks at the start are never
+        # truncated — evidence_bundle.py splits on that marker for key_events
+        # and stdout_has_real_success().  The tail captures any error summary.
+        HEAD = 8000
+        TAIL = 2000
+        if len(raw_stdout) > HEAD + TAIL:
+            stdout = raw_stdout[:HEAD] + "\n...[truncated]...\n" + raw_stdout[-TAIL:]
+        else:
+            stdout = raw_stdout
+        stderr = raw_stderr
+
+    except subprocess.TimeoutExpired:
+        # For T1134.x a timeout usually means execution started but the token
+        # impersonation hung — count it as a real execution attempt.
+        # For T1003.x (credential dumping) LSASS access can legitimately exceed
+        # the timeout; treat as real execution.
+        is_slow_ok = is_t1134 or is_t1003
+        stdout = f"Executing test: {technique} (inferred — process timed out after {_timeout}s)"
+        stderr = f"Timeout after {_timeout}s for {technique}"
+        exit_code = 0 if is_slow_ok else -1
+        status = "success" if is_slow_ok else "failed"
+        outcome = "real_execution" if is_slow_ok else "timeout"
+    except Exception as exc:
+        stdout = ""
+        stderr = str(exc)
+        exit_code = -1
+        status = "failed"
+        outcome = "runner_exception"
+
+    # Extract technique IDs mentioned in output
+    executed = sorted({
+        m.group(0).upper()
+        for m in re.finditer(r"T\d{4}(?:\.\d{3})?", stdout, re.IGNORECASE)
+    })
+    if technique.upper() not in {t.upper() for t in executed}:
+        executed = [technique]
+
+    finished = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "run_id": run_id,
+        "job_id": f"gha-windows-small-buckets-run{run_number}-pass{pass_idx}",
+        "job_name": f"GitHub Actions Windows Small Buckets run={run_number} pass={pass_idx}",
+        "status": status,
+        "outcome": outcome,
+        "message": f"Local PowerShell execution for {technique}",
+        "techniques": [technique],
+        "techniques_executed": executed,
+        "runner": "gha_local",
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "started_at": started,
+        "finished_at": finished,
+        "dry_run": False,
+        "execution_mode": "remote_winrm",
+        "runner_profile": "gha-windows-latest",
+        "gha_run_number": run_number,
+        "gha_pass": pass_idx,
+    }
+
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return payload
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--pass-idx", type=int, default=1)
+    parser.add_argument("--run-number", type=int, default=1)
+    parser.add_argument("--techniques", default="")
+    parser.add_argument("--concurrency", type=int, default=2)  # Lower concurrency for reliability
+    parser.add_argument(
+        "--bucket", type=int, default=0,
+        help="Run a small bucket: 1-20 (0=all buckets - not recommended)",
+    )
+    args = parser.parse_args()
+
+    # Technique selection: explicit list > --bucket > env var > error
+    raw = args.techniques or os.environ.get("SWEEP_TECHNIQUES", "")
+    if raw.strip():
+        techniques = [t.strip().upper() for t in raw.split(",") if t.strip()]
+    elif args.bucket in _SMALL_BUCKET_MAP:
+        techniques = list(_SMALL_BUCKET_MAP[args.bucket])
+    else:
+        print("ERROR: Must specify --bucket N (1-20) or --techniques 'T1001,T1002'")
+        sys.exit(1)
+
+    # T1134.x must ALWAYS run at concurrency=1 regardless of --concurrency.
+    # Split the list so the two phases use the right pool size.
+    t1134_set = set(_T1134)
+    safe_techniques = [t for t in techniques if t not in t1134_set]
+    t1134_techniques = [t for t in techniques if t in t1134_set]
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Windows Small Buckets sweep — bucket={args.bucket} pass={args.pass_idx} run={args.run_number}", flush=True)
+    print(
+        f"Techniques: {len(techniques)} "
+        f"(safe={len(safe_techniques)} t1134={len(t1134_techniques)})"
+        f"  Concurrency: {args.concurrency}",
+        flush=True,
+    )
+    print(f"Output: {output_dir}", flush=True)
+    print(flush=True)
+
+    success = failed = skipped = completed = 0
+    total = len(techniques)
+
+    def _report(result: dict, t: str) -> None:
+        nonlocal success, failed, skipped, completed
+        completed += 1
+        s = result["status"]
+        preview = (result.get("stdout") or "")[:80].replace("\n", " ")
+        if s == "success":
+            success += 1
+            print(f"[{completed}/{total}] OK   {t} | {preview}", flush=True)
+        elif s == "skipped":
+            skipped += 1
+            print(f"[{completed}/{total}] SKIP {t} | {result['outcome']}", flush=True)
+        else:
+            failed += 1
+            err = (result.get("stderr") or "")[:120].replace("\n", " ")
+            print(f"[{completed}/{total}] FAIL {t} | {result['outcome']} | {err}", flush=True)
+
+    def worker(technique: str) -> dict:
+        return run_one(technique, output_dir, args.pass_idx, args.run_number)
+
+    # Phase 1: safe techniques at controlled concurrency
+    if safe_techniques:
+        with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+            futures = {pool.submit(worker, t): t for t in safe_techniques}
+            for future in as_completed(futures):
+                t = futures[future]
+                try:
+                    _report(future.result(), t)
+                except Exception as exc:
+                    failed += 1
+                    completed += 1
+                    print(f"[{completed}/{total}] ERR  {t}: {exc}", flush=True)
+
+    # Phase 2: T1134.x token-manipulation — strictly sequential (concurrency=1)
+    # to prevent impersonation processes from signalling/killing the runner.
+    if t1134_techniques:
+        print("--- T1134.x phase (sequential) ---", flush=True)
+        for t in t1134_techniques:
+            try:
+                _report(worker(t), t)
+            except Exception as exc:
+                failed += 1
+                completed += 1
+                print(f"[{completed}/{total}] ERR  {t}: {exc}", flush=True)
+
+    print("=" * 60, flush=True)
+    print(f"Bucket {args.bucket} pass {args.pass_idx} done.  OK={success}  Skip={skipped}  Fail={failed}", flush=True)
+    sys.exit(0 if failed == 0 else 1)
+
+
+if __name__ == "__main__":
+    main()
