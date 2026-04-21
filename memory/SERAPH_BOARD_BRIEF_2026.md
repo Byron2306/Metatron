@@ -1,112 +1,71 @@
-# Seraph AI Defender — Executive Board Brief (2026)
+# Seraph AI Defender - Board Brief (2026 Rebaseline)
 
-**Date:** 2026-03-04  
-**Audience:** Board, CEO, CISO, CTO, VP Product, VP Engineering  
-**Source baseline:** `memory/SERAPH_COMPETITIVE_WHITEPAPER_2026.md`
-
----
-
-## 1) Decision Context
-
-Seraph is at an inflection point:
-- It has unusually strong innovation and architecture flexibility.
-- It has clear competitive upside in adaptive, governed, AI-native defense workflows.
-- It is not yet at incumbent-level enterprise hardening and operational assurance.
-
-**Board-level question:** Should Seraph pursue feature breadth race, or shift into a hardening-led convergence strategy to become a credible enterprise alternative?
-
-**Recommendation:** Shift to a **12-month hardening + convergence program** while preserving Seraph’s differentiation.
+Date: 2026-04-21  
+Audience: Board, CEO, CISO, CTO, VP Product, VP Engineering  
+Basis: Current repository implementation reality
 
 ---
 
-## 2) Strategic Position
+## Decision Context
 
-### Current posture
-- **Strengths:** composability, integrated SOC + response planes, rapid adaptation velocity, advanced governance concepts (identity/policy/token/tool controls).
-- **Constraints:** contract drift, simulated success paths, script/API inconsistencies, optional dependency fragility, uneven durability of critical state.
+Seraph should continue pursuing a hardening-led strategy, but messaging and planning must be aligned to current implementation truth:
 
-### Competitive reality
-Compared with CrowdStrike, SentinelOne, Microsoft MDE, Cortex XDR, and HP Wolf:
-- Seraph is **ahead in adaptability and architecture openness**.
-- Seraph is **behind in enterprise-scale reliability, assurance, anti-tamper depth, and ecosystem maturity**.
+- Strengths are real: broad unified platform, governance-aware execution, rapid feature velocity.
+- Risks are also real: uneven maturity on select domains, environment-dependent optional integrations, and documentation overstatement.
 
-### Target positioning (non-copycat)
-Position Seraph as a **Governed Adaptive Defense Fabric**:
-- More adaptable than incumbent suites.
-- Safer and more deterministic than ad-hoc open security stacks.
-- Built for high-change SOC environments requiring controlled automation.
+Key correction to carry at board level:
+
+- MDM connector coverage is currently **partial** (Intune and JAMF implemented; Workspace One and Google Workspace declared but not implemented as concrete connectors).
 
 ---
 
-## 3) What Must Change (Board Priorities)
+## Strategic Position
 
-## Priority A — Truth and reliability first (0–90 days)
-1. Eliminate known contract mismatches in critical flows.
-2. Replace simulation-based success in deployment-critical paths.
-3. Align script/API contracts and validation tooling to active endpoints.
-4. Standardize API root behavior and environment handling.
+### What is credible to claim now
 
-## Priority B — Enterprise trust fundamentals (90–180 days)
-1. Harden governance plane durability (identity/policy/token state guarantees).
-2. Implement strict API contract CI gates and regression controls.
-3. Add evidence-grade auditability for high-risk autonomous actions.
+1. Unified control plane spanning endpoint, cloud posture, email, mobile, deception, and governance.
+2. Strong governance primitives for high-impact operations via outbound gate and triune decision flows.
+3. Material security hardening in auth and CORS controls.
+4. Active frontend workspaces aligned to major operational domains.
 
-## Priority C — Scaled differentiation (180–360 days)
-1. Expand governed autonomous playbooks.
-2. Establish detection quality loop (precision/recall, replay, suppression discipline).
-3. Build curated, high-quality integration framework instead of connector sprawl.
+### What should not be claimed as complete
+
+1. Four fully implemented MDM connectors.
+2. Full remote browser isolation parity with specialized isolation vendors.
+3. Production-grade readiness in all optional integration paths without environment qualification.
 
 ---
 
-## 4) Investment Thesis
+## Board Priorities (Execution Focus)
 
-### Why this wins
-- Incumbents are hard to outscale; Seraph should out-adapt while matching enterprise trust expectations.
-- Hardening unlocks enterprise buyers without sacrificing platform uniqueness.
-- Controlled convergence increases valuation by reducing “prototype discount” risk.
+### Priority A - Trustworthy claims and contract integrity
 
-### What not to do
-- Do not pursue broad feature cloning of major vendors.
-- Do not expand optional integrations without quality gates.
-- Do not market full parity before deterministic reliability and assurance are in place.
+- Keep docs, product claims, and endpoint contracts synchronized with code reality.
+- Enforce route/contract validation in CI for high-impact paths.
 
----
+### Priority B - Governance and operational assurance
 
-## 5) KPI Dashboard (Board Level)
+- Continue denial-path and bypass-resistance testing for triune-gated actions.
+- Improve durability and observability of governance execution traces.
 
-Track these monthly:
+### Priority C - High-value gap closure
 
-1. **Determinism Index:** % critical workflows without simulation/fallback ambiguity.
-2. **Contract Integrity Index:** # production contract breaks per release.
-3. **Deployment Truth Rate:** % deployment “success” events with verified endpoint install evidence.
-4. **Governance Integrity Rate:** % high-risk actions with complete policy/token/audit chain.
-5. **Detection Quality Trend:** precision, recall, false-positive rate by threat class.
-6. **Operational Readiness Index:** mean time to recover from dependency outages; degraded-mode correctness.
+- Implement Workspace One and Google Workspace connector classes or remove active support claims.
+- Mature browser isolation into true remote execution/isolation model where strategically required.
 
 ---
 
-## 6) Risks and Mitigations
+## KPI Suggestions (Board-Level)
 
-### Risk 1: Hardening slows perceived momentum
-- **Mitigation:** publish milestone-based maturity scorecards; frame as enterprise readiness acceleration.
-
-### Risk 2: Feature pressure from market comparisons
-- **Mitigation:** enforce “advantage-led roadmap” filter; only adopt features that strengthen differentiation.
-
-### Risk 3: Architecture fragmentation persists
-- **Mitigation:** establish canonical contracts for agent, deployment, telemetry, and policy decisions.
+1. **Contract Integrity Index** - count of doc/API/UX mismatches per release.
+2. **Governance Completion Integrity** - percent of high-impact actions with complete queue->decision->execution evidence.
+3. **Connector Truth Score** - percent of advertised connectors with concrete implementations + passing contract tests.
+4. **Operational Determinism Index** - percent of critical paths that run without simulation/fallback ambiguity.
+5. **Security Hardening Regression Rate** - count of auth/CORS/JWT critical regressions per release.
 
 ---
 
-## 7) Board Decisions Requested
+## Executive Bottom Line
 
-1. Approve a **2-cycle hardening-first roadmap** as top priority.
-2. Approve KPI-based release governance gates for enterprise features.
-3. Align GTM narrative to “adaptive + governed” strategy, not direct feature parity claims.
-
----
-
-## 8) Executive Bottom Line
-
-Seraph can become a credible enterprise challenger if it executes a disciplined hardening and convergence program now.  
-The right strategy is not to replicate incumbents, but to combine their strongest operational disciplines with Seraph’s adaptive architecture advantage.
+Seraph is a credible high-innovation security platform with strong governance-oriented architecture.  
+The next value unlock is not feature race breadth; it is disciplined reliability, truthful positioning, and closure of specific implementation gaps that still create narrative risk.
