@@ -1,332 +1,108 @@
-# Seraph AI Defender — Technical Implementation Roadmap (2026)
+# Seraph Technical Roadmap (Rebased to Current Code)
 
-**Date:** 2026-03-04  
-**Derived from:** `memory/SERAPH_COMPETITIVE_WHITEPAPER_2026.md`  
-**Horizon:** 12 months (rolling)  
-**Goal:** Converge to enterprise-grade operational confidence while preserving Seraph’s adaptive and composable strengths.
+**Last revalidated:** 2026-04-21  
+**Purpose:** Align roadmap priorities to what is already implemented versus what still needs engineering hardening.
 
 ---
 
-## 1) Program Charter
+## 1) Program Objective
 
-## North-star outcome
-Deliver a **Governed Adaptive Defense Fabric** with:
-- deterministic core operations,
-- policy-governed autonomy,
-- measurable detection quality,
-- enterprise-ready reliability and evidence.
+Evolve the platform from broad feature capability into **consistent enterprise-grade operation** through:
 
-## Program constraints
-- No direct feature-cloning strategy.
-- No expansion of integration breadth without quality gates.
-- No “production-ready” claims on simulated critical paths.
+1. Contract integrity
+2. Durable state and reliable execution semantics
+3. Unified authorization model
+4. Verifiable governance and assurance workflows
 
 ---
 
-## 2) Workstream Structure
+## 2) Current Baseline (Code-Verified)
 
-## WS-A: Contract Integrity
-Owns API/client schema correctness and drift prevention.
+### Already implemented
 
-## WS-B: Runtime Reliability
-Owns deterministic behavior, deployment truth, dependency resilience.
+- Modular FastAPI router composition (`backend/server.py`, `backend/routers/*`)
+- Unified agent register/heartbeat/command loops
+- EDM dataset lifecycle APIs (versioning/publish/rollout/rollback)
+- Deployment service with SSH/WinRM execution and retry/state transition logs
+- CSPM scan/finding durability and transition logs
+- Email/mobile/gateway/MDM API surfaces
 
-## WS-C: Governance Hardening
-Owns identity/policy/token/tool chain durability and high-risk action controls.
+### Still inconsistent / partial
 
-## WS-D: Detection Quality Engineering
-Owns precision/recall loop, benchmarking, replay, suppression governance.
-
-## WS-E: Integration Rationalization
-Owns connector quality tiers, compatibility maps, deprecations, script consistency.
-
-## WS-F: Platform Experience
-Owns operator clarity (run modes, degraded states, health semantics, status transparency).
+- Permission check model consistency (`check_permission("admin")` usage vs permission map)
+- Service-level durability in email/mobile/gateway modules (in-memory state)
+- CSPM demo-seed fallback versus production evidence semantics
+- MDM connector scope mismatch (enum advertises four platforms; manager currently instantiates Intune and JAMF)
 
 ---
 
-## 3) Phase Plan
+## 3) Workstreams
 
-## Phase 0 (Weeks 0–4): Stabilization and truth alignment
+## WS-A: Contract and Interface Integrity
 
-### Objectives
-- Remove known critical mismatches and obvious false signal paths.
+- Build route/payload contract tests for high-change surfaces:
+  - `/api/unified/*`
+  - `/api/v1/cspm/*`
+  - email/mobile/mdm domains
+- Add drift gates between frontend expectations and backend response shapes.
 
-### Scope
-1. Fix high-impact contract breaks:
-   - unified command payload shape mismatch,
-   - OpenClaw analyze context mapping mismatch.
-2. Fix stale validation paths:
-   - update Zero Trust probe endpoints in deployment validation scripts.
-3. Introduce explicit simulation markers in API responses where simulation remains.
-4. Build canonical endpoint compatibility map for scripts/agents.
+## WS-B: Authorization and Access Model Normalization
 
-### Deliverables
-- `compatibility/endpoints-v1.json` (source of truth)
-- `scripts/validate_deployment.sh` aligned with active routes
-- CI contract test pack for top 20 API routes
+- Replace ambiguous permission checks with explicit role or permission checks consistently.
+- Document and test remote-admin-only behavior and machine-token paths.
 
-### Exit criteria
-- No known P0 contract mismatches remain.
-- Validation script produces accurate pass/fail against live routes.
+## WS-C: Durability and Runtime Reliability
 
----
+- Persist currently in-memory operational state where required (gateway queues, mobile threat/device state, selected email security state).
+- Standardize state transition logs for all critical workflow objects.
 
-## Phase 1 (Weeks 5–12): Deterministic runtime behavior
+## WS-D: Governance and Assurance
 
-### Objectives
-- Ensure production-significant success states represent real execution.
+- Extend policy/decision evidence checks for high-risk operations.
+- Enforce explicit labeling and controls for demo/simulated workflows.
 
-### Scope
-1. Replace simulated deployment completion in unified flows with verified execution adapters.
-2. Enforce deployment state machine:
-   - queued → processing → installing → validating → completed/failed.
-3. Add host capability probes for WinRM/SSH prechecks before queue acceptance.
-4. Harden dependency lifecycle behavior:
-   - deterministic fallback contracts for optional integrations.
+## WS-E: Integration Reality Alignment
 
-### Deliverables
-- Unified deployment verifier service
-- Capability preflight API for deployment routes
-- Runtime dependency health contract and status schema
-
-### Exit criteria
-- Deployment success includes machine-verifiable install evidence.
-- Optional dependency failures do not create ambiguous operational outcomes.
+- Align MDM docs and runtime support with actual connectors implemented.
+- Add explicit support tier labels for integrations (production-ready vs conditional vs demo).
 
 ---
 
-## Phase 2 (Weeks 13–24): Governance and assurance maturity
+## 4) Delivery Phases (Technical)
 
-### Objectives
-- Move from conceptual governance to enterprise-trust execution.
+## Phase 0: Correctness and Transparency
 
-### Scope
-1. Persist critical governance state with HA-safe semantics:
-   - identity attestations,
-   - policy decisions,
-   - token issuance/consumption,
-   - tool execution evidence chain.
-2. Add high-risk action guardrails:
-   - blast-radius caps,
-   - approval tiers,
-   - TTL, replay prevention, reason codes.
-3. Add formal audit evidence model and export contracts.
-4. Add policy denial-path and bypass-resistance regression tests.
+- Fix permission semantic inconsistencies.
+- Mark and segment demo-mode responses/events.
+- Publish compatibility contracts for top API paths.
 
-### Deliverables
-- Governance durability architecture doc
-- Audit evidence schema v1
-- Security regression suite for policy/token/tool path
+## Phase 1: Persistence and Determinism
 
-### Exit criteria
-- Governance chain remains consistent across restart/scale scenarios.
-- High-risk action audit chain is complete and queryable.
+- Introduce persistence for in-memory security modules where required by operations.
+- Add restart/scaling behavior tests for key stateful features.
+
+## Phase 2: Assurance Expansion
+
+- Add denial-path, bypass-resistance, and transition-conflict test coverage.
+- Add stronger CI gates for contract and security invariants.
+
+## Phase 3: Integration Maturity
+
+- Expand MDM connector implementation to match advertised platform matrix or reduce advertised matrix.
+- Define and enforce integration support tiers.
 
 ---
 
-## Phase 3 (Weeks 25–36): Detection quality and adaptive differentiation
+## 5) Acceptance Gates
 
-### Objectives
-- Improve real-world trust in detections and guided automation.
-
-### Scope
-1. Build detection evaluation harness:
-   - representative corpus,
-   - scenario replay,
-   - drift analysis,
-   - precision/recall tracking.
-2. Implement suppression governance:
-   - suppression lifecycle,
-   - expiration,
-   - reason metadata,
-   - risk checks.
-3. Introduce governed adaptive playbooks:
-   - recommendation + policy gate + action simulation + action execution.
-
-### Deliverables
-- Detection quality scorecard service
-- Suppression governance module
-- Governed adaptive playbook templates
-
-### Exit criteria
-- Quantified quality improvement trend across target classes.
-- Autonomous recommendations have explainable evidence and policy context.
+- **Gate A:** No unresolved permission-model inconsistencies in security-critical routes.
+- **Gate B:** Critical stateful services have defined durability semantics and tests.
+- **Gate C:** Demo/simulated modes are explicit and excluded from production assurance metrics.
+- **Gate D:** Integration claims in docs exactly match implemented runtime behavior.
 
 ---
 
-## Phase 4 (Weeks 37–52): Productization and enterprise readiness
+## 6) Final Guidance
 
-### Objectives
-- Convert technical maturity into repeatable enterprise adoption patterns.
-
-### Scope
-1. Integration quality tiers:
-   - Tier 1: enterprise-supported,
-   - Tier 2: best-effort,
-   - Tier 3: experimental.
-2. Release governance and supportability runbooks.
-3. Compliance reporting pack (control mapping + evidence extraction).
-4. Unified operator run-mode UX with explicit core/optional dependency states.
-
-### Deliverables
-- Integration certification process
-- Release readiness checklist and go/no-go gates
-- Compliance evidence bundle generator
-
-### Exit criteria
-- Predictable enterprise deployment outcomes and support workflows.
-- Maturity claims backed by measurable KPIs and artifacts.
-
----
-
-## 4) Epics and Candidate Stories
-
-## WS-A Contract Integrity
-
-### Epic A1: Canonical API contract registry
-- Story A1.1: Generate route inventory from backend routers.
-- Story A1.2: Build schema snapshots and versioned contract baseline.
-- Story A1.3: Add client contract linting for frontend and scripts.
-
-### Epic A2: Drift prevention in CI
-- Story A2.1: Add contract break detector in PR pipeline.
-- Story A2.2: Fail CI on unapproved route or payload changes.
-- Story A2.3: Auto-generate changelog for contract updates.
-
-## WS-B Runtime Reliability
-
-### Epic B1: Deployment truth state machine
-- Story B1.1: Introduce deploy verifier interfaces per method (SSH/WinRM).
-- Story B1.2: Implement post-install heartbeat verification check.
-- Story B1.3: Attach deployment evidence artifact to completion status.
-
-### Epic B2: Dependency resilience contract
-- Story B2.1: Add dependency health taxonomy (connected/degraded/unavailable).
-- Story B2.2: Define feature behavior per dependency state.
-- Story B2.3: Add UI-level degraded-mode explanation panel.
-
-## WS-C Governance Hardening
-
-### Epic C1: Durable policy/token chain
-- Story C1.1: Persist policy decisions and token usage with immutable trace IDs.
-- Story C1.2: Add replay prevention and max-use enforcement verification.
-- Story C1.3: Add approval escalation semantics.
-
-### Epic C2: High-risk action guardrails
-- Story C2.1: Add blast-radius policy DSL constraints.
-- Story C2.2: Enforce pre-execution simulation and policy summary.
-- Story C2.3: Add rollback policy for supported action classes.
-
-## WS-D Detection Quality Engineering
-
-### Epic D1: Evaluation harness
-- Story D1.1: Build labeled scenario pack from internal events.
-- Story D1.2: Add replay pipeline against detection stack.
-- Story D1.3: Emit precision/recall/latency metrics.
-
-### Epic D2: False-positive governance
-- Story D2.1: Add suppression object model with owner and expiry.
-- Story D2.2: Add suppression risk checks and approval workflow.
-- Story D2.3: Add suppression effectiveness analytics.
-
-## WS-E Integration Rationalization
-
-### Epic E1: Endpoint compatibility and deprecation system
-- Story E1.1: Publish endpoint compatibility map and aliases.
-- Story E1.2: Add deprecation warnings + telemetry.
-- Story E1.3: Remove legacy paths after adoption threshold.
-
-### Epic E2: Connector quality tiers
-- Story E2.1: Define connector SLO and health contracts.
-- Story E2.2: Build integration certification tests.
-- Story E2.3: Annotate connectors by support tier in product UI/docs.
-
-## WS-F Platform Experience
-
-### Epic F1: Run-mode clarity UX
-- Story F1.1: Build unified run-mode dashboard (core/optional state).
-- Story F1.2: Show simulation flags and dependency notes per feature.
-- Story F1.3: Add guided remediation actions per failed dependency.
-
----
-
-## 5) KPI and Gate Framework
-
-## Gate G0 (Phase 0 exit)
-- P0 contract mismatch count = 0.
-- Validation script endpoint parity = 100%.
-
-## Gate G1 (Phase 1 exit)
-- Deployment truth rate >= 95% (verified completion evidence attached).
-- Simulated-success critical paths = 0.
-
-## Gate G2 (Phase 2 exit)
-- Governance integrity rate >= 99% for high-risk actions.
-- Policy/token regression suite passing in CI.
-
-## Gate G3 (Phase 3 exit)
-- Measured false-positive reduction trend in selected threat classes.
-- Detection precision and recall trendline published per release.
-
-## Gate G4 (Phase 4 exit)
-- Enterprise runbook and compliance evidence package released.
-- Integration tier framework active for all production connectors.
-
----
-
-## 6) Resourcing and Ownership Model
-
-## Suggested staffing baseline
-- WS-A: 2 backend + 1 frontend + 1 QA automation
-- WS-B: 3 backend/platform + 1 DevOps/SRE
-- WS-C: 2 backend/security + 1 architect
-- WS-D: 2 detection engineers + 1 data/replay engineer
-- WS-E: 2 integration/backend + 1 docs/release engineer
-- WS-F: 1 frontend + 1 UX + 1 PM
-
-## Program governance
-- Weekly execution review by WS owners.
-- Biweekly architecture/risk review by CTO/CISO delegates.
-- Monthly KPI review at executive level.
-
----
-
-## 7) Risk Register and Controls
-
-| Risk | Likelihood | Impact | Control |
-|---|---|---|---|
-| Scope creep into feature cloning | High | High | Enforce advantage-led intake filter for roadmap items. |
-| Legacy script drift persists | High | Medium | Compatibility map + deprecation telemetry + CI linting. |
-| Hardening delays GTM narrative | Medium | High | Publish maturity milestones and customer-safe release notes. |
-| Optional dependencies cause unstable behavior | Medium | High | Dependency state contract + deterministic degraded-mode logic. |
-| Governance complexity increases latency | Medium | Medium | Tiered approval model and cached policy decisions with strict TTLs. |
-
----
-
-## 8) First 60-Day Tactical Plan
-
-### Sprint 1
-- Patch known contract mismatches.
-- Update deployment validator endpoint checks.
-- Add simulation flags in impacted APIs.
-
-### Sprint 2
-- Deliver endpoint compatibility map + script linter.
-- Implement deployment verification prototype for one deployment path.
-- Add CI gate for top contract set.
-
-### Sprint 3
-- Expand deployment verifier to all primary methods.
-- Implement dependency health taxonomy and UI status exposure.
-- Begin governance persistence hardening stories.
-
----
-
-## 9) Expected Outcome
-
-By end of roadmap cycle, Seraph should be able to credibly claim:
-- deterministic and auditable core workflows,
-- enterprise-grade governance for autonomous actions,
-- measurable detection quality improvements,
-- differentiated adaptive defense capabilities that are operationally trustworthy.
+Feature breadth is no longer the primary constraint.  
+The roadmap priority is to make existing capability **predictable, durable, and auditable** across all major domains.
