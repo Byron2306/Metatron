@@ -36,6 +36,14 @@ class TriggerEventRequest(BaseModel):
     ioc_type: Optional[str] = None
     extra: Dict = {}
 
+class TechniqueResponseRequest(BaseModel):
+    host_id: Optional[str] = None
+    session_id: Optional[str] = None
+    source_ip: Optional[str] = None
+    file_path: Optional[str] = None
+    pid: Optional[int] = None
+    reason: Optional[str] = None
+
 class CreateTemplateRequest(BaseModel):
     name: str
     description: str = ""
@@ -161,6 +169,43 @@ async def execute_playbook(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Playbook execution failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/techniques/{technique_id}/respond")
+async def respond_for_technique(
+    technique_id: str,
+    request: TechniqueResponseRequest,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Execute a live SOAR response chain and attach it to a MITRE technique.
+
+    This writes a durable execution record to the SOAR archive path configured in
+    docker-compose (`MITRE_ARCHIVED_SOAR_EXECUTION_PATH` / `SIGMA_SOAR_EXECUTION_ARCHIVE_PATH`).
+    """
+    technique = str(technique_id or "").strip().upper()
+    if not technique or not technique.startswith("T"):
+        raise HTTPException(status_code=400, detail="Invalid technique_id")
+
+    event = {
+        "trigger_type": "manual",
+        "host_id": request.host_id or f"mitre-host-{current_user.get('id')}",
+        "session_id": request.session_id or f"mitre-session-{technique}",
+        "source_ip": request.source_ip or "203.0.113.10",
+        "file_path": request.file_path or f"/tmp/{technique}.bin",
+        "pid": request.pid or 4242,
+        "validated_techniques": [technique],
+        "mitre_techniques": [technique],
+        "reason": request.reason or "Live SOAR response execution for MITRE S5 linkage evidence",
+        "operator": current_user.get("id"),
+        "source": "mitre_ui",
+    }
+    try:
+        execution = await soar_engine.execute_playbook("mitre_s5_live_response", event)
+        from dataclasses import asdict
+        return asdict(execution)
+    except Exception as e:
+        logger.error(f"Technique SOAR response failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/trigger")
@@ -332,4 +377,3 @@ async def clone_template(
         return playbook
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-

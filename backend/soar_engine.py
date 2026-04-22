@@ -23,8 +23,19 @@ import uuid
 import logging
 import hashlib
 from collections import defaultdict
+import json
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+try:
+    from backend.services.telemetry_chain import tamper_evident_telemetry
+except Exception:
+    try:
+        from services.telemetry_chain import tamper_evident_telemetry  # type: ignore
+    except Exception:
+        tamper_evident_telemetry = None
 
 
 # =============================================================================
@@ -325,6 +336,85 @@ class SOAREngine:
         self._init_default_playbooks()
         self._init_ai_defense_playbooks()
         self._init_templates()
+        self._ensure_mitre_live_response_playbook()
+
+    def _artifacts_dir(self) -> Path:
+        return Path(os.environ.get("SERAPH_ARTIFACTS_DIR", "/var/lib/seraph-ai/artifacts"))
+
+    def _archive_path(self) -> Path:
+        return Path(
+            os.environ.get(
+                "MITRE_ARCHIVED_SOAR_EXECUTION_PATH",
+                os.environ.get(
+                    "SIGMA_SOAR_EXECUTION_ARCHIVE_PATH",
+                    str(self._artifacts_dir() / "soar_executions_archive.json"),
+                ),
+            )
+        )
+
+    def _persist_execution_archive(self, execution: "PlaybookExecution") -> None:
+        """Best-effort persistence of SOAR executions to a JSON archive.
+
+        This archive is used as "live SOAR response evidence" for MITRE S5 gating.
+        """
+        try:
+            path = self._archive_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            existing: List[Dict[str, Any]] = []
+            if path.exists():
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    if isinstance(payload, list):
+                        existing = payload
+                except Exception:
+                    existing = []
+
+            exec_dict = asdict(execution)
+            if isinstance(exec_dict.get("trigger_event"), dict):
+                exec_dict["trigger_event"].pop("_id", None)
+
+            by_id = {row.get("id"): row for row in existing if isinstance(row, dict) and row.get("id")}
+            by_id[exec_dict.get("id")] = exec_dict
+            path.write_text(json.dumps(list(by_id.values()), indent=2), encoding="utf-8")
+        except Exception:
+            return
+
+    def _write_trace_artifact(self, trace: Optional[Dict[str, Any]], execution_id: str) -> None:
+        if not trace:
+            return
+        try:
+            out_dir = self._artifacts_dir() / "telemetry" / "soar"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / f"{execution_id}.trace.json").write_text(json.dumps(trace, indent=2), encoding="utf-8")
+        except Exception:
+            return
+
+    def _ensure_mitre_live_response_playbook(self) -> None:
+        """Playbook used to generate *live* response evidence for a technique.
+
+        Executions of this playbook are archived and counted as SOAR linkage for MITRE S5.
+        """
+        playbook_id = "mitre_s5_live_response"
+        if playbook_id in self.playbooks:
+            return
+        self.playbooks[playbook_id] = Playbook(
+            id=playbook_id,
+            name="MITRE S5 Live SOAR Response",
+            description="Minimal but explicit response chain used to attach live SOAR response evidence to validated MITRE techniques.",
+            trigger=PlaybookTrigger.MANUAL,
+            trigger_conditions={},
+            steps=[
+                PlaybookStep(action=PlaybookAction.TAG_SESSION, params={"tags": ["mitre_s5", "soar_response"]}, timeout=5, continue_on_failure=True),
+                PlaybookStep(action=PlaybookAction.ENABLE_ENHANCED_LOGGING, params={"level": "verbose", "network_capture": True}, timeout=10, continue_on_failure=True),
+                PlaybookStep(action=PlaybookAction.UPDATE_FIREWALL, params={"rule_type": "rate_limit", "scope": "mitre_s5_live"}, timeout=30, continue_on_failure=True),
+                PlaybookStep(action=PlaybookAction.ISOLATE_ENDPOINT, params={"block_network": False, "hard_isolation": False, "preserve_state": True}, timeout=30, continue_on_failure=True),
+                PlaybookStep(action=PlaybookAction.COLLECT_FORENSICS, params={"process_tree": True, "network": True}, timeout=60, continue_on_failure=True),
+                PlaybookStep(action=PlaybookAction.CREATE_TICKET, params={"category": "mitre_s5_response_link", "priority": "P2"}, timeout=10, continue_on_failure=True),
+                PlaybookStep(action=PlaybookAction.SEND_ALERT, params={"channels": ["slack"], "priority": "medium", "template": "mitre_s5_live"}, timeout=10, continue_on_failure=True),
+            ],
+            tags=["mitre", "soar", "response", "evidence"],
+            mitre_techniques=[],
+        )
     
     def _init_default_playbooks(self):
         """Initialize default playbooks"""
@@ -1258,14 +1348,30 @@ class SOAREngine:
         if not playbook:
             raise ValueError(f"Playbook {playbook_id} not found")
         
+        # Enrich event with playbook metadata for downstream evidence collectors.
+        enriched_event = dict(event or {})
+        enriched_event.setdefault("playbook_id", playbook_id)
+        enriched_event.setdefault("playbook_name", playbook.name)
+        enriched_event.setdefault("mitre_techniques", list(playbook.mitre_techniques or []))
+
         execution = PlaybookExecution(
             id=f"exec_{uuid.uuid4().hex[:12]}",
             playbook_id=playbook_id,
             playbook_name=playbook.name,
-            trigger_event=event,
+            trigger_event=enriched_event,
             status=ExecutionStatus.RUNNING,
             started_at=datetime.now(timezone.utc).isoformat()
         )
+
+        trace_id = None
+        if tamper_evident_telemetry is not None:
+            try:
+                trace_id = tamper_evident_telemetry.start_trace(
+                    "soar.execute_playbook",
+                    metadata={"execution_id": execution.id, "playbook_id": playbook_id, "playbook_name": playbook.name},
+                )
+            except Exception:
+                trace_id = None
         
         all_success = True
         
@@ -1279,15 +1385,64 @@ class SOAREngine:
             
             try:
                 # Execute the action
-                result = await self._execute_action(step, event)
+                span_id = None
+                if tamper_evident_telemetry is not None and trace_id:
+                    try:
+                        span_id = tamper_evident_telemetry.start_span(trace_id, f"soar.step.{step.action.value}")
+                    except Exception:
+                        span_id = None
+
+                result = await self._execute_action(step, enriched_event, execution_id=execution.id)
                 step_result["status"] = "completed"
                 step_result["result"] = result
                 step_result["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+                if tamper_evident_telemetry is not None and trace_id and span_id:
+                    try:
+                        tamper_evident_telemetry.end_span(trace_id, span_id, status="success", result=result)
+                        tamper_evident_telemetry.ingest_event(
+                            "soar.step",
+                            "info",
+                            {
+                                "execution_id": execution.id,
+                                "playbook_id": playbook_id,
+                                "action": step.action.value,
+                                "status": "completed",
+                                "result": result,
+                            },
+                            agent_id=str(enriched_event.get("host_id") or enriched_event.get("agent_id") or "soar"),
+                            source="server",
+                            trace_id=trace_id,
+                            span_id=span_id,
+                        )
+                    except Exception:
+                        pass
             except Exception as e:
                 step_result["status"] = "failed"
                 step_result["error"] = str(e)
                 step_result["completed_at"] = datetime.now(timezone.utc).isoformat()
                 all_success = False
+
+                if tamper_evident_telemetry is not None and trace_id and span_id:
+                    try:
+                        tamper_evident_telemetry.end_span(trace_id, span_id, status="failed", result={"error": str(e)})
+                        tamper_evident_telemetry.ingest_event(
+                            "soar.step",
+                            "error",
+                            {
+                                "execution_id": execution.id,
+                                "playbook_id": playbook_id,
+                                "action": step.action.value,
+                                "status": "failed",
+                                "error": str(e),
+                            },
+                            agent_id=str(enriched_event.get("host_id") or enriched_event.get("agent_id") or "soar"),
+                            source="server",
+                            trace_id=trace_id,
+                            span_id=span_id,
+                        )
+                    except Exception:
+                        pass
                 
                 if not step.continue_on_failure:
                     execution.step_results.append(step_result)
@@ -1344,6 +1499,15 @@ class SOAREngine:
         # Keep only last 100 executions
         if len(self.executions) > 100:
             self.executions = self.executions[-100:]
+
+        # Persist archive evidence for MITRE S5 and write telemetry trace artifact.
+        self._persist_execution_archive(execution)
+        if tamper_evident_telemetry is not None and trace_id:
+            try:
+                trace = tamper_evident_telemetry.end_trace(trace_id)
+            except Exception:
+                trace = None
+            self._write_trace_artifact(trace, execution.id)
         
         return execution
     

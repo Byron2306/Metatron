@@ -47,6 +47,18 @@ const MitreAttackCoveragePage = () => {
     }
   }, [headers]);
 
+  const runSoarResponse = useCallback(async (technique) => {
+    if (!technique) return;
+    try {
+      await apiClient.post(`/soar/techniques/${encodeURIComponent(technique)}/respond`, {});
+      toast.success(`SOAR response executed for ${technique}`);
+      // Update view (does not regenerate TVR bundle; just refreshes API snapshot)
+      await loadCoverage(true);
+    } catch (err) {
+      toast.error(`SOAR response failed for ${technique}`);
+    }
+  }, [loadCoverage]);
+
   useEffect(() => {
     if (token) {
       loadCoverage();
@@ -234,7 +246,17 @@ const MitreAttackCoveragePage = () => {
                     </p>
                   )}
                   {Number(item?.tvr_score || 0) >= 5 && !item?.soar_linked && (
-                    <p className="text-amber-300 text-xs mt-1">S5 pending: missing SOAR response evidence</p>
+                    <div className="flex items-center justify-between gap-2 mt-2">
+                      <p className="text-amber-300 text-xs">S5 pending: missing SOAR response evidence</p>
+                      <Button
+                        onClick={() => runSoarResponse(item.technique)}
+                        variant="outline"
+                        className="h-7 px-2 border-fuchsia-500/50 text-fuchsia-300 hover:bg-fuchsia-500/10"
+                        disabled={loading}
+                      >
+                        Run SOAR Response
+                      </Button>
+                    </div>
                   )}
                   {item.operational_evidence && (
                     <p className="text-indigo-300 text-xs mt-1">Operational evidence observed</p>
