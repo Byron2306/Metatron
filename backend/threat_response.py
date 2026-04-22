@@ -867,24 +867,81 @@ class AgenticResponseEngine:
     @classmethod
     async def get_response_stats(cls) -> Dict[str, Any]:
         """Get statistics about automated responses"""
+        # Prefer durable stats from DB so dashboards remain correct after restarts.
+        if cls._db is not None and hasattr(cls._db, "response_history"):
+            try:
+                total = await cls._db.response_history.count_documents({})
+
+                by_severity_rows = await cls._db.response_history.aggregate(
+                    [
+                        {"$group": {"_id": "$severity", "count": {"$sum": 1}}},
+                        {"$sort": {"count": -1}},
+                    ]
+                ).to_list(50)
+                by_severity = {str(r.get("_id") or "unknown"): int(r.get("count") or 0) for r in by_severity_rows}
+
+                by_action_rows = await cls._db.response_history.aggregate(
+                    [
+                        {"$unwind": {"path": "$results", "preserveNullAndEmptyArrays": True}},
+                        {"$group": {"_id": "$results.action", "count": {"$sum": 1}}},
+                        {"$sort": {"count": -1}},
+                    ]
+                ).to_list(50)
+                by_action = {str(r.get("_id") or "unknown"): int(r.get("count") or 0) for r in by_action_rows}
+
+                sources_row = await cls._db.response_history.aggregate(
+                    [
+                        {"$group": {"_id": None, "sources": {"$addToSet": "$source_ip"}}},
+                        {"$project": {"_id": 0, "count": {"$size": {"$ifNull": ["$sources", []]}}}},
+                    ]
+                ).to_list(1)
+                attack_sources = int(sources_row[0].get("count") or 0) if sources_row else 0
+
+                # Best-effort blocked IP count: distinct source_ip where a block_ip action succeeded.
+                blocked_row = await cls._db.response_history.aggregate(
+                    [
+                        {"$unwind": {"path": "$results", "preserveNullAndEmptyArrays": False}},
+                        {"$match": {"results.action": "block_ip", "results.status": {"$in": ["success", "degraded", "completed"]}}},
+                        {"$group": {"_id": "$source_ip"}},
+                        {"$count": "blocked"},
+                    ]
+                ).to_list(1)
+                blocked_ips = int(blocked_row[0].get("blocked") or 0) if blocked_row else 0
+
+                # Merge with in-memory firewall state when present.
+                blocked_ips = max(blocked_ips, len(getattr(firewall, "blocked_ips", {}) or {}))
+
+                return {
+                    "total_responses": int(total or 0),
+                    "blocked_ips": blocked_ips,
+                    "by_severity": by_severity,
+                    "by_action": by_action,
+                    "attack_sources": attack_sources,
+                    "source": "db.response_history",
+                }
+            except Exception:
+                # Fall back to in-memory path if DB aggregation fails.
+                pass
+
         total = len(cls.response_history)
-        by_severity = {}
-        by_action = {}
-        
+        by_severity: Dict[str, int] = {}
+        by_action: Dict[str, int] = {}
+
         for entry in cls.response_history:
             sev = entry.get("severity", "unknown")
             by_severity[sev] = by_severity.get(sev, 0) + 1
-            
+
             for result in entry.get("results", []):
                 action = result.get("action", "unknown")
                 by_action[action] = by_action.get(action, 0) + 1
-        
+
         return {
             "total_responses": total,
-            "blocked_ips": len(firewall.blocked_ips),
+            "blocked_ips": len(getattr(firewall, "blocked_ips", {}) or {}),
             "by_severity": by_severity,
             "by_action": by_action,
-            "attack_sources": len(cls.attack_counter)
+            "attack_sources": len(getattr(cls, "attack_counter", {}) or {}),
+            "source": "memory",
         }
 
     @classmethod

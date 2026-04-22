@@ -71,8 +71,14 @@ const VPNPage = () => {
       const res = await axios.post(`${API}/vpn/start`, {}, { headers });
       if (res.data?.status === 'error') {
         toast.error(res.data?.error || 'Failed to start VPN');
+      } else if (res.data?.status === 'managed_externally') {
+        toast.info(res.data?.message || 'VPN is managed by the external WireGuard container');
+        await fetchStatus();
+      } else if (res.data?.status === 'started') {
+        toast.success(res.data?.message || 'VPN server started');
+        await fetchStatus();
       } else {
-        toast.success('VPN start requested');
+        toast.info(res.data?.message || 'VPN start request accepted');
         await fetchStatus();
       }
     } catch (err) {
@@ -89,7 +95,11 @@ const VPNPage = () => {
       if (res.data?.status === 'error') {
         toast.error(res.data?.error || 'Failed to stop VPN');
       } else {
-        toast.info('VPN server stopped');
+        if (res.data?.status === 'managed_externally') {
+          toast.info(res.data?.message || 'VPN is managed by external WireGuard service');
+        } else {
+          toast.info(res.data?.message || 'VPN server stopped');
+        }
         await fetchStatus();
       }
     } catch (err) {
@@ -156,6 +166,7 @@ const VPNPage = () => {
   };
 
   const serverStatus = status?.server?.status || 'unknown';
+  const serverStatusLabel = serverStatus.replace(/_/g, ' ');
 
   return (
     <div className="space-y-6" data-testid="vpn-page">
@@ -203,8 +214,8 @@ const VPNPage = () => {
             </div>
             <div>
               <p className="text-slate-400 text-sm">Server Status</p>
-              <p className={`font-bold capitalize ${serverStatus === 'running' ? 'text-green-400' : serverStatus === 'not_installed' ? 'text-amber-400' : 'text-slate-400'}`}>
-                {serverStatus.replace(/_/g, ' ')}
+              <p className={`font-bold capitalize ${serverStatus === 'running' ? 'text-green-400' : serverStatus === 'managed_externally' ? 'text-cyan-400' : serverStatus === 'not_installed' ? 'text-amber-400' : 'text-slate-400'}`}>
+                {serverStatusLabel}
               </p>
             </div>
           </div>

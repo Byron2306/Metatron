@@ -1973,6 +1973,16 @@ class TimelineBuilder:
         threats = await cls._db.threats.find(
             {}, {"_id": 0}
         ).sort("created_at", -1).limit(limit).to_list(limit)
+
+        # Also surface "alert-only" incidents so Timeline doesn't look empty when
+        # alerts exist but Threat docs are sparse.
+        alert_limit = max(0, int(limit) - len(threats))
+        alerts = []
+        if alert_limit > 0:
+            alerts = await cls._db.alerts.find(
+                {"$or": [{"threat_id": None}, {"threat_id": ""}, {"threat_id": {"$exists": False}}]},
+                {"_id": 0},
+            ).sort("created_at", -1).limit(alert_limit).to_list(alert_limit)
         
         summaries = []
         for threat in threats:
@@ -1986,8 +1996,23 @@ class TimelineBuilder:
                 "first_seen": threat.get("created_at", datetime.now(timezone.utc).isoformat()),
                 "event_count": event_count + 1  # +1 for detection event
             })
-        
-        return summaries
+
+        for alert in alerts:
+            aid = alert.get("id")
+            if not aid:
+                continue
+            summaries.append({
+                "threat_id": f"alert:{aid}",
+                "threat_name": alert.get("title") or "Alert Incident",
+                "threat_type": alert.get("type", "alert"),
+                "severity": alert.get("severity", "medium"),
+                "status": alert.get("status", "new"),
+                "first_seen": alert.get("created_at", datetime.now(timezone.utc).isoformat()),
+                "event_count": 1,
+            })
+
+        summaries.sort(key=lambda s: s.get("first_seen") or "", reverse=True)
+        return summaries[:limit]
     
     @classmethod
     async def export_timeline(cls, threat_id: str, format: str = "json") -> Optional[str]:

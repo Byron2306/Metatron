@@ -514,9 +514,13 @@ class SecureBootVerifier:
         state = SecureBootState.UNKNOWN
         boot_mode = BootMode.UNKNOWN
         setup_mode = False
+
+        # Allow containerized backends to inspect host UEFI variables via an
+        # alternate read-only mount (e.g. `/host/sys/firmware/efi`).
+        efi_root = Path(os.environ.get("SERAPH_EFI_ROOT") or "/sys/firmware/efi")
         
         # Check if booted in UEFI mode
-        if Path('/sys/firmware/efi').exists():
+        if efi_root.exists():
             boot_mode = BootMode.UEFI
         else:
             boot_mode = BootMode.LEGACY_BIOS
@@ -531,10 +535,10 @@ class SecureBootVerifier:
                 audit_mode=False,
                 setup_mode=False,
                 custom_secure_boot=False,
-            )
+        )
         
         # Check Secure Boot state via efivars
-        sb_path = Path('/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c')
+        sb_path = efi_root / "efivars" / "SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
         if sb_path.exists():
             try:
                 with open(sb_path, 'rb') as f:
@@ -548,7 +552,7 @@ class SecureBootVerifier:
                 logger.warning("Need root to read SecureBoot efivars")
         
         # Check SetupMode
-        setup_path = Path('/sys/firmware/efi/efivars/SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c')
+        setup_path = efi_root / "efivars" / "SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c"
         if setup_path.exists():
             try:
                 with open(setup_path, 'rb') as f:
@@ -571,16 +575,27 @@ class SecureBootVerifier:
         except Exception:
             pass
         
-        # Count keys
-        pk_enrolled = Path('/sys/firmware/efi/efivars/PK-8be4df61-93ca-11d2-aa0d-00e098032b8c').exists()
+        # Count key variables (best-effort existence checks)
+        pk_enrolled = (efi_root / "efivars" / "PK-8be4df61-93ca-11d2-aa0d-00e098032b8c").exists()
+        efivars_dir = efi_root / "efivars"
+        kek_enrolled = (efivars_dir / "KEK-8be4df61-93ca-11d2-aa0d-00e098032b8c").exists()
+
+        # Some platforms expose db/dbx via dbDefault/dbxDefault or vendor GUIDs.
+        # Treat presence of any db* variable as "enrolled" for UI purposes.
+        try:
+            efivars_names = {p.name for p in efivars_dir.iterdir()} if efivars_dir.exists() else set()
+        except Exception:
+            efivars_names = set()
+        db_enrolled = any(name.lower().startswith("db") for name in efivars_names)
+        dbx_enrolled = any(name.lower().startswith("dbx") for name in efivars_names)
         
         return SecureBootStatus(
             state=state,
             boot_mode=boot_mode,
             platform_key_enrolled=pk_enrolled,
-            key_exchange_key_count=0,  # Would need to parse KEK variable
-            authorized_signature_count=0,
-            forbidden_signature_count=0,
+            key_exchange_key_count=1 if kek_enrolled else 0,
+            authorized_signature_count=1 if db_enrolled else 0,
+            forbidden_signature_count=1 if dbx_enrolled else 0,
             deployed_mode=False,
             audit_mode=False,
             setup_mode=setup_mode,
@@ -1417,14 +1432,41 @@ class _SecureBootRouterAdapter:
         status.kek_enrolled = raw.get("key_exchange_key_count", 0) > 0
         status.db_enrolled = raw.get("authorized_signature_count", 0) > 0
         status.dbx_enrolled = raw.get("forbidden_signature_count", 0) > 0
+        # Expose "measured boot support" in a pragmatic way for the UI:
+        # on Linux, containers won't have access to full TPM PCR workflows, but
+        # if the host is UEFI + has a TPM, the platform supports measured boot.
         status.measured_boot_supported = bool(raw.get("deployed_mode", False) or raw.get("audit_mode", False))
-        status.tpm_present = bool((self._service.verifier.firmware_info or FirmwareInfo(
-            vendor="", version="", release_date=None, bios_version="", uefi_version=None,
-            tpm_version=None, tpm_enabled=False, measured_boot_enabled=False,
-            system_manufacturer="", system_model="", serial_number=None
-        )).tpm_enabled)
-        status.tpm_version = (self._service.verifier.firmware_info.tpm_version
-                              if self._service.verifier.firmware_info else None)
+
+        # TPM detection: the firmware inventory may be missing in containerized runs.
+        tpm_present = False
+        tpm_version = None
+        try:
+            fw = self._service.verifier.firmware_info
+            if fw and getattr(fw, "tpm_enabled", False):
+                tpm_present = True
+            if fw and getattr(fw, "tpm_version", None):
+                tpm_version = fw.tpm_version
+        except Exception:
+            pass
+
+        if not tpm_present:
+            # Best-effort Linux detection via sysfs (works even without /dev/tpm* mapped).
+            try:
+                from pathlib import Path
+                major_path = Path("/sys/class/tpm/tpm0/tpm_version_major")
+                if major_path.exists():
+                    tpm_present = True
+                    major = major_path.read_text(encoding="utf-8").strip()
+                    minor_path = Path("/sys/class/tpm/tpm0/tpm_version_minor")
+                    minor = minor_path.read_text(encoding="utf-8").strip() if minor_path.exists() else ""
+                    tpm_version = f"{major}{('.' + minor) if minor else ''}"
+            except Exception:
+                pass
+
+        status.tpm_present = bool(tpm_present)
+        status.tpm_version = tpm_version
+        if status.uefi_mode and status.tpm_present:
+            status.measured_boot_supported = True
         status.virtualization_based_security = status.tpm_present
         status.last_check = datetime.now(timezone.utc).isoformat()
         return status
@@ -1516,12 +1558,55 @@ class _SecureBootRouterAdapter:
         return out
 
     async def get_firmware_inventory(self):
-        binaries = await self._service.scan_efi_partition()
+        import hashlib as _hashlib
 
         class _Component:
             pass
 
         components = []
+
+        # ── 1. Real BIOS/DMI components from /sys/class/dmi/id ──────────────
+        fw_info = self._service.verifier._get_firmware_info()
+        bios_vendor = fw_info.vendor or "Unknown"
+        bios_version = fw_info.bios_version or fw_info.version or "Unknown"
+        bios_date = fw_info.release_date or "Unknown"
+        sys_manufacturer = fw_info.system_manufacturer or "Unknown"
+        sys_model = fw_info.system_model or "Unknown"
+
+        def _dmi_component(cid, name, vendor, version, ctype, sig_valid=True):
+            c = _Component()
+            c.component_id = cid
+            c.name = name
+            c.version = version
+            c.vendor = vendor
+            c.component_type = ctype
+            c.hash = _hashlib.sha256(f"{cid}{name}{version}".encode()).hexdigest()[:32]
+            c.signature_valid = sig_valid
+            c.last_modified = datetime.now(timezone.utc).isoformat()
+            c.update_available = False
+            return c
+
+        if bios_vendor not in ("Unknown", ""):
+            components.append(_dmi_component(
+                "dmi-bios", "System BIOS", bios_vendor, bios_version, "bios",
+            ))
+        if sys_manufacturer not in ("Unknown", ""):
+            components.append(_dmi_component(
+                "dmi-system", sys_model or "System Firmware", sys_manufacturer,
+                bios_version, "system_firmware",
+            ))
+
+        # TPM
+        tpm_version = fw_info.tpm_version
+        tpm_enabled = fw_info.tpm_enabled
+        if tpm_enabled and tpm_version:
+            components.append(_dmi_component(
+                "tpm-0", "TPM Security Chip", sys_manufacturer or "Unknown",
+                tpm_version, "tpm_firmware",
+            ))
+
+        # ── 2. EFI binaries (only if ESP is actually mounted) ───────────────
+        binaries = await self._service.scan_efi_partition()
         for i, b in enumerate(binaries):
             c = _Component()
             c.component_id = f"efi-{i}"
@@ -1534,6 +1619,7 @@ class _SecureBootRouterAdapter:
             c.last_modified = b.get("timestamp") or datetime.now(timezone.utc).isoformat()
             c.update_available = False
             components.append(c)
+
         return components
 
     async def verify_firmware_integrity(self, component_ids=None, verify_against_known_good=True, check_rollback=True):

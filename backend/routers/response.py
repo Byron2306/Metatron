@@ -42,7 +42,8 @@ async def get_blocked_ips(current_user: dict = Depends(get_current_user)):
     """Get list of blocked IPs"""
     _configure_response_engine_db(get_db())
     # FirewallManager tracks state, but the public accessor is exposed on response_engine.
-    return response_engine.get_blocked_ips()
+    # Frontend expects `{ blocked_ips: [...] }`.
+    return {"blocked_ips": response_engine.get_blocked_ips(), "count": len(response_engine.get_blocked_ips())}
 
 @router.post("/block-ip")
 async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_permission("write"))):

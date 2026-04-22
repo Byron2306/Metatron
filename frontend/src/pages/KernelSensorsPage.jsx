@@ -51,6 +51,16 @@ const KernelSensorsPage = () => {
   const [viewMode, setViewMode] = useState('sensors'); // sensors, events, stats
   const [eventFilter, setEventFilter] = useState('all');
 
+  const normalizeSensorStatus = (rawStatus) => {
+    const s = String(rawStatus || '').toLowerCase();
+    if (s === 'active' || s === 'running') return 'running';
+    if (s === 'disabled' || s === 'stopped') return 'stopped';
+    if (s === 'loading') return 'loading';
+    if (s === 'error') return 'error';
+    if (s === 'degraded') return 'running';
+    return s || 'stopped';
+  };
+
   // Sensor type metadata
   const sensorMeta = {
     process: { icon: Terminal, color: 'blue', label: 'Process Monitor', description: 'Track process creation, execution, and termination' },
@@ -65,18 +75,43 @@ const KernelSensorsPage = () => {
   const fetchKernelData = useCallback(async () => {
     try {
       setLoading(true);
-      const [sensorsRes, eventsRes, statsRes, capsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         axios.get(`${API}/v1/kernel/sensors`, { headers: getAuthHeaders() }),
         axios.get(`${API}/v1/kernel/events?page_size=50`, { headers: getAuthHeaders() }),
         axios.get(`${API}/v1/kernel/sensors/stats`, { headers: getAuthHeaders() }),
-        axios.get(`${API}/v1/kernel/capabilities`, { headers: getAuthHeaders() })
+        axios.get(`${API}/v1/kernel/capabilities`, { headers: getAuthHeaders() }),
       ]);
-      
-      setSensors(sensorsRes.data.sensors || {});
-      setEvents(eventsRes.data.events || []);
-      setStats(statsRes.data);
-      setCapabilities(capsRes.data);
-      
+
+      const [sensorsRes, eventsRes, statsRes, capsRes] = results.map((r) =>
+        r.status === 'fulfilled' ? r.value : null
+      );
+
+      if (sensorsRes?.data?.sensors) {
+        const normalized = {};
+        Object.entries(sensorsRes.data.sensors).forEach(([key, value]) => {
+          normalized[key] = {
+            ...value,
+            backend_status: value?.status,
+            status: normalizeSensorStatus(value?.status),
+          };
+        });
+        setSensors(normalized);
+      }
+      if (eventsRes?.data?.events) {
+        setEvents(eventsRes.data.events || []);
+      }
+      if (statsRes?.data) {
+        setStats(statsRes.data);
+      }
+      if (capsRes?.data) {
+        setCapabilities(capsRes.data);
+      }
+
+      // If nothing succeeded, fall back to demo so the page isn't blank.
+      const anyOk = results.some((r) => r.status === 'fulfilled');
+      if (!anyOk) {
+        loadDemoData();
+      }
     } catch (error) {
       console.error('Failed to fetch kernel data:', error);
       loadDemoData();
@@ -242,7 +277,8 @@ const KernelSensorsPage = () => {
 
   // Start/stop sensor
   const toggleSensor = async (sensorType, currentStatus) => {
-    const action = currentStatus === 'running' ? 'stop' : 'start';
+    const isRunning = normalizeSensorStatus(currentStatus) === 'running';
+    const action = isRunning ? 'stop' : 'start';
     try {
       await axios.post(
         `${API}/v1/kernel/sensors/${sensorType}/${action}`,
@@ -258,7 +294,7 @@ const KernelSensorsPage = () => {
         ...prev,
         [sensorType]: {
           ...prev[sensorType],
-          status: currentStatus === 'running' ? 'stopped' : 'running'
+          status: isRunning ? 'stopped' : 'running'
         }
       }));
       toast.success(`Sensor ${sensorType} ${action}ed`);
@@ -269,16 +305,18 @@ const KernelSensorsPage = () => {
   const getStatusBadge = (status) => {
     const config = {
       running: { color: 'bg-green-500/20 text-green-400', icon: CheckCircle2 },
+      active: { color: 'bg-green-500/20 text-green-400', icon: CheckCircle2 },
       stopped: { color: 'bg-gray-500/20 text-gray-400', icon: Pause },
+      disabled: { color: 'bg-gray-500/20 text-gray-400', icon: Pause },
       error: { color: 'bg-red-500/20 text-red-400', icon: XCircle },
       loading: { color: 'bg-yellow-500/20 text-yellow-400', icon: RefreshCw }
     };
-    const cfg = config[status] || config.stopped;
+    const cfg = config[normalizeSensorStatus(status)] || config.stopped;
     const Icon = cfg.icon;
     return (
       <Badge className={cfg.color}>
         <Icon className="h-3 w-3 mr-1" />
-        {status}
+        {normalizeSensorStatus(status)}
       </Badge>
     );
   };

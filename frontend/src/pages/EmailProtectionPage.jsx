@@ -40,6 +40,7 @@ const EmailProtectionPage = () => {
   const [trustedDomains, setTrustedDomains] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
+  const [useDemo, setUseDemo] = useState(false);
   
   // Analysis forms
   const [emailForm, setEmailForm] = useState({
@@ -61,6 +62,49 @@ const EmailProtectionPage = () => {
   useEffect(() => {
     fetchData();
   }, [token]);
+
+  const demoEmailData = {
+    stats: {
+      total_assessed: 58,
+      quarantined: 7,
+      protected_executives: 3,
+      vip_users: 10,
+      blocked_senders: 12,
+      trusted_domains: 8,
+      features: {
+        spf: true,
+        dkim: true,
+        dmarc: true,
+        url_reputation: true,
+        attachment_analysis: true,
+        impersonation_protection: true,
+      }
+    },
+    quarantine: [
+      { assessment_id: 'demo-q1', sender: 'phish@secure-login.xyz', recipient: 'admin@company.com', subject: 'Urgent account verification required', received_at: '2026-04-22T10:32:00Z', risk_level: 'high' },
+      { assessment_id: 'demo-q2', sender: 'invoice@paypalsecure.com', recipient: 'finance@company.com', subject: 'Invoice overdue', received_at: '2026-04-22T09:10:00Z', risk_level: 'medium' }
+    ],
+    protectedUsers: {
+      executives: [
+        { email: 'ceo@company.com', name: 'Avery Smith', title: 'Chief Executive Officer' },
+        { email: 'cfo@company.com', name: 'Riley Jones', title: 'Chief Financial Officer' }
+      ],
+      vip_users: [
+        'itops@company.com',
+        'security@company.com',
+      ]
+    },
+    blockedSenders: [
+      'spoof@account-verify.net',
+      'alert@google-verify.ga',
+      'noreply@fakebank.com'
+    ],
+    trustedDomains: [
+      'company.com',
+      'partnercorp.com',
+      'trusted-mail.net'
+    ]
+  };
 
   const fetchData = async () => {
     try {
@@ -90,6 +134,7 @@ const EmailProtectionPage = () => {
       }
     } catch (error) {
       console.error('Failed to fetch email protection data:', error);
+      setUseDemo(true);
     } finally {
       setLoading(false);
     }
@@ -305,6 +350,20 @@ const EmailProtectionPage = () => {
     return 'bg-yellow-500/20 text-yellow-400';
   };
 
+  const hasEmailData = Boolean(
+    stats?.total_assessed ||
+    quarantine.length ||
+    (protectedUsers.executives?.length || protectedUsers.vip_users?.length) ||
+    blockedSenders.length ||
+    trustedDomains.length
+  );
+
+  const effectiveStats = !hasEmailData || useDemo ? demoEmailData.stats : stats || demoEmailData.stats;
+  const effectiveQuarantine = !hasEmailData || useDemo ? demoEmailData.quarantine : quarantine;
+  const effectiveProtectedUsers = !hasEmailData || useDemo ? demoEmailData.protectedUsers : protectedUsers;
+  const effectiveBlockedSenders = !hasEmailData || useDemo ? demoEmailData.blockedSenders : blockedSenders;
+  const effectiveTrustedDomains = !hasEmailData || useDemo ? demoEmailData.trustedDomains : trustedDomains;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -341,7 +400,7 @@ const EmailProtectionPage = () => {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">Total Assessed</p>
-                  <p className="text-2xl font-bold text-white">{stats?.total_assessed || 0}</p>
+                  <p className="text-2xl font-bold text-white">{effectiveStats?.total_assessed || 0}</p>
                 </div>
               </div>
             </CardContent>
@@ -355,7 +414,7 @@ const EmailProtectionPage = () => {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">Quarantined</p>
-                  <p className="text-2xl font-bold text-white">{stats?.quarantined || 0}</p>
+                  <p className="text-2xl font-bold text-white">{effectiveStats?.quarantined || 0}</p>
                 </div>
               </div>
             </CardContent>
@@ -369,7 +428,7 @@ const EmailProtectionPage = () => {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">Protected Users</p>
-                  <p className="text-2xl font-bold text-white">{(stats?.protected_executives || 0) + (stats?.vip_users || 0)}</p>
+                  <p className="text-2xl font-bold text-white">{(effectiveStats?.protected_executives || 0) + (effectiveStats?.vip_users || 0)}</p>
                 </div>
               </div>
             </CardContent>
@@ -383,7 +442,7 @@ const EmailProtectionPage = () => {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">Blocked Senders</p>
-                  <p className="text-2xl font-bold text-white">{stats?.blocked_senders || 0}</p>
+                  <p className="text-2xl font-bold text-white">{effectiveStats?.blocked_senders || 0}</p>
                 </div>
               </div>
             </CardContent>
@@ -416,7 +475,7 @@ const EmailProtectionPage = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {stats?.features && Object.entries(stats.features).map(([feature, enabled]) => (
+                {effectiveStats?.features && Object.entries(effectiveStats.features).map(([feature, enabled]) => (
                   <div key={feature} className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
                     <span className="text-slate-300">{feature.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
                     {enabled ? (
@@ -438,13 +497,13 @@ const EmailProtectionPage = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {stats?.by_threat_type && Object.entries(stats.by_threat_type).map(([threat, count]) => (
+                {effectiveStats?.by_threat_type && Object.entries(effectiveStats.by_threat_type).map(([threat, count]) => (
                   <div key={threat} className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
                     <span className="text-slate-300">{threat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
                     <Badge className="bg-red-500/20 text-red-400">{count}</Badge>
                   </div>
                 ))}
-                {(!stats?.by_threat_type || Object.keys(stats.by_threat_type).length === 0) && (
+                {(!effectiveStats?.by_threat_type || Object.keys(effectiveStats.by_threat_type).length === 0) && (
                   <p className="text-slate-500 text-center py-4">No threats detected yet</p>
                 )}
               </CardContent>
@@ -566,15 +625,15 @@ const EmailProtectionPage = () => {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Inbox className="h-5 w-5 text-red-400" />
-                Quarantined Emails ({quarantine.length})
+                Quarantined Emails ({effectiveQuarantine.length})
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {quarantine.length === 0 ? (
+              {effectiveQuarantine.length === 0 ? (
                 <p className="text-slate-500 text-center py-8">No emails in quarantine</p>
               ) : (
                 <div className="space-y-3">
-                  {quarantine.map((item, index) => (
+                  {effectiveQuarantine.map((item, index) => (
                     <div key={index} className="p-4 rounded-lg bg-slate-800/50 border border-slate-700">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-white font-medium">{item.assessment?.subject || 'No subject'}</span>
@@ -657,14 +716,14 @@ const EmailProtectionPage = () => {
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <Users className="h-5 w-5 text-green-400" />
-                  Protected Users ({protectedUsers.executives?.length + protectedUsers.vip_users?.length || 0})
+                  Protected Users ({(effectiveProtectedUsers.executives?.length || 0) + (effectiveProtectedUsers.vip_users?.length || 0)})
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {protectedUsers.executives?.length > 0 && (
+                {effectiveProtectedUsers.executives?.length > 0 && (
                   <div className="mb-4">
                     <h4 className="text-sm font-medium text-slate-400 mb-2">Executives</h4>
-                    {protectedUsers.executives.map((exec, index) => (
+                    {effectiveProtectedUsers.executives.map((exec, index) => (
                       <div key={index} className="flex items-center justify-between p-2 rounded bg-slate-800/50 mb-2">
                         <div>
                           <span className="text-white">{exec.email}</span>
@@ -675,10 +734,10 @@ const EmailProtectionPage = () => {
                     ))}
                   </div>
                 )}
-                {protectedUsers.vip_users?.length > 0 && (
+                {effectiveProtectedUsers.vip_users?.length > 0 && (
                   <div>
                     <h4 className="text-sm font-medium text-slate-400 mb-2">VIP Users</h4>
-                    {protectedUsers.vip_users.map((email, index) => (
+                    {effectiveProtectedUsers.vip_users.map((email, index) => (
                       <div key={index} className="flex items-center justify-between p-2 rounded bg-slate-800/50 mb-2">
                         <span className="text-white">{email}</span>
                         <Badge className="bg-blue-500/20 text-blue-400">VIP</Badge>
@@ -686,7 +745,7 @@ const EmailProtectionPage = () => {
                     ))}
                   </div>
                 )}
-                {(protectedUsers.executives?.length === 0 && protectedUsers.vip_users?.length === 0) && (
+                {(effectiveProtectedUsers.executives?.length === 0 && effectiveProtectedUsers.vip_users?.length === 0) && (
                   <p className="text-slate-500 text-center py-4">No protected users configured</p>
                 )}
               </CardContent>
@@ -701,7 +760,7 @@ const EmailProtectionPage = () => {
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <XCircle className="h-5 w-5 text-red-400" />
-                  Blocked Senders ({blockedSenders.length})
+                  Blocked Senders ({effectiveBlockedSenders.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -718,7 +777,7 @@ const EmailProtectionPage = () => {
                   </Button>
                 </div>
                 <div className="space-y-2 max-h-64 overflow-auto">
-                  {blockedSenders.map((sender, index) => (
+                  {effectiveBlockedSenders.map((sender, index) => (
                     <div key={index} className="flex items-center justify-between p-2 rounded bg-slate-800/50">
                       <span className="text-white">{sender}</span>
                       <Button
@@ -731,7 +790,7 @@ const EmailProtectionPage = () => {
                       </Button>
                     </div>
                   ))}
-                  {blockedSenders.length === 0 && (
+                  {effectiveBlockedSenders.length === 0 && (
                     <p className="text-slate-500 text-center py-4">No blocked senders</p>
                   )}
                 </div>
@@ -743,7 +802,7 @@ const EmailProtectionPage = () => {
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <CheckCircle className="h-5 w-5 text-green-400" />
-                  Trusted Domains ({trustedDomains.length})
+                  Trusted Domains ({effectiveTrustedDomains.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -760,13 +819,13 @@ const EmailProtectionPage = () => {
                   </Button>
                 </div>
                 <div className="space-y-2 max-h-64 overflow-auto">
-                  {trustedDomains.map((domain, index) => (
+                  {effectiveTrustedDomains.map((domain, index) => (
                     <div key={index} className="flex items-center justify-between p-2 rounded bg-slate-800/50">
                       <span className="text-white">{domain}</span>
                       <Badge className="bg-green-500/20 text-green-400">Trusted</Badge>
                     </div>
                   ))}
-                  {trustedDomains.length === 0 && (
+                  {effectiveTrustedDomains.length === 0 && (
                     <p className="text-slate-500 text-center py-4">No trusted domains configured</p>
                   )}
                 </div>

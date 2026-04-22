@@ -52,6 +52,17 @@ import EmailProtectionPage from "./pages/EmailProtectionPage";
 import MobileSecurityPage from "./pages/MobileSecurityPage";
 import EmailGatewayPage from "./pages/EmailGatewayPage";
 import MDMConnectorsPage from "./pages/MDMConnectorsPage";
+import DetectionEngineeringWorkspacePage from "./pages/DetectionEngineeringWorkspacePage";
+import SophiaDashboardPage from "./pages/SophiaDashboardPage";
+import WorldViewPage from "./pages/WorldViewPage";
+import InvestigationWorkspacePage from "./pages/InvestigationWorkspacePage";
+import AIActivityWorkspacePage from "./pages/AIActivityWorkspacePage";
+import CommandWorkspacePage from "./pages/CommandWorkspacePage";
+import ResponseOperationsPage from "./pages/ResponseOperationsPage";
+import EmailSecurityWorkspacePage from "./pages/EmailSecurityWorkspacePage";
+import EndpointMobilityWorkspacePage from "./pages/EndpointMobilityWorkspacePage";
+import ZeekPage from "./pages/ZeekPage";
+import OsqueryFleetPage from "./pages/OsqueryFleetPage";
 import Layout from "./components/Layout";
 import "@/App.css";
 
@@ -136,11 +147,22 @@ function App() {
               <Route path="deception" element={<DeceptionPage />} />
               <Route path="kernel-sensors" element={<KernelSensorsPage />} />
               <Route path="secure-boot" element={<SecureBootPage />} />
+              <Route path="detection-engineering" element={<DetectionEngineeringWorkspacePage />} />
               <Route path="identity" element={<IdentityProtectionPage />} />
               <Route path="email-protection" element={<EmailProtectionPage />} />
               <Route path="mobile-security" element={<MobileSecurityPage />} />
               <Route path="email-gateway" element={<EmailGatewayPage />} />
               <Route path="mdm" element={<MDMConnectorsPage />} />
+              <Route path="sophia" element={<SophiaDashboardPage />} />
+              <Route path="world" element={<WorldViewPage />} />
+              <Route path="investigation" element={<InvestigationWorkspacePage />} />
+              <Route path="ai-activity" element={<AIActivityWorkspacePage />} />
+              <Route path="command" element={<CommandWorkspacePage />} />
+              <Route path="response-operations" element={<ResponseOperationsPage />} />
+              <Route path="email-security" element={<EmailSecurityWorkspacePage />} />
+              <Route path="endpoint-mobility" element={<EndpointMobilityWorkspacePage />} />
+              <Route path="zeek" element={<ZeekPage />} />
+              <Route path="osquery-fleet" element={<OsqueryFleetPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

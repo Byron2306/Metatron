@@ -521,7 +521,10 @@ class AgentConfig:
     # Local web UI
     local_ui_enabled: bool = True
     local_ui_port: int = 5000
-    
+
+    # VPN
+    vpn_auto_configure: bool = False
+
     @classmethod
     def from_file(cls, path: str) -> 'AgentConfig':
         """Load config from file"""
@@ -7569,11 +7572,10 @@ class WireGuardAutoSetup:
     Auto-configures VPN tunnel when agent registers with server.
     """
     
-    def __init__(self, server_url: str = "", agent_id: str = ""):
+    def __init__(self, server_url: str = "", agent_id: str = "", config: Optional['AgentConfig'] = None):
         self.server_url = server_url.rstrip('/') if server_url else ""
         self.agent_id = agent_id
-        self.private_key = ""
-        self.public_key = ""
+        self.config = config
         self.address = ""
         self.is_configured = False
         self.is_connected = False
@@ -7589,10 +7591,9 @@ class WireGuardAutoSetup:
     def auto_configure(self) -> bool:
         """
         Automatically configure WireGuard VPN connection.
-        1. Generate client keys
-        2. Request server config (peer addition)
-        3. Create local WireGuard config
-        4. Start VPN connection
+        1. Request server config (peer addition)
+        2. Create local WireGuard config
+        3. Start VPN connection
         """
         if not self.server_url or not self.agent_id:
             logger.warning("VPN auto-config: server_url or agent_id not set")
@@ -7600,12 +7601,7 @@ class WireGuardAutoSetup:
         
         logger.info("Starting WireGuard VPN auto-configuration...")
         
-        # Step 1: Generate client keys
-        if not self._generate_keys():
-            logger.error("Failed to generate WireGuard keys")
-            return False
-        
-        # Step 2: Request VPN config from server
+        # Step 1: Request VPN config from server
         vpn_config = self._request_vpn_config()
         if not vpn_config:
             logger.error("Failed to get VPN config from server")
@@ -7675,51 +7671,62 @@ class WireGuardAutoSetup:
         logger.warning("Generated fallback keys (install WireGuard for proper keys)")
         return True
     
+    def _get_auth_headers(self) -> Dict[str, str]:
+        if not self.config:
+            return {}
+        if getattr(self.config, 'auth_token', None):
+            return {
+                'X-Agent-Id': self.config.agent_id,
+                'X-Agent-Token': self.config.auth_token,
+            }
+        if getattr(self.config, 'enrollment_key', None):
+            return {'X-Enrollment-Key': self.config.enrollment_key}
+        return {}
+
+    def _get_client_address(self, config_text: str) -> str:
+        match = re.search(r"^\s*Address\s*=\s*([^\r\n]+)", config_text, re.MULTILINE)
+        if match:
+            return match.group(1).strip().split('/')[0]
+        return ""
+
     def _request_vpn_config(self) -> Optional[Dict]:
         """Request VPN configuration from server"""
         if not REQUESTS_AVAILABLE:
             return None
         
         try:
-            # Register this agent as a VPN peer
+            headers = self._get_auth_headers()
             response = requests.post(
                 f"{self.server_url}/api/vpn/peers",
+                headers=headers,
                 json={
+                    'name': self.agent_id,
                     'peer_id': self.agent_id,
-                    'public_key': self.public_key,
-                    'hostname': HOSTNAME,
-                    'platform': PLATFORM,
-                    'auto_setup': True
                 },
                 timeout=30
             )
             
-            if response.status_code in [200, 201]:
-                peer_data = response.json()
-                
-                # Get the full client config
-                config_response = requests.get(
-                    f"{self.server_url}/api/vpn/peers/{self.agent_id}/config",
-                    timeout=30
-                )
-                
-                if config_response.status_code == 200:
-                    config_data = config_response.json()
-                    self.address = config_data.get('client_address', peer_data.get('allowed_ips', '').split('/')[0])
-                    return config_data
-                else:
-                    # Use peer data to construct config
-                    return {
-                        'client_address': peer_data.get('allowed_ips', '10.200.200.100/32').split('/')[0],
-                        'server_endpoint': peer_data.get('endpoint', ''),
-                        'server_public_key': peer_data.get('server_public_key', ''),
-                        'allowed_ips': '10.200.200.0/24',
-                        'dns': '1.1.1.1, 8.8.8.8'
-                    }
-            else:
+            if response.status_code not in [200, 201]:
                 logger.error(f"VPN peer registration failed: {response.status_code}")
                 return None
-                
+
+            peer_data = response.json()
+            config_response = requests.get(
+                f"{self.server_url}/api/vpn/peers/{self.agent_id}/config",
+                headers=headers,
+                timeout=30
+            )
+            
+            if config_response.status_code == 200:
+                config_text = config_response.text
+                client_address = self._get_client_address(config_text) or peer_data.get('allowed_ips', '').split('/')[0]
+                return {
+                    'config_text': config_text,
+                    'client_address': client_address,
+                }
+
+            logger.error(f"Failed to download VPN peer config: {config_response.status_code}")
+            return None
         except Exception as e:
             logger.error(f"VPN config request error: {e}")
             return None
@@ -7729,11 +7736,15 @@ class WireGuardAutoSetup:
         try:
             self.config_dir.mkdir(parents=True, exist_ok=True)
             
-            client_address = vpn_config.get('client_address', '10.200.200.100')
-            if '/' not in client_address:
-                client_address += '/32'
-            
-            config_content = f"""# Metatron Unified Agent VPN Configuration
+            if isinstance(vpn_config, dict) and vpn_config.get('config_text'):
+                config_content = vpn_config['config_text']
+                self.address = vpn_config.get('client_address', self.address)
+            else:
+                client_address = vpn_config.get('client_address', '10.200.200.100')
+                if '/' not in client_address:
+                    client_address += '/32'
+                
+                config_content = f"""# Metatron Unified Agent VPN Configuration
 # Auto-generated - Agent ID: {self.agent_id}
 
 [Interface]
@@ -7747,7 +7758,7 @@ Endpoint = {vpn_config.get('server_endpoint', '')}
 AllowedIPs = {vpn_config.get('allowed_ips', '10.200.200.0/24')}
 PersistentKeepalive = 25
 """
-            
+
             # Write config file
             with open(self.config_file, 'w') as f:
                 f.write(config_content)
@@ -8004,14 +8015,19 @@ class RansomwareProtectionMonitor(MonitorModule):
         'libreoffice', 'gimp', 'vim', 'nano', 'gedit',
     ]
     
-    def __init__(self, callback: Callable[[Threat], None] = None):
-        super().__init__(callback)
+    def __init__(self, config: AgentConfig = None, callback: Callable[[Threat], None] = None):
+        # Accept config (MonitorModule contract) or legacy callback-only usage
+        if config is None:
+            config = AgentConfig()
+        super().__init__(config)
+        self._threat_callback = callback
         self.canaries: Dict[str, Dict] = {}  # path -> {hash, deployed_at}
         self.protected_folders: Set[str] = set()
         self.file_events: Dict[str, List[float]] = defaultdict(list)  # process -> timestamps
         self.rename_events: Dict[str, List[Tuple[str, str]]] = defaultdict(list)  # process -> [(old, new)]
         self.shadow_copy_baseline: Optional[int] = None
         self.violations: List[Dict] = []
+        self.threats: List[Threat] = []
         self._setup_protection()
     
     def _setup_protection(self):
@@ -8371,6 +8387,46 @@ class RansomwareProtectionMonitor(MonitorModule):
             return True
         return False
     
+    def scan(self) -> Dict[str, Any]:
+        """Perform ransomware protection scan."""
+        self.threats = []
+        canary_alerts = 0
+        for path, meta in list(self.canaries.items()):
+            try:
+                current_hash = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+                if current_hash != meta.get('hash'):
+                    canary_alerts += 1
+                    self.threats.append(Threat(
+                        type=ThreatType.RANSOMWARE,
+                        severity=ThreatSeverity.CRITICAL,
+                        description=f"Canary file modified: {path}",
+                        source="ransomware_monitor",
+                        indicators=[path],
+                    ))
+            except FileNotFoundError:
+                canary_alerts += 1
+                self.threats.append(Threat(
+                    type=ThreatType.RANSOMWARE,
+                    severity=ThreatSeverity.CRITICAL,
+                    description=f"Canary file deleted: {path}",
+                    source="ransomware_monitor",
+                    indicators=[path],
+                ))
+            except Exception:
+                pass
+        self.last_run = time.time()
+        return {
+            "canaries_monitored": len(self.canaries),
+            "canary_alerts": canary_alerts,
+            "protected_folders": len(self.protected_folders),
+            "violations": len(self.violations),
+            "threats_detected": len(self.threats),
+        }
+
+    def get_threats(self) -> List[Threat]:
+        """Return detected threats from last scan."""
+        return list(self.threats)
+
     def get_status(self) -> Dict[str, Any]:
         """Get ransomware protection status"""
         return {
@@ -10153,9 +10209,16 @@ class EndpointIdentityProtection(MonitorModule):
     SUSPICIOUS_PROCESS_NAMES = [
         'mimikatz', 'mimi', 'sekurlsa', 'lazagne', 'pypykatz',
         'procdump', 'sqldumper', 'rundll32', 'regsvr32',
-        'cme', 'crackmapexec', 'bloodhound', 'sharphound',
+        'cme', 'crackmapexec', 'sharphound',
         'rubeus', 'kekeo', 'hashcat', 'john', 'hydra',
     ]
+
+    # Seraph platform integration tool process names — authorised tools that
+    # must never be reported as suspicious regardless of their offensive heritage.
+    SERAPH_INTEGRATION_PROCESSES = frozenset({
+        'bloodhound', 'amass', 'spiderfoot', 'arkime', 'velociraptor',
+        'zeek', 'purplesharp', 'sigma', 'moloch', 'neo4j',
+    })
     
     # Critical credential files (Linux)
     LINUX_CREDENTIAL_FILES = [
@@ -10295,9 +10358,9 @@ class EndpointIdentityProtection(MonitorModule):
                                 )
                                 break
                     
-                    # Check against suspicious process names
+                    # Check against suspicious process names (skip authorised Seraph integrations)
                     for sus_name in self.SUSPICIOUS_PROCESS_NAMES:
-                        if sus_name in proc_name:
+                        if sus_name in proc_name and sus_name not in self.SERAPH_INTEGRATION_PROCESSES:
                             finding = {
                                 "pid": info['pid'],
                                 "name": info.get('name'),
@@ -13330,6 +13393,10 @@ class EmailProtectionMonitor(MonitorModule):
             "last_scan": self.last_run.isoformat() if self.last_run else None
         }
 
+    def get_threats(self) -> List[Threat]:
+        """Return detected threats from last scan."""
+        return list(self.threats)
+
 
 # =============================================================================
 # MOBILE SECURITY MONITOR - DEVICE SECURITY FOR MOBILE/PORTABLE DEVICES
@@ -13661,6 +13728,10 @@ class MobileSecurityMonitor(MonitorModule):
             "threats": len(self.threats),
             "last_scan": self.last_run.isoformat() if self.last_run else None
         }
+
+    def get_threats(self) -> List[Threat]:
+        """Return detected threats from last scan."""
+        return list(self.threats)
 
 
 # =============================================================================
@@ -14016,7 +14087,8 @@ class UnifiedAgent:
         # Initialize WireGuard VPN auto-setup
         self.vpn = WireGuardAutoSetup(
             server_url=self.config.server_url,
-            agent_id=self.config.agent_id
+            agent_id=self.config.agent_id,
+            config=self.config,
         )
         
         # Initialize SIEM

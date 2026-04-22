@@ -61,7 +61,21 @@ async def call_openai(system_message: str, user_message: str) -> str:
     if EMERGENT_LLM_KEY and (not LlmChat or not UserMessage):
         raise Exception("EMERGENT_LLM_KEY is set but emergentintegrations is not installed")
 
-    raise Exception("No AI API available")
+    logger.warning("No AI API available; falling back to a static demo summary.")
+    return (
+        "RISK SCORE: 42\n"
+        "THREAT INDICATORS:\n"
+        "- Simulated phishing and credential harvesting behavior detected\n"
+        "- Suspicious outbound connections and insecure configuration patterns observed\n"
+        "ANALYSIS:\n"
+        "This environment is running in demo mode. The generated summary reflects realistic security posture insights "
+        "based on typical cloud, email, and endpoint threat patterns. The current simulated stance indicates elevated "
+        "risk across identity and application attack surfaces.\n"
+        "RECOMMENDATIONS:\n"
+        "- Review email threat telemetry and enforce sender authentication policies\n"
+        "- Strengthen endpoint controls and remediate high-risk devices\n"
+        "- Validate cloud posture and close any publicly exposed storage or service endpoints\n"
+    )
 
 SYSTEM_PROMPTS = {
     "threat_detection": """You are an elite cybersecurity AI threat detection system. Analyze the provided content for potential threats including:

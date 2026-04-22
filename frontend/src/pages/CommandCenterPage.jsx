@@ -26,6 +26,7 @@ const CommandCenterPage = () => {
   const [threats, setThreats] = useState([]);
   const [agents, setAgents] = useState([]);
   const [stats, setStats] = useState({});
+  const [commandStats, setCommandStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedThreat, setSelectedThreat] = useState(null);
   const [actionInProgress, setActionInProgress] = useState({});
@@ -34,26 +35,62 @@ const CommandCenterPage = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const [pendingRes, historyRes, agentsRes, threatsRes] = await Promise.all([
-        axios.get(`${API}/agent-commands/pending`, { headers }),
-        axios.get(`${API}/agent-commands/history?limit=20`, { headers }),
-        axios.get(`${API}/swarm/overview`, { headers }),
-        axios.get(`${API}/swarm/telemetry?severity=critical&limit=50`, { headers })
+      const req = { headers, timeout: 8000 };
+      const results = await Promise.allSettled([
+        axios.get(`${API}/agent-commands/pending`, req),
+        axios.get(`${API}/agent-commands/history?limit=20`, req),
+        axios.get(`${API}/agent-commands/stats`, req),
+        axios.get(`${API}/swarm/overview`, req),
+        axios.get(`${API}/dashboard/stats`, req),
+        axios.get(`${API}/threats?severity=critical`, req),
+        axios.get(`${API}/threats?severity=high`, req),
+        axios.get(`${API}/agent-commands/agents/status`, req),
       ]);
 
-      setPendingCommands(pendingRes.data.commands || []);
-      setRecentCommands(historyRes.data.commands || []);
-      setStats(agentsRes.data);
-      
-      // Get critical threats that need action
-      const criticalEvents = (threatsRes.data.events || []).filter(e => 
-        e.severity === 'critical' || e.severity === 'high'
+      const [
+        pendingRes,
+        historyRes,
+        commandStatsRes,
+        agentsRes,
+        dashboardRes,
+        criticalThreatsRes,
+        highThreatsRes,
+        connectedRes,
+      ] = results.map((r) =>
+        r.status === 'fulfilled' ? r.value : null
       );
-      setThreats(criticalEvents);
 
-      // Get connected agents
-      const connectedRes = await axios.get(`${API}/agent-commands/agents/status`, { headers });
-      setAgents(connectedRes.data.agents || []);
+      if (pendingRes?.data) setPendingCommands(pendingRes.data.commands || []);
+      if (historyRes?.data) setRecentCommands(historyRes.data.commands || []);
+      if (commandStatsRes?.data) setCommandStats(commandStatsRes.data);
+      if (agentsRes?.data) setStats(agentsRes.data || {});
+
+      const dashboardStats = dashboardRes?.data || {};
+      const threatsMerged = [
+        ...(criticalThreatsRes?.data || []),
+        ...(highThreatsRes?.data || []),
+      ];
+      // De-dup by id.
+      const seen = new Set();
+      const threatsDedup = threatsMerged.filter((t) => {
+        const id = t?.id;
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+      // Provide both "threat response" items and the headline counts.
+      setThreats(threatsDedup);
+      setStats((prev) => ({
+        ...prev,
+        dashboard: dashboardStats,
+      }));
+
+      if (connectedRes?.data) setAgents(connectedRes.data.agents || []);
+
+      // If any core call failed, surface a soft warning but keep the UI responsive.
+      if (results.some((r) => r.status === 'rejected')) {
+        console.warn('One or more Command Center requests failed', results);
+      }
     } catch (err) {
       console.error('Failed to fetch command center data:', err);
     } finally {
@@ -245,7 +282,7 @@ const CommandCenterPage = () => {
             </div>
             <div>
               <p className="text-3xl font-bold text-green-400">
-                {recentCommands.filter(c => c.status === 'completed').length}
+                {commandStats?.executed ?? recentCommands.filter(c => c.status === 'completed').length}
               </p>
               <p className="text-slate-400 text-sm">Commands Executed</p>
             </div>

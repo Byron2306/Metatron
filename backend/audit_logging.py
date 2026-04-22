@@ -203,8 +203,27 @@ class AuditLogger:
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """Search audit logs with filters"""
+        def _buffer_fallback() -> List[Dict[str, Any]]:
+            rows = [asdict(entry) for entry in reversed(cls._buffer)]
+            if category:
+                rows = [r for r in rows if r.get("category") == category]
+            if actor:
+                term = actor.lower()
+                rows = [r for r in rows if term in str(r.get("actor") or "").lower()]
+            if target_type:
+                rows = [r for r in rows if r.get("target_type") == target_type]
+            if target_id:
+                rows = [r for r in rows if r.get("target_id") == target_id]
+            if severity:
+                rows = [r for r in rows if r.get("severity") == severity]
+            if start_time:
+                rows = [r for r in rows if str(r.get("timestamp") or "") >= start_time]
+            if end_time:
+                rows = [r for r in rows if str(r.get("timestamp") or "") <= end_time]
+            return rows[:limit]
+
         if cls._db is None:
-            return []
+            return _buffer_fallback()
         
         query = {}
         if category:
@@ -226,10 +245,13 @@ class AuditLogger:
             cursor = cls._db.audit_logs.find(
                 query, {"_id": 0}
             ).sort("timestamp", -1).limit(limit)
-            return await cursor.to_list(length=limit)
+            rows = await cursor.to_list(length=limit)
+            if rows:
+                return rows
+            return _buffer_fallback()
         except Exception as e:
             logger.error(f"Audit search failed: {e}")
-            return []
+            return _buffer_fallback()
     
     @classmethod
     async def get_stats(cls) -> Dict[str, Any]:

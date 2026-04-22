@@ -67,7 +67,12 @@ app = FastAPI(
 )
 
 def _resolve_cors_origins() -> List[str]:
-    raw = os.environ.get("CORS_ORIGINS", "http://165.22.41.184,http://165.22.41.184:3000,http://localhost:3000,http://127.0.0.1:3000")
+    raw = os.environ.get(
+        "CORS_ORIGINS",
+        "http://165.22.41.184,http://165.22.41.184:3000,"
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:5000,http://127.0.0.1:5000",
+    )
     origins = [o.strip() for o in raw.split(",") if o.strip()]
     environment = os.environ.get("ENVIRONMENT", "").strip().lower()
     strict = os.environ.get("SERAPH_STRICT_SECURITY", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -113,9 +118,14 @@ from routers.threat_intel import router as threat_intel_router
 from routers.ransomware import router as ransomware_router
 from routers.containers import router as containers_router
 from routers.vpn import router as vpn_router
+from routers.integrations import router as integrations_router
 from routers.correlation import router as correlation_router
 from routers.edr import router as edr_router
-from routers.soar import router as soar_router
+soar_router = None
+try:
+    from routers.soar import router as soar_router
+except Exception as e:
+    logger.warning(f"SOAR router disabled due to import error: {e}")
 from routers.honey_tokens import router as honey_tokens_router
 from routers.zero_trust import router as zero_trust_router
 from routers.ml_prediction import router as ml_router
@@ -123,6 +133,15 @@ from routers.sandbox import router as sandbox_router
 from routers.browser_isolation import router as browser_isolation_router
 from routers.kibana import router as kibana_router
 from routers.identity import router as identity_router
+from routers.attestation import router as attestation_router
+from routers.fabric import router as fabric_router
+from routers.formation import router as formation_router
+from routers.metatron import router as metatron_router
+from routers.sigma import router as sigma_router
+from routers.osquery import router as osquery_router
+from routers.zeek import router as zeek_router
+from routers.mitre_attack import router as mitre_attack_router
+from routers.atomic_validation import router as atomic_validation_router
 
 # Import Browser Extension router
 from routers.extension import router as extension_router
@@ -134,6 +153,7 @@ from routers.multi_tenant import router as multi_tenant_router
 attack_paths_router = None
 secure_boot_router = None
 kernel_sensors_router = None
+kernel_router = None
 
 try:
     from routers.attack_paths import router as attack_paths_router
@@ -149,6 +169,11 @@ try:
     from routers.kernel_sensors import router as kernel_sensors_router
 except Exception as e:
     logger.warning(f"Kernel sensors router disabled due to import error: {e}")
+
+try:
+    from routers.kernel import router as kernel_router
+except Exception as e:
+    logger.warning(f"Kernel enforcement router disabled due to import error: {e}")
 
 # Initialize ML service with database
 from ml_threat_prediction import ml_predictor
@@ -179,15 +204,26 @@ app.include_router(threat_intel_router, prefix="/api")
 app.include_router(ransomware_router, prefix="/api")
 app.include_router(containers_router, prefix="/api")
 app.include_router(vpn_router, prefix="/api")
+app.include_router(integrations_router, prefix="/api")
 app.include_router(correlation_router, prefix="/api")
 app.include_router(edr_router, prefix="/api")
-app.include_router(soar_router, prefix="/api")
+if soar_router is not None:
+    app.include_router(soar_router, prefix="/api")
 app.include_router(honey_tokens_router, prefix="/api")
 app.include_router(zero_trust_router, prefix="/api")
 app.include_router(ml_router, prefix="/api")
 app.include_router(sandbox_router, prefix="/api")
 app.include_router(browser_isolation_router, prefix="/api")
 app.include_router(kibana_router, prefix="/api")
+app.include_router(attestation_router, prefix="/api")
+app.include_router(fabric_router, prefix="/api")
+app.include_router(formation_router, prefix="/api")
+app.include_router(metatron_router, prefix="/api")
+app.include_router(sigma_router, prefix="/api")
+app.include_router(osquery_router, prefix="/api")
+app.include_router(zeek_router, prefix="/api")
+app.include_router(mitre_attack_router, prefix="/api")
+app.include_router(atomic_validation_router, prefix="/api")
 
 # Register Browser Extension router
 app.include_router(extension_router, prefix="/api")
@@ -202,6 +238,8 @@ if secure_boot_router is not None:
     app.include_router(secure_boot_router)   # Already has /api/v1 prefix
 if kernel_sensors_router is not None:
     app.include_router(kernel_sensors_router)  # Already has /api/v1 prefix
+if kernel_router is not None:
+    app.include_router(kernel_router, prefix="/api")  # Enforcement endpoints
 
 # Import agent commands router
 from routers.agent_commands import router as agent_commands_router
@@ -416,6 +454,14 @@ async def startup():
     except Exception as e:
         logger.error(f"Failed to start Agent Deployment Service: {e}")
     
+    # Initialize OS Enforcement Service (starts BPF LSM arm thread + auto-enforce)
+    try:
+        from services.os_enforcement_service import get_os_enforcement_service
+        get_os_enforcement_service()  # Creates singleton and starts arm thread
+        logger.info("OS Enforcement Service: arm thread started")
+    except Exception as e:
+        logger.error(f"Failed to initialize OS Enforcement Service: {e}")
+
     # Initialize AATL (Autonomous Agent Threat Layer)
     try:
         from services.aatl import init_aatl_engine
@@ -431,6 +477,18 @@ async def startup():
         logger.info("AATR initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize AATR: {e}")
+
+    # MongoDB indexes for UI-critical endpoints (Command Center, dashboards).
+    try:
+        await db.agent_commands.create_index([("created_at", -1)])
+        await db.agent_commands.create_index([("agent_id", 1), ("created_at", -1)])
+        await db.agent_commands.create_index([("status", 1), ("created_at", -1)])
+        await db.alerts.create_index([("created_at", -1)])
+        await db.threats.create_index([("created_at", -1)])
+        await db.unified_agents.create_index([("last_heartbeat", -1)])
+        logger.info("MongoDB indexes ensured")
+    except Exception as e:
+        logger.warning(f"Failed to ensure MongoDB indexes: {e}")
 
 
 @app.on_event("shutdown")

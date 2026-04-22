@@ -33,7 +33,7 @@ async def get_audit_logs(
         limit=limit
     )
     # search already returns dicts, no conversion needed
-    return logs
+    return {"logs": logs, "count": len(logs)}
 
 @router.get("/stats")
 async def get_audit_stats(current_user: dict = Depends(get_current_user)):

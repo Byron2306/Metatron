@@ -494,6 +494,45 @@ class QuantumSecurityService:
         
         return status
 
+    # =========================================================================
+    # GOVERNANCE EPOCH SIGNING (Lightweight, demo-safe)
+    # =========================================================================
+
+    def sign_governance_epoch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Sign a governance epoch payload for provenance.
+
+        This is intentionally lightweight: it provides an integrity stamp and a
+        stable `signature_ref` without implying hardware-backed attestation.
+        """
+        import json
+
+        body = json.dumps(payload or {}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        secret = (os.environ.get("GOVERNANCE_EPOCH_SIGNING_SECRET") or "dev-governance-epoch-secret").encode("utf-8")
+
+        mac = hmac.new(secret, body, hashlib.sha3_256).digest()
+        sig_b64 = base64.b64encode(mac).decode("utf-8")
+        sig_ref = f"govsig_{hashlib.sha3_256(mac).hexdigest()[:16]}"
+
+        # Store for introspection/debug (optional)
+        self.signatures[sig_ref] = QuantumSignature(
+            signature_id=sig_ref,
+            algorithm="HMAC-SHA3-256",
+            data_hash=hashlib.sha3_256(body).hexdigest(),
+            signature=sig_b64,
+            signer_key_id="governance_epoch_hmac",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+        return {
+            "signature_ref": sig_ref,
+            "algorithm": "HMAC-SHA3-256",
+            "data_hash": hashlib.sha3_256(body).hexdigest(),
+            "signature": sig_b64,
+            "mode": self.mode,
+            "note": "Software integrity stamp (not hardware attestation).",
+        }
+
 
 # Global singleton
 quantum_security = QuantumSecurityService()

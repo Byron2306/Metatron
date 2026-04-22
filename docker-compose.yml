@@ -7,6 +7,10 @@
 #   2. docker-compose up -d
 #   3. Access UI at http://localhost:3000
 #
+# Default behavior starts the lightweight core stack only.
+# Optional heavy services are enabled with profiles:
+#   docker compose --profile search --profile ai --profile security --profile sandbox --profile ssl up -d
+#
 # Services:
 #   - backend: FastAPI server (port 8001)
 #   - frontend: React app (port 3000)
@@ -18,8 +22,6 @@
 #   - Linux kernel with WireGuard support (5.6+)
 #   - NET_ADMIN capability for VPN
 #   - 4GB+ RAM recommended
-
-version: '3.8'
 
 services:
   # ==========================================================================
@@ -45,6 +47,7 @@ services:
       retries: 5
       start_period: 10s
 
+
   # ==========================================================================
   # Backend API Server
   # ==========================================================================
@@ -54,17 +57,21 @@ services:
       dockerfile: Dockerfile
     container_name: seraph-backend
     restart: unless-stopped
+    working_dir: /app/backend
+    command: ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]
     ports:
       - "${BIND_BACKEND_HOST:-127.0.0.1}:8001:8001"
     environment:
       - MONGO_URL=mongodb://mongodb:27017
       - DB_NAME=seraph_ai_defense
+      - PYTHONPATH=/app/backend:/app
+      - INTEGRATION_API_KEY=${INTEGRATION_API_KEY:-dev-integration-key-change-me}
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
-      - REMOTE_ADMIN_ONLY=${REMOTE_ADMIN_ONLY:-true}
+      - REMOTE_ADMIN_ONLY=${REMOTE_ADMIN_ONLY:-false}
       - REMOTE_ADMIN_EMAILS=${REMOTE_ADMIN_EMAILS:-}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://165.22.41.184,http://165.22.41.184:3000,http://localhost:3000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://165.22.41.184,http://165.22.41.184:3000,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5000,http://127.0.0.1:5000}
       - VPN_SERVER_ENDPOINT=${VPN_SERVER_ENDPOINT:-vpn.yourdomain.com}
-      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-}
       - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME:-}
       - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD:-}
       - ELASTICSEARCH_API_KEY=${ELASTICSEARCH_API_KEY:-}
@@ -74,28 +81,62 @@ services:
       - CUCKOO_API_URL=${CUCKOO_API_URL:-http://cuckoo:8090}
       - CUCKOO_API_TOKEN=${CUCKOO_API_TOKEN:-}
       - CUCKOO_API_VERSION=${CUCKOO_API_VERSION:-2}
-      - TRIVY_ENABLED=${TRIVY_ENABLED:-true}
-      - FALCO_ENABLED=${FALCO_ENABLED:-true}
+      - TRIVY_ENABLED=${TRIVY_ENABLED:-false}
+      - FALCO_ENABLED=${FALCO_ENABLED:-false}
       - VPN_ENABLED=${VPN_ENABLED:-true}
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
       - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
       - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - EVIDENCE_BUNDLE_ROOT=/var/lib/seraph-ai/evidence-bundle
+      - ATOMIC_VALIDATION_RESULTS_DIR=/var/lib/seraph-ai/atomic-validation
+      - ATOMIC_EXTRA_RUN_DIRS=/var/lib/seraph-ai/raw-runs/atomic-validation:/var/lib/seraph-ai/evidence-sandbox-s4/atomic_runs
+      - ATOMIC_RED_TEAM_PATH=/opt/atomic-red-team/atomics
+      - ATOMIC_RED_TEAM_HOST_PATH=/opt/atomic-red-team
+      - INVOKE_ATOMICREDTEAM_HOST_PATH=/opt/invoke-atomicredteam
+      - ATOMIC_RUNNER=/opt/pwsh/pwsh
+      - PWSH_MODULE_PATH=/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psm1
+      - ATOMIC_SANDBOX_IMAGE=${ATOMIC_SANDBOX_IMAGE:-seraph-sandbox-tools:latest}
+      - OSQUERY_RESULTS_LOG=/var/lib/seraph-ai/evidence-bundle/osqueryd.results.log
+      - FLEET_BASE_URL=${FLEET_BASE_URL:-}
+      - FLEET_API_TOKEN=${FLEET_API_TOKEN:-}
+      - ARDA_ENFORCE_ON_BOOT=false
+      - ARDA_LSM_ENABLED=false
+      - SERAPH_SECURE_BOOT_ENABLED=true
+      - SERAPH_KERNEL_ENABLED=true
+      - SERAPH_TPM_OVERRIDE=true
+      - SERAPH_EFI_ROOT=/host/sys/firmware/efi
     depends_on:
       mongodb:
         condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
-      ollama:
-        condition: service_started
     volumes:
       - vpn_config:/var/lib/anti-ai-defense/vpn
+      - quarantine_data:/var/lib/anti-ai-defense/quarantine
+      - ./evidence-bundle:/var/lib/seraph-ai/evidence-bundle:ro
+      - ./atomic-validation-results:/var/lib/seraph-ai/atomic-validation:ro
+      - ./raw-runs:/var/lib/seraph-ai/raw-runs:ro
+      - ./metatron-evidence-package-real-sandbox-2026-04-18/atomic_runs:/var/lib/seraph-ai/evidence-sandbox-s4/atomic_runs:ro
+      - ./metatron-evidence-package-real-sandbox-2026-04-18/evidence_bundle:/var/lib/seraph-ai/evidence-sandbox-s5:ro
+      - zeek_logs:/usr/local/zeek/logs:ro
+      - suricata_logs:/var/log/suricata:ro
+      - ./backend:/app/backend:ro
       - ./scripts:/app/scripts:ro
       - ./backend/playbooks:/app/playbooks:ro
       - ./unified_agent:/app/unified_agent:ro
+      - ./atomic-red-team:/opt/atomic-red-team:ro
+      - ./tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro
+      - ./tools/powershell:/opt/pwsh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - /sys/class/dmi:/sys/class/dmi:ro
+      - /sys/firmware/dmi:/sys/firmware/dmi:ro
+      # Allow Secure Boot / UEFI variable inspection from inside the container.
+      # `/sys` is typically not writable in containers, so mount to a non-/sys path.
+      - /sys/firmware/efi:/host/sys/firmware/efi:ro
+    # SYS_MODULE, SYS_ADMIN, BPF removed — those caps let the container load
+    # a BPF LSM hook into the host kernel, which blocked execve() system-wide.
     cap_add:
       - NET_ADMIN
-      - SYS_MODULE
     devices:
       - /dev/net/tun:/dev/net/tun
     extra_hosts:
@@ -108,6 +149,57 @@ services:
       timeout: 10s
       retries: 3
       start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 512m
+
+  # ==========================================================================
+  # Sophia Presence Server (Presence UI + stdlib API proxy)
+  # ==========================================================================
+  presence:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.presence
+    container_name: seraph-presence
+    restart: unless-stopped
+    ports:
+      - "${BIND_PRESENCE_HOST:-127.0.0.1}:7070:7070"
+    environment:
+      - PRESENCE_PORT=7070
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${PRESENCE_OLLAMA_MODEL:-qwen2.5:3b}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=seraph_ai_defense
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend:ro
+      - ./evidence:/app/evidence:ro
+      - ./unified_agent:/app/unified_agent:ro
+      - ./scripts:/app/scripts:ro
+    networks:
+      - seraph-network
+    profiles:
+      - ai
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7070/api/health', timeout=3).read()",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
 
   # ==========================================================================
   # Elasticsearch (local SIEM store)
@@ -119,13 +211,25 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - cluster.routing.allocation.disk.watermark.low=98%
+      - cluster.routing.allocation.disk.watermark.high=99%
+      - cluster.routing.allocation.disk.watermark.flood_stage=99%
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
       - "9200:9200"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     networks:
       - seraph-network
+    profiles:
+      - search
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 512m
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9200/_cluster/health"]
       interval: 20s
@@ -149,12 +253,20 @@ services:
         condition: service_healthy
     networks:
       - seraph-network
+    profiles:
+      - search
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5601/api/status"]
       interval: 20s
       timeout: 10s
-      retries: 10
-      start_period: 45s
+      retries: 20
+      start_period: 120s
 
   # ==========================================================================
   # Ollama (local LLM)
@@ -169,6 +281,15 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - seraph-network
+    profiles:
+      - ai
+      - bootstrap
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+        reservations:
+          memory: 1g
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
@@ -206,28 +327,51 @@ services:
       - seraph-network
     profiles:
       - security
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
 
   # ==========================================================================
   # Falco Runtime Security (optional)
   # ==========================================================================
   falco:
-    image: falcosecurity/falco-no-driver:latest
+    image: falcosecurity/falco:latest
     container_name: seraph-falco
     restart: unless-stopped
     privileged: true
     pid: host
+    security_opt:
+      - seccomp=unconfined
+    environment:
+      - FALCO_DRIVER_CHOICE=kmod
+      - SKIP_DRIVER_LOADER=no
     volumes:
       - /var/run/docker.sock:/host/var/run/docker.sock
       - /proc:/host/proc:ro
       - /boot:/host/boot:ro
       - /lib/modules:/host/lib/modules:ro
+      - /usr/src:/usr/src:ro
+      - /sys/kernel/debug:/host/sys/kernel/debug:ro
+      - /sys/fs/bpf:/sys/fs/bpf
       - /usr:/host/usr:ro
       - falco_data:/var/log/falco
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     networks:
       - seraph-network
     profiles:
       - security
-
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 256m
   # ==========================================================================
   # Suricata IDS (optional host sensor)
   # ==========================================================================
@@ -246,20 +390,72 @@ services:
       - ./backend:/app/backend:ro
     profiles:
       - security
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
+
+  # ==========================================================================
+  # Zeek Network Security Monitor
+  # ==========================================================================
+  zeek:
+    image: blacktop/zeek:latest
+    container_name: seraph-zeek
+    restart: on-failure:3
+    privileged: true
+    network_mode: host
+    mem_limit: 256m
+    entrypoint: ["/bin/sh","-lc"]
+    command:
+      - "echo 'Zeek sensor ready (passive mode)'; while true; do sleep 3600; done"
+    volumes:
+      - zeek_logs:/usr/local/zeek/logs
+    profiles:
+      - security
+
+  # ==========================================================================
+  # Velociraptor (optional DFIR collection helper)
+  # ==========================================================================
+  velociraptor:
+    image: wlambert/velociraptor:latest
+    container_name: seraph-velociraptor
+    restart: unless-stopped
+    mem_limit: 256m
+    entrypoint: ["/bin/sh","-lc"]
+    command:
+      - "echo 'Velociraptor image ready (integration helper)'; while true; do sleep 3600; done"
+    networks:
+      - seraph-network
+    profiles:
+      - security
 
   # ==========================================================================
   # Cuckoo Sandbox API (optional - requires VM/lab tuning)
   # ==========================================================================
   cuckoo:
-    image: blacktop/cuckoo:2.0.7
+    build:
+      context: ./tools/cuckoo-fix
+    image: seraph-cuckoo-fixed:latest
     container_name: seraph-cuckoo
     restart: unless-stopped
     privileged: true
+    command: api
     ports:
       - "8090:8090"
       - "2042:2042"
     environment:
       - CUCKOO_API_HOST=0.0.0.0
+      - MONGO_HOST=mongodb
+      - MONGO_TCP_PORT=27017
+      - ES_HOST=elasticsearch
+      - ES_PORT=9200
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
     volumes:
       - cuckoo_data:/cuckoo
       - /tmp:/tmp
@@ -267,9 +463,17 @@ services:
       - seraph-network
     profiles:
       - sandbox
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 512m
 
   cuckoo-web:
-    image: blacktop/cuckoo:2.0.7
+    build:
+      context: ./tools/cuckoo-fix
+    image: seraph-cuckoo-fixed:latest
     container_name: seraph-cuckoo-web
     restart: unless-stopped
     command: web
@@ -277,12 +481,20 @@ services:
       - "8080:8080"
     environment:
       - CUCKOO_API=http://cuckoo:8090
+      - MONGO_HOST=mongodb
+      - MONGO_TCP_PORT=27017
     depends_on:
       - cuckoo
     networks:
       - seraph-network
     profiles:
       - sandbox
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
 
   # ==========================================================================
   # Frontend React App
@@ -307,6 +519,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
 
   # ==========================================================================
   # WireGuard VPN Server
@@ -339,6 +557,34 @@ services:
       - net.ipv4.ip_forward=1
     networks:
       - seraph-network
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+        reservations:
+          memory: 128m
+
+  # ======================================================================
+  # VPN Bootstrap Helper (one-shot)
+  # ======================================================================
+  vpn-bootstrap:
+    image: alpine:3.20
+    container_name: seraph-vpn-bootstrap
+    restart: "no"
+    depends_on:
+      wireguard:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      [
+        "echo '[VPN Bootstrap] verifying wireguard config volume'; ls -la /config >/dev/null 2>&1 || true; echo '[VPN Bootstrap] completed'"
+      ]
+    volumes:
+      - wireguard_config:/config
+    networks:
+      - seraph-network
+    profiles:
+      - bootstrap
 
   # ==========================================================================
   # Nginx Reverse Proxy with SSL/TLS
@@ -361,13 +607,99 @@ services:
     networks:
       - seraph-network
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/api/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost/"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 10s
+      retries: 10
+      start_period: 60s
     profiles:
       - ssl
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+        reservations:
+          memory: 128m
+
+  # ==========================================================================
+  # Unified Agent Web Dashboard (port 5000)
+  # ==========================================================================
+  unified-agent:
+    build:
+      context: .
+      dockerfile: unified_agent/ui/web/Dockerfile
+    container_name: seraph-unified-agent
+    restart: unless-stopped
+    ports:
+      - "${BIND_AGENT_HOST:-127.0.0.1}:5000:5000"
+    environment:
+      - BACKEND_URL=http://backend:8001
+      - REMOTE_SERVER_URL=http://backend:8001
+      - METATRON_BACKEND_URL=http://backend:8001
+      - METATRON_SERVER_URL=http://backend:8001
+      - INTEGRATION_API_KEY=${INTEGRATION_API_KEY:-dev-integration-key-change-me}
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=seraph_ai_defense
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-mistral}
+    depends_on:
+      backend:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./unified_agent:/app/unified_agent:ro
+      - ./evidence:/app/evidence:ro
+      - ./config/wireguard/wg0.agent.conf:/etc/wireguard/wg0.conf:ro
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    networks:
+      - seraph-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/', timeout=3).read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
+
+  # ==========================================================================
+  # ClamAV (optional malware scanning)
+  # ==========================================================================
+  clamav:
+    image: clamav/clamav:stable
+    container_name: seraph-clamav
+    restart: unless-stopped
+    networks:
+      - seraph-network
+    volumes:
+      - clamav_db:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamscan", "--version"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ==========================================================================
+  # YARA (optional rule-based scanning)
+  # ==========================================================================
+  yara:
+    image: alpine:3.20
+    container_name: seraph-yara
+    restart: unless-stopped
+    command: ["sh", "-lc", "apk add --no-cache yara >/dev/null 2>&1 && tail -f /dev/null"]
+    networks:
+      - seraph-network
+    volumes:
+      - ./yara_rules:/yara_rules:ro
 
 # ==========================================================================
 # Networks
@@ -397,9 +729,16 @@ volumes:
     driver: local
   suricata_logs:
     driver: local
+  zeek_logs:
+    driver: local
   cuckoo_data:
     driver: local
   vpn_config:
+    driver: local
+  quarantine_data:
+    driver: local
+  # evidence_bundle and atomic_validation replaced by bind mounts above
+  clamav_db:
     driver: local
   wireguard_config:
     driver: local

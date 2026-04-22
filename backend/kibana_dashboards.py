@@ -286,16 +286,17 @@ def generate_kibana_dashboard_ndjson(dashboard_id: str, dashboard_config: Dict) 
 class KibanaDashboardService:
     def __init__(self):
         self.dashboards = KIBANA_DASHBOARDS
-        self.elasticsearch_url = os.environ.get("ELASTICSEARCH_URL")
+        self.elasticsearch_url = os.environ.get("ELASTICSEARCH_URL") or "http://elasticsearch:9200"
         self.api_key = os.environ.get("ELASTICSEARCH_API_KEY")
         self.elasticsearch_username = os.environ.get("ELASTICSEARCH_USERNAME")
         self.elasticsearch_password = os.environ.get("ELASTICSEARCH_PASSWORD")
-        self.kibana_url = None
+        self.kibana_url = os.environ.get("KIBANA_URL") or "http://kibana:5601"
         
         # Auto-configure if environment variables are set
         if self.elasticsearch_url:
             # Derive Kibana URL from ES URL
-            self.kibana_url = self.elasticsearch_url.replace(":443", ":443").replace(":9243", ":5601")
+            if not os.environ.get("KIBANA_URL"):
+                self.kibana_url = self.elasticsearch_url.replace(":9243", ":5601").replace(":9200", ":5601").replace(":443", ":5601")
             logger.info(f"Kibana configured from environment: {self.elasticsearch_url}")
     
     def configure(

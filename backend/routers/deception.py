@@ -15,11 +15,23 @@ from enum import Enum
 import logging
 
 from deception_engine import deception_engine, RouteDecision, EscalationLevel
-from .dependencies import get_current_user
+from .dependencies import get_current_user, get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/deception", tags=["Deception Engine"])
+
+def _severity_to_risk(severity: str) -> int:
+    s = str(severity or "").lower().strip()
+    if s == "critical":
+        return 95
+    if s == "high":
+        return 80
+    if s == "medium":
+        return 60
+    if s == "low":
+        return 35
+    return 50
 
 
 # =============================================================================
@@ -252,7 +264,67 @@ async def deploy_decoy(request: DeployDecoyRequest, current_user: dict = Depends
 @router.get("/campaigns")
 async def get_campaigns(min_events: int = 5, limit: int = 50):
     """Get active attack campaigns"""
-    campaigns = deception_engine.get_campaigns(min_events=min_events, limit=limit)
+    def _normalize_campaign(c: Dict[str, Any]) -> Dict[str, Any]:
+        details = c.get("details") if isinstance(c, dict) else {}
+        details = details if isinstance(details, dict) else {}
+        return {
+            "id": c.get("id") or c.get("campaign_id") or details.get("campaign_id"),
+            "name": c.get("name") or c.get("label") or c.get("campaign_name") or "campaign",
+            "first_seen": c.get("first_seen") or c.get("created_at") or c.get("timestamp"),
+            "last_seen": c.get("last_seen") or c.get("updated_at") or c.get("timestamp"),
+            "event_count": int(c.get("event_count") or c.get("events") or details.get("event_count") or 0),
+            "unique_ips": int(c.get("unique_ips") or details.get("unique_ips") or 0),
+            "fingerprint_id": c.get("fingerprint_id") or details.get("fingerprint_id"),
+            "escalation_level": c.get("escalation_level") or details.get("escalation_level") or "none",
+            "routes": c.get("routes") or details.get("routes") or [],
+        }
+
+    campaigns_raw = deception_engine.get_campaigns(min_events=min_events, limit=limit)
+    campaigns = [_normalize_campaign(c) for c in (campaigns_raw or []) if isinstance(c, dict)]
+    campaigns = [c for c in campaigns if c.get("id")]
+
+    # If the engine has no events yet, synthesize campaigns from recent threats so the UI isn't blank.
+    if not campaigns:
+        db = get_db()
+        if db is not None:
+            threats = await db.threats.find(
+                {"source_ip": {"$exists": True}, "target_system": {"$exists": True}},
+                {"_id": 0, "source_ip": 1, "severity": 1, "created_at": 1},
+            ).sort("created_at", -1).limit(250).to_list(250)
+            by_ip: Dict[str, Dict[str, Any]] = {}
+            for t in threats:
+                ip = str(t.get("source_ip") or "").strip()
+                if not ip:
+                    continue
+                bucket = by_ip.setdefault(
+                    ip,
+                    {
+                        "id": f"synthetic:{ip}",
+                        "name": f"Synthetic Campaign ({ip})",
+                        "first_seen": t.get("created_at"),
+                        "last_seen": t.get("created_at"),
+                        "event_count": 0,
+                        "unique_ips": 1,
+                        "fingerprint_id": f"fp:{ip}",
+                        "routes": [],
+                        "escalation_level": "none",
+                    },
+                )
+                bucket["event_count"] += 1
+                ts = t.get("created_at")
+                if ts:
+                    bucket["first_seen"] = min(bucket["first_seen"], ts) if bucket["first_seen"] else ts
+                    bucket["last_seen"] = max(bucket["last_seen"], ts) if bucket["last_seen"] else ts
+                sev = str(t.get("severity") or "medium").lower()
+                if sev == "critical":
+                    bucket["escalation_level"] = "hard_ban"
+                elif sev == "high" and bucket["escalation_level"] != "hard_ban":
+                    bucket["escalation_level"] = "soft_ban"
+                route = "trap_sink" if sev in {"critical", "high"} else "friction"
+                if route not in bucket["routes"]:
+                    bucket["routes"].append(route)
+            campaigns = list(by_ip.values())[:limit]
+
     return {
         "campaigns": campaigns,
         "count": len(campaigns)
@@ -286,11 +358,60 @@ async def get_events(
     campaign_id: Optional[str] = None
 ):
     """Get recent deception events with optional filtering"""
-    events = deception_engine.get_events(
+    def _normalize_event(e: Dict[str, Any]) -> Dict[str, Any]:
+        details = e.get("details") if isinstance(e, dict) else {}
+        details = details if isinstance(details, dict) else {}
+        return {
+            "id": e.get("id") or e.get("event_id") or details.get("event_id"),
+            "ip": e.get("ip") or e.get("source_ip") or details.get("ip"),
+            "path": e.get("path") or e.get("request_path") or details.get("path") or "/",
+            "score": int(e.get("score") or details.get("score") or 0),
+            "route": e.get("route") or e.get("route_decision") or details.get("route") or "pass_through",
+            "escalation_level": e.get("escalation_level") or details.get("escalation") or "none",
+            "campaign_id": e.get("campaign_id") or details.get("campaign_id"),
+            "timestamp": e.get("timestamp") or e.get("created_at") or details.get("timestamp"),
+            "decoy_triggered": bool(e.get("decoy_triggered") or details.get("decoy_triggered") or False),
+        }
+
+    events_raw = deception_engine.get_events(
         limit=min(limit, 1000),
         route_filter=route_filter,
         campaign_id=campaign_id
     )
+    events = [_normalize_event(e) for e in (events_raw or []) if isinstance(e, dict)]
+    events = [e for e in events if e.get("id") and e.get("ip")]
+
+    if not events:
+        db = get_db()
+        if db is not None:
+            threats = await db.threats.find(
+                {"source_ip": {"$exists": True}, "target_system": {"$exists": True}},
+                {"_id": 0, "id": 1, "source_ip": 1, "target_system": 1, "type": 1, "severity": 1, "created_at": 1},
+            ).sort("created_at", -1).limit(min(300, int(limit) * 3)).to_list(min(300, int(limit) * 3))
+            synthetic = []
+            for t in threats:
+                ip = str(t.get("source_ip") or "").strip()
+                target = str(t.get("target_system") or "").strip()
+                if not ip:
+                    continue
+                sev = str(t.get("severity") or "medium").lower()
+                route = "trap_sink" if sev in {"critical", "high"} else "friction"
+                escalation = "hard_ban" if sev == "critical" else ("soft_ban" if sev == "high" else "none")
+                synthetic.append(
+                    {
+                        "id": t.get("id") or f"synthetic:{ip}:{target}:{t.get('created_at')}",
+                        "ip": ip,
+                        "path": f"/threat/{t.get('type') or 'signal'}",
+                        "score": 40 + int(_severity_to_risk(sev) / 2),
+                        "route": route,
+                        "escalation_level": escalation,
+                        "campaign_id": f"synthetic:{ip}",
+                        "timestamp": t.get("created_at"),
+                        "decoy_triggered": False,
+                    }
+                )
+            events = synthetic[: int(limit)]
+
     return {"events": events, "count": len(events)}
 
 

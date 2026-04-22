@@ -1,0 +1,37 @@
+name: Unified Agent Monitor Regression
+
+on:
+  pull_request:
+    paths:
+      - "unified_agent/core/agent.py"
+      - "unified_agent/tests/test_monitor_scan_regression.py"
+      - ".github/workflows/unified-agent-monitor-regression.yml"
+  push:
+    branches: ["main", "Seraph-v9"]
+    paths:
+      - "unified_agent/core/agent.py"
+      - "unified_agent/tests/test_monitor_scan_regression.py"
+      - ".github/workflows/unified-agent-monitor-regression.yml"
+
+jobs:
+  monitor-scan-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime deps for monitor smoke
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest psutil requests pyyaml cryptography yara-python
+
+      - name: Run one-pass monitor scan regression
+        run: |
+          pytest -q unified_agent/tests/test_monitor_scan_regression.py

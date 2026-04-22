@@ -1,0 +1,128 @@
+title: Hide Artifacts - Email Forwarding Rule Creation for Blind Collection
+id: c1d2e3f4-a5b6-7890-cdef-890123456789
+status: experimental
+description: |
+    Detects creation of email forwarding rules via PowerShell or Exchange cmdlets
+    that silently forward copies of incoming email to external addresses (T1564.008).
+    Nation-state actors and BEC groups create these rules to maintain persistent
+    access to email content without repeated authentication. The rules survive
+    password resets if not explicitly removed.
+references:
+    - https://attack.mitre.org/techniques/T1564/008/
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-193a
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.collection
+    - attack.t1564.008
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging'
+detection:
+    selection_inbox_rule:
+        ScriptBlockText|contains:
+            - 'New-InboxRule'
+            - 'Set-InboxRule'
+        ScriptBlockText|contains:
+            - 'ForwardTo'
+            - 'ForwardAsAttachmentTo'
+            - 'RedirectTo'
+    selection_transport_rule:
+        ScriptBlockText|contains:
+            - 'New-TransportRule'
+            - 'Set-TransportRule'
+        ScriptBlockText|contains:
+            - 'BlindCopyTo'
+            - 'CopyTo'
+            - 'RedirectMessageTo'
+    condition: 1 of selection_*
+falsepositives:
+    - Legitimate mail flow rules configured by Exchange administrators
+    - User-configured forwarding for personal use
+level: medium
+---
+title: Hide Artifacts - Resource Fork or ADS Used to Hide Executable Content
+id: d2e3f4a5-b6c7-8901-defa-901234567890
+status: experimental
+description: |
+    Detects creation of NTFS Alternate Data Streams (ADS) containing executable
+    content (T1564.004 / T1564.009). Adversaries store payloads in ADS attached to
+    innocuous files to hide them from directory listings and basic file scanners.
+    Zone.Identifier is the most commonly seen ADS, but custom stream names are used
+    to hide malware. Streams containing MZ headers or Base64-encoded PE files are
+    high-fidelity indicators.
+references:
+    - https://attack.mitre.org/techniques/T1564/004/
+    - https://attack.mitre.org/techniques/T1564/009/
+    - https://posts.specterops.io/host-based-threat-modeling-indicator-design-a9dbbb53d5ea
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1564.004
+    - attack.t1564.009
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_ads_create:
+        Image|endswith:
+            - '\cmd.exe'
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|re: '(?i)>\s*[^\s]+:[^\s\\/:*?"<>|]+'
+    selection_ads_known_tools:
+        Image|endswith:
+            - '\streams.exe'
+            - '\streams64.exe'
+        CommandLine|contains: '-s'
+    selection_ps_ads:
+        ScriptBlockText|re: '(?i)Set-Content\s+.+-Stream\s+|Add-Content\s+.+-Stream\s+'
+    condition: 1 of selection_*
+falsepositives:
+    - Zone.Identifier stream creation by browsers (normal — filter by stream name)
+    - Software that uses ADS for legitimate metadata
+level: medium
+---
+title: Hide Artifacts - Portable Executable Hidden in Image File (Polyglot)
+id: e3f4a5b6-c7d8-9012-efab-012345678901
+status: experimental
+description: |
+    Detects patterns consistent with creating polyglot files — valid image files
+    that also contain functional PE/shellcode (T1564.012). Tools like Invoke-PSImage
+    embed PowerShell scripts in pixel data of PNG files; other tools concatenate
+    a valid JPEG header with a PE binary. These files pass image validation checks
+    but execute as scripts/binaries when processed by the right parser.
+references:
+    - https://attack.mitre.org/techniques/T1564/012/
+    - https://github.com/peewpw/Invoke-PSImage
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1564.012
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging'
+detection:
+    selection_invoke_psimage:
+        ScriptBlockText|contains:
+            - 'Invoke-PSImage'
+            - 'Get-PixelString'
+            - 'Get-LSBString'
+        ScriptBlockText|contains:
+            - '.png'
+            - '.jpg'
+            - '.bmp'
+    selection_iex_from_image:
+        ScriptBlockText|contains:
+            - 'Invoke-Expression'
+            - 'IEX'
+        ScriptBlockText|re: '(?i)Get-Content\s+.*\.(png|jpg|bmp|gif|tiff)'
+    condition: 1 of selection_*
+falsepositives:
+    - Steganography research tools
+level: high

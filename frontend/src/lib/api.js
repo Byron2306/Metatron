@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 const rawBackendUrl = process.env.REACT_APP_BACKEND_URL?.trim();
 
 const resolvedBackendUrl = (() => {
@@ -22,3 +24,18 @@ const resolvedBackendUrl = (() => {
 
 export const BACKEND_BASE_URL = resolvedBackendUrl;
 export const API_ROOT = resolvedBackendUrl ? `${resolvedBackendUrl}/api` : '/api';
+
+const apiClient = axios.create({
+  baseURL: API_ROOT,
+});
+
+apiClient.interceptors.request.use((config) => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = config.headers.Authorization || `Bearer ${token}`;
+  }
+  return config;
+});
+
+export default apiClient;

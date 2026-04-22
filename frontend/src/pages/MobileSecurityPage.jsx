@@ -39,6 +39,7 @@ const MobileSecurityPage = () => {
   const [appAnalyses, setAppAnalyses] = useState([]);
   const [policies, setPolicies] = useState({});
   const [loading, setLoading] = useState(true);
+  const [useDemo, setUseDemo] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   
   const [deviceForm, setDeviceForm] = useState({
@@ -63,6 +64,66 @@ const MobileSecurityPage = () => {
   useEffect(() => {
     fetchData();
   }, [token]);
+
+  const demoMobileData = {
+    stats: {
+      total_devices: 12,
+      active_threats: 4,
+      by_status: {
+        compliant: 7,
+        non_compliant: 3,
+        at_risk: 1,
+        compromised: 1,
+      },
+      by_platform: {
+        android: 8,
+        ios: 4,
+      },
+      features: {
+        app_scanning: true,
+        jailbreak_detection: true,
+        secure_network_monitoring: true,
+        container_policy: true,
+      },
+      app_analyses: 21,
+    },
+    dashboard: {
+      compliance_overview: {
+        compliant: 7,
+        non_compliant: 3,
+        at_risk: 1,
+        compromised: 1,
+      },
+      at_risk_devices: [
+        { device_id: 'demo-android-01', device_name: 'Pixel 8 Pro', platform: 'android', risk_score: 0.71, compliance_status: 'at_risk', last_seen: '2026-04-22T09:12:00Z' },
+        { device_id: 'demo-ios-02', device_name: 'iPhone 15', platform: 'ios', risk_score: 0.65, compliance_status: 'non_compliant', last_seen: '2026-04-22T08:50:00Z' }
+      ],
+      recent_threats: [
+        { threat_id: 'demo-threat-1', title: 'Sideloaded app detected', severity: 'high', device_name: 'Pixel 8 Pro', detected_at: '2026-04-22T09:08:00Z' },
+        { threat_id: 'demo-threat-2', title: 'Jailbreak indicator found', severity: 'critical', device_name: 'iPhone 15', detected_at: '2026-04-22T08:45:00Z' }
+      ]
+    },
+    devices: [
+      { device_id: 'demo-android-01', device_name: 'Pixel 8 Pro', platform: 'android', os_version: '14', model: 'Pixel 8 Pro', serial_number: 'ABC123DEFG', risk_score: 0.71, compliance_score: 72, status: 'at_risk' },
+      { device_id: 'demo-ios-02', device_name: 'iPhone 15', platform: 'ios', os_version: '17.1', model: 'iPhone 15', serial_number: 'XYZ789KLMN', risk_score: 0.65, compliance_score: 68, status: 'non_compliant' }
+    ],
+    threats: [
+      { threat_id: 'demo-threat-1', title: 'Sideloaded app detected', severity: 'high', device_name: 'Pixel 8 Pro', detected_at: '2026-04-22T09:08:00Z', is_resolved: false },
+      { threat_id: 'demo-threat-2', title: 'Jailbreak indicator found', severity: 'critical', device_name: 'iPhone 15', detected_at: '2026-04-22T08:45:00Z', is_resolved: false }
+    ],
+    appAnalyses: [
+      { analysis_id: 'demo-app-1', package_name: 'com.unofficial.mod', app_name: 'Game Plus', risk_level: 'high', platform: 'android', issues: ['sideloaded package', 'dangerous permissions'] },
+      { analysis_id: 'demo-app-2', package_name: 'com.spyware.hidden', app_name: 'Stealth Tracker', risk_level: 'critical', platform: 'ios', issues: ['location tracking', 'background access'] }
+    ],
+    policies: {
+      default: {
+        name: 'Default Security Policy',
+        require_passcode: true,
+        require_encryption: true,
+        allow_jailbreak: false,
+      }
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -97,6 +158,7 @@ const MobileSecurityPage = () => {
       }
     } catch (error) {
       console.error('Failed to fetch mobile security data:', error);
+      setUseDemo(true);
     } finally {
       setLoading(false);
     }
@@ -221,6 +283,24 @@ const MobileSecurityPage = () => {
 
   const getPlatformIcon = (platform) => platform === 'ios' ? '🍎' : '🤖';
 
+  const hasMobileData = Boolean(
+    (stats && (
+      (stats.total_devices || 0) > 0 ||
+      (stats.active_threats || 0) > 0 ||
+      (stats.app_analyses || 0) > 0
+    )) ||
+    devices.length ||
+    threats.length ||
+    appAnalyses.length
+  );
+
+  const displayStats = !hasMobileData || useDemo ? demoMobileData.stats : stats || demoMobileData.stats;
+  const displayDashboard = !hasMobileData || useDemo ? demoMobileData.dashboard : dashboard || demoMobileData.dashboard;
+  const displayDevices = !hasMobileData || useDemo ? demoMobileData.devices : devices;
+  const displayThreats = !hasMobileData || useDemo ? demoMobileData.threats : threats;
+  const displayAppAnalyses = !hasMobileData || useDemo ? demoMobileData.appAnalyses : appAnalyses;
+  const displayPolicies = !hasMobileData || useDemo ? demoMobileData.policies : policies;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -255,7 +335,7 @@ const MobileSecurityPage = () => {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">Total Devices</p>
-                  <p className="text-2xl font-bold text-white">{stats?.total_devices || 0}</p>
+                  <p className="text-2xl font-bold text-white">{displayStats?.total_devices || 0}</p>
                 </div>
               </div>
             </CardContent>
@@ -269,7 +349,7 @@ const MobileSecurityPage = () => {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">Active Threats</p>
-                  <p className="text-2xl font-bold text-white">{stats?.active_threats || 0}</p>
+                  <p className="text-2xl font-bold text-white">{displayStats?.active_threats || 0}</p>
                 </div>
               </div>
             </CardContent>
@@ -283,7 +363,7 @@ const MobileSecurityPage = () => {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">Compliant</p>
-                  <p className="text-2xl font-bold text-white">{stats?.by_status?.compliant || 0}</p>
+                  <p className="text-2xl font-bold text-white">{displayStats?.by_status?.compliant || 0}</p>
                 </div>
               </div>
             </CardContent>
@@ -297,7 +377,7 @@ const MobileSecurityPage = () => {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">At Risk</p>
-                  <p className="text-2xl font-bold text-white">{(stats?.by_status?.at_risk || 0) + (stats?.by_status?.compromised || 0)}</p>
+                  <p className="text-2xl font-bold text-white">{(displayStats?.by_status?.at_risk || 0) + (displayStats?.by_status?.compromised || 0)}</p>
                 </div>
               </div>
             </CardContent>
@@ -311,7 +391,7 @@ const MobileSecurityPage = () => {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">Apps Analyzed</p>
-                  <p className="text-2xl font-bold text-white">{stats?.app_analyses || 0}</p>
+                  <p className="text-2xl font-bold text-white">{displayStats?.app_analyses || 0}</p>
                 </div>
               </div>
             </CardContent>
@@ -336,13 +416,13 @@ const MobileSecurityPage = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {stats?.by_platform && Object.entries(stats.by_platform).map(([platform, count]) => (
+                {displayStats?.by_platform && Object.entries(displayStats.by_platform).map(([platform, count]) => (
                   <div key={platform} className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
                     <span className="text-slate-300 flex items-center gap-2">{getPlatformIcon(platform)} {platform.toUpperCase()}</span>
                     <Badge className="bg-blue-500/20 text-blue-400">{count}</Badge>
                   </div>
                 ))}
-                {(!stats?.by_platform || Object.keys(stats.by_platform).length === 0) && (
+                {(!displayStats?.by_platform || Object.keys(displayStats.by_platform).length === 0) && (
                   <p className="text-slate-500 text-center py-4">No devices registered</p>
                 )}
               </CardContent>
@@ -356,7 +436,7 @@ const MobileSecurityPage = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {stats?.features && Object.entries(stats.features).map(([feature, enabled]) => (
+                {displayStats?.features && Object.entries(displayStats.features).map(([feature, enabled]) => (
                   <div key={feature} className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
                     <span className="text-slate-300">{feature.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
                     <Badge className={enabled ? "bg-green-500/20 text-green-400" : "bg-slate-500/20 text-slate-400"}>{enabled ? 'Active' : 'Inactive'}</Badge>
@@ -394,12 +474,12 @@ const MobileSecurityPage = () => {
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <Smartphone className="h-5 w-5 text-blue-400" />
-                  Registered Devices ({devices.length})
+                  Registered Devices ({displayDevices.length})
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3 max-h-[500px] overflow-auto">
-                  {devices.map((device, index) => (
+                  {displayDevices.map((device, index) => (
                     <div key={index} className="p-4 rounded-lg bg-slate-800/50 border border-slate-700">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
@@ -423,7 +503,7 @@ const MobileSecurityPage = () => {
                       </div>
                     </div>
                   ))}
-                  {devices.length === 0 && <p className="text-slate-500 text-center py-8">No devices registered</p>}
+                  {displayDevices.length === 0 && <p className="text-slate-500 text-center py-8">No devices registered</p>}
                 </div>
               </CardContent>
             </Card>
@@ -435,15 +515,15 @@ const MobileSecurityPage = () => {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-red-400" />
-                Active Threats ({threats.length})
+                Active Threats ({displayThreats.length})
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {threats.length === 0 ? (
+              {displayThreats.length === 0 ? (
                 <p className="text-slate-500 text-center py-8">No active threats</p>
               ) : (
                 <div className="space-y-3">
-                  {threats.map((threat, index) => (
+                  {displayThreats.map((threat, index) => (
                     <div key={index} className="p-4 rounded-lg bg-slate-800/50 border border-slate-700">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-white font-medium">{threat.title}</span>
@@ -534,19 +614,19 @@ const MobileSecurityPage = () => {
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 rounded-lg bg-green-500/10 text-center">
-                    <p className="text-3xl font-bold text-green-400">{dashboard?.compliance_overview?.compliant || 0}</p>
+                    <p className="text-3xl font-bold text-green-400">{displayDashboard?.compliance_overview?.compliant || 0}</p>
                     <p className="text-sm text-slate-400">Compliant</p>
                   </div>
                   <div className="p-4 rounded-lg bg-yellow-500/10 text-center">
-                    <p className="text-3xl font-bold text-yellow-400">{dashboard?.compliance_overview?.non_compliant || 0}</p>
+                    <p className="text-3xl font-bold text-yellow-400">{displayDashboard?.compliance_overview?.non_compliant || 0}</p>
                     <p className="text-sm text-slate-400">Non-Compliant</p>
                   </div>
                   <div className="p-4 rounded-lg bg-orange-500/10 text-center">
-                    <p className="text-3xl font-bold text-orange-400">{dashboard?.compliance_overview?.at_risk || 0}</p>
+                    <p className="text-3xl font-bold text-orange-400">{displayDashboard?.compliance_overview?.at_risk || 0}</p>
                     <p className="text-sm text-slate-400">At Risk</p>
                   </div>
                   <div className="p-4 rounded-lg bg-red-500/10 text-center">
-                    <p className="text-3xl font-bold text-red-400">{dashboard?.compliance_overview?.compromised || 0}</p>
+                    <p className="text-3xl font-bold text-red-400">{displayDashboard?.compliance_overview?.compromised || 0}</p>
                     <p className="text-sm text-slate-400">Compromised</p>
                   </div>
                 </div>
@@ -561,7 +641,7 @@ const MobileSecurityPage = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {policies.default && Object.entries(policies.default).filter(([key]) => key !== 'name' && key !== 'blocked_apps' && key !== 'risky_apps').map(([key, value]) => (
+                {displayPolicies.default && Object.entries(displayPolicies.default).filter(([key]) => key !== 'name' && key !== 'blocked_apps' && key !== 'risky_apps').map(([key, value]) => (
                   <div key={key} className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
                     <span className="text-slate-300">{key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
                     {typeof value === 'boolean' ? (

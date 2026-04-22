@@ -148,6 +148,7 @@ class Playbook:
     is_template: bool = False
     template_id: Optional[str] = None  # If cloned from a template
     tags: List[str] = field(default_factory=list)
+    mitre_techniques: List[str] = field(default_factory=list)
     state_transition_log: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
@@ -172,6 +173,7 @@ class PlaybookTemplate:
     trigger_conditions: Dict[str, Any]
     steps: List[PlaybookStep]
     tags: List[str]
+    mitre_techniques: List[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     use_count: int = 0
     is_official: bool = False  # Official templates from the system
@@ -970,6 +972,178 @@ class SOAREngine:
                 )
             ],
             tags=["ai_defense", "goal_persistent", "loop_breaking"]
+        )
+
+        # =====================================================================
+        # SYSTEM EVASION & CREDENTIAL RESPONSE
+        # =====================================================================
+        self.playbooks["ai_sys_evasion_response"] = Playbook(
+            id="ai_sys_evasion_response",
+            name="System Evasion & Credential Response",
+            description="Respond to tool-chain switching and deep system evasion. Audit hijacked modules, revoke suspect tokens, and restore defense posture.",
+            trigger=PlaybookTrigger.TOOL_CHAIN_SWITCHING,
+            trigger_conditions={},
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.COLLECT_FORENSICS,
+                    params={"process_tree": True, "loaded_modules": True, "registry_artifacts": True},
+                    timeout=120,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.KILL_PROCESS,
+                    params={"target": "suspicious_injected", "force": False},
+                    timeout=30,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.UPDATE_FIREWALL,
+                    params={"rule_type": "block", "scope": "lateral_suspect"},
+                    timeout=60,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SYNC_THREAT_INTEL,
+                    params={"query_ttps": True, "credential_focus": True},
+                    timeout=60,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack", "email"], "priority": "high", "template": "sys_evasion"},
+                    timeout=30,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CREATE_TICKET,
+                    params={"category": "defense_evasion", "priority": "P1"},
+                    timeout=30,
+                ),
+            ],
+            tags=["defense_evasion", "credential_access", "system_manipulation"],
+            mitre_techniques=[
+                "T1003.005", "T1110.001", "T1556", "T1558.002",
+                "T1055.001", "T1127.001",
+                "T1078.003", "T1134.001", "T1484",
+                "T1222", "T1497", "T1497.003", "T1531", "T1553",
+                "T1564", "T1574.001", "T1574.006", "T1601.001",
+                "T1056.001", "T1538",
+                "T1563",
+                "T1542.002", "T1547.006",
+                "T1592.002",
+                "T1012",
+                "T1546.003", "T1546.015",
+            ],
+        )
+
+        # =====================================================================
+        # CLOUD / CONTAINER INFRASTRUCTURE RESPONSE
+        # =====================================================================
+        self.playbooks["ai_cloud_infra_response"] = Playbook(
+            id="ai_cloud_infra_response",
+            name="Cloud / Container Infrastructure Response",
+            description="Respond to cloud-hosted and container-based attack patterns. Revoke cloud credentials, isolate containers, and scrub misconfigured resources.",
+            trigger=PlaybookTrigger.ADAPTIVE_ATTACK_DETECTED,
+            trigger_conditions={"environment": ["cloud", "container", "saas"]},
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.COLLECT_FORENSICS,
+                    params={"cloud_logs": True, "container_inspect": True},
+                    timeout=120,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ISOLATE_ENDPOINT,
+                    params={"scope": "container", "preserve_state": True},
+                    timeout=60,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.BLOCK_IP,
+                    params={"scope": "cloud_egress", "duration": 86400},
+                    timeout=30,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.UPDATE_FIREWALL,
+                    params={"rule_type": "block", "scope": "cloud_subnet"},
+                    timeout=60,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack", "email"], "priority": "critical", "template": "cloud_infra"},
+                    timeout=30,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CREATE_TICKET,
+                    params={"category": "cloud_compromise", "priority": "P0", "escalate_to_ciso": True},
+                    timeout=30,
+                ),
+            ],
+            tags=["cloud", "container", "infrastructure", "saas"],
+            mitre_techniques=[
+                "T1609", "T1610", "T1612", "T1613", "T1614", "T1619",
+                "T1647", "T1648", "T1651",
+                "T1606", "T1652", "T1654", "T1656", "T1657",
+                "T1659", "T1665", "T1669",
+                "T1554",
+                "T1538", "T1530", "T1537", "T1102", "T1135", "T1592.002",
+                "T1531",
+            ],
+        )
+
+        # =====================================================================
+        # FIRMWARE / PERSISTENT BOOTKIT RESPONSE
+        # =====================================================================
+        self.playbooks["ai_firmware_persist_response"] = Playbook(
+            id="ai_firmware_persist_response",
+            name="Firmware & Persistent Bootkit Response",
+            description="Respond to firmware/bootkit persistence. Reimage firmware, enforce secure boot, rotate signing keys.",
+            trigger=PlaybookTrigger.DECEPTION_TOKEN_ACCESS,
+            trigger_conditions={"component": ["firmware", "bootloader", "kernel_module"]},
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.ISOLATE_ENDPOINT,
+                    params={"network": True, "usb": True, "reason": "firmware_compromise"},
+                    timeout=30,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.COLLECT_FORENSICS,
+                    params={"firmware_dump": True, "secure_boot_log": True, "kernel_modules": True},
+                    timeout=180,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SCAN_ENDPOINT,
+                    params={"firmware_scan": True, "rootkit_check": True},
+                    timeout=300,
+                    continue_on_failure=True,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ESCALATE_TO_HUMAN,
+                    params={"reason": "firmware_compromise", "required": True, "expertise_required": "hardware_security"},
+                    timeout=5,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack", "email", "sms"], "priority": "critical", "template": "firmware_bootkit"},
+                    timeout=30,
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CREATE_TICKET,
+                    params={"category": "firmware_compromise", "priority": "P0", "escalate_to_ciso": True},
+                    timeout=30,
+                ),
+            ],
+            tags=["firmware", "bootkit", "persistence", "secure_boot"],
+            mitre_techniques=[
+                "T1542", "T1542.001", "T1542.002", "T1542.003",
+                "T1547.006",
+                "T1485", "T1489", "T1490", "T1491", "T1491.002",
+                "T1495", "T1496", "T1561", "T1565", "T1565.001",
+                "T1102", "T1135",
+                "T1531",
+            ],
         )
 
     def get_playbooks(self) -> List[Dict]:

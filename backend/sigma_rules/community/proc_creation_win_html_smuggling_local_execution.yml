@@ -1,0 +1,49 @@
+title: HTML Smuggling - Local HTML/HTA File Direct Execution
+id: e45f91c3-9f2b-4f40-b14b-5c03d0364b18
+status: experimental
+description: |
+    Detects execution of a local HTML or HTA file via mshta.exe or a shell invocation
+    rather than through a browser URL. HTML smuggling payloads are typically delivered
+    as email attachments or downloaded files and then executed directly, assembling a
+    malicious payload (ISO, EXE, ZIP) in the Downloads folder via JavaScript Blob API
+    without a visible network request.
+references:
+    - https://attack.mitre.org/techniques/T1027/006/
+    - https://outflank.nl/blog/2018/08/14/html-smuggling-explained/
+    - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1027.006/T1027.006.yaml
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1027.006
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_mshta_local:
+        Image|endswith: '\mshta.exe'
+        CommandLine|re: '(?i)(\\Users\\|\\Temp\\|\\Downloads\\|\\AppData\\|\\Desktop\\|\\Documents\\).*\.(html?|hta)'
+    selection_shell_html:
+        ParentImage|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+            - '\cmd.exe'
+            - '\wscript.exe'
+        Image|endswith:
+            - '\mshta.exe'
+            - '\wscript.exe'
+        CommandLine|contains:
+            - '.html'
+            - '.htm'
+            - '.hta'
+    filter_browser_url:
+        CommandLine|contains:
+            - 'http://'
+            - 'https://'
+            - 'about:'
+            - 'res://'
+    condition: (selection_mshta_local or selection_shell_html) and not filter_browser_url
+falsepositives:
+    - HTA-based installers or legitimate administrative tools
+    - Enterprise software deploying via HTA
+level: medium

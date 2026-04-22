@@ -766,7 +766,7 @@ async def get_pending_commands(current_user: dict = Depends(get_current_user)):
     """Get all commands pending approval"""
     db = get_db()
     commands = await db.agent_commands.find(
-        {"status": "pending_approval"},
+        {"status": {"$in": ["pending_approval", "gated_pending_approval"]}},
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     
@@ -792,7 +792,8 @@ async def approve_command(
         raise HTTPException(status_code=404, detail="Command not found")
 
     if command["status"] != "pending_approval":
-        raise HTTPException(status_code=400, detail=f"Command already {command['status']}")
+        if command["status"] != "gated_pending_approval":
+            raise HTTPException(status_code=400, detail=f"Command already {command['status']}")
 
     new_status = "approved" if approval.approved else "rejected"
 
@@ -801,7 +802,7 @@ async def approve_command(
     transitioned = await _guarded_command_transition(
         db,
         command_id=command_id,
-        expected_statuses=["pending_approval"],
+        expected_statuses=["pending_approval", "gated_pending_approval"],
         next_status=new_status,
         actor=approved_by or "unknown",
         reason="manual command approval decision",
@@ -882,6 +883,7 @@ async def approve_command(
 async def get_command_history(
     agent_id: Optional[str] = None,
     limit: int = 50,
+    include_transitions: bool = False,
     current_user: dict = Depends(get_current_user)
 ):
     """Get command execution history"""
@@ -891,9 +893,38 @@ async def get_command_history(
     if agent_id:
         query["agent_id"] = agent_id
     
-    commands = await db.agent_commands.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    projection = {"_id": 0}
+    if not include_transitions:
+        projection["state_transition_log"] = 0
+    commands = await db.agent_commands.find(query, projection).sort("created_at", -1).to_list(limit)
     
     return {"commands": commands, "count": len(commands)}
+
+
+@router.get("/stats")
+async def get_command_stats(current_user: dict = Depends(get_current_user)):
+    """Return aggregate command counts so dashboards don't infer from truncated history lists."""
+    _ = current_user
+    db = get_db()
+    pipeline = [
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    rows = await db.agent_commands.aggregate(pipeline).to_list(50)
+    by_status = {str(r.get("_id") or "unknown"): int(r.get("count") or 0) for r in rows}
+    total = sum(by_status.values())
+    executed = int(by_status.get("completed", 0))
+    pending_approval = int(by_status.get("pending_approval", 0) + by_status.get("gated_pending_approval", 0))
+    queued = int(by_status.get("queued_for_pickup", 0) + by_status.get("sent_to_agent", 0) + by_status.get("approved", 0))
+    failed = int(by_status.get("failed", 0) + by_status.get("rejected", 0))
+    return {
+        "total": total,
+        "executed": executed,
+        "pending_approval": pending_approval,
+        "queued": queued,
+        "failed": failed,
+        "by_status": by_status,
+    }
 
 
 @router.post("/{command_id}/result")
@@ -1100,13 +1131,35 @@ async def get_all_agent_status(current_user: dict = Depends(get_current_user)):
     
     agents = await db.agent_status.find({}, {"_id": 0}).to_list(100)
     connected = await db.connected_agents.find({}, {"_id": 0}).to_list(100)
+
+    # Fallback: if legacy agent_status is empty, use unified_agents so the
+    # Command Center can render a meaningful inventory.
+    if not agents:
+        unified = await db.unified_agents.find({}, {"_id": 0}).to_list(1000)
+        agents = []
+        for a in unified:
+            agent_id = a.get("agent_id")
+            if not agent_id:
+                continue
+            agents.append(
+                {
+                    "agent_id": agent_id,
+                    "hostname": a.get("hostname") or agent_id,
+                    "os": a.get("platform") or a.get("os_type") or "unknown",
+                    "ip_address": a.get("ip_address") or a.get("last_ip"),
+                    "security_status": a.get("security_status") or {},
+                    "last_scan": a.get("last_scan"),
+                    "status": a.get("status") or "offline",
+                    "last_heartbeat": a.get("last_heartbeat"),
+                }
+            )
     
     # Merge status
     connected_map = {a["agent_id"]: a for a in connected}
     for agent in agents:
         conn_info = connected_map.get(agent["agent_id"], {})
         agent["connected"] = conn_info.get("status") == "connected"
-        agent["last_heartbeat"] = conn_info.get("last_heartbeat")
+        agent["last_heartbeat"] = conn_info.get("last_heartbeat") or agent.get("last_heartbeat")
     
     return {"agents": agents, "count": len(agents)}
 

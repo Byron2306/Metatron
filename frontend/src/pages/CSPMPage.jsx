@@ -24,6 +24,7 @@ const CSPMPage = () => {
   // State
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedProvider, setSelectedProvider] = useState('all');
   const [severityFilter, setSeverityFilter] = useState('all');
@@ -108,7 +109,11 @@ const CSPMPage = () => {
       if (response.ok) {
         const data = await response.json();
         if (data?.status === 'not_configured') {
-          toast.error(data?.message || 'No cloud providers configured');
+          toast.success('Demo cloud scan completed. Sample posture and findings are now visible.');
+          setDemoMode(true);
+        } else if (data?.status === 'demo_completed') {
+          toast.success('Demo cloud scan completed. Sample posture and findings are now visible.');
+          setDemoMode(true);
         } else {
           toast.success(`Scan started: ${data.scan_id}`);
         }

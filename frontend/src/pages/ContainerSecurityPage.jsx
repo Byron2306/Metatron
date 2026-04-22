@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { motion } from 'framer-motion';
 import { 
   Container, Search, Shield, AlertTriangle, 
-  CheckCircle, XCircle, Activity, Box, RefreshCw, Eye
+  CheckCircle, XCircle, Activity, Box, RefreshCw, Eye, Radar, Wifi
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -25,6 +25,7 @@ const ContainerSecurityPage = () => {
   const [imageName, setImageName] = useState('');
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [runtimeStatus, setRuntimeStatus] = useState(null);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -32,6 +33,7 @@ const ContainerSecurityPage = () => {
     fetchStats();
     fetchContainers();
     fetchScanHistory();
+    fetchRuntimeStatus();
   }, [token]);
 
   const fetchStats = async () => {
@@ -58,6 +60,15 @@ const ContainerSecurityPage = () => {
       setScanResults(res.data.scans || []);
     } catch (err) {
       console.error('Failed to fetch scan history');
+    }
+  };
+
+  const fetchRuntimeStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/containers/runtime-status`, { headers });
+      setRuntimeStatus(res.data);
+    } catch (err) {
+      console.error('Failed to fetch runtime status');
     }
   };
 
@@ -193,6 +204,83 @@ const ContainerSecurityPage = () => {
           </div>
         </motion.div>
       </div>
+
+      {/* Runtime Security: Falco + Suricata */}
+      <Card className="bg-slate-900/50 border-slate-800">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <Shield className="w-5 h-5 text-purple-400" />
+            Runtime Security Engines
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Falco */}
+            <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Radar className="w-5 h-5 text-rose-400" />
+                  <span className="text-white font-medium">Falco</span>
+                </div>
+                <Badge variant="outline" className={
+                  runtimeStatus?.falco?.running
+                    ? 'text-green-400 border-green-500/30'
+                    : runtimeStatus?.falco?.available === false
+                    ? 'text-slate-400 border-slate-500/30'
+                    : 'text-red-400 border-red-500/30'
+                }>
+                  {runtimeStatus?.falco?.running ? 'Running' : runtimeStatus?.falco?.status || 'Unknown'}
+                </Badge>
+              </div>
+              <p className="text-slate-400 text-sm">Runtime threat detection for containers</p>
+              <p className="text-slate-500 text-xs mt-2">
+                Events captured: {runtimeStatus?.falco?.event_count ?? '—'}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3 border-rose-500/40 text-rose-400 hover:bg-rose-500/10"
+                onClick={fetchRuntimeStatus}
+              >
+                <RefreshCw className="w-3 h-3 mr-1" />
+                Refresh
+              </Button>
+            </div>
+
+            {/* Suricata */}
+            <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Wifi className="w-5 h-5 text-sky-400" />
+                  <span className="text-white font-medium">Suricata</span>
+                </div>
+                <Badge variant="outline" className={
+                  runtimeStatus?.suricata?.running
+                    ? 'text-green-400 border-green-500/30'
+                    : runtimeStatus?.suricata?.available === false
+                    ? 'text-slate-400 border-slate-500/30'
+                    : 'text-red-400 border-red-500/30'
+                }>
+                  {runtimeStatus?.suricata?.running ? 'Running' : runtimeStatus?.suricata?.status || 'Unknown'}
+                </Badge>
+              </div>
+              <p className="text-slate-400 text-sm">Network IDS/IPS for container traffic</p>
+              <p className="text-slate-500 text-xs mt-2">
+                Events captured: {runtimeStatus?.suricata?.event_count ?? '—'}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3 border-sky-500/40 text-sky-400 hover:bg-sky-500/10"
+                onClick={fetchRuntimeStatus}
+              >
+                <RefreshCw className="w-3 h-3 mr-1" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Image Scanner */}
       <Card className="bg-slate-900/50 border-slate-800">

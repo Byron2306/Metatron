@@ -115,19 +115,22 @@ const DashboardPage = () => {
   const navigate = useNavigate();
   const { getAuthHeaders } = useAuth();
   const [stats, setStats] = useState(null);
+  const [timeline, setTimeline] = useState([]);
+  const [timelineSource, setTimelineSource] = useState('unknown');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Seed data first
-        await axios.post(`${API}/dashboard/seed`, {}, { headers: getAuthHeaders() }).catch(() => {});
-        
         // Fetch dashboard stats
-        const response = await axios.get(`${API}/dashboard/stats`, {
-          headers: getAuthHeaders()
-        });
-        setStats(response.data);
+        const [statsRes, timelineRes] = await Promise.all([
+          axios.get(`${API}/dashboard/stats`, { headers: getAuthHeaders() }),
+          axios.get(`${API}/dashboard/timeline`, { headers: getAuthHeaders() }),
+        ]);
+
+        setStats(statsRes.data);
+        setTimeline(timelineRes.data.series || []);
+        setTimelineSource(timelineRes.data.source || 'unknown');
       } catch (error) {
         toast.error('Failed to fetch dashboard data');
         console.error(error);
@@ -140,6 +143,25 @@ const DashboardPage = () => {
     const interval = setInterval(fetchData, 30000); // Refresh every 30s
     return () => clearInterval(interval);
   }, [getAuthHeaders]);
+
+  const seedDemoData = async () => {
+    try {
+      await axios.post(`${API}/dashboard/seed`, {}, { headers: getAuthHeaders() });
+      toast.success('Seeded demo threats/alerts (clearly marked demo)');
+      setLoading(true);
+      const [statsRes, timelineRes] = await Promise.all([
+        axios.get(`${API}/dashboard/stats`, { headers: getAuthHeaders() }),
+        axios.get(`${API}/dashboard/timeline`, { headers: getAuthHeaders() }),
+      ]);
+      setStats(statsRes.data);
+      setTimeline(timelineRes.data.series || []);
+      setTimelineSource(timelineRes.data.source || 'unknown');
+    } catch (e) {
+      toast.error('Failed to seed demo data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -162,12 +184,14 @@ const DashboardPage = () => {
 
   const COLORS = ['#EF4444', '#F59E0B', '#FBBF24', '#10B981'];
 
-  // Simulated time series data for the area chart
-  const timeSeriesData = Array.from({ length: 24 }, (_, i) => ({
-    time: `${String(i).padStart(2, '0')}:00`,
-    threats: Math.floor(Math.random() * 15) + 5,
-    blocked: Math.floor(Math.random() * 12) + 3,
-  }));
+  const simulated = !timeline || timeline.length === 0;
+  const timeSeriesData = simulated
+    ? Array.from({ length: 24 }, (_, i) => ({
+        time: `${String(i).padStart(2, '0')}:00`,
+        threats: 0,
+        blocked: 0,
+      }))
+    : timeline;
 
   return (
     <div className="p-6 lg:p-8 space-y-6" data-testid="dashboard-page">
@@ -193,6 +217,17 @@ const DashboardPage = () => {
           </Button>
         </div>
       </div>
+
+      {stats?.total_threats === 0 && (
+        <div className="p-4 rounded border border-amber-500/30 bg-amber-500/10 text-amber-200 text-sm flex items-center justify-between gap-4">
+          <div>
+            No threats/alerts have been recorded yet. For a UI walkthrough, you can seed demo data (clearly labeled as demo).
+          </div>
+          <Button onClick={seedDemoData} className="bg-amber-600 hover:bg-amber-700 text-white">
+            Seed Demo Data
+          </Button>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -238,7 +273,12 @@ const DashboardPage = () => {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-mono font-semibold text-white">Threat Activity</h3>
-              <p className="text-xs text-slate-400">24-hour threat detection timeline</p>
+              <p className="text-xs text-slate-400">
+                24-hour threat detection timeline{' '}
+                <span className="text-slate-500">
+                  ({simulated ? 'no data yet' : timelineSource})
+                </span>
+              </p>
             </div>
             <div className="flex items-center gap-4 text-xs">
               <div className="flex items-center gap-2">

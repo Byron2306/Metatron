@@ -63,6 +63,7 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 # MongoDB connection - will be set by main app
 db = None
@@ -151,6 +152,41 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+async def get_optional_current_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+):
+    """Return the current user when an Authorization header is present, else None.
+
+    This is used for endpoints that support either user auth (JWT) or machine-to-machine
+    auth (internal token headers).
+    """
+    if credentials is None:
+        return None
+    try:
+        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user = await db.users.find_one({"id": payload.get("user_id")}, {"_id": 0}) if db is not None else None
+        if not user:
+            return None
+
+        remote_admin_only = os.environ.get("REMOTE_ADMIN_ONLY", "true").strip().lower() in {"1", "true", "yes", "on"}
+        if remote_admin_only and not _is_local_request(request):
+            allowed_admin_emails = {
+                e.strip().lower()
+                for e in os.environ.get("REMOTE_ADMIN_EMAILS", "").split(",")
+                if e.strip()
+            }
+            if allowed_admin_emails:
+                if user.get("email", "").lower() not in allowed_admin_emails:
+                    return None
+            elif user.get("role", "viewer") != "admin":
+                return None
+
+        return user
+    except Exception:
+        return None
+
+
 # ============ ROLE-BASED ACCESS CONTROL ============
 
 ROLES = {
@@ -158,6 +194,60 @@ ROLES = {
     "analyst": ["read", "write", "export_reports"],
     "viewer": ["read"],
 }
+
+
+def has_permission(user: Optional[dict], permission: str) -> bool:
+    if not user:
+        return False
+    user_role = user.get("role", "viewer")
+    return permission in ROLES.get(user_role, [])
+
+
+def optional_machine_token(
+    *,
+    env_keys: List[str],
+    header_names: List[str],
+    subject: str = "machine",
+):
+    """Optional internal auth via shared secret header.
+
+    - If none of the headers are present -> returns None (let user auth handle it).
+    - If a header is present but no env secret is configured -> 503 (so callers can retry with JWT).
+    - If a header is present but does not match -> 401.
+    - If matches -> returns a small auth dict.
+    """
+
+    header_names_lc = [h.lower() for h in (header_names or []) if h]
+    env_keys_clean = [k for k in (env_keys or []) if k]
+
+    async def _dep(request: Request) -> Optional[Dict[str, Any]]:
+        provided = None
+        for name in header_names_lc:
+            if name in request.headers:
+                provided = request.headers.get(name)
+                break
+        if not provided:
+            return None
+
+        configured = None
+        configured_key = None
+        for k in env_keys_clean:
+            val = os.environ.get(k, "").strip()
+            if val:
+                configured = val
+                configured_key = k
+                break
+
+        if not configured:
+            raise HTTPException(status_code=503, detail="machine_token_not_configured")
+
+        if provided.strip() != configured:
+            raise HTTPException(status_code=401, detail="invalid_machine_token")
+
+        return {"subject": subject, "env_key": configured_key, "auth": "machine_token"}
+
+    return _dep
+
 def check_permission(required_permission: str):
     async def permission_checker(current_user: dict = Depends(get_current_user)):
         user_role = current_user.get("role", "viewer")

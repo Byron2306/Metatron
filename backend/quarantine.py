@@ -856,6 +856,81 @@ def advance_pipeline_stage(
     logger.info(f"Quarantine pipeline: {entry_id} advanced from {old_stage} to {new_stage}")
     return entry
 
+# -----------------------------------------------------------------------------
+# Metadata ingest (for remote agents / demos)
+# -----------------------------------------------------------------------------
+
+def ingest_quarantine_metadata(
+    *,
+    original_path: str,
+    threat_name: str,
+    threat_type: str = "unknown",
+    detection_source: str = "remote_agent",
+    agent_id: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    file_hash_sha256: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> QuarantineEntry:
+    """Create a quarantine entry when the backend cannot access the original file.
+
+    Local agents often quarantine on-device and only report metadata to the
+    server. The port-3000 Quarantine page expects entries to exist; without this
+    helper, the UI looks empty even when the agent performed actions.
+    """
+    index = _load_index()
+    now = datetime.now(timezone.utc).isoformat()
+
+    entry_id = hashlib.md5(f"{original_path}{now}{threat_name}".encode("utf-8", errors="ignore")).hexdigest()[:12]
+    safe_name = os.path.basename(original_path or "artifact") or "artifact"
+    date_dir = datetime.now().strftime("%Y-%m-%d")
+    quarantine_dir = os.path.join(QUARANTINE_BASE_DIR, "ingested", date_dir)
+    os.makedirs(quarantine_dir, exist_ok=True)
+    meta_filename = f"{entry_id}_{safe_name}.metadata.json"
+    meta_path = os.path.join(quarantine_dir, meta_filename)
+
+    sha256_value = (file_hash_sha256 or "").strip()
+    if not sha256_value:
+        sha256_value = hashlib.sha256(f"{original_path}{now}".encode("utf-8", errors="ignore")).hexdigest()
+
+    entry = QuarantineEntry(
+        id=entry_id,
+        original_path=original_path,
+        quarantine_path=meta_path,
+        file_hash=sha256_value,
+        file_hash_md5=None,
+        file_hash_sha1=None,
+        file_size=0,
+        file_type=None,
+        mime_type=None,
+        threat_name=threat_name,
+        threat_type=threat_type,
+        detection_source=detection_source,
+        agent_id=agent_id,
+        agent_name=agent_name,
+        quarantined_at=now,
+        status=PipelineStage.QUARANTINED.value,
+        pipeline_stage=PipelineStage.QUARANTINED.value,
+        metadata=metadata or {},
+    )
+    _append_state_transition(
+        entry,
+        from_status=None,
+        to_status=PipelineStage.QUARANTINED.value,
+        actor=f"agent:{agent_id}" if agent_id else "system:ingest",
+        reason="quarantine metadata ingested",
+    )
+    index[entry_id] = entry
+    _save_index(index)
+
+    try:
+        with open(meta_path, "w", encoding="utf-8") as fh:
+            json.dump(asdict(entry), fh, indent=2)
+    except Exception:
+        # Index durability is the primary path; meta file is best-effort.
+        pass
+
+    return entry
+
 def add_scan_result(
     entry_id: str,
     scanner: str,

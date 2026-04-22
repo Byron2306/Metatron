@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional, Dict, List
 from pydantic import BaseModel
 
-from .dependencies import get_current_user, check_permission, logger
+from .dependencies import get_current_user, check_permission, logger, get_db
 from soar_engine import soar_engine, PlaybookStatus
 
 router = APIRouter(prefix="/soar", tags=["SOAR"])
@@ -51,7 +51,26 @@ class CloneTemplateRequest(BaseModel):
 @router.get("/stats")
 async def get_soar_stats(current_user: dict = Depends(get_current_user)):
     """Get SOAR engine statistics"""
-    return soar_engine.get_stats()
+    stats = soar_engine.get_stats()
+    # Supplement in-memory stats with persisted MongoDB data when the engine
+    # has been freshly started and execution history is empty.
+    if stats.get("total_executions", 0) == 0:
+        try:
+            db = get_db()
+            if db is not None:
+                db_total = await db.soar_executions.count_documents({})
+                if db_total > 0:
+                    db_success = await db.soar_executions.count_documents({"status": "completed"})
+                    db_failed = await db.soar_executions.count_documents({"status": "failed"})
+                    db_partial = await db.soar_executions.count_documents({"status": "partial"})
+                    stats["total_executions"] = db_total
+                    stats["executions_completed"] = db_success
+                    stats["executions_failed"] = db_failed
+                    stats["executions_partial"] = db_partial
+                    stats["success_rate"] = round(db_success / db_total * 100, 1) if db_total else 0
+        except Exception:
+            pass
+    return stats
 
 @router.get("/playbooks")
 async def list_playbooks(current_user: dict = Depends(get_current_user)):

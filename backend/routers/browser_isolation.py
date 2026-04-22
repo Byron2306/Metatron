@@ -1,7 +1,8 @@
 """
 Browser Isolation Router - Secure remote browsing
 """
-from fastapi import APIRouter, HTTPException, Depends
+import asyncio
+from fastapi import APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from typing import Optional, List
 from pydantic import BaseModel
 
@@ -50,6 +51,30 @@ async def get_session(session_id: str, current_user: dict = Depends(get_current_
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
+
+
+@router.get("/sessions/{session_id}/stream-info")
+async def get_session_stream_info(session_id: str, current_user: dict = Depends(get_current_user)):
+    """Get stream metadata for a browser isolation session"""
+    session = browser_isolation_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "session_id": session_id,
+        "isolation_mode": session.get("isolation_mode"),
+        "stream_type": "pixel_websocket",
+        "stream_path": f"/api/browser-isolation/ws/stream/{session_id}",
+        "fps": 2,
+    }
+
+
+@router.get("/sessions/{session_id}/frame")
+async def get_session_stream_frame(session_id: str, current_user: dict = Depends(get_current_user)):
+    """Get a single pixel frame (polling fallback transport)."""
+    frame = browser_isolation_service.get_stream_frame(session_id)
+    if not frame:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return frame
 
 
 @router.post("/sessions")
@@ -161,3 +186,20 @@ async def get_isolation_modes(current_user: dict = Depends(get_current_user)):
             }
         ]
     }
+
+
+@router.websocket("/ws/stream/{session_id}")
+async def stream_isolated_session(websocket: WebSocket, session_id: str):
+    """Pixel stream transport for browser isolation sessions"""
+    await websocket.accept()
+    try:
+        while True:
+            frame = browser_isolation_service.get_stream_frame(session_id)
+            if not frame:
+                await websocket.send_json({"type": "error", "error": "session_not_found"})
+                return
+
+            await websocket.send_json(frame)
+            await asyncio.sleep(0.5)
+    except WebSocketDisconnect:
+        return

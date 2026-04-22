@@ -25,6 +25,7 @@ import logging
 import re
 import json
 import os
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -820,6 +821,65 @@ class BrowserIsolationService:
                 "file_scanning": True,
                 "domain_age_check": True
             }
+        }
+
+    def get_stream_frame(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Build a lightweight pixel stream frame payload for a session."""
+        session = self.sessions.get(session_id)
+        if not session or not session.is_active:
+            return None
+
+        url_display = (session.original_url or "")[:72]
+        level = session.threat_level.value
+        level_color = {
+            "safe": "#22c55e",
+            "low": "#3b82f6",
+            "medium": "#f59e0b",
+            "high": "#f97316",
+            "malicious": "#ef4444",
+        }.get(level, "#3b82f6")
+
+        now = datetime.now(timezone.utc)
+        stamp = now.strftime("%Y-%m-%d %H:%M:%S UTC")
+        seed = int(now.timestamp() * 2)
+        rng = random.Random(f"{session_id}:{seed}")
+
+        rects = []
+        for _ in range(36):
+            x = rng.randint(0, 1180)
+            y = rng.randint(70, 640)
+            w = rng.randint(12, 50)
+            h = rng.randint(8, 26)
+            a = rng.uniform(0.05, 0.22)
+            rects.append(
+                f"<rect x='{x}' y='{y}' width='{w}' height='{h}' fill='white' opacity='{a:.3f}'/>"
+            )
+
+        svg = (
+            "<svg xmlns='http://www.w3.org/2000/svg' width='1280' height='720' viewBox='0 0 1280 720'>"
+            "<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>"
+            "<stop offset='0%' stop-color='#0f172a'/><stop offset='100%' stop-color='#1e293b'/>"
+            "</linearGradient></defs>"
+            "<rect width='1280' height='720' fill='url(#g)'/>"
+            "<rect x='0' y='0' width='1280' height='44' fill='#020617'/>"
+            f"<circle cx='22' cy='22' r='6' fill='{level_color}'/>"
+            "<text x='38' y='28' fill='#e2e8f0' font-family='monospace' font-size='18'>SERAPH PIXEL STREAM</text>"
+            f"<text x='365' y='28' fill='#94a3b8' font-family='monospace' font-size='14'>{url_display}</text>"
+            f"<text x='1040' y='28' fill='{level_color}' font-family='monospace' font-size='14'>{level.upper()}</text>"
+            f"<text x='20' y='694' fill='#94a3b8' font-family='monospace' font-size='14'>{stamp}</text>"
+            + "".join(rects)
+            + "</svg>"
+        )
+
+        encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        return {
+            "type": "frame",
+            "session_id": session_id,
+            "format": "image/svg+xml",
+            "encoding": "base64",
+            "data": encoded,
+            "timestamp": now.isoformat(),
+            "threat_level": level,
         }
 
 

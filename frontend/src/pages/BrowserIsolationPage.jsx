@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   Globe, 
@@ -37,10 +37,89 @@ const BrowserIsolationPage = () => {
   const [urlAnalysis, setUrlAnalysis] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [streamFrame, setStreamFrame] = useState('');
+  const [streamStatus, setStreamStatus] = useState('disconnected');
+  const streamSocketRef = useRef(null);
+  const streamPollRef = useRef(null);
+
+  const stopPolling = () => {
+    if (streamPollRef.current) {
+      clearInterval(streamPollRef.current);
+      streamPollRef.current = null;
+    }
+  };
+
+  const startPolling = (sessionId) => {
+    stopPolling();
+    setStreamStatus('polling');
+    streamPollRef.current = setInterval(async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/browser-isolation/sessions/${sessionId}/frame`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (payload.type === 'frame' && payload.data) {
+          setStreamFrame(`data:${payload.format};base64,${payload.data}`);
+        }
+      } catch (error) {
+        console.error('Pixel frame polling failed', error);
+      }
+    }, 1000);
+  };
 
   useEffect(() => {
     fetchData();
   }, [token]);
+
+  useEffect(() => {
+    if (!activeSession || activeSession.isolation_mode !== 'pixel_push') {
+      if (streamSocketRef.current) {
+        streamSocketRef.current.close();
+        streamSocketRef.current = null;
+      }
+      stopPolling();
+      setStreamStatus('disconnected');
+      setStreamFrame('');
+      return;
+    }
+
+    const base = API_URL || window.location.origin;
+    const wsBase = base.replace(/^http/, 'ws').replace(/\/$/, '');
+    const wsUrl = `${wsBase}/api/browser-isolation/ws/stream/${activeSession.session_id}`;
+
+    const socket = new WebSocket(wsUrl);
+    streamSocketRef.current = socket;
+    setStreamStatus('connecting');
+
+    socket.onopen = () => setStreamStatus('connected');
+    socket.onclose = () => {
+      setStreamStatus('disconnected');
+      startPolling(activeSession.session_id);
+    };
+    socket.onerror = () => {
+      setStreamStatus('error');
+      startPolling(activeSession.session_id);
+    };
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'frame' && payload.data) {
+          setStreamFrame(`data:${payload.format};base64,${payload.data}`);
+        }
+      } catch (error) {
+        console.error('Failed to parse pixel stream frame', error);
+      }
+    };
+
+    return () => {
+      socket.close();
+      stopPolling();
+      if (streamSocketRef.current === socket) {
+        streamSocketRef.current = null;
+      }
+    };
+  }, [activeSession, token]);
 
   const fetchData = async () => {
     try {
@@ -467,20 +546,45 @@ const BrowserIsolationPage = () => {
                     <span className="text-green-400">ISOLATED</span>
                     <span className="text-slate-400">|</span>
                     <span className="truncate flex-1">{activeSession.url}</span>
+                    {activeSession.isolation_mode === 'pixel_push' && (
+                      <span className="text-cyan-300">stream: {streamStatus}</span>
+                    )}
                   </div>
-                  <iframe
-                    src={activeSession.url}
-                    className="w-full h-full border-0 pt-6"
-                    sandbox="allow-scripts allow-same-origin"
-                    referrerPolicy="no-referrer"
-                    title="Isolated Browser"
-                  />
+                  {activeSession.isolation_mode === 'pixel_push' ? (
+                    streamFrame ? (
+                      <img
+                        src={streamFrame}
+                        className="w-full h-full object-cover pt-6"
+                        alt="Pixel streamed isolated browser"
+                      />
+                    ) : (
+                      <div className="w-full h-full pt-6 flex items-center justify-center bg-slate-950 text-slate-300 text-sm">
+                        Waiting for pixel stream frames...
+                      </div>
+                    )
+                  ) : (
+                    <iframe
+                      src={activeSession.url}
+                      className="w-full h-full border-0 pt-6"
+                      sandbox="allow-scripts allow-same-origin"
+                      referrerPolicy="no-referrer"
+                      title="Isolated Browser"
+                    />
+                  )}
                 </div>
 
-                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded text-amber-400 text-sm">
+                <div className={`p-3 rounded text-sm ${activeSession.isolation_mode === 'pixel_push' ? 'bg-cyan-500/10 border border-cyan-500/30 text-cyan-300' : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'}`}>
                   <AlertTriangle className="w-4 h-4 inline-block mr-2" />
-                  <strong>Note:</strong> Some sites may not load due to security headers (X-Frame-Options). 
-                  In production, this would use a secure proxy or pixel-streaming approach.
+                  {activeSession.isolation_mode === 'pixel_push' ? (
+                    <>
+                      <strong>Pixel stream active:</strong> this session is rendered through the isolation stream instead of an embeddable site iframe.
+                    </>
+                  ) : (
+                    <>
+                      <strong>Note:</strong> Some sites may not load due to security headers (X-Frame-Options).
+                      In production, this would use a secure proxy or pixel-streaming approach.
+                    </>
+                  )}
                 </div>
               </div>
             ) : (

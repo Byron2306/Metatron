@@ -1,6 +1,7 @@
 """
 Container Security Router
 """
+import subprocess
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 from pydantic import BaseModel
@@ -115,3 +116,48 @@ async def get_runtime_events(limit: int = 50, current_user: dict = Depends(get_c
     events = await db.container_runtime_events.find({}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
     
     return {"events": events, "count": len(events)}
+
+
+def _docker_container_status(name: str) -> dict:
+    """Check the status of a named Docker container via the CLI."""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Status}}|{{.State.Running}}", name],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            parts = result.stdout.strip().split("|")
+            state = parts[0] if parts else "unknown"
+            running = parts[1].lower() == "true" if len(parts) > 1 else False
+            return {"name": name, "status": state, "running": running, "available": True}
+    except Exception:
+        pass
+    return {"name": name, "status": "unavailable", "running": False, "available": False}
+
+
+@router.get("/runtime-status")
+async def get_runtime_status(current_user: dict = Depends(get_current_user)):
+    """Get status of Falco and Suricata runtime security services"""
+    db = get_db()
+
+    falco = _docker_container_status("seraph-falco")
+    suricata = _docker_container_status("seraph-suricata")
+
+    # Get event counts from DB
+    falco_events = await db.container_runtime_events.count_documents({"source": "falco"}) if db is not None else 0
+    suricata_events = await db.container_runtime_events.count_documents({"source": "suricata"}) if db is not None else 0
+    total_runtime_events = await db.container_runtime_events.count_documents({}) if db is not None else 0
+
+    return {
+        "falco": {
+            **falco,
+            "description": "Runtime threat detection for containers",
+            "event_count": falco_events,
+        },
+        "suricata": {
+            **suricata,
+            "description": "Network IDS/IPS for container traffic",
+            "event_count": suricata_events,
+        },
+        "total_runtime_events": total_runtime_events,
+    }

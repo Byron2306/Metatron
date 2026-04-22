@@ -2,6 +2,7 @@
 Threat Timeline Router
 """
 from dataclasses import asdict
+import json
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from typing import Optional
@@ -9,7 +10,7 @@ from typing import Optional
 from .dependencies import get_current_user, get_db, check_permission
 
 # Import timeline services
-from threat_timeline import timeline_builder, ReportType
+from threat_timeline import timeline_builder, ReportType, ThreatTimeline, TimelineEvent
 
 router = APIRouter(prefix="/timeline", tags=["Timeline"])
 
@@ -56,6 +57,10 @@ async def get_related_incidents(
     """Get incidents correlated to the provided threat timeline."""
     _ = current_user
     db = get_db()
+
+    if threat_id.startswith("alert:"):
+        return {"threat_id": threat_id, "related_incidents": [], "count": 0}
+
     threat = await db.threats.find_one({"id": threat_id}, {"_id": 0, "id": 1})
     if not threat:
         raise HTTPException(status_code=404, detail="Threat not found")
@@ -78,6 +83,53 @@ async def get_timeline_report(
     """Generate enterprise incident report for a threat timeline."""
     _ = current_user
     db = get_db()
+
+    if threat_id.startswith("alert:"):
+        alert_id = threat_id.split(":", 1)[1].strip()
+        alert = await db.alerts.find_one({"id": alert_id}, {"_id": 0})
+        if not alert:
+            raise HTTPException(status_code=404, detail="Alert not found")
+
+        linked = alert.get("threat_id")
+        if linked:
+            threat_id = linked
+        else:
+            # Generate a lightweight markdown report for alert-only incidents so
+            # the Timeline UI can still produce something actionable.
+            ts = alert.get("created_at") or datetime.now(timezone.utc).isoformat()
+            sev = str(alert.get("severity") or "medium")
+            title = alert.get("title") or f"Alert {alert_id}"
+            message = alert.get("message") or ""
+            a_type = alert.get("type") or "alert"
+            status = alert.get("status") or "new"
+
+            report = "\n".join(
+                [
+                    f"# Alert Report: {title}",
+                    "",
+                    f"- Alert ID: `{alert_id}`",
+                    f"- Timestamp: `{ts}`",
+                    f"- Severity: `{sev}`",
+                    f"- Type: `{a_type}`",
+                    f"- Status: `{status}`",
+                    "",
+                    "## Summary",
+                    message.strip() or "(no message provided)",
+                    "",
+                    "## Recommended Actions",
+                    "- Validate the signal source and affected systems.",
+                    "- Correlate with Threat Dashboard and Command Center for matching incidents.",
+                    "- If the alert is confirmed malicious, promote it into a Threat record and re-run the timeline.",
+                    "",
+                ]
+            )
+            return {
+                "threat_id": f"alert:{alert_id}",
+                "report_type": type,
+                "report": report,
+                "note": "Alert-only report (no linked Threat record).",
+            }
+
     threat = await db.threats.find_one({"id": threat_id}, {"_id": 0, "id": 1})
     if not threat:
         raise HTTPException(status_code=404, detail="Threat not found")
@@ -171,6 +223,43 @@ async def get_artifact_custody_report(
 async def get_threat_timeline(threat_id: str, current_user: dict = Depends(get_current_user)):
     """Get complete timeline for a threat"""
     db = get_db()
+
+    if threat_id.startswith("alert:"):
+        alert_id = threat_id.split(":", 1)[1].strip()
+        alert = await db.alerts.find_one({"id": alert_id}, {"_id": 0})
+        if not alert:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        linked = alert.get("threat_id")
+        if linked:
+            # If the alert is linked, return the canonical threat timeline.
+            threat_id = linked
+        else:
+            ts = alert.get("created_at") or datetime.now(timezone.utc).isoformat()
+            event = TimelineEvent(
+                id=f"alert:{alert_id}",
+                timestamp=ts,
+                event_type="alert",
+                title=alert.get("title") or "Alert",
+                description=str(alert.get("message") or ""),
+                severity=str(alert.get("severity") or "medium"),
+                source="alerts",
+                related_alert_id=alert_id,
+                details={"type": alert.get("type"), "status": alert.get("status")},
+            )
+            timeline = ThreatTimeline(
+                threat_id=f"alert:{alert_id}",
+                threat_name=alert.get("title") or "Alert Incident",
+                threat_type=alert.get("type") or "alert",
+                severity=alert.get("severity") or "medium",
+                status=alert.get("status") or "new",
+                first_seen=ts,
+                last_updated=ts,
+                events=[event],
+                summary="Alert-only incident (no linked Threat record yet).",
+                recommendations=[],
+                metrics={"kind": "alert_only"},
+            )
+            return asdict(timeline)
     
     # Check if threat exists
     threat = await db.threats.find_one({"id": threat_id}, {"_id": 0})
@@ -188,6 +277,15 @@ async def get_threat_timeline(threat_id: str, current_user: dict = Depends(get_c
 async def export_threat_timeline(threat_id: str, format: str = "json", current_user: dict = Depends(get_current_user)):
     """Export timeline in specified format"""
     db = get_db()
+
+    if threat_id.startswith("alert:"):
+        # Export the synthetic alert timeline as JSON/Markdown by reusing the normal handler.
+        timeline = await get_threat_timeline(threat_id, current_user=current_user)
+        if format == "json":
+            return timeline
+        if format == "markdown":
+            return {"markdown": json.dumps(timeline, indent=2)}
+        raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
     
     threat = await db.threats.find_one({"id": threat_id}, {"_id": 0})
     if not threat:

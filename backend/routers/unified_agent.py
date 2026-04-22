@@ -34,7 +34,31 @@ class EDMHitTelemetryModel(BaseModel):
     # Additional field for telemetry
     additional_info: Optional[str] = None
 
-from .dependencies import get_current_user, check_permission, db
+from .dependencies import get_current_user, check_permission, get_db
+
+
+class _DBProxy:
+    """Late-binding DB accessor.
+
+    `routers.dependencies.set_database()` runs during backend startup. This router
+    must not import a snapshot of `dependencies.db` at import time, otherwise it
+    stays `None` forever and all endpoints 500.
+    """
+
+    def _resolve(self):
+        resolved = get_db()
+        if resolved is None:
+            raise HTTPException(status_code=503, detail="database_unavailable")
+        return resolved
+
+    def __getattr__(self, name: str):
+        return getattr(self._resolve(), name)
+
+    def __getitem__(self, key: str):
+        return self._resolve()[key]
+
+
+db = _DBProxy()
 
 logger = logging.getLogger('seraph.unified_agent')
 
@@ -777,6 +801,9 @@ async def agent_heartbeat(
 async def list_unified_agents(
     platform: Optional[str] = None,
     status: Optional[str] = None,
+    limit: int = 200,
+    offset: int = 0,
+    full: bool = False,
     current_user: dict = Depends(get_current_user)
 ):
     """List all unified agents"""
@@ -787,7 +814,33 @@ async def list_unified_agents(
     if status:
         query["status"] = status
     
-    agents = await db.unified_agents.find(query, {"_id": 0}).to_list(1000)
+    # Defensive limits: the UI should not try to render thousands of agents at once.
+    limit = max(1, min(int(limit or 200), 500))
+    offset = max(0, int(offset or 0))
+
+    projection = {"_id": 0}
+    if not full:
+        projection = {
+            "_id": 0,
+            "agent_id": 1,
+            "platform": 1,
+            "hostname": 1,
+            "ip_address": 1,
+            "last_ip": 1,
+            "version": 1,
+            "status": 1,
+            "last_heartbeat": 1,
+            "cpu_usage": 1,
+            "memory_usage": 1,
+            "disk_usage": 1,
+            "threat_count": 1,
+            "network_connections": 1,
+            "vpn": 1,
+            "local_ui_url": 1,
+        }
+
+    cursor = db.unified_agents.find(query, projection).skip(offset).limit(limit)
+    agents = await cursor.to_list(limit)
     
     # Mark offline agents
     now = datetime.now(timezone.utc)
@@ -801,11 +854,16 @@ async def list_unified_agents(
             except:
                 pass
     
+    total = await db.unified_agents.count_documents(query)
     return {
         "agents": agents,
-        "total": len(agents),
+        "total": total,
+        "returned": len(agents),
+        "limit": limit,
+        "offset": offset,
         "online": len([a for a in agents if a.get("status") == "online"]),
-        "offline": len([a for a in agents if a.get("status") == "offline"])
+        "offline": len([a for a in agents if a.get("status") == "offline"]),
+        "full": full,
     }
 
 

@@ -1,0 +1,14 @@
+FROM metatron-triune-outbound-gate-backend
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir faster-whisper==1.1.1 && \
+    python3 -c "from faster_whisper import WhisperModel; WhisperModel('tiny', device='cpu', compute_type='int8')"
+
+ENV PYTHONPATH=/app/backend:/app
+ENV PYTHONUNBUFFERED=1
+ENV PRESENCE_PORT=7070
+
+EXPOSE 7070
+
+CMD ["python", "/app/backend/services/presence_server.py"]

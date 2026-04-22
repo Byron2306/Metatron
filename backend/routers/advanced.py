@@ -14,9 +14,10 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from .dependencies import get_current_user, check_permission
+from .dependencies import get_current_user, check_permission, get_db
 
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,141 @@ class ThreatAnalysisRequest(BaseModel):
 class AIQueryRequest(BaseModel):
     question: str
     context: Optional[Dict[str, Any]] = None
+
+
+# =============================================================================
+# DASHBOARD (AGGREGATED STATUS)
+# =============================================================================
+
+@router.get("/dashboard")
+async def get_advanced_dashboard(current_user: dict = Depends(get_current_user)):
+    """Get unified advanced security dashboard data.
+
+    This endpoint powers `frontend/src/pages/AdvancedServicesPage.jsx`. Keep it:
+    - Shape-compatible with the UI (no extra nesting)
+    - Fail-open (partial results when optional subsystems are unavailable)
+    - Useful after restarts (seed vector memory from DB when empty)
+    """
+    _ = current_user
+
+    payload: Dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "mcp": {},
+        "memory": {},
+        "vns": {},
+        "quantum": {},
+        "ai": {},
+        "errors": {},
+    }
+
+    # MCP server
+    try:
+        from services.mcp_server import mcp_server
+        payload["mcp"] = mcp_server.get_server_status()
+    except Exception as e:
+        payload["mcp"] = {"tools_registered": 0, "pending_requests": 0, "total_executions": 0}
+        payload["errors"]["mcp"] = str(e)
+
+    # Vector memory (seed from DB if empty)
+    try:
+        from services.vector_memory import vector_memory
+        stats = vector_memory.get_memory_stats()
+        if int(stats.get("total_entries") or 0) <= 0:
+            try:
+                db = get_db()
+                from services.vector_memory import MemoryNamespace, TrustLevel
+
+                threats = await db.threats.find({}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
+                alerts = await db.alerts.find({}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
+
+                for t in threats:
+                    tid = t.get("id") or t.get("threat_id")
+                    name = t.get("name") or "Threat"
+                    severity = t.get("severity") or "unknown"
+                    ttype = t.get("type") or "unknown"
+                    created_at = t.get("created_at") or ""
+                    vector_memory.store(
+                        content=f"[Threat] {name} ({ttype}/{severity}) {created_at} id={tid}",
+                        namespace=MemoryNamespace.OBSERVATIONS,
+                        structured_data={"origin": "db.threats", "threat_id": tid, "severity": severity, "type": ttype},
+                        source="db.threats",
+                        source_type="pipeline",
+                        created_by="system:seed",
+                        trust_level=TrustLevel.MEDIUM,
+                        confidence=0.7,
+                        ttl_days=30,
+                    )
+
+                for a in alerts:
+                    aid = a.get("id") or a.get("alert_id")
+                    title = a.get("title") or "Alert"
+                    severity = a.get("severity") or "unknown"
+                    atype = a.get("type") or "unknown"
+                    created_at = a.get("created_at") or ""
+                    vector_memory.store(
+                        content=f"[Alert] {title} ({atype}/{severity}) {created_at} id={aid}",
+                        namespace=MemoryNamespace.OBSERVATIONS,
+                        structured_data={"origin": "db.alerts", "alert_id": aid, "severity": severity, "type": atype},
+                        source="db.alerts",
+                        source_type="pipeline",
+                        created_by="system:seed",
+                        trust_level=TrustLevel.LOW,
+                        confidence=0.6,
+                        ttl_days=14,
+                    )
+
+                stats = vector_memory.get_memory_stats()
+                stats["seeded_from_db"] = True
+                stats["seeded_threats"] = len(threats)
+                stats["seeded_alerts"] = len(alerts)
+            except Exception as se:
+                stats["seed_error"] = str(se)
+
+        payload["memory"] = stats
+    except Exception as e:
+        payload["memory"] = {
+            "total_entries": 0,
+            "total_cases": 0,
+            "total_intel": 0,
+            "embedding_dimension": 0,
+        }
+        payload["errors"]["memory"] = str(e)
+
+    # VNS
+    try:
+        from services.vns import vns
+        payload["vns"] = vns.get_vns_stats()
+    except Exception as e:
+        payload["vns"] = {
+            "total_flows": 0,
+            "suspicious_flows": 0,
+            "total_dns_queries": 0,
+            "suspicious_dns": 0,
+            "tls_fingerprints": 0,
+            "beacon_detections": 0,
+        }
+        payload["errors"]["vns"] = str(e)
+
+    # Quantum security
+    try:
+        from services.quantum_security import quantum_security
+        payload["quantum"] = quantum_security.get_quantum_status()
+    except Exception as e:
+        payload["quantum"] = {"mode": "simulation", "keypairs": {"total": 0}}
+        payload["errors"]["quantum"] = str(e)
+
+    # AI reasoning
+    try:
+        from services.ai_reasoning import ai_reasoning
+        payload["ai"] = ai_reasoning.get_reasoning_stats()
+    except Exception as e:
+        payload["ai"] = {"analyses_performed": 0, "ollama": {"status": "disconnected"}}
+        payload["errors"]["ai"] = str(e)
+
+    if not payload["errors"]:
+        payload.pop("errors", None)
+
+    return payload
 
 
 # =============================================================================
@@ -300,7 +436,62 @@ async def find_similar_cases(
 async def get_memory_stats(current_user: dict = Depends(get_current_user)):
     """Get memory database statistics"""
     from services.vector_memory import vector_memory
-    return vector_memory.get_memory_stats()
+    stats = vector_memory.get_memory_stats()
+
+    # Make the advanced dashboard useful after restart by seeding memory from
+    # real DB telemetry (threats/alerts) when the in-memory store is empty.
+    if int(stats.get("total_entries") or 0) <= 0:
+        try:
+            db = get_db()
+            from services.vector_memory import MemoryNamespace, TrustLevel
+
+            threats = await db.threats.find({}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
+            alerts = await db.alerts.find({}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
+
+            for t in threats:
+                tid = t.get("id") or t.get("threat_id")
+                name = t.get("name") or "Threat"
+                severity = t.get("severity") or "unknown"
+                ttype = t.get("type") or "unknown"
+                created_at = t.get("created_at") or ""
+                vector_memory.store(
+                    content=f"[Threat] {name} ({ttype}/{severity}) {created_at} id={tid}",
+                    namespace=MemoryNamespace.OBSERVATIONS,
+                    structured_data={"origin": "db.threats", "threat_id": tid, "severity": severity, "type": ttype},
+                    source="db.threats",
+                    source_type="pipeline",
+                    created_by="system:seed",
+                    trust_level=TrustLevel.MEDIUM,
+                    confidence=0.7,
+                    ttl_days=30,
+                )
+
+            for a in alerts:
+                aid = a.get("id") or a.get("alert_id")
+                title = a.get("title") or "Alert"
+                severity = a.get("severity") or "unknown"
+                atype = a.get("type") or "unknown"
+                created_at = a.get("created_at") or ""
+                vector_memory.store(
+                    content=f"[Alert] {title} ({atype}/{severity}) {created_at} id={aid}",
+                    namespace=MemoryNamespace.OBSERVATIONS,
+                    structured_data={"origin": "db.alerts", "alert_id": aid, "severity": severity, "type": atype},
+                    source="db.alerts",
+                    source_type="pipeline",
+                    created_by="system:seed",
+                    trust_level=TrustLevel.LOW,
+                    confidence=0.6,
+                    ttl_days=14,
+                )
+
+            stats = vector_memory.get_memory_stats()
+            stats["seeded_from_db"] = True
+            stats["seeded_threats"] = len(threats)
+            stats["seeded_alerts"] = len(alerts)
+        except Exception as e:
+            stats["seed_error"] = str(e)
+
+    return stats
 
 
 # =============================================================================
@@ -369,6 +560,13 @@ async def get_network_flows(
 ):
     """Query network flows"""
     from services.vns import vns
+
+    if not vns.flows:
+        # Best-effort: ingest Zeek telemetry when available so VNS dashboards aren't empty.
+        try:
+            vns.ingest_zeek_recent()
+        except Exception:
+            pass
     
     flows = vns.get_flows(
         src_ip=src_ip,
@@ -390,6 +588,12 @@ async def get_dns_queries(
 ):
     """Query DNS queries"""
     from services.vns import vns
+
+    if not vns.dns_queries:
+        try:
+            vns.ingest_zeek_recent()
+        except Exception:
+            pass
     
     queries = vns.get_dns_queries(
         src_ip=src_ip,
@@ -409,6 +613,12 @@ async def get_beacon_detections(
 ):
     """Get C2 beacon detections"""
     from services.vns import vns
+
+    if not vns.flows and not vns.beacon_detections:
+        try:
+            vns.ingest_zeek_recent()
+        except Exception:
+            pass
     
     beacons = vns.get_beacon_detections(confirmed_only=confirmed_only, limit=limit)
     return {"beacons": beacons, "count": len(beacons)}
@@ -677,28 +887,6 @@ async def ollama_analyze_threat(
 
 
 # =============================================================================
-# UNIFIED DASHBOARD DATA
-# =============================================================================
-
-@router.get("/dashboard")
-async def get_advanced_dashboard(current_user: dict = Depends(get_current_user)):
-    """Get unified advanced security dashboard data"""
-    from services.mcp_server import mcp_server
-    from services.vector_memory import vector_memory
-    from services.vns import vns
-    from services.quantum_security import quantum_security
-    from services.ai_reasoning import ai_reasoning
-    
-    return {
-        "mcp": mcp_server.get_server_status(),
-        "memory": vector_memory.get_memory_stats(),
-        "vns": vns.get_vns_stats(),
-        "quantum": quantum_security.get_quantum_status(),
-        "ai": ai_reasoning.get_reasoning_stats()
-    }
-
-
-# =============================================================================
 # VNS ALERTS ENDPOINTS
 # =============================================================================
 
@@ -836,4 +1024,3 @@ async def get_sandbox_report(
     from services.cuckoo_sandbox import cuckoo_sandbox
     
     return cuckoo_sandbox.get_report(task_id)
-

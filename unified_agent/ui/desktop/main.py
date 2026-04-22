@@ -1970,9 +1970,9 @@ class SeraphAIUI:
                             if 'SYSTEM' in username and pname in suspicious_as_system:
                                 results.append(('SYSTEM Process', f'{pname} (PID {info["pid"]})', 'critical',
                                                 f'Running as {username}'))
-                            # Check for known offensive tools
+                            # Check for known offensive tools (skip authorised Seraph integrations)
                             base_name = pname.replace('.exe', '')
-                            if base_name in SUSPICIOUS_PROCESS_NAMES:
+                            if base_name in SUSPICIOUS_PROCESS_NAMES and base_name not in SERAPH_INTEGRATION_PROCESSES:
                                 results.append(('Offensive Tool', f'{pname} (PID {info["pid"]})', 'critical',
                                                 f'Known offensive tool running as {info.get("username", "?")}'))
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -2285,10 +2285,17 @@ SUSPICIOUS_PORTS = {
 # Suspicious process names that may indicate malware
 SUSPICIOUS_PROCESS_NAMES = {
     "mimikatz", "meterpreter", "cobalt", "beacon", "nc.exe", "ncat",
-    "netcat", "psexec", "procdump", "lazagne", "bloodhound",
+    "netcat", "psexec", "procdump", "lazagne",
     "sharphound", "rubeus", "certutil", "bitsadmin",
     "powershell_ise", "wscript", "cscript", "mshta", "regsvr32",
 }
+
+# Seraph platform integration tool process names — these are authorised tools
+# managed by the integrations subsystem and must never be flagged as threats.
+SERAPH_INTEGRATION_PROCESSES = frozenset({
+    "bloodhound", "amass", "spiderfoot", "arkime", "velociraptor",
+    "zeek", "purplesharp", "sigma", "moloch", "neo4j",
+})
 
 # Autorun registry keys to check for persistence
 AUTORUN_KEYS = [
@@ -2444,13 +2451,13 @@ class UnifiedAgentCore:
             "capabilities": self._get_capabilities()
         }
 
-        result = self._safe_post("/agents/register", payload, timeout=3)
+        result = self._safe_post("/api/unified/agents/register", payload, timeout=3)
         if result and result.get("status") == "registered":
             self.registered = True
             logger.info(f"Registered with unified server as {self.config.agent_id}")
             self._log("Registered with unified server")
         elif result is None:
-            check = self._safe_get(f"/agents/{self.config.agent_id}", timeout=3)
+            check = self._safe_get(f"/api/unified/agents/{self.config.agent_id}", timeout=3)
             if check and check.get("agent_id") == self.config.agent_id:
                 self.registered = True
                 logger.info(f"Agent already registered: {self.config.agent_id}")
@@ -2460,7 +2467,7 @@ class UnifiedAgentCore:
             session = self._get_session()
             if session is not None:
                 try:
-                    resp = session.post(self._server_url("/agents/register"), json=payload, timeout=3)
+                    resp = session.post(self._server_url("/api/unified/agents/register"), json=payload, timeout=3)
                     if resp.status_code in (200, 201, 409):
                         self.registered = True
                 except Exception:
@@ -2573,7 +2580,7 @@ class UnifiedAgentCore:
             "alerts": alerts_to_send
         }
 
-        result = self._safe_post(f"/agents/{self.config.agent_id}/heartbeat", payload)
+        result = self._safe_post(f"/api/unified/agents/{self.config.agent_id}/heartbeat", payload)
         ok = result and result.get("status") == "ok"
 
         # Always also send heartbeat to backend for admin dashboard
@@ -2931,7 +2938,7 @@ class UnifiedAgentCore:
                     "network_connections": 0,
                     "alerts": []
                 }
-                self._safe_post(f"/agents/{self.config.agent_id}/heartbeat", payload, timeout=3)
+                self._safe_post(f"/api/unified/agents/{self.config.agent_id}/heartbeat", payload, timeout=3)
             except Exception:
                 pass
             # Tell backend we're going offline
@@ -3254,8 +3261,8 @@ class UnifiedAgentCore:
                                     except Exception:
                                         pass
 
-                                    # Known malware tool names
-                                    if any(tool in name for tool in SUSPICIOUS_PROCESS_NAMES):
+                                    # Known malware tool names (skip authorised Seraph integrations)
+                                    if any(tool in name for tool in SUSPICIOUS_PROCESS_NAMES) and not any(it in name for it in SERAPH_INTEGRATION_PROCESSES):
                                         reasons.append("known offensive tool name in filename")
 
                                     # Hidden files with executable extensions
@@ -3356,8 +3363,8 @@ class UnifiedAgentCore:
                     info = proc.info
                     uname = (info.get('username') or '').lower()
                     pname = (info.get('name') or '').lower()
-                    # Flag if a known offensive tool is running at all
-                    if any(tool in pname for tool in SUSPICIOUS_PROCESS_NAMES):
+                    # Flag if a known offensive tool is running at all (skip authorised Seraph integrations)
+                    if any(tool in pname for tool in SUSPICIOUS_PROCESS_NAMES) and not any(it in pname for it in SERAPH_INTEGRATION_PROCESSES):
                         findings.append({
                             "type": "suspicious_process",
                             "pid": info['pid'],
@@ -3633,9 +3640,9 @@ class UnifiedAgentCore:
                             self._ui_event('WARN', f"High CPU: {name} ({cpu:.1f}%)")
                             high_cpu_procs.append((pid, name, cpu))
 
-                        # Suspicious process names
+                        # Suspicious process names (skip authorised Seraph integrations)
                         pname = (name or '').lower().replace('.exe', '')
-                        if pname in SUSPICIOUS_PROCESS_NAMES:
+                        if pname in SUSPICIOUS_PROCESS_NAMES and pname not in SERAPH_INTEGRATION_PROCESSES:
                             self.report_alert(
                                 severity="critical", category="process",
                                 message=f"Suspicious process detected: {name} (PID {pid})",

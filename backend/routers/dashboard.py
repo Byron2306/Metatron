@@ -4,7 +4,7 @@ Dashboard Router
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from datetime import datetime, timezone, timedelta
-from typing import List
+from typing import List, Dict
 import uuid
 
 from .dependencies import (
@@ -16,6 +16,17 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 # Collection names must match the unified_agent router
 _EDM_HITS_COLLECTION = "agent_edm_telemetry"
 _DLP_TELEMETRY_COLLECTION = "agent_monitor_telemetry"
+
+def _time_window_dual(hour_start: datetime, hour_end: datetime, field: str = "created_at") -> Dict:
+    """
+    Mongo range query that matches both datetime and ISO-8601 string timestamps.
+
+    Several collections in this repo store timestamps as ISO strings, while others
+    store native BSON datetimes. This helper keeps dashboard charts non-empty.
+    """
+    window_dt = {field: {"$gte": hour_start, "$lt": hour_end}}
+    window_iso = {field: {"$gte": hour_start.isoformat(), "$lt": hour_end.isoformat()}}
+    return {"$or": [window_dt, window_iso]}
 
 
 @router.get("/edm-dlp/aggregated-stats")
@@ -43,12 +54,7 @@ async def get_edm_dlp_aggregated_stats(current_user: dict = Depends(get_current_
     for i in range(23, -1, -1):
         hour_start = (now - timedelta(hours=i)).replace(minute=0, second=0, microsecond=0)
         hour_end = hour_start + timedelta(hours=1)
-        count = await db[_EDM_HITS_COLLECTION].count_documents({
-            "ingested_at": {
-                "$gte": hour_start.isoformat(),
-                "$lt": hour_end.isoformat(),
-            }
-        })
+        count = await db[_EDM_HITS_COLLECTION].count_documents(_time_window_dual(hour_start, hour_end, field="ingested_at"))
         edm_hits_timeline.append({"time": hour_start.strftime("%H:00"), "hits": count})
 
     # ── DLP Scans ─────────────────────────────────────────────────────────────
@@ -63,10 +69,7 @@ async def get_edm_dlp_aggregated_stats(current_user: dict = Depends(get_current_
         hour_end = hour_start + timedelta(hours=1)
         count = await db[_DLP_TELEMETRY_COLLECTION].count_documents({
             "dlp": {"$exists": True},
-            "timestamp": {
-                "$gte": hour_start.isoformat(),
-                "$lt": hour_end.isoformat(),
-            },
+            **_time_window_dual(hour_start, hour_end, field="timestamp"),
         })
         dlp_scans_timeline.append({"time": hour_start.strftime("%H:00"), "scans": count})
 
@@ -204,6 +207,68 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         ai_scans_today=ai_scans_today,
         system_health=system_health
     )
+
+
+@router.get("/timeline")
+async def get_threat_timeline(current_user: dict = Depends(get_current_user)):
+    """Return a 24-hour threat timeline for the dashboard chart."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+
+    def _coerce_dt(value):
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str) and value:
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except Exception:
+                return None
+        return None
+
+    # If there have been no events in the last 24h, anchor the window at the
+    # most recent threat/alert timestamp so the chart isn't a flatline while
+    # the stats panel shows lots of historical activity.
+    anchor = None
+    try:
+        latest_threat = await db.threats.find(
+            {"created_at": {"$exists": True}}, {"_id": 0, "created_at": 1}
+        ).sort("created_at", -1).limit(1).to_list(1)
+        latest_alert = await db.alerts.find(
+            {"created_at": {"$exists": True}}, {"_id": 0, "created_at": 1}
+        ).sort("created_at", -1).limit(1).to_list(1)
+        candidates = []
+        if latest_threat:
+            candidates.append(_coerce_dt(latest_threat[0].get("created_at")))
+        if latest_alert:
+            candidates.append(_coerce_dt(latest_alert[0].get("created_at")))
+        candidates = [c for c in candidates if c is not None]
+        if candidates:
+            anchor = max(candidates)
+    except Exception:
+        anchor = None
+
+    if anchor is not None and (now - anchor) > timedelta(hours=24):
+        now = anchor
+
+    series = []
+    for i in range(23, -1, -1):
+        hour_start = (now - timedelta(hours=i)).replace(minute=0, second=0, microsecond=0)
+        hour_end = hour_start + timedelta(hours=1)
+
+        threats = await db.threats.count_documents(_time_window_dual(hour_start, hour_end, field="created_at"))
+        alerts = await db.alerts.count_documents(_time_window_dual(hour_start, hour_end, field="created_at"))
+        blocked = await db.threats.count_documents(
+            {**_time_window_dual(hour_start, hour_end, field="created_at"), "status": {"$in": ["contained", "resolved"]}}
+        )
+        series.append({"time": hour_start.strftime("%H:00"), "threats": threats + alerts, "blocked": blocked})
+
+    return {
+        "series": series,
+        "source": "db.threats+db.alerts",
+        "anchor": now.isoformat(),
+        "window_hours": 24,
+    }
+
 
 @router.post("/seed")
 async def seed_data():

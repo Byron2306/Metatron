@@ -709,6 +709,34 @@ class ContainerSecurityManager:
         """Security check a specific container"""
         return await self.runtime_monitor.check_container_security(container_id)
     
+    async def get_runtime_security_status(self) -> Dict[str, Any]:
+        """Return a summary of Falco/Suricata runtime security status."""
+        import subprocess
+
+        def _container_running(name: str) -> bool:
+            try:
+                out = subprocess.check_output(
+                    ["docker", "inspect", "--format", "{{.State.Running}}", name],
+                    stderr=subprocess.DEVNULL, timeout=5,
+                ).decode().strip()
+                return out == "true"
+            except Exception:
+                return False
+
+        falco_running = _container_running("seraph-falco")
+        suricata_running = _container_running("seraph-suricata")
+        return {
+            "falco": {
+                "available": falco_running,
+                "status": "running" if falco_running else "not_running",
+            },
+            "suricata": {
+                "available": suricata_running,
+                "status": "running" if suricata_running else "not_running",
+            },
+            "runtime_events": len(self.runtime_monitor.runtime_events),
+        }
+
     def get_stats(self) -> Dict[str, Any]:
         """Get container security statistics"""
         return {

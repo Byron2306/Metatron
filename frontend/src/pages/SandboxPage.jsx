@@ -35,6 +35,123 @@ const SandboxPage = () => {
   const [selectedAnalysis, setSelectedAnalysis] = useState(null);
   const [urlInput, setUrlInput] = useState('');
 
+  const demoSandboxData = {
+    stats: {
+      total_analyses: 14,
+      queue_length: 1,
+      running: 1,
+      vm_pool_size: 3,
+      signatures_available: 128,
+      by_verdict: {
+        malicious: 6,
+        suspicious: 3,
+        clean: 4,
+        unknown: 1,
+      },
+      by_sample_type: {
+        pe: 7,
+        url: 4,
+        pdf: 2,
+        script: 1,
+      },
+    },
+    analyses: [
+      {
+        analysis_id: 'demo_sbx_001',
+        sample_name: 'invoice_viewer.exe',
+        sample_hash: '4f7f8b4e32d41d8a0a1d6f9d9be501fc2f5f2e86d3b8a41cf8a4f6aa9f1010aa',
+        status: 'completed',
+        verdict: 'malicious',
+        score: 92,
+        sample_type: 'pe',
+      },
+      {
+        analysis_id: 'demo_sbx_002',
+        sample_name: 'hxxp://secure-update-check.example',
+        sample_hash: 'url',
+        status: 'running',
+        verdict: 'unknown',
+        score: 0,
+        sample_type: 'url',
+      },
+    ],
+    queue: {
+      queue_length: 1,
+      running: 1,
+      max_concurrent: 2,
+      vm_pool: ['vm-win10-a', 'vm-win11-b', 'vm-ubuntu-c'],
+      queued_ids: ['demo_sbx_003'],
+    },
+    analysisDetails: {
+      demo_sbx_001: {
+        analysis_id: 'demo_sbx_001',
+        sample_name: 'invoice_viewer.exe',
+        sample_hash: '4f7f8b4e32d41d8a0a1d6f9d9be501fc2f5f2e86d3b8a41cf8a4f6aa9f1010aa',
+        sample_type: 'pe',
+        status: 'completed',
+        verdict: 'malicious',
+        score: 92,
+        vm_name: 'vm-win10-a',
+        duration_seconds: 143,
+        signatures_matched: [
+          {
+            name: 'Credential Harvester',
+            severity: 'critical',
+            description: 'Observed browser credential scraping and staged exfiltration behavior.',
+          },
+          {
+            name: 'Persistence via Run Key',
+            severity: 'high',
+            description: 'Sample attempted to create a HKCU Run key for relaunch on login.',
+          },
+        ],
+        process_activity: [
+          {
+            process_name: 'invoice_viewer.exe',
+            pid: 3148,
+            command_line: 'C:\\Users\\analyst\\Downloads\\invoice_viewer.exe --silent',
+            is_suspicious: true,
+            suspicion_reason: 'Spawned hidden PowerShell child process',
+          },
+          {
+            process_name: 'powershell.exe',
+            pid: 3221,
+            command_line: 'powershell -nop -w hidden -enc ...',
+            is_suspicious: true,
+            suspicion_reason: 'Encoded command execution',
+          },
+        ],
+        network_activity: [
+          { dest_ip: '185.193.88.12', dest_port: 443, protocol: 'tcp', data_size: 18422 },
+          { dest_ip: '45.67.221.9', dest_port: 8080, protocol: 'tcp', data_size: 9120 },
+        ],
+      },
+      demo_sbx_002: {
+        analysis_id: 'demo_sbx_002',
+        sample_name: 'hxxp://secure-update-check.example',
+        sample_hash: 'url',
+        sample_type: 'url',
+        status: 'running',
+        verdict: 'unknown',
+        score: 0,
+        vm_name: 'vm-ubuntu-c',
+        duration_seconds: 38,
+        signatures_matched: [],
+        process_activity: [
+          {
+            process_name: 'chromium',
+            pid: 4412,
+            command_line: '/usr/bin/chromium --headless secure-update-check.example',
+            is_suspicious: false,
+          },
+        ],
+        network_activity: [
+          { dest_ip: '104.21.32.55', dest_port: 443, protocol: 'tcp', data_size: 2048 },
+        ],
+      },
+    },
+  };
+
   useEffect(() => {
     fetchData();
   }, [token]);
@@ -128,6 +245,18 @@ const SandboxPage = () => {
     return colors[verdict] || colors.unknown;
   };
 
+  const hasSandboxData = Boolean(
+    stats?.total_analyses ||
+    stats?.running ||
+    analyses.length ||
+    queue?.queue_length
+  );
+
+  const effectiveStats = hasSandboxData ? stats : demoSandboxData.stats;
+  const effectiveAnalyses = hasSandboxData ? analyses : demoSandboxData.analyses;
+  const effectiveQueue = hasSandboxData ? queue : demoSandboxData.queue;
+  const effectiveSelectedAnalysis = selectedAnalysis || (!hasSandboxData ? demoSandboxData.analysisDetails[effectiveAnalyses[0]?.analysis_id] : null);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -164,7 +293,7 @@ const SandboxPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-xs">Total Analyses</p>
-                <p className="text-xl font-bold text-white">{stats?.total_analyses || 0}</p>
+                <p className="text-xl font-bold text-white">{effectiveStats?.total_analyses || 0}</p>
               </div>
               <FileText className="w-5 h-5 text-blue-400" />
             </div>
@@ -176,7 +305,7 @@ const SandboxPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-xs">Queue</p>
-                <p className="text-xl font-bold text-white">{stats?.queue_length || 0}</p>
+                <p className="text-xl font-bold text-white">{effectiveStats?.queue_length || 0}</p>
               </div>
               <Clock className="w-5 h-5 text-yellow-400" />
             </div>
@@ -188,7 +317,7 @@ const SandboxPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-xs">Running</p>
-                <p className="text-xl font-bold text-white">{stats?.running || 0}</p>
+                <p className="text-xl font-bold text-white">{effectiveStats?.running || 0}</p>
               </div>
               <Activity className="w-5 h-5 text-green-400" />
             </div>
@@ -200,7 +329,7 @@ const SandboxPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-xs">VM Pool</p>
-                <p className="text-xl font-bold text-white">{stats?.vm_pool_size || 0}</p>
+                <p className="text-xl font-bold text-white">{effectiveStats?.vm_pool_size || 0}</p>
               </div>
               <Cpu className="w-5 h-5 text-purple-400" />
             </div>
@@ -212,7 +341,7 @@ const SandboxPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-slate-400 text-xs">Signatures</p>
-                <p className="text-xl font-bold text-white">{stats?.signatures_available || 0}</p>
+                <p className="text-xl font-bold text-white">{effectiveStats?.signatures_available || 0}</p>
               </div>
               <Shield className="w-5 h-5 text-red-400" />
             </div>
@@ -268,15 +397,19 @@ const SandboxPage = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {analyses.length === 0 ? (
+              {effectiveAnalyses.length === 0 ? (
                 <p className="text-slate-500 text-center py-8">No analyses yet. Submit a file or URL to begin.</p>
               ) : (
-                analyses.map((analysis) => (
+                effectiveAnalyses.map((analysis) => (
                   <div
                     key={analysis.analysis_id}
                     className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg cursor-pointer hover:bg-slate-800"
                     onClick={() => {
-                      fetchAnalysisDetails(analysis.analysis_id);
+                      if (hasSandboxData) {
+                        fetchAnalysisDetails(analysis.analysis_id);
+                      } else {
+                        setSelectedAnalysis(demoSandboxData.analysisDetails[analysis.analysis_id] || null);
+                      }
                       setActiveTab('details');
                     }}
                   >
@@ -302,7 +435,7 @@ const SandboxPage = () => {
         </Card>
       )}
 
-      {activeTab === 'details' && selectedAnalysis && (
+      {activeTab === 'details' && effectiveSelectedAnalysis && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Analysis Overview */}
           <Card className="bg-slate-900/50 border-slate-800">
@@ -313,37 +446,37 @@ const SandboxPage = () => {
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-slate-400">Sample</span>
-                  <span className="text-white">{selectedAnalysis.sample_name}</span>
+                  <span className="text-white">{effectiveSelectedAnalysis.sample_name}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Hash</span>
-                  <span className="text-white font-mono text-xs">{selectedAnalysis.sample_hash?.slice(0, 32)}...</span>
+                  <span className="text-white font-mono text-xs">{effectiveSelectedAnalysis.sample_hash?.slice(0, 32)}...</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Type</span>
-                  <span className="text-white capitalize">{selectedAnalysis.sample_type}</span>
+                  <span className="text-white capitalize">{effectiveSelectedAnalysis.sample_type}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Status</span>
-                  <span className="text-white capitalize">{selectedAnalysis.status}</span>
+                  <span className="text-white capitalize">{effectiveSelectedAnalysis.status}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Verdict</span>
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${getVerdictColor(selectedAnalysis.verdict)}`}>
-                    {selectedAnalysis.verdict}
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${getVerdictColor(effectiveSelectedAnalysis.verdict)}`}>
+                    {effectiveSelectedAnalysis.verdict}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Score</span>
-                  <span className="text-white font-bold text-lg">{selectedAnalysis.score}/100</span>
+                  <span className="text-white font-bold text-lg">{effectiveSelectedAnalysis.score}/100</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">VM</span>
-                  <span className="text-white">{selectedAnalysis.vm_name}</span>
+                  <span className="text-white">{effectiveSelectedAnalysis.vm_name}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Duration</span>
-                  <span className="text-white">{selectedAnalysis.duration_seconds}s</span>
+                  <span className="text-white">{effectiveSelectedAnalysis.duration_seconds}s</span>
                 </div>
               </div>
             </CardContent>
@@ -354,12 +487,12 @@ const SandboxPage = () => {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-red-400" />
-                Signatures Matched ({selectedAnalysis.signatures_matched?.length || 0})
+                Signatures Matched ({effectiveSelectedAnalysis.signatures_matched?.length || 0})
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2 max-h-64 overflow-auto">
-                {(selectedAnalysis.signatures_matched || []).map((sig, idx) => (
+                {(effectiveSelectedAnalysis.signatures_matched || []).map((sig, idx) => (
                   <div key={idx} className="p-3 bg-slate-800/50 rounded-lg">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-white font-medium">{sig.name}</span>
@@ -374,7 +507,7 @@ const SandboxPage = () => {
                     <p className="text-slate-400 text-xs">{sig.description}</p>
                   </div>
                 ))}
-                {(!selectedAnalysis.signatures_matched || selectedAnalysis.signatures_matched.length === 0) && (
+                {(!effectiveSelectedAnalysis.signatures_matched || effectiveSelectedAnalysis.signatures_matched.length === 0) && (
                   <p className="text-slate-500 text-center py-4">No signatures matched</p>
                 )}
               </div>
@@ -391,7 +524,7 @@ const SandboxPage = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-2 max-h-64 overflow-auto">
-                {(selectedAnalysis.process_activity || []).map((proc, idx) => (
+                {(effectiveSelectedAnalysis.process_activity || []).map((proc, idx) => (
                   <div key={idx} className="p-3 bg-slate-800/50 rounded-lg">
                     <div className="flex items-center justify-between">
                       <span className="text-white font-mono text-sm">{proc.process_name}</span>
@@ -417,7 +550,7 @@ const SandboxPage = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-2 max-h-64 overflow-auto">
-                {(selectedAnalysis.network_activity || []).map((net, idx) => (
+                {(effectiveSelectedAnalysis.network_activity || []).map((net, idx) => (
                   <div key={idx} className="p-3 bg-slate-800/50 rounded-lg">
                     <div className="flex items-center justify-between">
                       <span className="text-white font-mono text-sm">{net.dest_ip}:{net.dest_port}</span>
@@ -426,7 +559,7 @@ const SandboxPage = () => {
                     <p className="text-slate-500 text-xs">{net.data_size} bytes</p>
                   </div>
                 ))}
-                {(!selectedAnalysis.network_activity || selectedAnalysis.network_activity.length === 0) && (
+                {(!effectiveSelectedAnalysis.network_activity || effectiveSelectedAnalysis.network_activity.length === 0) && (
                   <p className="text-slate-500 text-center py-4">No network activity detected</p>
                 )}
               </div>
@@ -443,7 +576,7 @@ const SandboxPage = () => {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-4">
-                {Object.entries(stats?.by_verdict || {}).map(([verdict, count]) => (
+                {Object.entries(effectiveStats?.by_verdict || {}).map(([verdict, count]) => (
                   <div key={verdict} className={`p-4 rounded-lg ${getVerdictColor(verdict)}`}>
                     <p className="text-2xl font-bold">{count}</p>
                     <p className="text-sm capitalize">{verdict}</p>
@@ -459,7 +592,7 @@ const SandboxPage = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {Object.entries(stats?.by_sample_type || {}).map(([type, count]) => (
+                {Object.entries(effectiveStats?.by_sample_type || {}).map(([type, count]) => (
                   <div key={type} className="flex items-center justify-between">
                     <span className="text-slate-300 capitalize">{type}</span>
                     <span className="text-white font-mono">{count}</span>

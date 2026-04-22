@@ -55,7 +55,7 @@ const TimelinePage = () => {
   const fetchTimelines = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API}/api/timelines/recent?limit=20`, {
+      const response = await fetch(`${API}/api/timelines/recent?limit=100`, {
         headers: authHeaders
       });
       if (response.ok) {

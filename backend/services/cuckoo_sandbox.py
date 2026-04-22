@@ -1420,7 +1420,7 @@ class CuckooSandboxService:
         }
         
         self.enabled = bool(self.api_url)
-        
+
         # Enterprise components
         self.machine_pool = MachinePoolManager(self.api_url, self.api_token)
         self.task_queue = TaskQueueManager(
@@ -1442,6 +1442,10 @@ class CuckooSandboxService:
         else:
             logger.info("Cuckoo Sandbox Service initialized (no API configured - using static analysis)")
             self.machine_pool.refresh_machines()  # Generate simulated machines
+
+    def set_db(self, db) -> None:
+        """Accept a database handle (no-op; cuckoo service uses its own persistence)."""
+        pass
     
     def _load_default_profiles(self) -> Dict[str, AnalysisConfig]:
         """Load default analysis profiles"""

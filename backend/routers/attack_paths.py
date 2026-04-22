@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
 import asyncio
 import logging
+import ipaddress
 
 from attack_path_analysis import (
     get_attack_path_analyzer,
@@ -650,90 +651,332 @@ async def get_attack_graph(
 # FRONTEND COMPATIBILITY ENDPOINTS
 # =============================================================================
 
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return int(value)
+        return int(str(value).strip())
+    except Exception:
+        return default
+
+
+def _severity_to_risk(severity: str) -> int:
+    s = str(severity or "").lower().strip()
+    if s == "critical":
+        return 95
+    if s == "high":
+        return 80
+    if s == "medium":
+        return 60
+    if s == "low":
+        return 35
+    return 50
+
+
+def _severity_to_probability(severity: str) -> float:
+    s = str(severity or "").lower().strip()
+    if s == "critical":
+        return 0.9
+    if s == "high":
+        return 0.75
+    if s == "medium":
+        return 0.55
+    if s == "low":
+        return 0.35
+    return 0.5
+
+
+def _is_private_ip(value: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(str(value).strip())
+        return bool(addr.is_private or addr.is_loopback or addr.is_link_local)
+    except Exception:
+        return False
+
+
+def _attack_source_id(ip_value: str) -> str:
+    raw = str(ip_value or "").strip()
+    return f"src:{raw}" if raw else "src:unknown"
+
+
+def _asset_node_id(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "asset:unknown"
+    # Avoid collisions with source node ids.
+    return raw if raw.startswith(("asset:", "host:", "cj:", "threat:")) else f"asset:{raw}"
+
+
+async def _build_connected_attack_graph(
+    *,
+    max_nodes: int = 200,
+    max_edges: int = 400,
+) -> Dict[str, Any]:
+    """Build a connected, UI-friendly attack graph from DB + crown jewels.
+
+    The core AttackPathAnalyzer focuses on crown jewel registration. The React
+    AttackPathsPage expects a graph even on fresh installs, so we derive a
+    lightweight graph from recent threats/alerts and discovered agents.
+    """
+    await _hydrate_crown_jewels_from_db()
+    analyzer = get_attack_path_analyzer()
+    db = get_db()
+
+    nodes_by_id: Dict[str, Dict[str, Any]] = {}
+    edges: List[Dict[str, Any]] = []
+
+    # 1) Crown jewels: persisted, otherwise inferred from most-targeted assets.
+    crown_jewels: List[Dict[str, Any]] = []
+    if analyzer.crown_jewels:
+        for asset in analyzer.crown_jewels.values():
+            nid = asset.asset_id
+            risk_score = max(75, min(99, _as_int(asset.criticality_score, 90)))
+            node = {
+                "id": nid,
+                "name": asset.name,
+                "type": "crown_jewel",
+                "asset_type": asset.asset_type.value,
+                "criticality": asset.criticality.value,
+                "identifier": asset.identifier,
+                "risk_score": risk_score,
+                "is_critical": True,
+                "vulnerabilities": [],
+            }
+            nodes_by_id[nid] = node
+            crown_jewels.append(
+                {
+                    "id": asset.asset_id,
+                    "name": asset.name,
+                    "criticality": asset.criticality.value,
+                    "type": asset.asset_type.value,
+                    "paths_to": 0,
+                }
+            )
+    elif db is not None:
+        # Infer jewels from recent targets.
+        threats = await db.threats.find({}, {"_id": 0, "target_system": 1, "severity": 1}).sort("created_at", -1).limit(200).to_list(200)
+        target_scores: Dict[str, int] = {}
+        for t in threats:
+            target = str(t.get("target_system") or "").strip()
+            if not target:
+                continue
+            target_scores[target] = target_scores.get(target, 0) + _severity_to_risk(t.get("severity"))
+        for target, score in sorted(target_scores.items(), key=lambda kv: kv[1], reverse=True)[:5]:
+            nid = _asset_node_id(target)
+            nodes_by_id[nid] = {
+                "id": nid,
+                "name": target,
+                "type": "crown_jewel",
+                "asset_type": "inferred",
+                "criticality": "critical",
+                "identifier": target,
+                "risk_score": min(99, max(80, int(score / max(1, len(threats)) * 10))),
+                "is_critical": True,
+                "vulnerabilities": [],
+            }
+            crown_jewels.append(
+                {"id": nid, "name": target, "criticality": "critical", "type": "inferred", "paths_to": 0}
+            )
+
+    # 2) Fleet assets: registered agents + discovered devices (best-effort).
+    if db is not None:
+        agents = await db.unified_agents.find(
+            {},
+            {"_id": 0, "agent_id": 1, "hostname": 1, "ip_address": 1, "platform": 1, "threat_count": 1, "last_heartbeat": 1},
+        ).sort("last_heartbeat", -1).limit(80).to_list(80)
+        for a in agents:
+            hostname = a.get("hostname") or a.get("agent_id")
+            ip_addr = a.get("ip_address")
+            nid = _asset_node_id(hostname or ip_addr or a.get("agent_id"))
+            if nid in nodes_by_id:
+                continue
+            threat_count = _as_int(a.get("threat_count"), 0)
+            nodes_by_id[nid] = {
+                "id": nid,
+                "name": hostname or nid,
+                "type": "asset",
+                "asset_type": "endpoint",
+                "platform": a.get("platform"),
+                "ip": ip_addr,
+                "risk_score": min(90, 20 + threat_count * 15),
+                "is_critical": False,
+                "vulnerabilities": [],
+            }
+
+        discovered = await db.discovered_devices.find(
+            {}, {"_id": 0, "hostname": 1, "ip_address": 1, "last_seen": 1, "risk_score": 1}
+        ).sort("last_seen", -1).limit(80).to_list(80)
+        for d in discovered:
+            hostname = d.get("hostname") or d.get("ip_address")
+            nid = _asset_node_id(hostname)
+            if nid in nodes_by_id:
+                continue
+            nodes_by_id[nid] = {
+                "id": nid,
+                "name": hostname or nid,
+                "type": "asset",
+                "asset_type": "discovered",
+                "ip": d.get("ip_address"),
+                "risk_score": min(90, max(0, _as_int(d.get("risk_score"), 45))),
+                "is_critical": False,
+                "vulnerabilities": [],
+            }
+
+    # 3) Threat edges: source_ip -> target_system/asset. Use technique fields when present.
+    entry_sources: List[str] = []
+    if db is not None:
+        threats = await db.threats.find(
+            {},
+            {"_id": 0, "id": 1, "type": 1, "severity": 1, "status": 1, "source_ip": 1, "target_system": 1, "created_at": 1, "mitre_techniques": 1},
+        ).sort("created_at", -1).limit(250).to_list(250)
+        for t in threats:
+            src_ip = str(t.get("source_ip") or "").strip()
+            target = str(t.get("target_system") or "").strip()
+            if not src_ip or not target:
+                continue
+
+            src_id = _attack_source_id(src_ip)
+            if src_id not in nodes_by_id:
+                nodes_by_id[src_id] = {
+                    "id": src_id,
+                    "name": src_ip,
+                    "type": "attack_source",
+                    "risk_score": min(95, _severity_to_risk(t.get("severity"))),
+                    "is_critical": False,
+                    "vulnerabilities": [],
+                }
+            if not _is_private_ip(src_ip):
+                entry_sources.append(src_id)
+
+            target_id = None
+            # If we have an inferred crown jewel for the raw target, reuse it.
+            for candidate in (target, _asset_node_id(target)):
+                if candidate in nodes_by_id:
+                    target_id = candidate
+                    break
+            if target_id is None:
+                target_id = _asset_node_id(target)
+                nodes_by_id.setdefault(
+                    target_id,
+                    {
+                        "id": target_id,
+                        "name": target,
+                        "type": "asset",
+                        "asset_type": "target",
+                        "risk_score": 40,
+                        "is_critical": False,
+                        "vulnerabilities": [],
+                    },
+                )
+
+            mitre = t.get("mitre_techniques") or []
+            mitre_id = mitre[0] if isinstance(mitre, list) and mitre else None
+            is_critical = bool(nodes_by_id.get(target_id, {}).get("type") == "crown_jewel")
+            edges.append(
+                {
+                    "source": src_id,
+                    "target": target_id,
+                    "technique": str(t.get("type") or "threat_signal"),
+                    "mitre_id": mitre_id,
+                    "probability": _severity_to_probability(t.get("severity")),
+                    "is_critical": is_critical,
+                }
+            )
+
+    # Enforce size limits deterministically.
+    nodes = list(nodes_by_id.values())[: max(1, int(max_nodes))]
+    allowed = {n["id"] for n in nodes}
+    edges = [e for e in edges if e.get("source") in allowed and e.get("target") in allowed][: max(0, int(max_edges))]
+
+    # Compute critical paths (shortest paths from entry sources to crown jewels).
+    adjacency: Dict[str, List[str]] = {}
+    for e in edges:
+        adjacency.setdefault(e["source"], []).append(e["target"])
+
+    jewel_ids = [j["id"] for j in crown_jewels]
+    entry_sources = list(dict.fromkeys(entry_sources))  # stable dedupe
+    if not entry_sources:
+        # If we have no external sources, allow any attack_source as entry.
+        entry_sources = [n["id"] for n in nodes if n.get("type") == "attack_source"][:10]
+
+    critical_paths: List[Dict[str, Any]] = []
+    for jewel_id in jewel_ids[:6]:
+        # BFS for shortest path.
+        best_path = None
+        for start in entry_sources[:10]:
+            queue: List[List[str]] = [[start]]
+            seen = {start}
+            while queue and len(critical_paths) < 20:
+                path = queue.pop(0)
+                current = path[-1]
+                if len(path) > 10:
+                    continue
+                if current == jewel_id:
+                    best_path = path
+                    queue = []
+                    break
+                for nxt in adjacency.get(current, [])[:20]:
+                    if nxt in seen:
+                        continue
+                    seen.add(nxt)
+                    queue.append([*path, nxt])
+        if best_path and len(best_path) >= 2:
+            # Compute risk score from nodes + edges.
+            node_risk = max((_as_int(nodes_by_id.get(nid, {}).get("risk_score"), 0) for nid in best_path), default=0)
+            critical_paths.append(
+                {
+                    "id": f"path:{best_path[0]}->{jewel_id}",
+                    "name": " → ".join(nodes_by_id.get(n, {}).get("name", n) for n in best_path),
+                    "risk_score": max(50, node_risk),
+                    "length": len(best_path),
+                    "techniques": [],
+                    "blocked": False,
+                    "steps": [
+                        {"from": best_path[i], "to": best_path[i + 1], "technique": "path_edge"}
+                        for i in range(len(best_path) - 1)
+                    ],
+                }
+            )
+
+    # Populate crown jewel inbound path counts.
+    inbound_counts: Dict[str, int] = {}
+    for e in edges:
+        if e.get("target") in jewel_ids:
+            inbound_counts[e["target"]] = inbound_counts.get(e["target"], 0) + 1
+    for j in crown_jewels:
+        j["paths_to"] = inbound_counts.get(j["id"], 0)
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "crown_jewels": crown_jewels,
+        "critical_paths": critical_paths,
+    }
+
+
 @router.get("/analysis")
 async def get_analysis_compat():
     """Compatibility endpoint for AttackPathsPage initial load."""
-    await _hydrate_crown_jewels_from_db()
-    analyzer = get_attack_path_analyzer()
-
-    # Reuse existing graph builder output and normalize key naming.
-    graph = await get_attack_graph(include_paths=True)
-    graph_data = graph.model_dump() if hasattr(graph, "model_dump") else graph.dict()
-
-    critical_paths = []
-    for path in sorted(analyzer.attack_paths.values(), key=lambda p: p.risk_score, reverse=True):
-        if path.risk_score < 70:
-            continue
-        critical_paths.append({
-            "id": path.path_id,
-            "name": f"{path.source_asset} -> {path.target_asset}",
-            "risk_score": path.risk_score,
-            "length": len(path.steps),
-            "techniques": path.mitre_techniques,
-            "blocked": False,
-        })
-
-    graph_nodes = graph_data.get("nodes", [])
-    graph_edges = graph_data.get("edges", [])
-
-    # If no attack-path assets are configured yet, show discovered fleet nodes so the UI is not empty.
-    if not graph_nodes:
-        try:
-            from routers.dependencies import get_db
-            db = get_db()
-            if db is not None:
-                discovered = await db.discovered_devices.find({}, {"_id": 0}).sort("last_seen", -1).to_list(40)
-                for d in discovered:
-                    ip = d.get("ip_address") or d.get("hostname")
-                    if not ip:
-                        continue
-                    graph_nodes.append({
-                        "id": ip,
-                        "label": d.get("hostname") or ip,
-                        "name": d.get("hostname") or ip,
-                        "type": "asset",
-                        "risk_score": d.get("risk_score", 50),
-                    })
-        except Exception:
-            # Keep empty fallback payload on db access issues.
-            pass
-
-    if not graph_nodes:
-        graph_nodes = [{
-            "id": "local-fleet",
-            "label": "Local Fleet",
-            "name": "Local Fleet",
-            "type": "asset",
-            "risk_score": 0,
-        }]
-
+    view = await _build_connected_attack_graph()
     return {
         "attack_graph": {
-            "nodes": graph_nodes,
-            "edges": graph_edges,
+            "nodes": view.get("nodes", []),
+            "edges": view.get("edges", []),
         },
-        "critical_paths": critical_paths,
+        "critical_paths": view.get("critical_paths", []),
     }
 
 
 @router.get("/crown-jewels")
 async def get_crown_jewels_compat():
     """Compatibility endpoint for AttackPathsPage crown jewel panel."""
-    await _hydrate_crown_jewels_from_db()
-    analyzer = get_attack_path_analyzer()
-
-    crown_jewels = []
-    for asset in analyzer.crown_jewels.values():
-        inbound_paths = [p for p in analyzer.attack_paths.values() if p.target_asset == asset.asset_id]
-        crown_jewels.append({
-            "id": asset.asset_id,
-            "name": asset.name,
-            "criticality": asset.criticality.value,
-            "type": asset.asset_type.value,
-            "paths_to": len(inbound_paths),
-        })
-
-    return {"crown_jewels": crown_jewels, "count": len(crown_jewels)}
+    view = await _build_connected_attack_graph()
+    jewels = view.get("crown_jewels", [])
+    return {"crown_jewels": jewels, "count": len(jewels)}
 
 
 @router.post("/crown-jewels")
@@ -809,21 +1052,23 @@ async def add_crown_jewel_compat(
 @router.get("/stats")
 async def get_stats_compat():
     """Compatibility endpoint for AttackPathsPage stat cards."""
-    await _hydrate_crown_jewels_from_db()
-    analyzer = get_attack_path_analyzer()
-    paths = list(analyzer.attack_paths.values())
-
-    total_assets = len(analyzer.crown_jewels)
-    critical_paths = len([p for p in paths if p.risk_score >= 70])
-    high_risk_nodes = len([a for a in analyzer.crown_jewels.values() if a.criticality_score >= 70])
-    avg_path_length = round((sum(len(p.steps) for p in paths) / len(paths)), 2) if paths else 0
-
+    view = await _build_connected_attack_graph()
+    nodes = view.get("nodes", [])
+    critical_paths = view.get("critical_paths", [])
+    total_assets = len([n for n in nodes if n.get("type") in {"asset", "crown_jewel"}])
+    high_risk_nodes = len([n for n in nodes if _as_int(n.get("risk_score"), 0) >= 70])
+    avg_path_length = (
+        round(sum(_as_int(p.get("length"), 0) for p in critical_paths) / len(critical_paths), 2)
+        if critical_paths
+        else 0
+    )
+    blocked_paths = len([p for p in critical_paths if p.get("blocked")])
     return {
         "total_assets": total_assets,
-        "critical_paths": critical_paths,
+        "critical_paths": len(critical_paths),
         "high_risk_nodes": high_risk_nodes,
         "avg_path_length": avg_path_length,
-        "blocked_paths": 0,
+        "blocked_paths": blocked_paths,
     }
 
 

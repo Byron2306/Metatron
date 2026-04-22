@@ -847,7 +847,10 @@ class KernelSensorManager:
         
         # BPF programs
         self.bpf_programs = {}
-        
+
+        # Fallback userspace sensor tasks (when BCC/eBPF is unavailable)
+        self._fallback_tasks: Dict[SensorType, asyncio.Task] = {}
+
         # Initialize sensors
         self._initialize()
         
@@ -1133,16 +1136,48 @@ class KernelSensorManager:
     async def _start_fallback_sensor(self, sensor_type: SensorType):
         """Start fallback userspace sensor"""
         logger.info(f"Starting fallback sensor: {sensor_type.value}")
-        
-        # Fallback to /proc, audit.log, etc.
+
+        # Avoid duplicate pollers for the same sensor.
+        existing = self._fallback_tasks.get(sensor_type)
+        if existing and not existing.done():
+            return
+
+        # Fallback to /proc and lightweight polling.
         if sensor_type == SensorType.PROCESS:
-            asyncio.create_task(self._poll_proc_fs())
+            self._fallback_tasks[sensor_type] = asyncio.create_task(self._poll_proc_fs_processes())
+        elif sensor_type == SensorType.NETWORK:
+            self._fallback_tasks[sensor_type] = asyncio.create_task(self._poll_proc_net_connections())
+        elif sensor_type == SensorType.MODULE:
+            self._fallback_tasks[sensor_type] = asyncio.create_task(self._poll_proc_modules())
+        elif sensor_type == SensorType.FILE:
+            self._fallback_tasks[sensor_type] = asyncio.create_task(self._poll_filesystem_changes())
+        else:
+            # Other sensors have no safe userspace fallback in this build.
+            return
     
-    async def _poll_proc_fs(self):
-        """Poll /proc filesystem for process info (fallback)"""
+    def _fallback_actor(self) -> Dict[str, Any]:
+        """Best-effort process context for fallback events."""
+        try:
+            pid = os.getpid()
+            ppid = os.getppid()
+            uid = os.getuid() if hasattr(os, "getuid") else 0
+            gid = os.getgid() if hasattr(os, "getgid") else 0
+        except Exception:
+            pid = 1
+            ppid = 0
+            uid = 0
+            gid = 0
+        return {"pid": pid, "ppid": ppid, "uid": uid, "gid": gid, "comm": "userspace-fallback"}
+
+    async def _poll_proc_fs_processes(self):
+        """Poll /proc filesystem for process info (fallback)."""
         seen_pids: Set[int] = set()
         
         while True:
+            state = self.sensors.get(SensorType.PROCESS)
+            if not state or state.status != SensorStatus.ACTIVE:
+                await asyncio.sleep(0.5)
+                continue
             try:
                 current_pids = set()
                 proc_path = Path("/proc")
@@ -1199,6 +1234,188 @@ class KernelSensorManager:
                 
             except Exception as e:
                 logger.error(f"Proc FS poll error: {e}")
+                await asyncio.sleep(5)
+
+    def _hex_ip_port_to_tuple(self, value: str) -> Optional[Tuple[str, int]]:
+        try:
+            ip_hex, port_hex = value.split(":")
+            port = int(port_hex, 16)
+            # /proc/net/tcp is little-endian hex for IPv4
+            raw = bytes.fromhex(ip_hex)
+            ip = ".".join(str(b) for b in raw[::-1])
+            return ip, port
+        except Exception:
+            return None
+
+    async def _poll_proc_net_connections(self):
+        """Poll /proc/net/tcp and /proc/net/udp for new connections (fallback)."""
+        seen: Set[str] = set()
+        actor = self._fallback_actor()
+        while True:
+            state = self.sensors.get(SensorType.NETWORK)
+            if not state or state.status != SensorStatus.ACTIVE:
+                await asyncio.sleep(0.8)
+                continue
+            try:
+                for proto_name, path in (("TCP", "/proc/net/tcp"), ("UDP", "/proc/net/udp")):
+                    if not os.path.exists(path):
+                        continue
+                    try:
+                        lines = Path(path).read_text(errors="ignore").splitlines()
+                    except Exception:
+                        continue
+                    for line in lines[1:]:
+                        parts = line.split()
+                        if len(parts) < 3:
+                            continue
+                        local = self._hex_ip_port_to_tuple(parts[1])
+                        remote = self._hex_ip_port_to_tuple(parts[2])
+                        if not local or not remote:
+                            continue
+                        key = f"{proto_name}|{local[0]}:{local[1]}->{remote[0]}:{remote[1]}"
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        event = NetworkEvent(
+                            event_id=str(uuid.uuid4()),
+                            event_type=EventType.NET_CONNECT,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            pid=actor["pid"],
+                            ppid=actor["ppid"],
+                            uid=actor["uid"],
+                            gid=actor["gid"],
+                            comm=actor["comm"],
+                            family=2,
+                            protocol=6 if proto_name == "TCP" else 17,
+                            local_addr=local[0],
+                            local_port=local[1],
+                            remote_addr=remote[0],
+                            remote_port=remote[1],
+                            direction="unknown",
+                        )
+                        self._dispatch_event(event)
+                # keep seen bounded (best-effort)
+                if len(seen) > 100_000:
+                    seen = set(list(seen)[-50_000:])
+                await asyncio.sleep(1.0)
+            except Exception as e:
+                logger.error(f"Proc net poll error: {e}")
+                await asyncio.sleep(5)
+
+    async def _poll_proc_modules(self):
+        """Poll /proc/modules to detect module load/unload (fallback)."""
+        seen: Set[str] = set()
+        actor = self._fallback_actor()
+        while True:
+            state = self.sensors.get(SensorType.MODULE)
+            if not state or state.status != SensorStatus.ACTIVE:
+                await asyncio.sleep(1.2)
+                continue
+            try:
+                current: Set[str] = set()
+                if os.path.exists("/proc/modules"):
+                    for line in Path("/proc/modules").read_text(errors="ignore").splitlines():
+                        name = (line.split() or [""])[0].strip()
+                        if name:
+                            current.add(name)
+
+                for name in current - seen:
+                    event = ModuleEvent(
+                        event_id=str(uuid.uuid4()),
+                        event_type=EventType.MOD_LOAD,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        pid=actor["pid"],
+                        ppid=actor["ppid"],
+                        uid=actor["uid"],
+                        gid=actor["gid"],
+                        comm=actor["comm"],
+                        module_name=name,
+                        module_size=0,
+                    )
+                    self._dispatch_event(event)
+
+                for name in seen - current:
+                    event = ModuleEvent(
+                        event_id=str(uuid.uuid4()),
+                        event_type=EventType.MOD_UNLOAD,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        pid=actor["pid"],
+                        ppid=actor["ppid"],
+                        uid=actor["uid"],
+                        gid=actor["gid"],
+                        comm=actor["comm"],
+                        module_name=name,
+                        module_size=0,
+                    )
+                    self._dispatch_event(event)
+
+                seen = current
+                await asyncio.sleep(2.0)
+            except Exception as e:
+                logger.error(f"Proc modules poll error: {e}")
+                await asyncio.sleep(5)
+
+    async def _poll_filesystem_changes(self):
+        """Poll a few directories for file changes (fallback)."""
+        watch_dirs = [
+            "/tmp",
+            "/var/tmp",
+            "/etc",
+        ]
+        snapshot: Dict[str, Tuple[float, int]] = {}
+        actor = self._fallback_actor()
+
+        def _safe_stat(p: Path) -> Optional[Tuple[float, int, int, int]]:
+            try:
+                st = p.stat()
+                return (float(st.st_mtime), int(st.st_size), int(st.st_mode), int(st.st_ino))
+            except Exception:
+                return None
+
+        while True:
+            state = self.sensors.get(SensorType.FILE)
+            if not state or state.status != SensorStatus.ACTIVE:
+                await asyncio.sleep(1.0)
+                continue
+            try:
+                for root in watch_dirs:
+                    rp = Path(root)
+                    if not rp.exists() or not rp.is_dir():
+                        continue
+                    # Keep it light: only look one level deep
+                    for child in rp.iterdir():
+                        st = _safe_stat(child)
+                        if not st:
+                            continue
+                        key = str(child)
+                        prev = snapshot.get(key)
+                        if prev is None:
+                            snapshot[key] = (st[0], st[1])
+                            continue
+                        if st[0] != prev[0] or st[1] != prev[1]:
+                            snapshot[key] = (st[0], st[1])
+                            event = FileEvent(
+                                event_id=str(uuid.uuid4()),
+                                event_type=EventType.FILE_WRITE,
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                pid=actor["pid"],
+                                ppid=actor["ppid"],
+                                uid=actor["uid"],
+                                gid=actor["gid"],
+                                comm=actor["comm"],
+                                path=key,
+                                flags=0,
+                                mode=st[2],
+                                new_path="",
+                                inode=st[3],
+                            )
+                            self._dispatch_event(event)
+                # prevent unbounded growth
+                if len(snapshot) > 50_000:
+                    snapshot = dict(list(snapshot.items())[-25_000:])
+                await asyncio.sleep(1.5)
+            except Exception as e:
+                logger.error(f"Filesystem poll error: {e}")
                 await asyncio.sleep(5)
     
     def _parse_proc_status(self, status_path: Path) -> Dict[str, Any]:
@@ -1599,6 +1816,10 @@ class KernelSensorManager:
         if sensor_type in self.bpf_programs:
             # Cleanup BPF program
             del self.bpf_programs[sensor_type]
+
+        task = self._fallback_tasks.pop(sensor_type, None)
+        if task and not task.done():
+            task.cancel()
         
         if sensor_type in self.sensors:
             self.sensors[sensor_type].status = SensorStatus.DISABLED
@@ -1607,7 +1828,7 @@ class KernelSensorManager:
     
     async def stop_all(self):
         """Stop all sensors"""
-        for sensor_type in list(self.bpf_programs.keys()):
+        for sensor_type in set(list(self.bpf_programs.keys()) + list(self._fallback_tasks.keys())):
             await self.stop_sensor(sensor_type)
         
         logger.info("All kernel sensors stopped")

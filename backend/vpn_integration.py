@@ -38,8 +38,10 @@ WIREGUARD_DIR = Path("/etc/wireguard")
 
 class VPNConfig:
     def __init__(self):
+        default_external_mode = "true" if Path("/.dockerenv").exists() else "false"
         self.vpn_enabled = os.environ.get("VPN_ENABLED", "false").lower() == "true"
         self.vpn_type = os.environ.get("VPN_TYPE", "wireguard")  # wireguard, openvpn
+        self.vpn_managed_externally = os.environ.get("VPN_MANAGED_EXTERNALLY", default_external_mode).lower() == "true"
         self.vpn_server_address = os.environ.get("VPN_SERVER_ADDRESS", "10.200.200.1/24")
         self.vpn_port = int(os.environ.get("VPN_PORT", "51820"))
         self.dns_servers = os.environ.get("VPN_DNS", "1.1.1.1,8.8.8.8").split(",")
@@ -274,7 +276,7 @@ AllowedIPs = {peer.allowed_ips}
         
         logger.info(f"WireGuard config written to {config_path}")
     
-    async def add_peer(self, name: str, allowed_ips: str = None) -> WireGuardPeer:
+    async def add_peer(self, name: str, peer_id: Optional[str] = None, allowed_ips: str = None) -> WireGuardPeer:
         """Add a new peer/client"""
         # Generate keys for peer
         private_key, public_key = await WireGuardKeyManager.generate_keypair()
@@ -286,7 +288,8 @@ AllowedIPs = {peer.allowed_ips}
             next_ip = self._get_next_ip()
             allowed_ips = f"{next_ip}/32"
         
-        peer_id = hashlib.md5(f"{name}-{datetime.now().isoformat()}".encode()).hexdigest()[:16]
+        if peer_id is None:
+            peer_id = hashlib.md5(f"{name}-{datetime.now().isoformat()}".encode()).hexdigest()[:16]
         
         peer = WireGuardPeer(
             peer_id=peer_id,
@@ -391,6 +394,17 @@ PersistentKeepalive = 25
         """Start WireGuard interface"""
         if not self.server_config:
             await self.initialize_server()
+
+        # In containerized deployments, a dedicated `wireguard` service manages
+        # the interface. Running wg-quick here can alter routes/DNS and break
+        # backend connectivity to MongoDB and other internal services.
+        if config.vpn_managed_externally:
+            return {
+                "status": "managed_externally",
+                "interface": self.interface,
+                "server_configured": self.server_config is not None,
+                "message": "WireGuard is managed by an external service/container."
+            }
         
         try:
             # Copy config to WireGuard directory
@@ -425,6 +439,13 @@ PersistentKeepalive = 25
     
     async def stop_server(self) -> Dict[str, Any]:
         """Stop WireGuard interface"""
+        if config.vpn_managed_externally:
+            return {
+                "status": "managed_externally",
+                "interface": self.interface,
+                "message": "WireGuard is managed by an external service/container."
+            }
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 "wg-quick", "down", self.interface,
@@ -442,6 +463,15 @@ PersistentKeepalive = 25
     
     async def get_status(self) -> Dict[str, Any]:
         """Get WireGuard server status"""
+        if config.vpn_managed_externally:
+            return {
+                "status": "managed_externally",
+                "interface": self.interface,
+                "peers_count": len(self.peers),
+                "server_configured": self.server_config is not None,
+                "message": "WireGuard lifecycle is handled by external service/container."
+            }
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 "wg", "show", self.interface,
@@ -613,7 +643,7 @@ class VPNManager:
         # Do not auto-enable kill switch on server start.
         # In containerized backend environments this can block egress to Mongo/Elasticsearch
         # and make the API appear hung. Operators can still toggle it explicitly from the UI.
-        if result.get("status") == "started":
+        if result.get("status") in {"started", "managed_externally"}:
             result["kill_switch_auto_enabled"] = False
 
         return result
@@ -626,9 +656,9 @@ class VPNManager:
         
         return await self.server.stop_server()
     
-    async def add_peer(self, name: str) -> Dict:
+    async def add_peer(self, name: str, peer_id: Optional[str] = None, allowed_ips: Optional[str] = None) -> Dict:
         """Add a VPN peer"""
-        peer = await self.server.add_peer(name)
+        peer = await self.server.add_peer(name, peer_id=peer_id, allowed_ips=allowed_ips)
         return asdict(peer)
     
     def get_peer_config(self, peer_id: str) -> Optional[str]:

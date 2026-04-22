@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1.7
+# Seraph AI - Atomic Validation Sandbox Image
+# ============================================
+# Extends the backend image with tools required for atomic test execution:
+#   - sudo          (T1547.006 insmod path, privilege-escalation atomics)
+#   - openssh-client (T1048 SSH exfiltration atomics)
+#
+# Build:
+#   docker build -f deployment/Dockerfile.sandbox-tools \
+#     -t seraph-sandbox-tools:latest .
+#
+# This image is used by atomic_validation.py when ATOMIC_SANDBOX_IMAGE is set.
+# Sandbox containers are always launched with:
+#   --network none  --cap-drop ALL  --security-opt no-new-privileges:false
+# so the additional tools cannot be abused beyond the atomic test scope.
+
+FROM metatron-triune-outbound-gate-backend:latest
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        sudo \
+        openssh-client \
+        # -- tools required by atomic tests --
+        xxd \
+        iputils-ping \
+        net-tools \
+        nmap \
+        tcpdump \
+        binutils \
+        curl \
+        wget \
+        netcat-openbsd \
+        iproute2 \
+        procps \
+        kmod \
+        sysstat \
+        strace \
+        python3 \
+        perl \
+        dnsutils \
+        socat \
+        file \
+        jq \
+        bc \
+        cron \
+        at \
+        zip \
+        unzip \
+        gzip \
+        tar \
+        bzip2 \
+        xz-utils \
+    && rm -rf /var/lib/apt/lists/*

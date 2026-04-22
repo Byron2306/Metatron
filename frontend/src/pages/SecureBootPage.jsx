@@ -52,6 +52,7 @@ const SecureBootPage = () => {
   const [scanResult, setScanResult] = useState(null);
   const [selectedComponent, setSelectedComponent] = useState(null);
   const [viewMode, setViewMode] = useState('status'); // status, chain, firmware, alerts
+  const [demoMode, setDemoMode] = useState(false);
   const [fleetStats, setFleetStats] = useState({
     total_endpoints: 0,
     secure_boot_enabled: 0,
@@ -64,18 +65,47 @@ const SecureBootPage = () => {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const [statusRes, chainRes, alertsRes] = await Promise.all([
+      setDemoMode(false);
+      const results = await Promise.allSettled([
         axios.get(`${API}/v1/secure-boot/status`, { headers: getAuthHeaders() }),
         axios.get(`${API}/v1/secure-boot/bootchain`, { headers: getAuthHeaders() }),
-        axios.get(`${API}/v1/secure-boot/alerts?limit=50`, { headers: getAuthHeaders() })
+        axios.get(`${API}/v1/secure-boot/alerts?limit=50`, { headers: getAuthHeaders() }),
+        axios.get(`${API}/v1/secure-boot/firmware`, { headers: getAuthHeaders() }),
       ]);
-      
-      setStatus(statusRes.data);
-      setBootChain(chainRes.data);
-      setAlerts(alertsRes.data.alerts || []);
+
+      const [statusRes, chainRes, alertsRes, firmwareRes] = results.map((r) =>
+        r.status === 'fulfilled' ? r.value : null
+      );
+
+      if (statusRes?.data) setStatus(statusRes.data);
+      if (chainRes?.data) setBootChain(chainRes.data);
+      if (alertsRes?.data) setAlerts(alertsRes.data.alerts || []);
+
+      if (firmwareRes?.data?.components?.length > 0) {
+        setFirmware(
+          firmwareRes.data.components.map((c) => ({
+            id: c.component_id,
+            name: c.name,
+            vendor: c.vendor,
+            version: c.version,
+            secure: c.signature_valid,
+            update_available: c.update_available,
+          }))
+        );
+      } else if (firmwareRes?.data?.components) {
+        setFirmware([]);
+      }
+
+      // Only fall back to demo if the core endpoints are unavailable.
+      if (!statusRes || !chainRes) {
+        setDemoMode(true);
+        toast.warning('Secure Boot telemetry is partially unavailable — some panels may show placeholders');
+      }
       
     } catch (error) {
       console.error('Failed to fetch secure boot data:', error);
+      setDemoMode(true);
+      toast.warning('Secure Boot API unavailable — showing demo data');
       loadDemoData();
     } finally {
       setLoading(false);
@@ -122,19 +152,9 @@ const SecureBootPage = () => {
       mitre_techniques: []
     });
     
-    setFirmware([
-      { id: 'fw-1', name: 'System BIOS', vendor: 'Dell Inc.', version: '2.18.0', secure: true, update_available: false },
-      { id: 'fw-2', name: 'ME Firmware', vendor: 'Intel', version: '16.1.27', secure: true, update_available: true },
-      { id: 'fw-3', name: 'NIC Firmware', vendor: 'Intel', version: '1.5.62', secure: true, update_available: false },
-      { id: 'fw-4', name: 'SSD Firmware', vendor: 'Samsung', version: 'GXA7801Q', secure: true, update_available: false },
-      { id: 'fw-5', name: 'TPM Firmware', vendor: 'STMicro', version: '74.8', secure: true, update_available: false }
-    ]);
+    setFirmware([]);
     
-    setAlerts([
-      { id: 1, severity: 'warning', message: 'ME Firmware update available (CVE-2025-1234)', endpoint: 'WS-ADMIN-01', timestamp: '2026-03-06T10:30:00Z' },
-      { id: 2, severity: 'info', message: 'Boot chain verified successfully', endpoint: 'SRV-DB-01', timestamp: '2026-03-06T09:15:00Z' },
-      { id: 3, severity: 'low', message: 'TPM attestation completed', endpoint: 'WS-DEV-05', timestamp: '2026-03-06T08:45:00Z' }
-    ]);
+    setAlerts([]);
     
     setFleetStats({
       total_endpoints: 156,
@@ -189,7 +209,8 @@ const SecureBootPage = () => {
       low: { color: 'bg-green-500/20 text-green-400', icon: ShieldCheck },
       medium: { color: 'bg-yellow-500/20 text-yellow-400', icon: ShieldAlert },
       high: { color: 'bg-orange-500/20 text-orange-400', icon: ShieldAlert },
-      critical: { color: 'bg-red-500/20 text-red-400', icon: ShieldX }
+      critical: { color: 'bg-red-500/20 text-red-400', icon: ShieldX },
+      unknown: { color: 'bg-slate-500/20 text-slate-300', icon: AlertTriangle }
     };
     const cfg = config[level] || config.low;
     const Icon = cfg.icon;
@@ -248,6 +269,36 @@ const SecureBootPage = () => {
         </div>
       </div>
 
+      {(demoMode || status?.measurement_available === false) && (
+        <div
+          className="mb-6 p-3 rounded-lg border text-sm flex items-start gap-2"
+          style={{
+            backgroundColor: demoMode ? 'rgba(245, 158, 11, 0.08)' : 'rgba(56, 189, 248, 0.08)',
+            borderColor: demoMode ? 'rgba(245, 158, 11, 0.35)' : 'rgba(56, 189, 248, 0.35)'
+          }}
+        >
+          <AlertTriangle className="w-4 h-4 mt-0.5" style={{ color: demoMode ? '#F59E0B' : '#38BDF8' }} />
+          <div className="space-y-1">
+            {demoMode && (
+              <div className="text-amber-200">
+                Demo data is being displayed because the Secure Boot API could not be reached.
+              </div>
+            )}
+            {status?.measurement_available === false && (
+              <div className="text-cyan-200">
+                Secure Boot measurement is unavailable in this runtime (common in containers).{' '}
+                {status?.measurement_note || ''}
+                {typeof status?.operator_override_secure_boot_enabled === 'boolean' && (
+                  <span className="ml-1">
+                    Operator override: <span className="font-mono">{String(status.operator_override_secure_boot_enabled)}</span>.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Fleet Stats */}
       <div className="grid grid-cols-5 gap-4 mb-6">
         <motion.div 
@@ -273,7 +324,11 @@ const SecureBootPage = () => {
             <span className="text-gray-400 text-sm">Secure Boot Enabled</span>
           </div>
           <p className="text-2xl font-bold text-green-400">{fleetStats.secure_boot_enabled}</p>
-          <p className="text-xs text-gray-500">{Math.round(fleetStats.secure_boot_enabled / fleetStats.total_endpoints * 100)}% coverage</p>
+          <p className="text-xs text-gray-500">
+            {fleetStats.total_endpoints > 0
+              ? `${Math.round((fleetStats.secure_boot_enabled / fleetStats.total_endpoints) * 100)}% coverage`
+              : 'N/A'}
+          </p>
         </motion.div>
         
         <motion.div 
@@ -287,7 +342,11 @@ const SecureBootPage = () => {
             <span className="text-gray-400 text-sm">TPM Present</span>
           </div>
           <p className="text-2xl font-bold text-cyan-400">{fleetStats.tpm_present}</p>
-          <p className="text-xs text-gray-500">{Math.round(fleetStats.tpm_present / fleetStats.total_endpoints * 100)}% equipped</p>
+          <p className="text-xs text-gray-500">
+            {fleetStats.total_endpoints > 0
+              ? `${Math.round((fleetStats.tpm_present / fleetStats.total_endpoints) * 100)}% equipped`
+              : 'N/A'}
+          </p>
         </motion.div>
         
         <motion.div 
@@ -363,11 +422,19 @@ const SecureBootPage = () => {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
                         <span className="text-sm">UEFI Mode</span>
-                        {getStatusIndicator(status.uefi_mode)}
+                        {status.measurement_available === false ? (
+                          <Badge className="bg-slate-500/20 text-slate-300 border border-slate-500/30">Unavailable</Badge>
+                        ) : (
+                          getStatusIndicator(status.uefi_mode)
+                        )}
                       </div>
                       <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
                         <span className="text-sm">Secure Boot</span>
-                        {getStatusIndicator(status.secure_boot_enabled)}
+                        {status.measurement_available === false ? (
+                          <Badge className="bg-slate-500/20 text-slate-300 border border-slate-500/30">Unavailable</Badge>
+                        ) : (
+                          getStatusIndicator(status.secure_boot_enabled)
+                        )}
                       </div>
                       <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
                         <span className="text-sm">Enforced</span>

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 IDENTITY_INCIDENT_COLLECTION = "identity_incidents"
+IDENTITY_SCAN_COLLECTION = "identity_scan_runs"
 IDENTITY_INCIDENT_TERMINAL_STATUSES = {"resolved", "suppressed", "false_positive"}
 
 def _incident_transition_entry(from_status: Optional[str], to_status: str, actor: str, reason: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -175,6 +176,39 @@ def _normalize_threat(threat: Dict[str, Any]) -> Dict[str, Any]:
         "raw": threat,
     }
 
+def _list_local_accounts(limit: int = 5000) -> List[Dict[str, Any]]:
+    """Best-effort local account inventory for environments without AD telemetry."""
+    accounts: List[Dict[str, Any]] = []
+    try:
+        # Linux-like: /etc/passwd
+        if os.path.exists("/etc/passwd"):
+            with open("/etc/passwd", "r", encoding="utf-8", errors="ignore") as fh:
+                for line in fh:
+                    parts = line.strip().split(":")
+                    if len(parts) < 7:
+                        continue
+                    username = parts[0]
+                    try:
+                        uid = int(parts[2])
+                    except Exception:
+                        uid = -1
+                    shell = parts[6]
+                    accounts.append({"username": username, "uid": uid, "shell": shell})
+                    if len(accounts) >= limit:
+                        break
+    except Exception:
+        return accounts
+    return accounts
+
+
+def _local_privileged_count(accounts: List[Dict[str, Any]]) -> int:
+    count = 0
+    for a in accounts:
+        uid = a.get("uid")
+        if uid == 0:
+            count += 1
+    return count
+
 
 @router.get("/stats")
 async def get_identity_stats() -> Dict[str, Any]:
@@ -185,14 +219,67 @@ async def get_identity_stats() -> Dict[str, Any]:
     kerberos_stats = det_health.get("detectors", {}).get("kerberos", {}).get("stats", {})
     credential_stats = det_health.get("detectors", {}).get("credential", {}).get("stats", {})
 
+    total_users = kerberos_stats.get("unique_users_tracked", 0)
+    privileged_accounts = credential_stats.get("privileged_accounts_monitored", 0)
+    active_threats_count = summary.get("active_threats", 0)
+    blocked_attacks_count = summary.get("metrics", {}).get("auto_responses_triggered", 0)
+    kerberos_anomalies_count = summary.get("attack_type_distribution", {}).get("kerberoasting", 0)
+    credential_dumps_count = summary.get("attack_type_distribution", {}).get("credential_dumping", 0)
+
+    db = get_db()
+    last_scan = None
+    if db is not None:
+        last_scan = await db[IDENTITY_SCAN_COLLECTION].find_one({}, {"_id": 0}, sort=[("timestamp", -1)])
+        if last_scan:
+            total_users = total_users or int(last_scan.get("total_users") or 0)
+            privileged_accounts = privileged_accounts or int(last_scan.get("privileged_accounts") or 0)
+
+        # Supplement in-memory engine stats with real MongoDB counts
+        non_terminal = {"$nin": list(IDENTITY_INCIDENT_TERMINAL_STATUSES)}
+        db_active = await db[IDENTITY_INCIDENT_COLLECTION].count_documents({"status": non_terminal})
+        db_kerberos = await db[IDENTITY_INCIDENT_COLLECTION].count_documents(
+            {"$or": [{"attack_type": "kerberoasting"}, {"type": "kerberoasting"}, {"type": "as_rep_roasting"}, {"attack_type": "as_rep_roasting"}]}
+        )
+        db_cred = await db[IDENTITY_INCIDENT_COLLECTION].count_documents(
+            {"$or": [
+                {"attack_type": {"$in": ["credential_dumping", "pass_the_hash", "dcsync", "golden_ticket", "credential_dump"]}},
+                {"type": {"$in": ["credential_dump", "pass_the_hash", "dcsync", "golden_ticket"]}},
+            ]}
+        )
+        db_blocked = await db["response_history"].count_documents({})
+        db_total_users = await db["users"].count_documents({})
+        db_privileged = await db["users"].count_documents({"is_privileged": True})
+
+        active_threats_count = active_threats_count or db_active
+        kerberos_anomalies_count = kerberos_anomalies_count or db_kerberos
+        credential_dumps_count = credential_dumps_count or db_cred
+        blocked_attacks_count = blocked_attacks_count or db_blocked
+        total_users = total_users or db_total_users
+        privileged_accounts = privileged_accounts or db_privileged
+
+    # If no AD/kerberos telemetry exists, fall back to local account inventory so the
+    # UI doesn't look broken in single-host/container installs.
+    local_accounts = []
+    if not total_users:
+        local_accounts = _list_local_accounts()
+        total_users = len(local_accounts)
+        privileged_accounts = privileged_accounts or _local_privileged_count(local_accounts)
+
     return {
-        "total_users": kerberos_stats.get("unique_users_tracked", 0),
-        "privileged_accounts": credential_stats.get("privileged_accounts_monitored", 0),
-        "active_threats": summary.get("active_threats", 0),
-        "blocked_attacks": summary.get("metrics", {}).get("auto_responses_triggered", 0),
-        "kerberos_anomalies": summary.get("attack_type_distribution", {}).get("kerberoasting", 0),
-        "credential_dumps": summary.get("attack_type_distribution", {}).get("credential_dumping", 0),
+        "total_users": int(total_users or 0),
+        "privileged_accounts": int(privileged_accounts or 0),
+        "active_threats": active_threats_count,
+        "blocked_attacks": blocked_attacks_count,
+        "kerberos_anomalies": kerberos_anomalies_count,
+        "credential_dumps": credential_dumps_count,
         "summary": summary,
+        "last_scan": last_scan,
+        "local_inventory": {
+            "used": bool(local_accounts),
+            "account_count": len(local_accounts) if local_accounts else 0,
+            "privileged_count": _local_privileged_count(local_accounts) if local_accounts else 0,
+            "sample_accounts": [a.get("username") for a in local_accounts[:20]] if local_accounts else [],
+        },
     }
 
 
@@ -367,14 +454,40 @@ async def get_identity_alerts(limit: int = Query(100, ge=1, le=500)) -> Dict[str
 
 @router.post("/scan")
 async def run_identity_scan(request: Optional[IdentityScanRequest] = None) -> Dict[str, Any]:
-    # The identity engine is event-driven; this endpoint returns a compatible scan trigger response.
-    _ = request
+    # The identity engine is event-driven; additionally perform a lightweight local
+    # baseline so operators see tangible scan output even without AD telemetry.
+    req = request or IdentityScanRequest()
     engine = get_identity_protection_engine()
     summary = engine.get_threat_summary()
+
+    scan_id = f"identity-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    ts = datetime.now(timezone.utc).isoformat()
+    local_accounts = _list_local_accounts()
+    scan_doc = {
+        "scan_id": scan_id,
+        "timestamp": ts,
+        "include_kerberos": bool(req.include_kerberos),
+        "include_ldap": bool(req.include_ldap),
+        "include_ntlm": bool(req.include_ntlm),
+        "total_users": len(local_accounts),
+        "privileged_accounts": _local_privileged_count(local_accounts),
+        "sample_users": [a.get("username") for a in local_accounts[:50]],
+        "engine_active_threats": summary.get("active_threats", 0),
+        "engine_metrics": summary.get("metrics", {}),
+    }
+    db = get_db()
+    if db is not None:
+        try:
+            await db[IDENTITY_SCAN_COLLECTION].insert_one(dict(scan_doc))
+        except Exception:
+            pass
+
     return {
         "status": "completed",
-        "scan_id": f"identity-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "scan_id": scan_id,
+        "timestamp": ts,
         "active_threats": summary.get("active_threats", 0),
         "threats_last_hour": summary.get("threats_last_hour", 0),
+        "local_users_enumerated": len(local_accounts),
+        "local_privileged_accounts": scan_doc["privileged_accounts"],
     }

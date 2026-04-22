@@ -11,8 +11,21 @@ from quarantine import (
     get_quarantine_summary, list_quarantined,
     get_quarantine_entry, restore_file, delete_quarantined
 )
+from quarantine import ingest_quarantine_metadata
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
 
 router = APIRouter(prefix="/quarantine", tags=["Quarantine"])
+
+class DemoIngestRequest(BaseModel):
+    filepath: str
+    threat_name: str
+    threat_type: str = "unknown"
+    detection_source: str = "agent"
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    sha256: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 @router.get("")
 async def get_quarantine_list(current_user: dict = Depends(get_current_user)):
@@ -61,3 +74,22 @@ async def delete_entry(entry_id: str, current_user: dict = Depends(get_current_u
     if not result:
         raise HTTPException(status_code=400, detail="Delete failed - entry not found")
     return {"success": True, "message": "File deleted successfully"}
+
+
+@router.post("/demo-ingest")
+async def demo_ingest(request: DemoIngestRequest, current_user: dict = Depends(get_current_user)):
+    """Ingest a quarantine record by metadata only (for remote agents / demos)."""
+    entry = ingest_quarantine_metadata(
+        original_path=request.filepath,
+        threat_name=request.threat_name,
+        threat_type=request.threat_type,
+        detection_source=request.detection_source,
+        agent_id=request.agent_id,
+        agent_name=request.agent_name,
+        file_hash_sha256=request.sha256,
+        metadata={
+            **(request.metadata or {}),
+            "ingested_by": current_user.get("email") or current_user.get("id") or "unknown",
+        },
+    )
+    return {"success": True, "entry": asdict(entry)}
