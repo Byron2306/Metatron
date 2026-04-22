@@ -9,6 +9,7 @@ import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 
 const scoreLabel = (score) => {
+  if (score >= 5) return 'SOAR Response';
   if (score >= 4) return 'Validated';
   if (score >= 3) return 'High Fidelity';
   if (score === 2) return 'Detection Logic';
@@ -17,6 +18,7 @@ const scoreLabel = (score) => {
 };
 
 const scoreClass = (score) => {
+  if (score >= 5) return 'text-fuchsia-300 border-fuchsia-500/30';
   if (score >= 4) return 'text-green-400 border-green-500/30';
   if (score >= 3) return 'text-cyan-400 border-cyan-500/30';
   if (score === 2) return 'text-amber-400 border-amber-500/30';
@@ -226,6 +228,14 @@ const MitreAttackCoveragePage = () => {
                   {item.implemented && (
                     <p className="text-emerald-400 text-xs mt-1">Implemented evidence files: {item.implemented_evidence_count}</p>
                   )}
+                  {Number(item?.evidence?.soar_playbook_count || 0) > 0 && (
+                    <p className="text-fuchsia-300 text-xs mt-1">
+                      SOAR linked: {item.evidence.soar_playbook_count} playbooks, {item.evidence.soar_execution_count || 0} executions
+                    </p>
+                  )}
+                  {Number(item?.tvr_score || 0) >= 5 && !item?.soar_linked && (
+                    <p className="text-amber-300 text-xs mt-1">S5 pending: missing SOAR response evidence</p>
+                  )}
                   {item.operational_evidence && (
                     <p className="text-indigo-300 text-xs mt-1">Operational evidence observed</p>
                   )}
@@ -298,7 +308,7 @@ const MitreAttackCoveragePage = () => {
           <p className="text-amber-400">S2: Rule or logic exists</p>
           <p className="text-cyan-400">S3: High-fidelity detection in production</p>
           <p className="text-green-400">S4: Validated with adversary emulation</p>
-          <p className="text-slate-300">S5: Automated SOAR response linked</p>
+          <p className="text-fuchsia-300">S5: Validated + automated SOAR response linked</p>
         </CardContent>
       </Card>
     </div>

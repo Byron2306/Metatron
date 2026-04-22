@@ -100,6 +100,9 @@ services:
       - OSQUERY_RESULTS_LOG=/var/lib/seraph-ai/evidence-bundle/osqueryd.results.log
       - FLEET_BASE_URL=${FLEET_BASE_URL:-}
       - FLEET_API_TOKEN=${FLEET_API_TOKEN:-}
+      # Persist SOAR linkage evidence for MITRE S5 gating (writeable path)
+      - SIGMA_SOAR_EXECUTION_ARCHIVE_PATH=/var/lib/seraph-ai/artifacts/soar_executions_archive.json
+      - MITRE_ARCHIVED_SOAR_EXECUTION_PATH=/var/lib/seraph-ai/artifacts/soar_executions_archive.json
       - ARDA_ENFORCE_ON_BOOT=false
       - ARDA_LSM_ENABLED=false
       - SERAPH_SECURE_BOOT_ENABLED=true
@@ -117,6 +120,7 @@ services:
       - ./raw-runs:/var/lib/seraph-ai/raw-runs:ro
       - ./metatron-evidence-package-real-sandbox-2026-04-18/atomic_runs:/var/lib/seraph-ai/evidence-sandbox-s4/atomic_runs:ro
       - ./metatron-evidence-package-real-sandbox-2026-04-18/evidence_bundle:/var/lib/seraph-ai/evidence-sandbox-s5:ro
+      - ./artifacts:/var/lib/seraph-ai/artifacts
       - zeek_logs:/usr/local/zeek/logs:ro
       - suricata_logs:/var/log/suricata:ro
       - ./backend:/app/backend:ro
