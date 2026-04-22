@@ -1,6 +1,6 @@
 # Seraph AI Defender — Executive Board Brief (2026)
 
-**Date:** 2026-03-04  
+**Date:** 2026-04-22 (code-logic refresh)  
 **Audience:** Board, CEO, CISO, CTO, VP Product, VP Engineering  
 **Source baseline:** `memory/SERAPH_COMPETITIVE_WHITEPAPER_2026.md`
 
@@ -11,7 +11,12 @@
 Seraph is at an inflection point:
 - It has unusually strong innovation and architecture flexibility.
 - It has clear competitive upside in adaptive, governed, AI-native defense workflows.
-- It is not yet at incumbent-level enterprise hardening and operational assurance.
+- It still requires consistency hardening to match incumbent-level enterprise assurance.
+
+Current code-evidence refresh:
+- Core control plane is materially real (`backend/server.py`, governance authority/executor services, unified-agent router + monitors).
+- Security hardening has improved in active paths (strict JWT/CORS mode, CSPM scan auth, governance event/audit trail patterns).
+- Some marketing-level breadth claims still exceed execution wiring depth (notably MDM connector breadth: advertised 4 platforms vs manager onboarding path currently Intune + JAMF).
 
 **Board-level question:** Should Seraph pursue feature breadth race, or shift into a hardening-led convergence strategy to become a credible enterprise alternative?
 

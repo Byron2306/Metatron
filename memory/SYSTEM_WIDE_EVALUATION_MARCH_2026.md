@@ -1,33 +1,31 @@
 # Metatron/Seraph AI Defender - System-Wide Evaluation Report
-**Date:** March 9, 2026  
-**Version:** v6.7.0  
-**Scope:** Comprehensive evaluation including Email Gateway, MDM Connectors, and Security Hardening  
-**Classification:** Strategic Assessment (Code-Evidence Based)
+**Date:** April 22, 2026 (code-logic refresh)  
+**Version:** v7.0 reality update  
+**Scope:** Summary recalibrated against current backend/frontend implementation  
+**Classification:** Strategic Assessment (code-evidence anchored)
 
 ---
 
 ## Executive Summary
 
-This report updates the March 2026 system-wide evaluation to reflect the significant capability expansion with Email Gateway and MDM Connectors. The platform has materially closed all previously identified Tier 3 domain expansion gaps, establishing itself as a **comprehensive unified security fabric**.
+This summary has been updated to match current repository behavior, not historical target-state assumptions. The platform remains broad and modular, but several domains are "implemented with caveats" rather than fully closed.
 
-### Key Metrics (Updated)
+### Current Reality Snapshot (April 2026)
 
-| Metric | Prior Snapshot (Mar 9 AM) | Current (Mar 9 PM) | Delta |
-|--------|---------------------------|-------------------|-------|
-| Implemented Features | 97+ | 115+ | +18 |
-| Partial Features | 3 | 2 | -1 |
-| Domain Coverage | 10 domains | 12 domains | +2 |
-| Overall Implementation | ~83-87% | ~90-94% | +5-7% |
-| Email Protection Maturity | 8/10 | 9/10 | +1 |
-| Email Gateway Maturity | Not implemented | 8.5/10 | NEW |
-| Mobile Security Maturity | 7/10 | 8.5/10 | +1.5 |
-| MDM Connectors Maturity | Not implemented | 8.5/10 | NEW |
-| Security Hardening | Medium-High | High | +1 level |
-| Composite Maturity Score | 4.0/5 | 4.3/5 | +0.3 |
+| Domain | Code-validated state |
+|--------|-----------------------|
+| Core API + UI composition | Operational: FastAPI router mesh in `backend/server.py`, React route composition in `frontend/src/App.js` |
+| Security hardening baseline | Improved: strict JWT/CORS behavior in production mode (`backend/routers/dependencies.py`, `backend/server.py`) |
+| Governance workflow | Operational: decision authority + executor pipeline (`backend/services/governance_authority.py`, `backend/services/governance_executor.py`) |
+| CSPM control plane | Operational with auth + triune gating for high-impact actions (`backend/routers/cspm.py`) |
+| Email protection + gateway | Implemented and callable (`backend/email_protection.py`, `backend/email_gateway.py`, routers + pages) |
+| Mobile security | Implemented for device/app/compliance workflows (`backend/mobile_security.py`, router + UI) |
+| MDM connectors | **Partially implemented vs claims**: connector metadata lists 4 platforms, but manager add/connect path currently wires **Intune + JAMF** only (`backend/mdm_connectors.py`) |
+| Unified agent / EDM | Mature implementation depth with dataset versioning, rollout, and monitor telemetry (`backend/routers/unified_agent.py`, `unified_agent/core/agent.py`) |
 
 ### Bottom Line
 
-Metatron is now a **comprehensive enterprise security fabric** with full coverage across endpoints, cloud, network, identity, email, and mobile devices. All major domain gaps have been closed, with remaining work focused on production integrations.
+Metatron/Seraph is a high-capability, code-real platform with strong breadth and active governance hardening. The most important correction versus prior summaries is MDM scope: platform descriptors include Intune/JAMF/Workspace ONE/Google Workspace, but executable connector onboarding currently supports Intune and JAMF. The rest of this document should be interpreted as directional, with this executive summary as the current source of truth.
 
 ---
 
@@ -53,7 +51,7 @@ Metatron is now a **comprehensive enterprise security fabric** with full coverag
 | **Email Protection** | **12** | **~95%** | **Full-scope implementation** |
 | **Email Gateway** | **9** | **~85%** | **NEW: SMTP relay mode** |
 | **Mobile Security** | **10** | **~85%** | **Comprehensive implementation** |
-| **MDM Connectors** | **12** | **~85%** | **NEW: Multi-platform integration** |
+| **MDM Connectors** | **12** | **~70% (code-real)** | **Intune + JAMF connector execution path; platform metadata advertises broader target set** |
 | **Kernel Security** | **7** | **~90%** | **Enhanced with rootkit detection** |
 
 ### 1.2 Email Gateway Feature State (NEW)
@@ -79,29 +77,30 @@ Email Gateway is now a mature security capability with:
 - Moderate: Policy engine, statistics
 - Gap: Production SMTP server integration
 
-### 1.3 MDM Connectors Feature State (NEW)
+### 1.3 MDM Connectors Feature State (Code-Real Scope)
 
-MDM Connectors provides enterprise device management integration:
+MDM Connectors provides enterprise device management integration with a partial implementation boundary in the connector manager:
 
 **Implemented Capabilities:**
-- Microsoft Intune connector (Azure AD)
-- JAMF Pro connector (Apple devices)
-- VMware Workspace ONE connector (cross-platform)
-- Google Workspace connector (Android Enterprise)
-- Multi-platform device synchronization
-- Compliance policy synchronization
-- Remote device actions (lock, wipe, sync)
-- Device compliance dashboard
+- Microsoft Intune connector (Azure AD) - implemented in connector manager
+- JAMF Pro connector (Apple devices) - implemented in connector manager
+- Connector lifecycle APIs and status endpoints (`/api/mdm/*`)
+- Device synchronization/compliance surfaces and remote actions (lock, wipe, retire, sync)
+- Device and policy dashboard pages in frontend workspace
 
 **Evidence Locations:**
 - `backend/mdm_connectors.py` - Core service (1000+ lines)
 - `backend/routers/mdm_connectors.py` - API endpoints (250+ lines)
 - `frontend/src/pages/MDMConnectorsPage.jsx` - UI dashboard (600+ lines)
 
-**Maturity: 8.5/10**
-- Strong: Platform integration framework, device actions, compliance
-- Moderate: Dashboard, policy sync
-- Gap: Production MDM platform credentials
+**Current Limitation (important):**
+- `backend/mdm_connectors.py` currently wires `add_connector()` for **Intune and JAMF only**.
+- `Workspace ONE` and `Google Workspace` are listed in `/api/mdm/platforms`, but connector class execution paths are not currently implemented in the manager.
+
+**Maturity: 7.0/10 (code-real)**
+- Strong: Intune/JAMF flow, device actions, compliance and UI integration
+- Moderate: Dashboard and policy sync loop
+- Gaps: Workspace ONE / Google Workspace execution path, production credentials and webhooks
 
 ### 1.4 Security Hardening (v6.7.0)
 

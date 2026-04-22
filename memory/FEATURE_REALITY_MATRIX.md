@@ -1,13 +1,19 @@
 # Metatron Feature Reality Matrix
 
-Generated: 2026-03-09
+Generated: 2026-04-22
 Scope: Quantitative implementation snapshot (feature depth, durability, contract assurance, operational realism)
-**Update v6.7.0:** Includes Email Gateway, MDM Connectors, and enhanced security hardening
+**Update v7.0:** Rebased against current backend/frontend code paths and corrected overstated integration claims
 
 ## Legend
 - `PASS`: Real logic executes in normal configured environments.
 - `PARTIAL`: Real implementation exists but depends on optional runtime prerequisites, durability, or assurance depth.
 - `LIMITED`: Present only as compatibility layer, simulation-safe path, or reduced-depth implementation.
+
+## Executive Reality Update (April 2026)
+- Core architecture remains strong: modular router mesh, governance executor loop, unified-agent control plane, and broad SOC workflow coverage.
+- Security hardening evidence is concrete in current code (strict JWT/CORS posture in production-like mode, CSPM auth dependency, governance audit/event trail patterns).
+- **MDM connector scope corrected:** `/api/mdm/platforms` advertises 4 platforms, but `backend/mdm_connectors.py` manager wiring currently supports connector onboarding for **Intune + JAMF** only.
+- For operator decisions, treat this matrix as canonical over older maturity language elsewhere.
 
 ---
 
@@ -20,7 +26,7 @@ Scope: Quantitative implementation snapshot (feature depth, durability, contract
 | **Email Protection** | **9** | **PASS** | **SPF/DKIM/DMARC validation, phishing detection, attachment scanning, impersonation protection, DLP** |
 | **Email Gateway** | **8** | **PASS** | **NEW: SMTP relay mode, quarantine management, blocklist/allowlist, real-time threat analysis** |
 | **Mobile Security** | **8** | **PASS** | **Device management, jailbreak detection, app analysis, compliance monitoring, network security** |
-| **MDM Connectors** | **8** | **PASS** | **NEW: Intune, JAMF, Workspace ONE, Google Workspace platform integration** |
+| **MDM Connectors** | **7** | **PARTIAL** | **Intune/JAMF connector execution path operational; Workspace ONE/Google Workspace currently metadata-only target platforms** |
 | Identity Protection | 9 | PASS | DB-backed incident durability, guarded transitions, audit logs |
 | CSPM Capability Plane | 9 | PASS | DB-backed scan/finding durability, guarded transitions, audit logs, **authenticated** |
 | Deployment Realism | 8 | PASS/PARTIAL | Real execution, retry semantics, contract assurance improving |
@@ -46,7 +52,7 @@ Scope: Quantitative implementation snapshot (feature depth, durability, contract
 | **Email Gateway (Backend)** | **PASS** | **backend/email_gateway.py, backend/routers/email_gateway.py** | **NEW: SMTP relay, threat interception, blocklist/allowlist, policy enforcement** |
 | **Email Protection (Agent)** | **PASS** | **unified_agent/core/agent.py (EmailProtectionMonitor)** | **Local email client scanning, attachment monitoring, URL analysis** |
 | **Mobile Security (Backend)** | **PASS** | **backend/mobile_security.py, backend/routers/mobile_security.py** | **Device management, threat detection, app analysis, compliance checking** |
-| **MDM Connectors (Backend)** | **PASS** | **backend/mdm_connectors.py, backend/routers/mdm_connectors.py** | **NEW: Multi-platform MDM integration with device sync and policy enforcement** |
+| **MDM Connectors (Backend)** | **PARTIAL** | **backend/mdm_connectors.py, backend/routers/mdm_connectors.py** | **Intune/JAMF path is wired in connector manager; `/api/mdm/platforms` advertises broader future platform set** |
 | **Mobile Security (Agent)** | **PASS** | **unified_agent/core/agent.py (MobileSecurityMonitor)** | **Device security checks, encryption status, network monitoring, USB events** |
 | Identity incident durability | PASS | backend/routers/identity.py, tests | DB-backed, guarded transitions, monotonic versioning. |
 | CSPM scan/finding durability | PASS | backend/cspm_engine.py, tests | DB-backed, guarded transitions, audit logs, **now requires auth**. |
@@ -81,8 +87,8 @@ Scope: Quantitative implementation snapshot (feature depth, durability, contract
 |---|---|---|
 | Microsoft Intune | Azure AD integrated MDM | PASS |
 | JAMF Pro | Apple device management | PASS |
-| VMware Workspace ONE | Cross-platform UEM | PASS |
-| Google Workspace | Android Enterprise / Chrome OS | PASS |
+| VMware Workspace ONE | Declared in platform metadata; connector manager onboarding path not currently wired | PARTIAL |
+| Google Workspace | Declared in platform metadata; connector manager onboarding path not currently wired | PARTIAL |
 | Device Sync | Multi-platform device inventory | PASS |
 | Compliance Policies | Policy-based device checks | PASS |
 | Remote Actions | Lock, wipe, sync commands | PASS |

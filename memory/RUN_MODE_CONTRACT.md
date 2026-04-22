@@ -48,13 +48,17 @@ These are intentionally profile-gated and not required for baseline operation.
 ## 5) API Routing Contract
 - Frontend calls backend via `${REACT_APP_BACKEND_URL}/api/...`.
 - In production behind reverse proxy, same-origin `/api` routing should be preferred.
-- Backend routers are mounted under `/api` in `backend/server.py`.
+- Backend routers are primarily mounted under `/api` in `backend/server.py`, with selected routers exposing native `/api/v1/*` prefixes (notably CSPM and identity surfaces).
 
 ## 6) Health Validation Sequence
 1. `docker compose ps`
-2. `curl -fsS http://localhost:8000/health`
+2. `curl -fsS http://localhost:8001/api/health`
 3. `curl -fsS http://localhost:3000` (or deployed frontend URL)
-4. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
+4. Validate representative API split:
+   - `/api/unified/stats`
+   - `/api/email-gateway/stats`
+   - `/api/v1/cspm/posture`
+5. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
 
 ## 7) Known Wiring Risks (from latest static audit)
 - High-confidence API mismatch fixed:

@@ -1,12 +1,14 @@
 # Feature Reality Report
 
-Generated: 2026-03-09
-Version: v6.7.0
-Scope: Qualitative implementation narrative (feature depth, durability, contract assurance, operational realism)
-**Update:** Comprehensive assessment including Email Gateway, MDM Connectors, and Security Hardening
+Generated: 2026-04-22
+Version: v7.0 (code-logic refresh)
+Scope: Qualitative implementation narrative refreshed against current codepaths
+**Update:** Executive verdict and domain summaries realigned to actual backend/frontend implementation
 
 ## Executive Verdict
-Metatron has achieved **enterprise-grade security platform** status with full Email Gateway and MDM Connectors capabilities. The platform now provides comprehensive protection across endpoints, cloud, network, identity, email (including gateway mode), and mobile devices (including MDM integration). All previously identified Tier 3 domain expansion gaps have been closed. Core domains are operational, DB-backed, and contract-assured.
+Metatron/Seraph remains a high-capability platform with broad implemented domains across endpoint, cloud, identity, email, mobile, and governed response workflows. The current codebase supports a strong "operational with caveats" classification rather than a "fully closed" classification across every domain.
+
+Most important correction in this refresh: MDM routing/UI and platform metadata present four connector types (Intune, JAMF, Workspace ONE, Google Workspace), but connector onboarding logic in `backend/mdm_connectors.py` currently wires Intune and JAMF in `MDMConnectorManager.add_connector(...)`. This report now treats MDM breadth as partial implementation depth, not full parity.
 
 ---
 
@@ -19,7 +21,7 @@ Metatron has achieved **enterprise-grade security platform** status with full Em
 | **Email Protection** | **9** | **PASS** | **SPF/DKIM/DMARC, phishing, attachment scanning, impersonation, DLP** |
 | **Email Gateway** | **8.5** | **PASS** | **NEW: SMTP relay, quarantine, blocklist/allowlist, policy engine** |
 | **Mobile Security** | **8.5** | **PASS** | **Device management, jailbreak detection, app analysis, compliance** |
-| **MDM Connectors** | **8.5** | **PASS** | **NEW: Intune, JAMF, Workspace ONE, Google Workspace** |
+| **MDM Connectors** | **7.0** | **PARTIAL** | **Intune + JAMF execution path; Workspace ONE / Google Workspace currently metadata-level in router platform list** |
 | Identity Protection | 9 | PASS | DB-backed incident durability |
 | CSPM Capability Plane | 9 | PASS | Multi-cloud with audit trails, **now authenticated** |
 | Deployment Realism | 8 | PASS/PARTIAL | Real execution paths |
@@ -72,16 +74,15 @@ Email Gateway provides enterprise SMTP relay capabilities:
 - Integration with external email reputation services
 
 
-### MDM Connectors (NEW - v6.7.0)
-**Status: Mature Implementation**
+### MDM Connectors (Code-Real Scope Update)
+**Status: Partial Implementation**
 
-MDM Connectors provides enterprise mobile device management integration:
+MDM Connectors provides a functional MDM integration surface with an important implementation boundary:
 
 **Backend Service (`backend/mdm_connectors.py`):**
-- **Microsoft Intune:** Azure AD integrated MDM for Windows, iOS, Android, macOS
-- **JAMF Pro:** Apple device management for iOS, iPadOS, macOS
-- **VMware Workspace ONE:** Cross-platform UEM solution
-- **Google Workspace:** Android Enterprise and Chrome OS management
+- **Microsoft Intune:** Implemented connector lifecycle and action path
+- **JAMF Pro:** Implemented connector lifecycle and action path
+- **Workspace ONE / Google Workspace:** Listed in platform metadata, but not currently wired by `MDMConnectorManager.add_connector(...)`
 - **Device Sync:** Multi-platform device inventory synchronization
 - **Compliance Policies:** Policy-based device checks
 - **Remote Actions:** Lock, wipe, sync commands
@@ -101,7 +102,8 @@ MDM Connectors provides enterprise mobile device management integration:
 - `POST /api/mdm/connect-all` - Connect all platforms
 
 **What's Real:**
-- Full connector framework for all 4 major MDM platforms
+- Connector management API and UI are operational
+- Intune and JAMF connector onboarding/execution flows are implemented
 - Device synchronization pipeline
 - Compliance policy enforcement
 - Remote device actions (lock, wipe)
@@ -109,6 +111,7 @@ MDM Connectors provides enterprise mobile device management integration:
 - Dashboard with compliance overview
 
 **What Remains Limited:**
+- Connector manager execution paths for Workspace ONE and Google Workspace
 - Production MDM platform credentials (framework ready, needs API credentials)
 - Real-time device events (depends on webhook integration)
 
@@ -260,8 +263,8 @@ Security improvements applied:
 | **Mobile Android** | **Strong** | **Full capability with MDM** |
 | **MDM Intune** | **Strong** | **NEW: Full connector** |
 | **MDM JAMF** | **Strong** | **NEW: Full connector** |
-| **MDM Workspace ONE** | **Strong** | **NEW: Full connector** |
-| **MDM Google Workspace** | **Strong** | **NEW: Full connector** |
+| **MDM Workspace ONE** | **Partial** | **Listed in supported-platform metadata; connector manager execution path not yet wired** |
+| **MDM Google Workspace** | **Partial** | **Listed in supported-platform metadata; connector manager execution path not yet wired** |
 | Serverless | Limited | Not materially implemented |
 | SaaS platforms | Limited | Not materially implemented |
 
@@ -269,29 +272,29 @@ Security improvements applied:
 
 ## Final Reality Statement
 
-Metatron has achieved **enterprise-grade unified security platform** status with the addition of Email Gateway and MDM Connectors. All previously identified Tier 3 domain expansion gaps have been closed. The platform now provides comprehensive protection across:
+Metatron is an advanced unified security platform with broad executable coverage and a few explicit integration-depth caveats. The platform provides strong, code-real protection across:
 
 - **Endpoints** (Windows, macOS, Linux)
 - **Cloud** (AWS, Azure, GCP with authenticated CSPM)
 - **Network** (DNS, VPN, Browser)
 - **Identity** (AD, SSO, MFA)
 - **Email** (Gateway + Protection with SPF/DKIM/DMARC)
-- **Mobile** (Device Management + MDM Integration)
+- **Mobile** (Device management + MDM integration with strongest support in Intune/JAMF paths)
 - **Kernel** (eBPF sensors, rootkit detection)
 
-**Key Achievements (v6.7.0):**
-- Email Gateway: 8.5/10 maturity with SMTP relay mode
-- MDM Connectors: 8.5/10 maturity with 4 platform support
-- Email Protection: Enhanced to 9/10 with gateway integration
-- Mobile Security: Enhanced to 8.5/10 with MDM integration
-- Security Hardening: CSPM auth fix, enhanced CORS
-- Overall platform implementation: ~90-94%
+**Key Achievements (revalidated):**
+- Email Gateway: SMTP decision engine, quarantine, and policy/allowlist/blocklist surfaces operational
+- MDM Connectors: robust API and UI surface with Intune/JAMF execution path; broader platform list currently partial in manager wiring
+- Email Protection: SPF/DKIM/DMARC + phishing/attachment/DLP pipeline operational
+- Mobile Security: device threat/compliance/app analysis flows operational
+- Security Hardening: CSPM auth dependency, strict JWT handling in production-like mode, explicit CORS controls
 
 **Remaining Work:**
 - Production SMTP server integration
+- Workspace ONE / Google Workspace connector execution paths in manager
 - Production MDM platform credentials
 - Full remote browser isolation
 
-**Composite Maturity Score: 8.6/10** (up from 8.0/10)
+**Composite Maturity Score: 8.2/10** (high capability, with specific integration-depth caveats)
 
-**Platform Status: ENTERPRISE READY**
+**Platform Status: Production-capable core with targeted hardening/integration work remaining**

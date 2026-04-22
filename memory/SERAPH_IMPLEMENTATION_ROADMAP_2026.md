@@ -1,9 +1,19 @@
 # Seraph AI Defender — Technical Implementation Roadmap (2026)
 
-**Date:** 2026-03-04  
+**Date:** 2026-04-22 (code-reality summary refresh)  
 **Derived from:** `memory/SERAPH_COMPETITIVE_WHITEPAPER_2026.md`  
 **Horizon:** 12 months (rolling)  
 **Goal:** Converge to enterprise-grade operational confidence while preserving Seraph’s adaptive and composable strengths.
+
+## Reality Refresh (April 2026)
+
+This roadmap remains directionally valid, but planning assumptions should now use the refreshed implementation baseline:
+- Core control planes are operational and broad (`backend/server.py`, governance authority/executor, unified-agent APIs).
+- Security hardening has concrete enforcement points in current code (JWT/CORS strict mode behavior, CSPM auth and gating).
+- Email protection/gateway and mobile security are implemented and reachable from active UI workspaces.
+- MDM expansion should be tracked as **partial**: metadata and UI expose 4 platform targets, while connector onboarding execution currently supports Intune and JAMF.
+
+Roadmap execution should therefore prioritize contract/testing depth and integration completion over net-new domain claims.
 
 ---
 

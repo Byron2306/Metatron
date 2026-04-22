@@ -1,11 +1,11 @@
 # Metatron Security Features Analysis
-**Generated:** March 9, 2026  
-**Classification:** Code-Evidence Rebaseline  
-**Version:** v6.7.0 - Email Gateway + MDM Connectors + Security Hardening
+**Generated:** April 22, 2026  
+**Classification:** Code-Evidence Rebaseline (implementation-corrected)  
+**Version:** v7.0 reality update
 
 ## Overview
 
-This analysis provides a comprehensive assessment of Metatron security features against current repository evidence, including the Email Gateway, MDM Connectors, and security hardening additions.
+This analysis has been refreshed against the current repository and corrects earlier overstatements. The platform has broad, executable security coverage, with a key caveat in MDM connector breadth: platform metadata lists four providers, but the connector manager currently wires operational onboarding for Intune and JAMF.
 
 ---
 
@@ -124,14 +124,14 @@ This analysis provides a comprehensive assessment of Metatron security features 
 | **MITM Detection** | `backend/mobile_security.py` (certificate validation) | **Implemented** |
 | **USB Device Monitoring** | `backend/mobile_security.py` | **Implemented** |
 
-### 12) MDM Connectors (NEW - v6.7.0)
+### 12) MDM Connectors (Implementation-Corrected)
 
 | Capability | Evidence | Status |
 |---|---|---|
 | **Microsoft Intune** | `backend/mdm_connectors.py` (IntuneConnector) | **Implemented** |
 | **JAMF Pro** | `backend/mdm_connectors.py` (JAMFConnector) | **Implemented** |
-| **VMware Workspace ONE** | `backend/mdm_connectors.py` (WorkspaceOneConnector) | **Implemented** |
-| **Google Workspace** | `backend/mdm_connectors.py` (GoogleWorkspaceConnector) | **Implemented** |
+| **VMware Workspace ONE** | `/api/mdm/platforms` metadata only | **Advertised / Not wired in connector manager** |
+| **Google Workspace** | `/api/mdm/platforms` metadata only | **Advertised / Not wired in connector manager** |
 | **Multi-Platform Device Sync** | `backend/mdm_connectors.py` (sync_all_devices) | **Implemented** |
 | **Compliance Policy Sync** | `backend/mdm_connectors.py` (sync_all_policies) | **Implemented** |
 | **Remote Device Actions** | `backend/routers/mdm_connectors.py` (lock/wipe) | **Implemented** |
@@ -176,7 +176,7 @@ This analysis provides a comprehensive assessment of Metatron security features 
 | Previous Gap | Status | Resolution |
 |---|---|---|
 | ~~Email gateway and BEC protection~~ | **✅ CLOSED** | Email Gateway with SMTP relay mode |
-| ~~MDM platform connectors~~ | **✅ CLOSED** | Intune, JAMF, Workspace ONE, Google Workspace |
+| MDM platform connectors breadth | **⚠️ PARTIAL** | Intune + JAMF wired; Workspace ONE / Google Workspace currently metadata-level only |
 | ~~CSPM public endpoint~~ | **✅ CLOSED** | Authentication dependency added |
 
 ### Tier 2: Remaining Competitive Gaps

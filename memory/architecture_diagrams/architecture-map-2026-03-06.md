@@ -1,12 +1,12 @@
-# Metatron Full Architecture Map (March 6, 2026)
+# Metatron Full Architecture Map (April 22, 2026 Refresh)
 
-## 1) System Topology at a Glance
+## 1) System Topology at a Glance (Code-Backed)
 
 - Primary stack: `frontend` (React) + `backend` (FastAPI) + `mongodb`.
-- Security/ops stack: `elasticsearch`, `kibana`, `wireguard`, optional `ollama`, `trivy`, `falco`, `suricata`, `cuckoo`.
+- Current compose stack also includes `redis`, `celery-worker`, `celery-beat`, and `nginx` alongside optional security profiles (`trivy`, `falco`, `suricata`, `cuckoo`).
 - Entry channels:
-- Web UI routes from `frontend/src/App.js` (47 route entries, including redirects).
-- REST API under `/api/*` and `/api/v1/*`.
+- Web UI routes from `frontend/src/App.js` (route-heavy layout with workspace consolidation redirects).
+- REST API under `/api/*` plus dedicated prefixed surfaces (notably `/api/v1/cspm/*`).
 - WebSockets under `/ws/*`.
 - Endpoint-agent control plane under `/api/unified/*` and `/api/swarm/*`.
 
@@ -26,6 +26,7 @@ Operational page groups:
 Frontend implementation model:
 - Local: browser to `http://localhost:3000` with backend fallback or configured API base.
 - Remote: browser to reverse-proxied `https://<domain>` via Nginx with backend routed through `/api`.
+- API base behavior is now explicit in code (`frontend/src/lib/api.js`): if `REACT_APP_BACKEND_URL` is missing or unsuitable for runtime host, pages should fall back to same-origin `/api`.
 
 ## 3) Backend Architecture (Current Router Mesh)
 
