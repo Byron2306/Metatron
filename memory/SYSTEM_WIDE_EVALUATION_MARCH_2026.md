@@ -1,338 +1,188 @@
-# Metatron/Seraph AI Defender - System-Wide Evaluation Report
-**Date:** March 9, 2026  
-**Version:** v6.7.0  
-**Scope:** Comprehensive evaluation including Email Gateway, MDM Connectors, and Security Hardening  
-**Classification:** Strategic Assessment (Code-Evidence Based)
+# Metatron / Seraph System-Wide Evaluation (Code-Validated Snapshot)
+
+**Last updated:** 2026-04-23  
+**Scope:** architecture, runtime operations, security/governance, and major feature surfaces based on current repository code.
 
 ---
 
-## Executive Summary
+## 1) Executive Summary
 
-This report updates the March 2026 system-wide evaluation to reflect the significant capability expansion with Email Gateway and MDM Connectors. The platform has materially closed all previously identified Tier 3 domain expansion gaps, establishing itself as a **comprehensive unified security fabric**.
+The platform is a broad, integrated security stack centered on:
 
-### Key Metrics (Updated)
+- FastAPI backend (`backend/server.py`) mounted under `/api`
+- React frontend (`frontend/`)
+- unified endpoint agent with a large monolithic runtime (`unified_agent/core/agent.py`)
+- governance-gated high-impact action dispatch (`backend/services/outbound_gate.py`, `governed_dispatch.py`)
+- optional SIEM/sandbox/sensor services via Docker Compose profiles.
 
-| Metric | Prior Snapshot (Mar 9 AM) | Current (Mar 9 PM) | Delta |
-|--------|---------------------------|-------------------|-------|
-| Implemented Features | 97+ | 115+ | +18 |
-| Partial Features | 3 | 2 | -1 |
-| Domain Coverage | 10 domains | 12 domains | +2 |
-| Overall Implementation | ~83-87% | ~90-94% | +5-7% |
-| Email Protection Maturity | 8/10 | 9/10 | +1 |
-| Email Gateway Maturity | Not implemented | 8.5/10 | NEW |
-| Mobile Security Maturity | 7/10 | 8.5/10 | +1.5 |
-| MDM Connectors Maturity | Not implemented | 8.5/10 | NEW |
-| Security Hardening | Medium-High | High | +1 level |
-| Composite Maturity Score | 4.0/5 | 4.3/5 | +0.3 |
-
-### Bottom Line
-
-Metatron is now a **comprehensive enterprise security fabric** with full coverage across endpoints, cloud, network, identity, email, and mobile devices. All major domain gaps have been closed, with remaining work focused on production integrations.
+The codebase demonstrates high feature breadth with explicit security constraints (production boot guards, machine-token channels, remote-admin gating) and active governance workflows for command execution.
 
 ---
 
-## Part 1: Feature Implementation Status
+## 2) Runtime and Deployment Evaluation
 
-### 1.1 Category-by-Category Assessment
+### 2.1 Core runtime
 
-| Category | Features | Status | Notes |
-|----------|----------|--------|-------|
-| EDR Core | 8 | 100% | Process, memory, registry, host telemetry |
-| Network Security | 5 | 100% | DNS, VPN, browser isolation |
-| Threat Intel | 5 | 100% | APT/mapping and enrichment |
-| Advanced Detection | 5 | 100% | Behavioral and ML-driven |
-| Response/Remediation | 9 | 100% | SOAR, quarantine, automated response |
-| AI Agentic Defense | 7 | 100% | Autonomous decision framework |
-| Deception/Ransomware | 16 | 100% | Full deception workflows |
-| Container/Cloud | 9 | 100% | Capability present; scale depth maturing |
-| Zero Trust | 11 | 100% | Policy and identity controls |
-| MCP/Orchestration | 8 | 100% | Runtime handlers operational |
-| Advanced Crypto/Analysis | 4 | 100% | PQC modules implemented |
-| Identity Protection | 4+ | ~75% | Significant capability; depth improving |
-| Data Protection (EDM) | 3 | ~90% | Strong control plane; governance solid |
-| **Email Protection** | **12** | **~95%** | **Full-scope implementation** |
-| **Email Gateway** | **9** | **~85%** | **NEW: SMTP relay mode** |
-| **Mobile Security** | **10** | **~85%** | **Comprehensive implementation** |
-| **MDM Connectors** | **12** | **~85%** | **NEW: Multi-platform integration** |
-| **Kernel Security** | **7** | **~90%** | **Enhanced with rootkit detection** |
+Primary Compose services that represent the practical stack:
 
-### 1.2 Email Gateway Feature State (NEW)
+- `mongodb`
+- `redis`
+- `backend`
+- `frontend`
 
-Email Gateway is now a mature security capability with:
+Primary API health path:
 
-**Implemented Capabilities:**
-- SMTP relay mode for inline message processing
-- Real-time threat analysis with multi-layer scoring
-- Sender/domain/IP blocklists and allowlists
-- Quarantine management with release/delete actions
-- Policy engine for configurable security rules
-- Statistics dashboard with processing metrics
-- Email test mode for safe analysis
+- `GET /api/health` on backend port 8001.
 
-**Evidence Locations:**
-- `backend/email_gateway.py` - Core service (900+ lines)
-- `backend/routers/email_gateway.py` - API endpoints (200+ lines)
-- `frontend/src/pages/EmailGatewayPage.jsx` - UI dashboard (700+ lines)
+### 2.2 Optional/extended runtime
 
-**Maturity: 8.5/10**
-- Strong: Threat analysis, quarantine, blocklist/allowlist management
-- Moderate: Policy engine, statistics
-- Gap: Production SMTP server integration
+Compose provides optional/extended services for:
 
-### 1.3 MDM Connectors Feature State (NEW)
+- SIEM/analytics: Elasticsearch + Kibana
+- local model support: Ollama
+- VPN: WireGuard
+- security profile: Trivy/Falco/Suricata/Zeek/Volatility
+- sandbox profile: Cuckoo + dedicated Mongo 5.
 
-MDM Connectors provides enterprise device management integration:
+### 2.3 Production override behavior
 
-**Implemented Capabilities:**
-- Microsoft Intune connector (Azure AD)
-- JAMF Pro connector (Apple devices)
-- VMware Workspace ONE connector (cross-platform)
-- Google Workspace connector (Android Enterprise)
-- Multi-platform device synchronization
-- Compliance policy synchronization
-- Remote device actions (lock, wipe, sync)
-- Device compliance dashboard
+`docker-compose.prod.yml` enforces production posture by:
 
-**Evidence Locations:**
-- `backend/mdm_connectors.py` - Core service (1000+ lines)
-- `backend/routers/mdm_connectors.py` - API endpoints (250+ lines)
-- `frontend/src/pages/MDMConnectorsPage.jsx` - UI dashboard (600+ lines)
-
-**Maturity: 8.5/10**
-- Strong: Platform integration framework, device actions, compliance
-- Moderate: Dashboard, policy sync
-- Gap: Production MDM platform credentials
-
-### 1.4 Security Hardening (v6.7.0)
-
-**Fixes Applied:**
-- CSPM scan endpoint (`/api/v1/cspm/scan`) now requires authentication
-- CORS validation enhanced for production environments
-- Role-based access control for MDM admin endpoints
-
-**Evidence:**
-- `backend/routers/cspm.py` - Added `Depends(get_current_user)`
-- `backend/server.py` - Enhanced CORS configuration
+- hiding direct backend/frontend host ports,
+- making Nginx ingress-centric,
+- enabling production/strict backend security environment flags,
+- promoting profile-gated security services into active stack entries.
 
 ---
 
-## Part 2: Competitive Positioning Analysis
+## 3) API and Control Plane Evaluation
 
-### 2.1 Updated Strengths vs Market Leaders
+### 3.1 Backend route model
 
-Metatron now has competitive or differentiated capabilities in:
-- AI-agentic autonomous defense logic
-- Integrated deception architecture
-- Post-quantum cryptography readiness
-- Composable architecture and rapid feature velocity
-- **Unified email + endpoint + mobile security (single platform)**
-- **Custom SPF/DKIM/DMARC implementation (no external dependencies)**
-- **Enterprise MDM integration across all major platforms**
-- **SMTP gateway mode for real-time email interception**
+`backend/server.py` wires many routers under `/api`, plus websocket endpoints (`/ws/threats`, `/ws/agent/{agent_id}`) with machine-token verification.
 
-### 2.2 Competitive Gaps (Updated)
+Key behavior:
 
-| Gap | Impact | Status Change |
-|-----|--------|---------------|
-| Kernel/eBPF hardening depth | High | Improved |
-| Agent anti-tamper depth | High | Improved |
-| AD protection response depth | High | Unchanged |
-| ~~Email gateway mode~~ | ~~Medium~~ | **✅ CLOSED** |
-| ~~MDM platform integration~~ | ~~Medium~~ | **✅ CLOSED** |
-| ~~CSPM public endpoint~~ | ~~Medium~~ | **✅ CLOSED** |
-| Full remote browser isolation | Medium | Unchanged |
-| Compliance certification | Medium | Improving |
+- production requires `INTEGRATION_API_KEY` at startup,
+- CORS policy in strict/production rejects wildcard origins,
+- optional enterprise routers fail-open if unavailable (logged warning), reducing startup brittleness.
 
----
+### 3.2 Background workers started by API startup
 
-## Part 3: Maturity Assessment
+From backend startup lifecycle:
 
-### 3.1 Updated Maturity Scorecard
+- CCE worker start
+- network discovery start
+- agent deployment service start
+- AATL and AATR initialization
+- integrations scheduler trigger
+- governance executor trigger
+- Falco-to-alert persistence callback when Falco is available.
 
-| Domain | Previous | Current | Change | Target |
-|--------|----------|---------|--------|--------|
-| Product Capability Breadth | 5.0 | 5.0 | - | 5.0 |
-| Core Architecture | 4.2 | 4.4 | +0.2 | 4.5 |
-| Security Hardening | 3.6 | 4.0 | +0.4 | 4.5 |
-| Reliability Engineering | 3.5 | 3.7 | +0.2 | 4.5 |
-| Operability / DX | 3.5 | 3.8 | +0.3 | 4.0 |
-| Test and Verification | 3.7 | 4.0 | +0.3 | 4.5 |
-| Enterprise Readiness | 4.1 | 4.5 | +0.4 | 4.5 |
-| Email Protection | 4.0 | 4.5 | +0.5 | 4.5 |
-| **Email Gateway** | N/A | 4.3 | NEW | 4.5 |
-| Mobile Security | 3.5 | 4.3 | +0.8 | 4.5 |
-| **MDM Connectors** | N/A | 4.3 | NEW | 4.5 |
-| **Composite** | **4.0** | **4.3** | **+0.3** | **4.5** |
+This is materially beyond a request/response API and should be treated as a background-processing control plane.
 
-**Scoring Rationale:**
-- Security hardening significantly improved with CSPM auth fix
-- Enterprise readiness jumps due to MDM integration
-- Email protection enhanced with gateway mode
-- Mobile security significantly improved with MDM connectors
+### 3.3 Unified-agent control contract
+
+Canonical agent contract is under:
+
+- `/api/unified/agents/register`
+- `/api/unified/agents/{agent_id}/heartbeat`
+- `/api/unified/agents/{agent_id}/commands`
+- `/api/unified/agents/{agent_id}/command-result`
+
+The monolithic agent implementation in `unified_agent/core/agent.py` follows this contract directly.
 
 ---
 
-## Part 4: Risk and Technical Debt
+## 4) Security and Governance Evaluation
 
-### 4.1 Updated Risk Register
+### 4.1 Authentication and access controls
 
-| Risk | Severity | Current Status | Mitigation Priority |
-|------|----------|----------------|---------------------|
-| ~~CSPM endpoint public~~ | ~~High~~ | **✅ MITIGATED** | N/A |
-| ~~Email gateway missing~~ | ~~Medium~~ | **✅ MITIGATED** | N/A |
-| ~~MDM connectors missing~~ | ~~Medium~~ | **✅ MITIGATED** | N/A |
-| Production SMTP integration | Medium | Open | High |
-| Production MDM credentials | Medium | Open | High |
-| JWT secret governance consistency | Medium | Improving | Medium |
-| In-memory governance state durability | Medium | Open | Medium |
-| Test debt on fast-moving modules | Medium | Improving | High |
+Current implementation includes:
 
-### 4.2 Technical Debt Summary
+- JWT auth with strict secret requirements in production/strict mode (`routers/dependencies.py`)
+- role/permission checks (`admin`, `analyst`, `viewer`)
+- remote-admin gate (`REMOTE_ADMIN_ONLY`, `REMOTE_ADMIN_EMAILS`)
+- machine-token dependencies for ingestion, integrations, and websocket channels.
 
-| Category | Status | Priority |
-|----------|--------|----------|
-| Security hardening residuals | **Significantly Improved** | Medium |
-| API and contract validation | Improving | Medium |
-| Test automation breadth | Improving | Medium |
-| Production integrations | Not started | Immediate |
-| Compliance evidence automation | Early-stage | Short-term |
+### 4.2 Agent authentication posture
 
-### 4.3 Remaining High-Impact Items
+Unified-agent router uses:
 
-| Feature Area | Business Impact | Effort | Status |
-|--------------|-----------------|--------|--------|
-| Production SMTP server | Email prevention efficacy | Low | Needs credentials |
-| Production MDM credentials | Enterprise management | Low | Needs credentials |
-| Full remote browser isolation | Isolation efficacy | High | Not started |
-| AD response automation | Identity containment | High | Unchanged |
-| Compliance evidence automation | Procurement readiness | Medium | In progress |
+- enrollment and signed token checks (`SERAPH_AGENT_SECRET`)
+- optional trusted-network auth path controlled by `UNIFIED_AGENT_ALLOW_TRUSTED_NETWORK_AUTH`.
+
+Default development secret fallback exists and should be overridden in real deployments.
+
+### 4.3 Governance gate strength
+
+`OutboundGateService` enforces a mandatory-high-impact action list (e.g., `agent_command`, `swarm_command`, `response_*`, `mcp_tool_execution`) and prevents low-impact downgrades for those paths.
+
+`GovernedDispatchService` then writes gated command records with queue/decision metadata and transitions to execution pipelines.
+
+### 4.4 Tamper-evident telemetry integration
+
+Unified-agent router integrates tamper-evident action recording (`services/telemetry_chain.py`) for audited control-plane actions.
 
 ---
 
-## Part 5: Strategic Recommendations
+## 5) Feature Surface Evaluation
 
-### 5.1 Immediate (0-7 days)
+### 5.1 Email and mobile domains
 
-1. **Production Integration:**
-   - Configure production SMTP relay for email gateway
-   - Add production MDM credentials (Intune, JAMF)
-   - Test end-to-end email and device flows
+Repository includes active backend/router/UI implementations for:
 
-2. **Documentation:**
-   - Update deployment guides with new features
-   - Create MDM connector configuration guide
-   - Document email gateway policy configuration
+- email protection
+- email gateway
+- mobile security
+- MDM connectors.
 
-### 5.2 Short-Term (7-30 days)
+These are not placeholders; they have service logic and API surfaces wired in `server.py`.
 
-1. Implement email encryption enforcement policies
-2. Add mobile app reputation checking
-3. Build cross-domain threat correlation (email + endpoint + mobile)
-4. Add compliance evidence generation for email/mobile
+### 5.2 Integrations runtime model
 
-### 5.3 Medium-Term (30-90 days)
+Integrations support:
 
-1. Full remote browser isolation with pixel streaming
-2. Email advanced threat protection (sandbox integration)
-3. Mobile containerization for BYOD
-4. Unified threat dashboard with email/mobile context
+- server-side tool execution (`runtime_target=server`)
+- unified-agent runtime queueing (`runtime_target=unified_agent*`) via governance-gated commands
+- shared allowlist via `SUPPORTED_RUNTIME_TOOLS`.
 
----
+This gives a clear dual-execution model (server vs endpoint agent).
 
-## Part 6: Conclusion
+### 5.3 Cognition and scoring paths
 
-Metatron has transformed into a **comprehensive unified security fabric** covering:
-- Endpoints (Windows, macOS, Linux)
-- Cloud (AWS, Azure, GCP)
-- Network (DNS, VPN, Browser)
-- Identity (AD, SSO, MFA)
-- **Email (SPF/DKIM/DMARC, Phishing, DLP, Gateway)** - ENHANCED
-- **Mobile (iOS, Android, Compliance)** - ENHANCED
-- **MDM (Intune, JAMF, Workspace ONE, Google Workspace)** - NEW
+Cognition stack is split:
 
-**Current State:**
-- High innovation, enterprise-ready security platform
-- Strong trajectory with clear enhancement paths
-- All major domain gaps closed
-- Composite maturity: **4.3/5** (up from 4.0/5)
-
-**Overall Rating: 8.6/10 - Excellent**
-
-**Recommended Positioning:**
-- **Unified Adaptive Security Fabric** (comprehensive multi-domain coverage)
+- CCE worker/session summaries for command-stream behavior
+- cognition fabric fused scoring for cognitive pressure and policy-tier recommendation
+- separate threat correlation engine for IOC/intel/campaign-style enrichment.
 
 ---
 
-## Appendix A: New Feature Statistics (v6.7.0)
+## 6) Reliability and Drift Risks
 
-| File | Lines | Features |
-|------|-------|----------|
-| email_gateway.py | 900+ | SMTP relay, threat analysis, quarantine |
-| mdm_connectors.py | 1000+ | 4 platform connectors, device sync |
-| routers/email_gateway.py | 200+ | 9 API endpoints |
-| routers/mdm_connectors.py | 250+ | 12 API endpoints |
-| EmailGatewayPage.jsx | 700+ | Full dashboard UI |
-| MDMConnectorsPage.jsx | 600+ | Full dashboard UI |
-| **Total New Code** | **3,650+** | **2 major security domains** |
+### 6.1 Current strengths
 
----
+- broad modular route/service layout
+- explicit production security guardrails
+- governed high-impact action queue
+- practical compose profiles for optional capabilities.
 
-## Appendix B: Updated Compliance Framework Coverage
+### 6.2 Primary residual risks
 
-| Framework | Controls | Implemented | Coverage |
-|-----------|----------|-------------|----------|
-| NIST 800-207 | 12 | 12 | 100% |
-| SOC2 | 8 | 8 | 100% |
-| HIPAA | 5 | 5 | 100% |
-| PCI-DSS | 4 | 4 | 100% |
-| GDPR | 4 | 4 | 100% |
-| **Total** | **33** | **33** | **100%** |
-
-Note: Email Gateway and MDM Connectors provide complete data protection control coverage.
+1. **Frontend API base inconsistencies across pages** can still create environment-specific drift.
+2. **Multiple agent surfaces** (monolithic agent vs desktop/UI helper APIs) can confuse contract ownership.
+3. **Legacy/auxiliary services** (for example `unified_agent/server_api.py`) can be mistaken for primary control plane.
+4. **Script default URL assumptions** may target stale hosts unless explicitly overridden.
 
 ---
 
-## Appendix C: API Endpoint Summary (New)
+## 7) Updated Conclusion
 
-### Email Gateway Endpoints
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/api/email-gateway/stats` | GET | Admin | Gateway statistics |
-| `/api/email-gateway/quarantine` | GET | Admin | List quarantined messages |
-| `/api/email-gateway/quarantine/{id}/release` | POST | Admin | Release from quarantine |
-| `/api/email-gateway/quarantine/{id}` | DELETE | Admin | Delete from quarantine |
-| `/api/email-gateway/blocklist` | GET/POST/DELETE | Admin | Manage blocklist |
-| `/api/email-gateway/allowlist` | GET/POST/DELETE | Admin | Manage allowlist |
-| `/api/email-gateway/policies` | GET | Admin | View policies |
-| `/api/email-gateway/process` | POST | Admin | Test email processing |
+The platform is currently best described as:
 
-### MDM Connectors Endpoints
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/api/mdm/status` | GET | Admin | Connector status |
-| `/api/mdm/connectors` | GET/POST | Admin | Manage connectors |
-| `/api/mdm/connectors/{name}` | DELETE | Admin | Remove connector |
-| `/api/mdm/connectors/{name}/connect` | POST | Admin | Connect to platform |
-| `/api/mdm/connectors/{name}/disconnect` | POST | Admin | Disconnect |
-| `/api/mdm/devices` | GET | Admin | List devices |
-| `/api/mdm/devices/{id}/lock` | POST | Admin | Lock device |
-| `/api/mdm/devices/{id}/wipe` | POST | Admin | Wipe device |
-| `/api/mdm/policies` | GET | Admin | List policies |
-| `/api/mdm/platforms` | GET | Admin | Available platforms |
-| `/api/mdm/sync/now` | POST | Admin | Force sync |
-| `/api/mdm/connect-all` | POST | Admin | Connect all platforms |
+- **feature-rich and operationally broad**, with
+- **real governance and security controls in the core paths**, and
+- **remaining risk concentrated in contract consistency and deployment hygiene**, not missing major subsystems.
 
----
-
-## Document Approval
-
-| Role | Name | Date | Signature |
-|------|------|------|-----------|
-| Platform Lead | | March 9, 2026 | |
-| Security Architect | | March 9, 2026 | |
-| Engineering Lead | | March 9, 2026 | |
-| Product Owner | | March 9, 2026 | |
-
----
-
-This report reflects repository state as of March 9, 2026 (v6.7.0) and includes comprehensive assessment of Email Gateway, MDM Connectors, and Security Hardening additions.
+For ongoing maturity, the highest-value path is continued contract normalization (frontend/API/agent), stricter environment validation, and expanded regression coverage around security-sensitive flows.
