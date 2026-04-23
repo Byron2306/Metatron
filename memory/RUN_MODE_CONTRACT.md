@@ -1,114 +1,136 @@
-# Metatron Run-Mode Contract (Source of Truth)
+# Metatron Run-Mode Contract (2026-04 Refresh)
 
-## Goal
-Define what is **required** vs **optional** so operators can run the platform predictably and understand why some dashboard features may be unavailable.
+## Purpose
 
-## 1) Required Core (must be up)
-- `mongodb`
+Define **what is required** to run core platform functionality and what is **optional/integration-dependent** so operators can reason about degraded behavior.
+
+Primary evidence:
+- `docker-compose.yml`
+- `backend/server.py`
+- `backend/routers/dependencies.py`
+- `frontend/src/App.js`
+
+---
+
+## 1) Required core runtime
+
+For a baseline functional stack, the following are core:
+
+1. **backend** (`backend/server.py`)
+2. **frontend**
+3. **mongodb** (or mock DB mode for dev/test)
+
+In compose, these are represented by:
 - `backend`
 - `frontend`
+- `mongodb`
 
-If any of these are down, the dashboard is not considered healthy.
+If any of these are unavailable, platform health is degraded beyond normal operations.
 
-## 2) Default Optional Integrations (degraded mode if down)
+---
+
+## 2) Core-adjacent runtime in compose
+
+Current compose file also includes:
+- `redis`
+- `celery-worker`
+- `celery-beat`
+
+These support async/background workflows. The API still has many direct paths, but production behavior is fuller with queue workers online.
+
+---
+
+## 3) Optional integrations (degraded-mode expected)
+
+The following are optional/service-profile dependent:
 - `wireguard`
 - `elasticsearch`
 - `kibana`
 - `ollama`
+- `trivy` (security profile)
+- `falco` (security profile)
+- `suricata` (security profile)
+- `zeek` (security profile)
+- `volatility` (security profile)
+- `cuckoo`, `cuckoo-web` (sandbox profile)
 
-Behavior contract:
-- UI should remain usable when optional services are down.
-- Related pages/features may show degraded status, warnings, or partial data.
+Contract:
+- Core SOC/API workflows should continue when optional services are down.
+- Feature pages tied to unavailable integrations should fail **explicitly and safely**, not silently.
 
-## 3) Profile-Based Optional Integrations
-These are intentionally profile-gated and not required for baseline operation.
+---
 
-### security profile
-- `trivy`
-- `falco`
-- `suricata`
+## 4) Authentication + operator access contract
 
-### sandbox profile
-- `cuckoo`
-- `cuckoo-web`
+- API auth uses bearer JWT (`backend/routers/dependencies.py`).
+- Role-based permission gates (`read`, `write`, `manage_users`, etc.) enforce endpoint access.
+- Remote access can be constrained by:
+  - `REMOTE_ADMIN_ONLY`
+  - `REMOTE_ADMIN_EMAILS`
+- Machine token flows are implemented for agent/system integration endpoints.
 
-## 4) Runtime Launch Modes
-### Minimal reliable mode
-`docker compose up -d mongodb backend frontend`
+---
 
-### Recommended local full mode
-`docker compose up -d mongodb backend frontend wireguard elasticsearch kibana ollama`
+## 5) Agent run-mode contract
 
-### Extended security mode
-`docker compose --profile security up -d`
+Unified agent endpoints require one of:
+- Enrollment key / trusted enrollment context for register/bootstrap
+- Agent/machine token for heartbeat, command polling, command results, websocket
 
-### Sandbox mode
-`docker compose --profile sandbox up -d`
+Source:
+- `backend/routers/unified_agent.py`
+- `backend/routers/dependencies.py`
 
-## 5) API Routing Contract
-- Frontend calls backend via `${REACT_APP_BACKEND_URL}/api/...`.
-- In production behind reverse proxy, same-origin `/api` routing should be preferred.
-- Backend routers are mounted under `/api` in `backend/server.py`.
+---
 
-## 6) Health Validation Sequence
-1. `docker compose ps`
-2. `curl -fsS http://localhost:8000/health`
-3. `curl -fsS http://localhost:3000` (or deployed frontend URL)
-4. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
+## 6) Governance run-mode contract
 
-## 7) Known Wiring Risks (from latest static audit)
-- High-confidence API mismatch fixed:
-  - `SettingsPage` endpoint updated from `/api/elasticsearch/status` to `/api/settings/elasticsearch/status`.
-- Dashboard UX mismatch fixed:
-  - "View All" buttons on dashboard now navigate to `/threats` and `/alerts`.
-- Remaining UI gaps are primarily feature-completeness gaps (buttons rendered without action handlers), not fatal routing failures.
+High-impact actions are expected to pass through triune governance queueing:
+- Outbound gate queues decisions (`services/outbound_gate.py`)
+- Governed dispatch persists command/decision context (`services/governed_dispatch.py`)
+- Governance executor releases approved actions (`services/governance_executor.py`)
 
-## 8) Acceptance Criteria for "Working"
-- Core services up and healthy.
-- Login works and main dashboard loads without fatal errors.
-- At least one page each from: Threats, Alerts, Agents, Settings can load data successfully.
-- Optional integration pages degrade gracefully if their service is not enabled.
+When governance path is unavailable, behavior should default to deny/queue semantics for high-impact operations.
 
-## 9) Consolidated Reality Conditions (2026-03-04)
+---
 
-These conditions align run-mode expectations with the critical evaluation and feature reality artifacts.
+## 7) CORS/security mode contract
 
-### 9.1 Must-pass operational contracts
-- Swarm group/tag/device assignment flows should be available end-to-end.
-- Threats/Alerts/Timeline/Zero-Trust pages should load and execute their core read paths.
-- Threat response routes should remain functional even when optional providers (Twilio/OpenClaw) are unavailable.
+- `CORS_ORIGINS` is parsed and enforced.
+- In production/strict mode (`ENVIRONMENT=prod|production` or `SERAPH_STRICT_SECURITY=true`):
+  - wildcard CORS is disallowed
+  - weak/missing JWT secret is disallowed
 
-### 9.2 Known degraded/conditional contracts
-- Unified deployment endpoint currently represents a queued/simulated flow unless backed by real deployment execution plumbing.
-- WinRM auto-deployment is conditional on:
-  - valid credentials (password-based auth),
-  - `pywinrm` installed,
-  - remote endpoint availability (port/protocol/security policy).
-- OpenClaw integration is optional and should never block core SOC operation.
+Source:
+- `backend/server.py`
+- `backend/routers/dependencies.py`
 
-### 9.3 Contract integrity risks to monitor
-- Unified command schema mismatch risk between frontend and backend payload models.
-- Threat-response OpenClaw analyze payload mapping mismatch risk.
-- Mixed frontend API base strategy (`REACT_APP_BACKEND_URL` hard dependency in some pages vs `/api` fallback in others).
-- Script ecosystem endpoint drift (`/api/agent/*` legacy paths vs active `/api/swarm` and `/api/unified` contracts).
-- Script/default URL drift across `localhost:8001`, `localhost:8002`, and legacy cloud defaults.
-- Validation script mismatch risk (`/api/zero-trust/overview` probe not aligned to active router paths).
+---
 
-### 9.4 Updated "Working" interpretation
-System is considered **working** when:
-1. Core required services are healthy.
-2. Core SOC workflows (threats, alerts, timeline, zero-trust read/evaluate) execute successfully.
-3. Optional integrations fail gracefully with explicit status and no cascading core failure.
-4. Deployment success states correspond to verified execution, not simulation-only completion.
+## 8) API routing contract
 
-## 10) Acceptance Changelog (2026-03-04)
+- Main API surface is mounted under `/api` via `backend/server.py`.
+- Some routers retain prefixed namespaces (for example `/api/v1/...`) as defined by each router module.
+- Frontend route shell (`frontend/src/App.js`) maps to workspace pages and preserves compatibility redirects from legacy page paths.
 
-- Added writable runtime data-path fallback behavior for backend services to prevent startup failure in restricted environments.
-- Aligned backend integration tests to current API contracts (response shapes, permissions, and agent-download artifact behavior).
-- Removed test warning sources from VPN/browser integration tests (no non-`None` test returns).
-- Final targeted acceptance subset result:
-  - `backend/tests/test_audit_timeline_openclaw.py`
-  - `backend/tests/test_unified_agent_hunting.py`
-  - `backend/tests/test_vpn_zerotrust_browser.py`
-  - `backend/tests/test_agent_download.py`
-  - outcome: **94 passed, 5 skipped, 0 failed**
+---
+
+## 9) Acceptance definition: "working"
+
+System is considered working when:
+
+1. Backend + frontend + DB are healthy.
+2. Auth/login succeeds and role checks are effective.
+3. Core pages (command workspace, unified agent, response ops, investigation, detection engineering) can load.
+4. Agent register/heartbeat/command lifecycle works with expected token/enrollment controls.
+5. High-impact actions are queued and tracked through governance paths.
+6. Optional integrations degrade cleanly when unavailable.
+
+---
+
+## 10) Current risk posture (run-mode specific)
+
+1. **Composition density:** central backend wiring is large and operationally sensitive.
+2. **Integration variance:** optional services can produce uneven depth if not explicitly configured.
+3. **Mixed maturity:** broad feature surface exists; runbook discipline determines production consistency.
+
