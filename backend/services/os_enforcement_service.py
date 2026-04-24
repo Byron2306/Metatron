@@ -14,7 +14,7 @@ import ctypes
 import subprocess
 import threading
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 try:
     from services.quantum_security import quantum_security
@@ -129,8 +129,10 @@ def _bpf_map_update_inode(map_id: int, inode: int, dev: int, value: int) -> bool
     if fd < 0:
         return False
     try:
-        # struct arda_identity { __u64 inode; __u32 dev; __u32 pad; }
-        key_buf = (ctypes.c_uint8 * 16)(*struct.pack("<QIIII", inode, dev, 0, 0, 0)[:16])
+        # struct arda_identity { unsigned long inode; unsigned int dev; }
+        # The kernel-side struct is 16 bytes on the supported 64-bit targets
+        # because the trailing 4 bytes are alignment padding.
+        key_buf = (ctypes.c_uint8 * 16)(*struct.pack("<QI4x", inode, dev))
         val_buf = (ctypes.c_uint8 * 4)(*struct.pack("<I", value))
         attr = (ctypes.c_uint8 * _MAP_ELEM_SIZE)()
         struct.pack_into("<I", attr, 0, fd)
@@ -170,10 +172,56 @@ class OsEnforcementService:
         self._loader_proc: Optional[subprocess.Popen] = None
         self._harmony_map_id: Optional[int] = None
         self._state_map_id:   Optional[int] = None
+        self._network_deny_map_id: Optional[int] = None
         # bpf_source kept for API compat
         self.bpf_source = self._OBJ_ENFORCE
 
         self._arm()
+
+    @staticmethod
+    def _host_path(path: str) -> str:
+        """Return the host-mounted path when the service runs in a container."""
+        host_root = os.environ.get("ARDA_HOST_ROOT", "/host").rstrip("/")
+        if host_root and os.path.isdir(host_root) and path.startswith("/"):
+            candidate = f"{host_root}{path}"
+            if os.path.exists(candidate):
+                return candidate
+        return path
+
+    def _loader_seed_args(self) -> List[str]:
+        """
+        Build conservative seed args for the C loader. The loader still defaults
+        to AUDIT, but these entries make later enforcement toggles much safer.
+        """
+        max_seed = int(os.environ.get("ARDA_MAX_SEED", "12000"))
+        min_seed = int(os.environ.get("ARDA_MIN_SEED", "64"))
+        args: List[str] = ["--max-seed", str(max_seed), "--min-seed", str(min_seed), "--seed-running-procs"]
+
+        for path in (
+            "/bin/sh",
+            "/bin/bash",
+            "/usr/bin/env",
+            "/usr/bin/python3",
+            "/usr/bin/docker",
+            "/opt/pwsh/pwsh",
+        ):
+            hp = self._host_path(path)
+            if os.path.exists(hp):
+                args.extend(["--seed-path", hp])
+
+        for path in (
+            "/bin",
+            "/sbin",
+            "/usr/bin",
+            "/usr/sbin",
+            "/usr/local/bin",
+            "/usr/local/sbin",
+        ):
+            hp = self._host_path(path)
+            if os.path.isdir(hp):
+                args.extend(["--seed-exec-dir", hp])
+
+        return args
 
     def _arm(self):
         """Launch arda_lsm_loader and locate the BPF maps."""
@@ -195,7 +243,7 @@ class OsEnforcementService:
         try:
             logger.info("ARDA_LSM: Launching arda_lsm_loader…")
             self._loader_proc = subprocess.Popen(
-                [self._LOADER_BIN, self._OBJ_ENFORCE],
+                [self._LOADER_BIN, self._OBJ_ENFORCE, *self._loader_seed_args()],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -206,6 +254,8 @@ class OsEnforcementService:
             # The loader calls fflush(stdout) once, right after printing PROG_FD=.
             harmony_map_id_ref = [None]
             map_id_event = threading.Event()
+
+            network_deny_map_id_ref = [None]
 
             def _read_loader_stdout():
                 try:
@@ -219,6 +269,11 @@ class OsEnforcementService:
                             except ValueError:
                                 pass
                             map_id_event.set()
+                        if line.startswith("NETWORK_DENY_MAP_ID="):
+                            try:
+                                network_deny_map_id_ref[0] = int(line.split("=", 1)[1])
+                            except ValueError:
+                                pass
                 except Exception as exc:
                     logger.warning(f"ARDA_LSM: stdout reader error: {exc}")
                 finally:
@@ -246,20 +301,34 @@ class OsEnforcementService:
             logger.info(f"ARDA_LSM: Harmony map ID = {harmony_map_id}")
 
             # stdout_thread continues draining output (stays alive after MAP_ID)
-            # Find the state map by scanning kernel BPF map IDs
+            # Find the state and network deny maps by scanning kernel BPF map IDs
             self._state_map_id = _find_map_id_by_name("arda_state_map")
-            if self._state_map_id:
-                logger.info(f"ARDA_LSM: State map ID = {self._state_map_id}")
-            else:
+            if not self._state_map_id:
                 logger.warning("ARDA_LSM: arda_state_map not found via scan (non-fatal)")
+
+            if network_deny_map_id_ref[0] is not None:
+                self._network_deny_map_id = network_deny_map_id_ref[0]
+            else:
+                self._network_deny_map_id = _find_map_id_by_name("arda_network_deny_map")
+            if self._network_deny_map_id:
+                logger.info(f"ARDA_LSM: Network deny map ID = {self._network_deny_map_id}")
 
             self.is_authoritative = True
             self.mode = "ring0_armed"
-            logger.info("RING-0: Arda OS Sovereign Guard ARMED. LSM hook: arda_sovereign_ignition. Mode: ENFORCING")
+            logger.info("RING-0: Arda OS Sovereign Guard ARMED. LSM hook: arda_sovereign_ignition. Mode: AUDIT")
 
             # Auto-enable enforcement if requested via env var
             if os.environ.get("ARDA_ENFORCE_ON_BOOT", "").lower() in ("1", "true", "yes"):
-                if self.set_enforcement(True):
+                seeded = self.seed_running_processes()
+                min_seed = int(os.environ.get("ARDA_MIN_SEED", "64"))
+                if seeded < min_seed:
+                    logger.critical(
+                        "RING-0: ARDA_ENFORCE_ON_BOOT refused; only %s running-process "
+                        "executables seeded (minimum %s). Enforcement remains AUDIT.",
+                        seeded,
+                        min_seed,
+                    )
+                elif self.set_enforcement(True):
                     logger.info("RING-0: Enforcement auto-enabled on boot (ARDA_ENFORCE_ON_BOOT=true)")
                 else:
                     logger.warning("RING-0: ARDA_ENFORCE_ON_BOOT set but state map not ready — enforcement remains off")
@@ -275,6 +344,17 @@ class OsEnforcementService:
         Toggle the BPF state map index 0: 0 = audit/passthrough, 1 = enforce.
         Returns True on success.
         """
+        if enabled and os.environ.get("ARDA_ALLOW_UNSAFE_ENFORCEMENT", "").lower() not in ("1", "true", "yes"):
+            seeded = self.seed_running_processes()
+            min_seed = int(os.environ.get("ARDA_MIN_SEED", "64"))
+            if seeded < min_seed:
+                logger.critical(
+                    "ARDA_LSM: refusing enforcement; only %s running-process executables "
+                    "seeded (minimum %s). Set ARDA_ALLOW_UNSAFE_ENFORCEMENT=true to override.",
+                    seeded,
+                    min_seed,
+                )
+                return False
         if not self._state_map_id:
             # Try to find it now (in case it appeared after arm)
             self._state_map_id = _find_map_id_by_name("arda_state_map")
@@ -361,6 +441,69 @@ class OsEnforcementService:
         except Exception as e:
             logger.error(f"ARDA_LSM: Map synchronization failure: {e}")
             return False
+
+    # ── Network enforcement ───────────────────────────────────────────────────
+
+    def deny_network_for_pid(self, pid: int, denied: bool) -> bool:
+        """
+        Write a PID into arda_network_deny_map (value=1 deny, value=0 allow).
+        Called by Tulkas on CONTAIN/PURGE/EXILE to close the network gate at
+        ring-0 for fallen nodes, independent of whether the process is killed.
+        """
+        if not self._network_deny_map_id:
+            self._network_deny_map_id = _find_map_id_by_name("arda_network_deny_map")
+        if not self._network_deny_map_id:
+            self.lsm_map[f"net_deny_pid_{pid}"] = 1 if denied else 0
+            logger.warning(f"RING-0 SIM: network {'deny' if denied else 'allow'} for PID {pid}")
+            return True
+        ok = _bpf_map_update_u32(self._network_deny_map_id, pid, 1 if denied else 0)
+        if ok:
+            logger.info(f"RING-0 NET: PID {pid} -> {'DENY' if denied else 'ALLOW'}")
+        else:
+            logger.error(f"RING-0: network deny map update failed for PID {pid}")
+        return ok
+
+    # ── Running process seeding (anti-lockout) ────────────────────────────────
+
+    def seed_running_processes(self) -> int:
+        """
+        Seed all currently running process executables into the harmony map.
+        Call this before enabling permanent enforcement to ensure no running
+        process has its next exec attempt blocked.
+        Returns the number of new entries seeded.
+        """
+        if not self.is_authoritative or self._harmony_map_id is None:
+            logger.warning("RING-0 SIM: seed_running_processes — not authoritative, no-op")
+            return 0
+
+        seeded = 0
+        proc_dirs = ["/host/proc", "/proc"] if os.path.isdir("/host/proc") else ["/proc"]
+        for proc_dir in proc_dirs:
+            try:
+                for entry in os.listdir(proc_dir):
+                    try:
+                        int(entry)
+                    except ValueError:
+                        continue
+                    exe_link = os.path.join(proc_dir, entry, "exe")
+                    try:
+                        target = os.readlink(exe_link)
+                    except OSError:
+                        continue
+                    target = target.split(" (deleted)")[0]
+                    if proc_dir == "/host/proc":
+                        target = self._host_path(target)
+                    try:
+                        st = os.stat(target)
+                        ok = _bpf_map_update_inode(self._harmony_map_id, st.st_ino, st.st_dev, 1)
+                        if ok:
+                            seeded += 1
+                    except Exception:
+                        continue
+            except Exception as e:
+                logger.warning(f"RING-0: seed_running_processes scan error: {e}")
+        logger.info(f"RING-0: seeded {seeded} running-process executables into harmony map")
+        return seeded
 
     def _verify_manifest_integrity(self, path: str, current_hash: str) -> bool:
         """Verify binary hash against the Sovereign Manifest."""

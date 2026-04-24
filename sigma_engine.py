@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
 class SigmaEngine:
     def __init__(self) -> None:
         configured_path = os.environ.get("SIGMA_RULES_PATH", "")
-        default_path = Path(__file__).parent / "sigma_rules"
+        default_path = Path(__file__).parent / "backend" / "sigma_rules"
+        # Fallback chain: backend/sigma_rules → sigma_rules
+        if not default_path.exists():
+            default_path = Path(__file__).parent / "sigma_rules"
         self.rules_path = Path(configured_path).resolve() if configured_path else default_path.resolve()
         self.rules: List[Dict[str, Any]] = []
         self.last_reload: str | None = None
