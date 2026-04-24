@@ -266,7 +266,9 @@ def main() -> int:
 
     total = ok + failed + skipped
     print(f"\nLinux sweep done — {ok}/{total} success  {skipped} skipped  {failed} failed", flush=True)
-    return 0 if failed == 0 else 1
+    # Always exit 0 — individual technique failures are recorded in run_*.json.
+    # A non-zero exit here would fail the GHA step and skip artifact upload.
+    return 0
 
 
 if __name__ == "__main__":
