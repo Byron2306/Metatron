@@ -1,114 +1,153 @@
 # Metatron Run-Mode Contract (Source of Truth)
 
-## Goal
-Define what is **required** vs **optional** so operators can run the platform predictably and understand why some dashboard features may be unavailable.
+**Reviewed:** 2026-04-25  
+**Goal:** Define required vs optional runtime surfaces so operators can tell core platform health apart from degraded integration features.
 
-## 1) Required Core (must be up)
+## 1) Required Core Services
+
+The dashboard is not considered healthy unless these services are up:
+
 - `mongodb`
 - `backend`
 - `frontend`
 
-If any of these are down, the dashboard is not considered healthy.
+The backend listens on port `8001` in the root Compose file and exposes health at:
 
-## 2) Default Optional Integrations (degraded mode if down)
-- `wireguard`
+```bash
+curl -fsS http://localhost:8001/api/health
+```
+
+The frontend listens on port `3000` in local Compose mode.
+
+## 2) Core Adjacent Services
+
+These services are strongly recommended for normal local operation, but should not make the core dashboard unusable if down:
+
+- `redis`
+- `celery-worker`
+- `celery-beat`
+
+They support async/background work, scheduled jobs, and broker/result behavior.
+
+## 3) Default Optional Integrations
+
+The UI and APIs should degrade gracefully if these services are unavailable:
+
 - `elasticsearch`
 - `kibana`
 - `ollama`
+- `wireguard`
+- `nginx`
 
-Behavior contract:
-- UI should remain usable when optional services are down.
-- Related pages/features may show degraded status, warnings, or partial data.
+Expected behavior:
 
-## 3) Profile-Based Optional Integrations
-These are intentionally profile-gated and not required for baseline operation.
+- core auth and dashboard shell remain usable;
+- integration-specific pages show unavailable/degraded state;
+- backend health does not claim those integrations are healthy unless checked separately.
 
-### security profile
+## 4) Security Tooling Integrations
+
+Root `docker-compose.yml` currently defines these security-tool services:
+
 - `trivy`
 - `falco`
 - `suricata`
+- `zeek`
+- `volatility`
 
-### sandbox profile
+These require tool availability, host permissions, mounted logs, and/or network capture support. They should be treated as conditional integrations, not required core services.
+
+## 5) Sandbox Integrations
+
+Sandbox mode depends on the Cuckoo stack:
+
+- `cuckoo-mongo`
 - `cuckoo`
 - `cuckoo-web`
 
-## 4) Runtime Launch Modes
+Sandbox APIs can exist without full detonation capability. Operators should validate the sandbox service itself before treating sandbox verdicts as production evidence.
+
+## 6) AI / Model Integrations
+
+`ollama` and model-backed services are optional. Rule-based or fallback paths may still run, but model quality and latency depend on configured model availability.
+
+## 7) API Routing Contract
+
+- Frontend API calls should resolve to backend `/api/...` routes through `REACT_APP_BACKEND_URL` or same-origin proxying.
+- Backend health is `GET /api/health`, not root `/health`.
+- Most routers are mounted under `/api` in `backend/server.py`.
+- Some routers carry native or duplicated `/api/v1` surfaces: CSPM, identity, attack paths, secure boot, kernel sensors, and deception compatibility mounts.
+- Raw WebSockets are exposed at `/ws/threats` and `/ws/agent/{agent_id}`.
+
+## 8) Launch Modes
+
 ### Minimal reliable mode
-`docker compose up -d mongodb backend frontend`
 
-### Recommended local full mode
-`docker compose up -d mongodb backend frontend wireguard elasticsearch kibana ollama`
+```bash
+docker compose up -d mongodb backend frontend
+```
 
-### Extended security mode
-`docker compose --profile security up -d`
+### Core async mode
 
-### Sandbox mode
-`docker compose --profile sandbox up -d`
+```bash
+docker compose up -d mongodb redis backend celery-worker celery-beat frontend
+```
 
-## 5) API Routing Contract
-- Frontend calls backend via `${REACT_APP_BACKEND_URL}/api/...`.
-- In production behind reverse proxy, same-origin `/api` routing should be preferred.
-- Backend routers are mounted under `/api` in `backend/server.py`.
+### Local integration mode
 
-## 6) Health Validation Sequence
-1. `docker compose ps`
-2. `curl -fsS http://localhost:8000/health`
-3. `curl -fsS http://localhost:3000` (or deployed frontend URL)
-4. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
+```bash
+docker compose up -d mongodb redis backend celery-worker celery-beat frontend elasticsearch kibana ollama wireguard
+```
 
-## 7) Known Wiring Risks (from latest static audit)
-- High-confidence API mismatch fixed:
-  - `SettingsPage` endpoint updated from `/api/elasticsearch/status` to `/api/settings/elasticsearch/status`.
-- Dashboard UX mismatch fixed:
-  - "View All" buttons on dashboard now navigate to `/threats` and `/alerts`.
-- Remaining UI gaps are primarily feature-completeness gaps (buttons rendered without action handlers), not fatal routing failures.
+### Full Compose mode
 
-## 8) Acceptance Criteria for "Working"
-- Core services up and healthy.
-- Login works and main dashboard loads without fatal errors.
-- At least one page each from: Threats, Alerts, Agents, Settings can load data successfully.
-- Optional integration pages degrade gracefully if their service is not enabled.
+```bash
+docker compose up -d
+```
 
-## 9) Consolidated Reality Conditions (2026-03-04)
+Full Compose mode starts all 21 services and is environment-sensitive. It requires more host resources and may need privileges for VPN, network inspection, and sandbox functions.
 
-These conditions align run-mode expectations with the critical evaluation and feature reality artifacts.
+## 9) Health Validation Sequence
 
-### 9.1 Must-pass operational contracts
-- Swarm group/tag/device assignment flows should be available end-to-end.
-- Threats/Alerts/Timeline/Zero-Trust pages should load and execute their core read paths.
-- Threat response routes should remain functional even when optional providers (Twilio/OpenClaw) are unavailable.
+1. Validate containers:
+   ```bash
+   docker compose ps
+   ```
+2. Validate backend core health:
+   ```bash
+   curl -fsS http://localhost:8001/api/health
+   ```
+3. Validate frontend:
+   ```bash
+   curl -fsS http://localhost:3000
+   ```
+4. Log in and verify the workspace shell loads.
+5. Validate optional services from their own pages or API status endpoints.
+6. Treat optional-service failures as degraded integration state, not automatic platform-wide failure.
 
-### 9.2 Known degraded/conditional contracts
-- Unified deployment endpoint currently represents a queued/simulated flow unless backed by real deployment execution plumbing.
-- WinRM auto-deployment is conditional on:
-  - valid credentials (password-based auth),
-  - `pywinrm` installed,
-  - remote endpoint availability (port/protocol/security policy).
-- OpenClaw integration is optional and should never block core SOC operation.
+## 10) Known Conditional Contracts
 
-### 9.3 Contract integrity risks to monitor
-- Unified command schema mismatch risk between frontend and backend payload models.
-- Threat-response OpenClaw analyze payload mapping mismatch risk.
-- Mixed frontend API base strategy (`REACT_APP_BACKEND_URL` hard dependency in some pages vs `/api` fallback in others).
-- Script ecosystem endpoint drift (`/api/agent/*` legacy paths vs active `/api/swarm` and `/api/unified` contracts).
-- Script/default URL drift across `localhost:8001`, `localhost:8002`, and legacy cloud defaults.
-- Validation script mismatch risk (`/api/zero-trust/overview` probe not aligned to active router paths).
+- Unified deployment success must be tied to verified execution evidence, not only queue acceptance.
+- WinRM/SSH deployment requires valid credentials, reachable endpoints, and required Python packages.
+- Email gateway production behavior requires SMTP relay/server configuration.
+- MDM connector production behavior requires tenant credentials and API permissions.
+- CSPM requires cloud credentials for meaningful scan data.
+- Kernel sensors and secure boot routes may be disabled if optional imports fail.
+- Browser isolation currently has limited depth compared with full remote browser isolation.
+- Scripts and tests must avoid legacy endpoint drift such as `/health` or obsolete `/api/agent/*` paths unless compatibility is explicitly maintained.
 
-### 9.4 Updated "Working" interpretation
-System is considered **working** when:
-1. Core required services are healthy.
-2. Core SOC workflows (threats, alerts, timeline, zero-trust read/evaluate) execute successfully.
-3. Optional integrations fail gracefully with explicit status and no cascading core failure.
-4. Deployment success states correspond to verified execution, not simulation-only completion.
+## 11) Acceptance Criteria for "Working"
 
-## 10) Acceptance Changelog (2026-03-04)
+A deployment is considered working when:
 
-- Added writable runtime data-path fallback behavior for backend services to prevent startup failure in restricted environments.
-- Aligned backend integration tests to current API contracts (response shapes, permissions, and agent-download artifact behavior).
-- Removed test warning sources from VPN/browser integration tests (no non-`None` test returns).
-- Final targeted acceptance subset result:
-  - `backend/tests/test_audit_timeline_openclaw.py`
-  - `backend/tests/test_unified_agent_hunting.py`
-  - `backend/tests/test_vpn_zerotrust_browser.py`
-  - `backend/tests/test_agent_download.py`
-  - outcome: **94 passed, 5 skipped, 0 failed**
+1. Required core services are healthy.
+2. Authentication and the protected React layout work.
+3. Core SOC workflows load data or show empty states without fatal errors.
+4. Unified-agent routes can register/heartbeat in the configured mode.
+5. Optional integrations report explicit connected/degraded/unavailable state.
+6. High-risk action paths route through governance/authorization controls.
+7. Documentation and validation scripts point at active endpoints.
+
+## 12) Documentation Rule
+
+Do not promote an optional integration from conditional to production-ready in docs until there is credentialed or service-backed runtime evidence for the target environment.
