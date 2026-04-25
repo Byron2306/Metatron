@@ -56,7 +56,7 @@ The backend has 61 router modules and 65 router include calls. Most APIs are und
 
 ## Known Audit Limitations
 
-- Prior counts such as "41 pages scanned" are historical and no longer describe the route map.
+- Prior page-scan totals from older audits are historical and no longer describe the route map.
 - Static matching cannot prove auth, data-shape, permissions, or runtime service availability.
 - Dynamic routes such as prediction-type paths may require route-pattern aware matching.
 - Buttons without explicit action handlers should be audited in the workspace pages, not only the legacy page files.
