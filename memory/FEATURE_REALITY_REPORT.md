@@ -88,7 +88,7 @@ Should not be stated without qualification:
 - Universal endpoint efficacy parity with leading EDR/XDR platforms.
 - Complete compliance certification or audit-grade evidence coverage.
 - Production completion of every Docker-profile integration in an arbitrary environment.
-- Fixed historical counts from older docs, such as 41 routers, 41 pages, or 12 Docker services.
+- Fixed historical counts from older docs; current counts should be regenerated from the codebase rather than copied forward.
 
 ## Remaining Gaps and Review Focus
 
