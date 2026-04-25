@@ -5,8 +5,19 @@ Version: v6.7.0
 Scope: Qualitative implementation narrative (feature depth, durability, contract assurance, operational realism)
 **Update:** Comprehensive assessment including Email Gateway, MDM Connectors, and Security Hardening
 
+## 2026-04-25 Code Logic Refresh Summary
+
+This refresh keeps the v6.7.0 feature baseline but updates the summary against the current repository wiring:
+
+- `backend/server.py` is the authoritative FastAPI composition root. It mounts the broad `/api/*` router mesh, native `/api/v1/*` routers, machine-token-protected world/agent ingest, Triune routers under `/api/metatron`, `/api/michael`, and `/api/loki`, plus governance, email, mobile, MDM, deception, swarm, unified-agent, and advanced-service APIs.
+- Governance is no longer just a conceptual approval model. High-impact actions are queued through `backend/services/outbound_gate.py`, approved or denied through `backend/routers/governance.py` and `backend/services/governance_authority.py`, and released by the background `backend/services/governance_executor.py` into concrete dispatch paths. Tool/MCP execution now relies on approved governance context plus capability-token checks for high-impact operations.
+- Triune cognition is integrated through `backend/services/cognition_fabric.py` and `backend/services/triune_orchestrator.py`. Metatron consumes fused cognitive pressure and autonomy signals, Michael ranks cognition-informed actions, and Loki adds dissent, uncertainty, and alternative hypotheses before governance gates release actions.
+- The frontend has been consolidated into workspace routes in `frontend/src/App.js`. The mounted email and endpoint mobility experiences are `/email-security` and `/endpoint-mobility`; `/email-protection`, `/email-gateway`, `/mobile-security`, and `/mdm` remain as redirects into those workspaces.
+- `unified_agent/` contains the endpoint runtime (`core/agent.py`), a local Flask operator dashboard on port 5000 (`ui/web/app.py`), a desktop core (`ui/desktop/main.py`), integration helpers, and a separate FastAPI agent server (`server_api.py`). The React product UI talks to the central backend's `/api/unified/*` and `/api/swarm/*` routes.
+- The enterprise-readiness statement should be read as "broad feature implementation with active hardening." Production depth still depends on real SMTP/MDM credentials, optional integration availability, deployment environment configuration, and continued denial-path/contract regression coverage.
+
 ## Executive Verdict
-Metatron has achieved **enterprise-grade security platform** status with full Email Gateway and MDM Connectors capabilities. The platform now provides comprehensive protection across endpoints, cloud, network, identity, email (including gateway mode), and mobile devices (including MDM integration). All previously identified Tier 3 domain expansion gaps have been closed. Core domains are operational, DB-backed, and contract-assured.
+Metatron has achieved broad, enterprise-style security platform coverage with implemented Email Gateway, MDM connector, endpoint, cloud, network, identity, governance, Triune, and unified-agent control-plane logic. The most accurate current characterization is **feature-broad and increasingly governance-hardened**, with production confidence depending on configured external providers, durable infrastructure, and expanded contract/denial-path verification.
 
 ---
 

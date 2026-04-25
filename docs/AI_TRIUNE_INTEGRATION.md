@@ -2,6 +2,12 @@
 
 This document maps the AI capabilities in the codebase (including existing Ollama integration) into the Triune architecture (Metatron, Michael, Loki). It provides recommended data flows, API touchpoints, and UI contract examples.
 
+## 2026-04-25 Code Logic Update
+
+The active Triune path is now broader than the original AI-output contract. `backend/services/world_events.py` is the canonical event helper, `backend/services/triune_orchestrator.py` builds the Triune run, and `backend/services/cognition_fabric.py` fuses AATL, AATR, CCE, ML, and AI-reasoning signals into `world_snapshot["cognition"]`. Metatron, Michael, and Loki consume that fused cognition snapshot before high-impact actions enter the governance queue.
+
+AI/LLM output remains advisory. Any action that can change systems should pass through the governance path (`OutboundGateService`, governance approval APIs, executor release, tool/MCP/token checks, and telemetry/world-event audit linkage) rather than executing from an AI explanation alone.
+
 ## Summary
 - Local LLM: Ollama (containerized, configured via `/api/advanced/ai/ollama/*`).
 - Lightweight reasoner shim: `backend/ai/reasoner.py` (heuristic fallback + OpenAI support if keys present).

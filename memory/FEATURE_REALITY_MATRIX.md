@@ -4,6 +4,38 @@ Generated: 2026-03-09
 Scope: Quantitative implementation snapshot (feature depth, durability, contract assurance, operational realism)
 **Update v6.7.0:** Includes Email Gateway, MDM Connectors, and enhanced security hardening
 
+## 2026-04-25 Code Logic Rebaseline
+
+This matrix remains a feature-depth snapshot, but the active codebase has moved from
+standalone feature pages toward consolidated workspaces and a stricter governance
+execution model:
+
+- **Backend composition:** `backend/server.py` is the authoritative FastAPI
+  composition root. Most routers mount under `/api`, while selected v1 routers
+  (`identity`, `cspm`, `attack_paths`, `secure_boot`, `kernel_sensors`) keep
+  native `/api/v1/...` prefixes. Startup wires MongoDB, optional background
+  workers, integrations scheduling, AATL/AATR, CCE, network discovery, agent
+  deployment, and the governance executor.
+- **Frontend route reality:** `frontend/src/App.js` currently exposes **38
+  protected concrete page/workspace routes plus `/login`**. Legacy paths such as
+  `/dashboard`, `/alerts`, `/threats`, `/agents`, `/soar`, `/swarm`,
+  `/email-gateway`, and `/mdm` are redirects into workspace tabs rather than
+  separately mounted pages.
+- **Email and mobility UX:** `EmailGatewayPage.jsx`, `EmailProtectionPage.jsx`,
+  and `MDMConnectorsPage.jsx` still provide the domain UIs, but they are surfaced
+  through `EmailSecurityWorkspacePage.jsx` and `EndpointMobilityWorkspacePage.jsx`.
+- **Governance:** high-impact actions flow through `OutboundGateService`,
+  `triune_decisions`, governance approval APIs, `GovernanceExecutorService`,
+  governed dispatch, capability-token checks, and tamper/world-event audit
+  linkage. This is stronger than the older "approval queue exists" summary.
+- **Unified agent:** React fleet operations use backend `/api/unified/*` and
+  `/api/swarm/*`; the `unified_agent/` package also contains the endpoint agent,
+  local Flask dashboard on port 5000, a standalone FastAPI agent server, desktop
+  core, integrations client, and contract tests.
+- **Acceptance note:** the 96-passed/5-skipped line below is retained as the last
+  documented March 2026 targeted subset. This rebaseline did not rerun the full
+  historical acceptance suite; use fresh test output for release gates.
+
 ## Legend
 - `PASS`: Real logic executes in normal configured environments.
 - `PARTIAL`: Real implementation exists but depends on optional runtime prerequisites, durability, or assurance depth.
@@ -38,15 +70,15 @@ Scope: Quantitative implementation snapshot (feature depth, durability, contract
 ## Current Reality Matrix
 | Domain | Status | Evidence | Practical Notes |
 |---|---|---|---|
-| Backend-frontend primary route wiring | PASS | Core routers + active pages aligned | Route-level mismatches rare; full-page audit shows 45/47 pages with API calls. |
+| Backend-frontend primary route wiring | PASS/PARTIAL | `backend/server.py`, `frontend/src/App.js`, workspace pages | Active workspaces align to core routers; legacy routes mostly redirect. Some pages still mix API base strategies and should remain under contract tests. |
 | Unified agent register/heartbeat/control | PASS | backend/routers/unified_agent.py | DB-backed, contract-assured, tested; includes Email/Mobile/Gateway monitors. |
 | EDM fingerprinting & dataset governance | PASS | unified_agent/core/agent.py, backend/routers/unified_agent.py | Full governance pipeline operational. |
 | DLP & Exact Data Match | PASS | backend/enhanced_dlp.py, unified_agent/core/agent.py | Clipboard/file EDM scan, dataset management, OCR-ready. |
 | **Email Protection (Backend)** | **PASS** | **backend/email_protection.py, backend/routers/email_protection.py** | **SPF/DKIM/DMARC via DNS, phishing detection, attachment scanning, DLP integration, auto-quarantine** |
-| **Email Gateway (Backend)** | **PASS** | **backend/email_gateway.py, backend/routers/email_gateway.py** | **NEW: SMTP relay, threat interception, blocklist/allowlist, policy enforcement** |
+| **Email Gateway (Backend/UI)** | **PASS** | **backend/email_gateway.py, backend/routers/email_gateway.py, frontend/src/pages/EmailSecurityWorkspacePage.jsx** | **SMTP relay framework, threat interception, blocklist/allowlist, policy enforcement; UI now lives under `/email-security?tab=gateway` with `/email-gateway` redirect** |
 | **Email Protection (Agent)** | **PASS** | **unified_agent/core/agent.py (EmailProtectionMonitor)** | **Local email client scanning, attachment monitoring, URL analysis** |
 | **Mobile Security (Backend)** | **PASS** | **backend/mobile_security.py, backend/routers/mobile_security.py** | **Device management, threat detection, app analysis, compliance checking** |
-| **MDM Connectors (Backend)** | **PASS** | **backend/mdm_connectors.py, backend/routers/mdm_connectors.py** | **NEW: Multi-platform MDM integration with device sync and policy enforcement** |
+| **MDM Connectors (Backend/UI)** | **PASS** | **backend/mdm_connectors.py, backend/routers/mdm_connectors.py, frontend/src/pages/EndpointMobilityWorkspacePage.jsx** | **Multi-platform MDM framework with device sync and policy enforcement; UI now lives under `/endpoint-mobility?tab=mdm` with `/mdm` redirect** |
 | **Mobile Security (Agent)** | **PASS** | **unified_agent/core/agent.py (MobileSecurityMonitor)** | **Device security checks, encryption status, network monitoring, USB events** |
 | Identity incident durability | PASS | backend/routers/identity.py, tests | DB-backed, guarded transitions, monotonic versioning. |
 | CSPM scan/finding durability | PASS | backend/cspm_engine.py, tests | DB-backed, guarded transitions, audit logs, **now requires auth**. |
@@ -55,7 +87,7 @@ Scope: Quantitative implementation snapshot (feature depth, durability, contract
 | Timeline/forensic workflows | PASS/PARTIAL | backend/threat_timeline.py | Core flows, report/forensic assurance maturing. |
 | Quarantine/response durability | PASS/PARTIAL | backend/quarantine.py, threat_response.py | Guarded transitions, audit logs. |
 | SOAR playbook durability | PASS/PARTIAL | backend/soar_engine.py, tests | Guarded transitions, audit logs. |
-| Zero-trust durability | PARTIAL | zero-trust engine/router | Durable behavior improved, not fully mature across restart/scale. |
+| Zero-trust and governance durability | PARTIAL | `backend/routers/zero_trust.py`, `backend/services/outbound_gate.py`, `backend/services/governance_executor.py` | Governance decisions are DB-backed and executor-released; broader restart/scale guarantees and denial-path assurance still need continued testing. |
 | Browser isolation | PARTIAL | backend/browser_isolation.py | URL filtering, threat detection present; full remote isolation limited. |
 | Kernel security | PASS | backend/enhanced_kernel_security.py, backend/ebpf_kernel_sensors.py | eBPF sensors, rootkit detection, memory protection, secure boot. |
 | Optional AI augmentation | PARTIAL | advanced/hunting/correlation | Rule-based fallback works; model-dependent quality requires live services. |

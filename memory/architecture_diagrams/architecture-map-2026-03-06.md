@@ -1,11 +1,18 @@
-# Metatron Full Architecture Map (March 6, 2026)
+# Metatron Full Architecture Map (March 6, 2026; refreshed 2026-04-25)
+
+## 2026-04-25 Architecture Refresh Summary
+
+- `backend/server.py` is the authoritative composition root. It initializes the shared MongoDB handle, configures CORS/auth dependencies, starts background workers, and mounts the active router mesh under `/api` plus native `/api/v1` routers for identity, CSPM, attack paths, secure boot, and kernel sensors.
+- `frontend/src/App.js` now uses workspace-oriented navigation: **38 protected concrete page/workspace routes plus `/login`** are mounted directly, while legacy paths redirect into workspace tabs. Email protection/gateway live under `/email-security`; mobile security/MDM live under `/endpoint-mobility`.
+- Triune/governance is now a runtime chain: world events feed `triune_orchestrator`, high-impact actions enter `outbound_gate`, decisions transition through `governance_authority` and `routers/governance.py`, approved work is released by `governance_executor`, and tool/MCP/token/audit services enforce and record execution context.
+- `unified_agent/` is a separate endpoint-runtime package with a monolithic agent, local Flask dashboard, desktop core, standalone agent server/proxy, integration clients, and local tests. The React fleet page talks to the central backend's `/api/unified/*` and `/api/swarm/*` contracts.
 
 ## 1) System Topology at a Glance
 
 - Primary stack: `frontend` (React) + `backend` (FastAPI) + `mongodb`.
 - Security/ops stack: `elasticsearch`, `kibana`, `wireguard`, optional `ollama`, `trivy`, `falco`, `suricata`, `cuckoo`.
 - Entry channels:
-- Web UI routes from `frontend/src/App.js` (47 route entries, including redirects).
+- Web UI routes from `frontend/src/App.js` (38 protected concrete page/workspace routes plus `/login`; additional legacy paths redirect into workspaces).
 - REST API under `/api/*` and `/api/v1/*`.
 - WebSockets under `/ws/*`.
 - Endpoint-agent control plane under `/api/unified/*` and `/api/swarm/*`.
@@ -17,11 +24,14 @@ Core frontend shell:
 - Auth/session context: `frontend/src/context/AuthContext.jsx`.
 
 Operational page groups:
-- SOC and incident ops: dashboard, threats, alerts, hunting, correlation, timeline, audit, reports.
-- Response and containment: quarantine, threat response, SOAR, ransomware, honey tokens, deception.
-- Endpoint and swarm ops: unified agent, command center, cli sessions, network topology.
-- Platform security: zero trust, cspm, attack paths, kernel sensors, secure boot, identity.
-- Advanced services: AI threats, advanced services, VNS alerts, browser extension, kibana.
+- Command workspace: dashboard, command center, alerts, threats.
+- World and AI activity: world graph/view, Metatron state, AI sessions, AI intelligence/signals.
+- Investigation and detection engineering: threat intel, correlation, attack paths, sigma, Zeek, osquery, atomic validation, MITRE ATT&CK.
+- Response and containment: response operations workspace, quarantine, threat response, SOAR, EDR, ransomware, honey tokens, deception.
+- Endpoint and swarm ops: unified agent, command center redirects, network topology, endpoint mobility workspace.
+- Platform security: zero trust, CSPM, kernel sensors, secure boot, identity.
+- Email and mobility: email security workspace for protection/gateway, endpoint mobility workspace for mobile security/MDM.
+- Advanced services: advanced services, ML prediction, sandbox, browser isolation, VNS alerts, browser extension, Kibana, setup guide, tenants.
 
 Frontend implementation model:
 - Local: browser to `http://localhost:3000` with backend fallback or configured API base.
@@ -40,6 +50,8 @@ Major API domains:
 - Endpoint plane: agents, agent commands, swarm, unified agent.
 - Enterprise plane: enterprise, zero trust, multi-tenant, extension.
 - Advanced plane: advanced, AI analysis, AI threats, ML prediction, sandbox, EDR, containers, VPN, CSPM.
+- Email and mobility plane: email protection, email gateway, mobile security, MDM connectors.
+- Governance/Triune plane: world ingest, governance, Metatron, Michael, Loki, outbound queue/executor services.
 - Tier-1 security routers: attack paths, secure boot, kernel sensors, identity.
 
 Real-time plane:
@@ -48,10 +60,10 @@ Real-time plane:
 ## 4) Security/Service Layer
 
 Key service families:
-- Control and governance: `policy_engine`, `token_broker`, `tool_gateway`, `identity`.
-- AI/security reasoning: `aatl`, `aatr`, `cognition_engine`, `ai_reasoning`, `cce_worker`.
-- Threat data and memory: `mcp_server`, `vector_memory`, `vns`, `vns_alerts`, `telemetry_chain`.
-- Deployment and operations: `agent_deployment`, `network_discovery`, `siem`.
+- Control and governance: `policy_engine`, `governance_authority`, `governance_executor`, `governed_dispatch`, `outbound_gate`, `token_broker`, `tool_gateway`, `identity`.
+- Triune and AI/security reasoning: `triune_orchestrator`, `cognition_fabric`, `aatl`, `aatr`, `cognition_engine`, `ai_reasoning`, `cce_worker`.
+- Threat data and memory: `mcp_server`, `vector_memory`, `vns`, `vns_alerts`, `telemetry_chain`, `world_model`, `world_events`.
+- Deployment and operations: `agent_deployment`, `network_discovery`, `siem`, `integrations_manager`.
 
 Core engine modules:
 - `threat_response`, `threat_correlation`, `threat_timeline`, `threat_intel`.
@@ -108,6 +120,15 @@ Primary SOC flow:
 4. Analyst executes response/SOAR/deployment commands.
 5. Backend dispatches and tracks command/deployment outcomes.
 
+Governed high-impact flow:
+1. Intent arrives from API, WebSocket, agent, integration, or world event.
+2. `emit_world_event` persists and may trigger Triune recompute.
+3. Metatron/Michael/Loki reason over world and cognition state.
+4. `OutboundGateService` creates queue and decision records for approval-required actions.
+5. Governance APIs and `GovernanceDecisionAuthority` approve or deny.
+6. `GovernanceExecutorService` releases approved work through governed dispatch/domain handlers.
+7. Tool/MCP/token/audit services validate execution context and emit terminal world/audit records.
+
 EDM flow:
 1. Dataset version published in backend source-of-truth.
 2. Staged rollout to target cohorts (5/25/100) with readiness checks.
@@ -120,3 +141,5 @@ EDM flow:
 - Hardening consistency across all legacy and secondary entry paths.
 - Durability guarantees for governance-critical state under restart/scale.
 - Assurance depth (security regression and denial-path coverage).
+- Mixed frontend API base strategy in some pages and scripts.
+- Optional dependency semantics for Ollama, SMTP/MDM providers, browser isolation, Cuckoo/Falco/Suricata/Trivy, and external SIEM integrations.

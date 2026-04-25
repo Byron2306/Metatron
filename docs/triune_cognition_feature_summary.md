@@ -1,5 +1,23 @@
 # Triune Cognition Integration Summary
 
+**Reviewed/updated:** 2026-04-25
+
+## Current code-logic summary
+
+- `backend/services/cognition_fabric.py` is the canonical fusion layer for
+  AATL, AATR, CCE, ML predictor, and AI-reasoning signals.
+- `backend/services/triune_orchestrator.py` injects the fused cognition bundle
+  into the world snapshot before Metatron, Michael, and Loki run.
+- `backend/triune/metatron.py` uses cognition pressure and autonomy confidence
+  when suggesting policy tier and next sectors.
+- `backend/triune/michael.py` augments and ranks candidate actions using
+  cognition-derived recommendations while preserving source attribution.
+- `backend/triune/loki.py` turns cognition uncertainty and strategy signals
+  into dissent, alternative hypotheses, and challenge metadata.
+- Triune remains event-driven through `backend/services/world_events.py` and
+  governance-aware through the outbound gate/executor chain documented in
+  `docs/triune_governance_integration_matrix.md`.
+
 ## Scope
 
 This document summarizes the cognitive layer now wired into Triune end-to-end:

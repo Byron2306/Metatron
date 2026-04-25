@@ -39,6 +39,38 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v6.6.0**: Full System Audit & Agent Installer Endpoints (Mar 2026)
 - **v6.7.0**: Email Gateway + MDM Connectors + Security Hardening (Mar 2026) - CURRENT
 
+## 2026-04-25 Code Logic Refresh
+
+This refresh keeps v6.7.0 as the current product baseline and updates the
+working summary to match the repository's active composition:
+
+- **Backend authority:** `backend/server.py` is the main FastAPI composition
+  root. It initializes MongoDB or mongomock, shares database dependencies,
+  starts background workers, and mounts the security router mesh under `/api`
+  plus selected native `/api/v1` routers.
+- **Governed execution:** high-impact actions now pass through
+  `OutboundGateService`, canonical governance decisions, approval/deny APIs,
+  `GovernanceExecutorService`, governed dispatch, capability-token checks, and
+  tamper/world-event audit linkage.
+- **Triune cognition:** `backend/services/cognition_fabric.py` aggregates AATL,
+  AATR, CCE, ML, and AI-reasoning signals into
+  `world_snapshot["cognition"]`; Metatron, Michael, and Loki consume that
+  snapshot during orchestration.
+- **Frontend routing:** `frontend/src/App.js` uses workspace pages as the
+  primary navigation model. Email protection/gateway live under
+  `/email-security`; mobile security/MDM live under `/endpoint-mobility`.
+  Legacy routes such as `/email-gateway`, `/mdm`, `/dashboard`, `/alerts`,
+  `/threats`, `/agents`, `/soar`, and `/swarm` redirect into those workspaces.
+- **Unified agent split:** central SOC UI operations use backend
+  `/api/unified/*` and `/api/swarm/*`. The `unified_agent/` package contains
+  the endpoint runtime, local Flask dashboard on port 5000, desktop core,
+  integrations client, and a separate FastAPI agent server/proxy.
+- **Operational posture:** the codebase is feature-broad and increasingly
+  governance-hardened. Release claims should still separate implemented
+  control-plane logic from environment-bound dependencies such as live SMTP,
+  live MDM credentials, optional Ollama/AI services, external integrations,
+  and full denial-path regression coverage.
+
 ## v6.7.0 Email Gateway + MDM Connectors + Security Hardening (Mar 2026) - CURRENT
 
 ### Major Additions

@@ -3,6 +3,34 @@
 **Classification:** Code-Evidence Rebaseline  
 **Version:** v6.7.0 - Email Gateway + MDM Connectors + Security Hardening
 
+## 2026-04-25 Current Code Logic Summary
+
+The current implementation preserves the v6.7.0 security breadth and adds stronger
+governance, cognition, and UI composition semantics:
+
+- `backend/server.py` is the composition authority. It initializes the shared DB,
+  background workers, integration scheduler, AATL/AATR, network discovery, agent
+  deployment, and governance executor, then mounts the security domain routers
+  under `/api` plus selected native `/api/v1` routers.
+- Security-sensitive execution now centers on `OutboundGateService`,
+  `GovernanceDecisionAuthority`, `GovernanceExecutorService`,
+  `GovernedDispatch`, `TokenBrokerService`, `ToolGatewayService`,
+  `MCPServer`, `TelemetryChainService`, and canonical world events. High-impact
+  actions are queued, approved, released, token-checked, audited, and fed back
+  into the world model.
+- Triune reasoning is cognition-aware. `CognitionFabricService` aggregates
+  AATL, AATR, CCE, ML, and AI-reasoning signals into
+  `world_snapshot["cognition"]`; Metatron, Michael, and Loki consume that
+  shared signal for policy-tier suggestions, action ranking, and dissent.
+- Email and mobility security UI has moved behind workspace pages:
+  `/email-security` hosts email protection and gateway tabs, while
+  `/endpoint-mobility` hosts mobile security and MDM tabs. Legacy direct routes
+  redirect into those workspaces.
+- The unified-agent system has two distinct layers: the central product APIs in
+  `backend/routers/unified_agent.py` and `backend/routers/swarm.py`, and the
+  endpoint/local package in `unified_agent/` with the runtime agent, Flask local
+  dashboard, desktop core, standalone agent server, and integration helpers.
+
 ## Overview
 
 This analysis provides a comprehensive assessment of Metatron security features against current repository evidence, including the Email Gateway, MDM Connectors, and security hardening additions.

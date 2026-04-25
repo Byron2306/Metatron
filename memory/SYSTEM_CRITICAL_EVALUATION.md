@@ -3,6 +3,12 @@
 **Date:** 2026-03-06  
 **Scope:** End-to-end platform review (architecture, security posture, operations, delivery maturity) using current repository evidence.
 
+**Refresh note (2026-04-25):** This critical evaluation remains the conservative assurance baseline, but the current repository has moved materially beyond the March 6 snapshot. The FastAPI composition root in `backend/server.py` now mounts email protection, email gateway, mobile security, MDM connector, governance, world-ingest, Triune, unified-agent, swarm, enterprise, and advanced-service routers. Governance has also matured from approval concepts into a queue-backed chain using `services/outbound_gate.py`, `services/governance_authority.py`, `routers/governance.py`, `services/governance_executor.py`, `services/token_broker.py`, `services/tool_gateway.py`, `services/mcp_server.py`, `services/telemetry_chain.py`, and canonical world events.
+
+The frontend route model has been streamlined around workspace pages in `frontend/src/App.js`: `/command`, `/world`, `/ai-activity`, `/response-operations`, `/investigation`, `/detection-engineering`, `/email-security`, and `/endpoint-mobility` absorb many legacy direct pages through redirects. The unified agent surface now spans the React fleet page (`frontend/src/pages/UnifiedAgentPage.jsx`), the backend control-plane router (`backend/routers/unified_agent.py`), the monolithic endpoint runtime (`unified_agent/core/agent.py`), the local Flask dashboard (`unified_agent/ui/web/app.py`), and the standalone agent server/proxy (`unified_agent/server_api.py`).
+
+Use this document for risk framing: breadth is high, but the active risks are still contract drift, hardening consistency across legacy/secondary entry paths, optional dependency semantics, startup coupling, and test depth for denial paths and governance invariants.
+
 ---
 
 ## 1) Executive Summary

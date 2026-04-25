@@ -2,6 +2,29 @@
 
 This matrix maps the end-to-end governance chain and the concrete backend integration hooks.
 
+## 2026-04-25 status summary
+
+The active codebase now implements the governance model as a queue-backed and
+audited execution path rather than a purely advisory approval concept:
+
+- High-impact intents enter `OutboundGateService` and are persisted in
+  `triune_outbound_queue` / `triune_decisions`.
+- Approval and denial transitions are centralized through
+  `GovernanceDecisionAuthority` and surfaced by `backend/routers/governance.py`.
+- `GovernanceExecutorService` releases only approved queue-backed decisions into
+  governed dispatch and concrete domain-operation handlers.
+- `tool_gateway`, `mcp_server`, and `token_broker` enforce approved governance
+  context and capability-token checks for high-impact runtime operations.
+- `telemetry_chain` and canonical world events now carry policy, governance,
+  queue, token, execution, and trace linkage for terminal outcomes.
+- Unified-agent remediation proposals, telemetry ingestion, VNS/vector-memory
+  writes, reports/timeline/CSPM exports, and EDR telemetry now participate in
+  the same world-event/audit pattern where implemented.
+
+Remaining work is mainly breadth and invariants: close residual direct execution
+paths, keep endpoint schema contracts under CI, and ensure every high-impact path
+has denial-path tests plus decision/token/audit linkage.
+
 ## Canonical chain
 
 `Intent -> World Event -> Triune Assessment -> Policy Decision -> Outbound Gate Decision -> Approval -> Executor Release -> PEP Enforcement (token/policy/trust) -> Execution -> Audit + World Feedback`
