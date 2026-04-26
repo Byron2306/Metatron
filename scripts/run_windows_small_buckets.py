@@ -166,7 +166,18 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
                 )
             except Exception:
                 pass
-            raw_stdout, raw_stderr = proc.communicate()
+            # Never block forever here: bound the cleanup wait and hard-kill as fallback.
+            try:
+                raw_stdout, raw_stderr = proc.communicate(timeout=20)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                try:
+                    raw_stdout, raw_stderr = proc.communicate(timeout=5)
+                except Exception:
+                    raw_stdout, raw_stderr = "", ""
             raise
 
         # Analyze execution results
