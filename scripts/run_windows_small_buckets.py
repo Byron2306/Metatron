@@ -20,7 +20,7 @@ import re
 import subprocess
 import sys
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,6 +63,34 @@ _SMALL_BUCKET_MAP = {
     11: _BUCKET_11, 12: _BUCKET_12, 13: _BUCKET_13, 14: _BUCKET_14, 15: _BUCKET_15,
     16: _BUCKET_16, 17: _BUCKET_17, 18: _BUCKET_18, 19: _BUCKET_19, 20: _BUCKET_20,
 }
+
+# Some techniques are known to run long or hang in certain runner states.
+# Keep these tighter so the bucket advances instead of appearing frozen.
+_DEFAULT_TIMEOUT_SECONDS = 300
+_TIMEOUT_OVERRIDES = {
+    "T1490": 180,
+}
+
+
+def _technique_timeout_seconds(technique: str) -> int:
+    timeout = int(os.environ.get("ATOMIC_TIMEOUT_SECONDS", _DEFAULT_TIMEOUT_SECONDS) or _DEFAULT_TIMEOUT_SECONDS)
+    overrides = dict(_TIMEOUT_OVERRIDES)
+
+    raw = str(os.environ.get("ATOMIC_TIMEOUT_OVERRIDES", "")).strip()
+    # Format: T1490=180,T1059.001=240
+    if raw:
+        for item in raw.split(","):
+            item = item.strip()
+            if not item or "=" not in item:
+                continue
+            k, v = item.split("=", 1)
+            k = k.strip().upper()
+            try:
+                overrides[k] = int(v.strip())
+            except Exception:
+                continue
+
+    return int(overrides.get(technique.upper(), timeout))
 
 
 def _ps_command(technique: str) -> str:
@@ -112,20 +140,34 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
     }
     out_path.write_text(json.dumps(stub, indent=2), encoding="utf-8")
 
-    # Execute the technique
-    _timeout = 300  # 5 minutes per technique
+    # Execute the technique with a hard timeout and process-tree cleanup.
+    _timeout = _technique_timeout_seconds(technique)
+    print(f"[START] {technique} timeout={_timeout}s", flush=True)
     try:
         ps_cmd = _ps_command(technique)
-        result = subprocess.run(
+        proc = subprocess.Popen(
             ["powershell.exe", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=_timeout,
             cwd=str(Path(__file__).parent),
         )
-        raw_stdout = result.stdout
-        raw_stderr = result.stderr
-        raw_exit = result.returncode
+        try:
+            raw_stdout, raw_stderr = proc.communicate(timeout=_timeout)
+            raw_exit = proc.returncode
+        except subprocess.TimeoutExpired:
+            # Ensure child processes are torn down too (important on Windows runners).
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception:
+                pass
+            raw_stdout, raw_stderr = proc.communicate()
+            raise
 
         # Analyze execution results
         if "Executing test:" in raw_stdout and "successfully executed" in raw_stdout:
@@ -280,15 +322,28 @@ def main():
     # Phase 1: safe techniques at controlled concurrency
     if safe_techniques:
         with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
-            futures = {pool.submit(worker, t): t for t in safe_techniques}
-            for future in as_completed(futures):
-                t = futures[future]
-                try:
-                    _report(future.result(), t)
-                except Exception as exc:
-                    failed += 1
-                    completed += 1
-                    print(f"[{completed}/{total}] ERR  {t}: {exc}", flush=True)
+            future_to_technique = {pool.submit(worker, t): t for t in safe_techniques}
+            pending = set(future_to_technique.keys())
+
+            while pending:
+                done, pending = wait(pending, timeout=20, return_when=FIRST_COMPLETED)
+
+                if not done:
+                    still_running = [future_to_technique[f] for f in pending]
+                    print(
+                        f"[HEARTBEAT] waiting on {len(still_running)} technique(s): {', '.join(still_running)}",
+                        flush=True,
+                    )
+                    continue
+
+                for future in done:
+                    t = future_to_technique[future]
+                    try:
+                        _report(future.result(), t)
+                    except Exception as exc:
+                        failed += 1
+                        completed += 1
+                        print(f"[{completed}/{total}] ERR  {t}: {exc}", flush=True)
 
     # Phase 2: T1134.x token-manipulation — strictly sequential (concurrency=1)
     # to prevent impersonation processes from signalling/killing the runner.
