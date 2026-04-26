@@ -68,9 +68,16 @@ _SMALL_BUCKET_MAP = {
 # Keep these tighter so the bucket advances instead of appearing frozen.
 _DEFAULT_TIMEOUT_SECONDS = 300
 _TIMEOUT_OVERRIDES = {
-    "T1490": 180,
-    "T1218.001": 180,
-    "T1218.005": 180,
+    "T1490": 420,
+    "T1218.001": 420,
+    "T1218.005": 300,
+}
+
+# Techniques that are prone to cross-interference or long blocking behavior
+# should run one-at-a-time to avoid poisoning the whole pool.
+_SERIAL_TECHNIQUES = {
+    "T1218.001",
+    "T1490",
 }
 
 
@@ -312,10 +319,13 @@ def main():
         print("ERROR: Must specify --bucket N (1-20) or --techniques 'T1001,T1002'")
         sys.exit(1)
 
-    # T1134.x must ALWAYS run at concurrency=1 regardless of --concurrency.
-    # Split the list so the two phases use the right pool size.
+    # Some techniques must ALWAYS run serially regardless of --concurrency.
+    # Split the list so each phase uses the right pool behavior.
     t1134_set = set(_T1134)
-    safe_techniques = [t for t in techniques if t not in t1134_set]
+    serial_set = set(_SERIAL_TECHNIQUES)
+
+    safe_techniques = [t for t in techniques if t not in t1134_set and t not in serial_set]
+    serial_techniques = [t for t in techniques if t in serial_set and t not in t1134_set]
     t1134_techniques = [t for t in techniques if t in t1134_set]
 
     output_dir = Path(args.output_dir)
@@ -324,7 +334,7 @@ def main():
     print(f"Windows Small Buckets sweep — bucket={args.bucket} pass={args.pass_idx} run={args.run_number}", flush=True)
     print(
         f"Techniques: {len(techniques)} "
-        f"(safe={len(safe_techniques)} t1134={len(t1134_techniques)})"
+        f"(safe={len(safe_techniques)} serial={len(serial_techniques)} t1134={len(t1134_techniques)})"
         f"  Concurrency: {args.concurrency}",
         flush=True,
     )
@@ -379,7 +389,18 @@ def main():
                         completed += 1
                         print(f"[{completed}/{total}] ERR  {t}: {exc}", flush=True)
 
-    # Phase 2: T1134.x token-manipulation — strictly sequential (concurrency=1)
+    # Phase 2: explicitly serial techniques at concurrency=1.
+    if serial_techniques:
+        print("--- Serial stability phase ---", flush=True)
+        for t in serial_techniques:
+            try:
+                _report(worker(t), t)
+            except Exception as exc:
+                failed += 1
+                completed += 1
+                print(f"[{completed}/{total}] ERR  {t}: {exc}", flush=True)
+
+    # Phase 3: T1134.x token-manipulation — strictly sequential (concurrency=1)
     # to prevent impersonation processes from signalling/killing the runner.
     if t1134_techniques:
         print("--- T1134.x phase (sequential) ---", flush=True)
