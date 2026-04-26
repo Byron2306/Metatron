@@ -69,6 +69,8 @@ _SMALL_BUCKET_MAP = {
 _DEFAULT_TIMEOUT_SECONDS = 300
 _TIMEOUT_OVERRIDES = {
     "T1490": 180,
+    "T1218.001": 180,
+    "T1218.005": 180,
 }
 
 
@@ -97,12 +99,27 @@ def _ps_command(technique: str) -> str:
     """Build the PowerShell one-liner to run a technique and capture output."""
     return (
         f"$ErrorActionPreference='Continue';"
-        f"Import-Module '{MODULE_PATH}' -ErrorAction SilentlyContinue;"
+        f"$modulePath='{MODULE_PATH}';"
+        f"if (-not (Test-Path $modulePath)) {{ Write-Error \"Invoke-AtomicRedTeam module missing: $modulePath\"; exit 91; }};"
+        f"try {{ Import-Module $modulePath -ErrorAction Stop | Out-Null; }} catch {{ Write-Error \"Import-Module failed: $($_.Exception.Message)\"; exit 92; }};"
+        f"if (-not (Get-Command Invoke-AtomicTest -ErrorAction SilentlyContinue)) {{ Write-Error \"Invoke-AtomicTest unavailable after module import\"; exit 93; }};"
         f"$env:PathToAtomicsFolder='{ATOMIC_ROOT}';"
         # GetPrereqs first so dependencies are satisfied
         f"Invoke-AtomicTest {technique} -PathToAtomicsFolder '{ATOMIC_ROOT}' -GetPrereqs 2>&1 | Out-Null;"
         f"Invoke-AtomicTest {technique} -PathToAtomicsFolder '{ATOMIC_ROOT}' 2>&1"
     )
+
+
+def _needs_retry(raw_stdout: str, raw_stderr: str, raw_exit: int) -> bool:
+    combined = f"{raw_stdout}\n{raw_stderr}".lower()
+    if raw_exit == 0:
+        return False
+    retry_markers = (
+        "invoke-atomictest unavailable after module import",
+        "import-module failed:",
+        "the term 'invoke-atomictest' is not recognized",
+    )
+    return any(marker in combined for marker in retry_markers)
 
 
 def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) -> dict:
@@ -144,41 +161,47 @@ def run_one(technique: str, output_dir: Path, pass_idx: int, run_number: int) ->
     _timeout = _technique_timeout_seconds(technique)
     print(f"[START] {technique} timeout={_timeout}s", flush=True)
     try:
-        ps_cmd = _ps_command(technique)
-        proc = subprocess.Popen(
-            ["powershell.exe", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=str(Path(__file__).parent),
-        )
-        try:
-            raw_stdout, raw_stderr = proc.communicate(timeout=_timeout)
-            raw_exit = proc.returncode
-        except subprocess.TimeoutExpired:
-            # Ensure child processes are torn down too (important on Windows runners).
+        def _run_powershell_once() -> tuple[str, str, int]:
+            ps_cmd = _ps_command(technique)
+            proc = subprocess.Popen(
+                ["powershell.exe", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=str(Path(__file__).parent),
+            )
             try:
-                subprocess.run(
-                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                )
-            except Exception:
-                pass
-            # Never block forever here: bound the cleanup wait and hard-kill as fallback.
-            try:
-                raw_stdout, raw_stderr = proc.communicate(timeout=20)
+                _stdout, _stderr = proc.communicate(timeout=_timeout)
+                return _stdout, _stderr, int(proc.returncode or 0)
             except subprocess.TimeoutExpired:
+                # Ensure child processes are torn down too (important on Windows runners).
                 try:
-                    proc.kill()
+                    subprocess.run(
+                        ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
                 except Exception:
                     pass
+                # Never block forever here: bound the cleanup wait and hard-kill as fallback.
                 try:
-                    raw_stdout, raw_stderr = proc.communicate(timeout=5)
-                except Exception:
-                    raw_stdout, raw_stderr = "", ""
-            raise
+                    proc.communicate(timeout=20)
+                except subprocess.TimeoutExpired:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    try:
+                        proc.communicate(timeout=5)
+                    except Exception:
+                        pass
+                raise
+
+        raw_stdout, raw_stderr, raw_exit = _run_powershell_once()
+        if _needs_retry(raw_stdout, raw_stderr, raw_exit):
+            print(f"[RETRY] {technique} after module-load failure", flush=True)
+            raw_stdout, raw_stderr, raw_exit = _run_powershell_once()
 
         # Analyze execution results
         if "Executing test:" in raw_stdout and "successfully executed" in raw_stdout:
