@@ -3,6 +3,20 @@
 ## Overview
 The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensive cybersecurity platform designed to counter malicious AI agents and advanced malware. Features the "Seraphic Watch" futuristic divine observer aesthetic.
 
+## Current Repository Rebaseline (Apr 27, 2026) - CURRENT
+
+The current product state is broader than the older v6.7.0 Email Gateway / MDM update. The repository now contains:
+
+- FastAPI backend with 61 router modules and a large `/api` plus `/api/v1` route mesh.
+- React frontend with workspace-oriented navigation and 68 page components.
+- Unified endpoint agent, local web/desktop/mobile shells, installers, telemetry, EDM/DLP, and deployment flows.
+- Triune cognition and world-model wiring through Metatron, Michael, Loki, cognition fabric, and world events.
+- Redis/Celery worker plane in Docker Compose for background and scheduled execution.
+- Profile-gated security integrations for Trivy, Falco, Suricata, Zeek, Volatility, and Cuckoo.
+- Email protection/gateway, mobile security, and MDM connector frameworks that are implemented but production-value dependent on SMTP/MTA configuration, platform credentials, and external API permissions.
+
+Current product framing: **Governed Adaptive Defense Fabric** with strong implemented breadth and an active hardening focus on contract integrity, deployment truth, durable governance state, detection-quality evidence, and clear degraded-mode semantics.
+
 ## Version History
 - **v1.0.0**: Initial dashboard with simulated threats
 - **v2.0.0**: Real network scanning, local agent, notifications
@@ -37,9 +51,10 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 - **v6.4.0**: Infrastructure Builder, Extension Download, PDF Stress Testing, Multi-Tenant API (Mar 2026)
 - **v6.5.0**: System-Wide Hardening - All UI Features, SOAR Templates Visibility, Complete Builder (Mar 2026)
 - **v6.6.0**: Full System Audit & Agent Installer Endpoints (Mar 2026)
-- **v6.7.0**: Email Gateway + MDM Connectors + Security Hardening (Mar 2026) - CURRENT
+- **v6.7.0**: Email Gateway + MDM Connectors + Security Hardening (Mar 2026)
+- **2026-04-27 Rebaseline**: Workspace UI, Triune/world model, Redis/Celery runtime, profile-gated integrations, README and memory-doc reality update - CURRENT
 
-## v6.7.0 Email Gateway + MDM Connectors + Security Hardening (Mar 2026) - CURRENT
+## v6.7.0 Email Gateway + MDM Connectors + Security Hardening (Mar 2026)
 
 ### Major Additions
 
@@ -399,7 +414,7 @@ All 14+ pages verified working:
 ### Deprecation Note
 - `/app/scripts/seraph_defender_v7.py` is still functional but the new unified agent in `/app/unified_agent/` is the recommended agent going forward
 
-## v6.1.0 Full Feature Completion (Mar 2026) - CURRENT
+## v6.1.0 Full Feature Completion (Mar 2026)
 
 ### Major Features Implemented
 

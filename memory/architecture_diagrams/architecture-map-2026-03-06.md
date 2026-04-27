@@ -1,122 +1,146 @@
-# Metatron Full Architecture Map (March 6, 2026)
+# Metatron / Seraph Architecture Map
 
-## 1) System Topology at a Glance
+Updated: 2026-04-27
 
-- Primary stack: `frontend` (React) + `backend` (FastAPI) + `mongodb`.
-- Security/ops stack: `elasticsearch`, `kibana`, `wireguard`, optional `ollama`, `trivy`, `falco`, `suricata`, `cuckoo`.
-- Entry channels:
-- Web UI routes from `frontend/src/App.js` (47 route entries, including redirects).
-- REST API under `/api/*` and `/api/v1/*`.
-- WebSockets under `/ws/*`.
-- Endpoint-agent control plane under `/api/unified/*` and `/api/swarm/*`.
+## 1. System topology
 
-## 2) Frontend Architecture (Local and Remote Use)
+```text
+Browser / Operator
+        |
+        v
+React frontend (frontend/)
+        |
+        v
+FastAPI backend (backend/server.py)
+        |
+        +--> MongoDB primary state
+        +--> Redis / Celery worker plane
+        +--> Unified agent control plane
+        +--> Optional Elastic/Kibana/Ollama/WireGuard services
+        +--> Optional security and sandbox profile services
+```
 
-Core frontend shell:
-- Router and protected layout: `frontend/src/App.js`, `frontend/src/components/Layout`.
-- Auth/session context: `frontend/src/context/AuthContext.jsx`.
+Primary code anchors:
 
-Operational page groups:
-- SOC and incident ops: dashboard, threats, alerts, hunting, correlation, timeline, audit, reports.
-- Response and containment: quarantine, threat response, SOAR, ransomware, honey tokens, deception.
-- Endpoint and swarm ops: unified agent, command center, cli sessions, network topology.
-- Platform security: zero trust, cspm, attack paths, kernel sensors, secure boot, identity.
-- Advanced services: AI threats, advanced services, VNS alerts, browser extension, kibana.
+- Backend entrypoint: `backend/server.py`
+- Frontend router: `frontend/src/App.js`
+- Unified agent: `unified_agent/core/agent.py`
+- Deployment topology: `docker-compose.yml`
+- CAS sidecar bundle: `cas_shield_sentinel_bundle/`
 
-Frontend implementation model:
-- Local: browser to `http://localhost:3000` with backend fallback or configured API base.
-- Remote: browser to reverse-proxied `https://<domain>` via Nginx with backend routed through `/api`.
+## 2. Frontend architecture
 
-## 3) Backend Architecture (Current Router Mesh)
+The frontend is a React 19 / React Router 7 application with a protected layout and workspace-oriented navigation.
 
-FastAPI entrypoint:
-- `backend/server.py`.
-- Router registration uses `/api` plus selected routers with native `/api/v1` prefixes.
+Current primary workspace pages include:
+
+- `CommandWorkspacePage`
+- `AIActivityWorkspacePage`
+- `ResponseOperationsPage`
+- `InvestigationWorkspacePage`
+- `EmailSecurityWorkspacePage`
+- `EndpointMobilityWorkspacePage`
+- `DetectionEngineeringWorkspacePage`
+- `WorldViewPage`
+
+Several legacy feature paths now redirect into workspace tabs. Documentation should describe the feature surface and, where relevant, mention the workspace route that owns the UI.
+
+## 3. Backend router mesh
+
+`backend/server.py` mounts 61 router modules plus direct health/root websocket routes. API surfaces use:
+
+- `/api/*` for most routers.
+- `/api/v1/*` for selected security domains such as CSPM, attack paths, identity, kernel sensors, and compatibility paths.
+- `/ws/*` for direct threat and agent websockets.
 
 Major API domains:
-- Core platform: auth, users, dashboard, settings, websocket, reports.
-- Security analytics: threats, alerts, threat intel, hunting, correlation, timeline, audit.
-- Response plane: response, quarantine, SOAR, ransomware, honeypots, honey tokens, deception.
-- Endpoint plane: agents, agent commands, swarm, unified agent.
-- Enterprise plane: enterprise, zero trust, multi-tenant, extension.
-- Advanced plane: advanced, AI analysis, AI threats, ML prediction, sandbox, EDR, containers, VPN, CSPM.
-- Tier-1 security routers: attack paths, secure boot, kernel sensors, identity.
 
-Real-time plane:
-- `/ws/threats` and `/ws/agent/{agent_id}`.
+- Core: auth, users, dashboard, settings, reports.
+- SOC: threats, alerts, hunting, threat intel, correlation, timeline, audit.
+- Response: response, quarantine, SOAR, ransomware, honeypots, honey tokens, deception.
+- Endpoint: agents, agent commands, swarm, unified agent.
+- Detection engineering: Sigma, Zeek, osquery, atomic validation, MITRE ATT&CK.
+- Advanced: MCP, vector memory, VNS, quantum, AI reasoning, sandbox, ML, browser isolation.
+- Governance/enterprise: zero trust, enterprise identity/policy/token/tool/telemetry, multi-tenant, CSPM, identity protection.
+- Domain expansion: email protection, email gateway, mobile security, MDM connectors.
+- Triune/world: Metatron, Michael, Loki, world ingestion, cognition orchestration.
 
-## 4) Security/Service Layer
+## 4. Service layer
 
-Key service families:
-- Control and governance: `policy_engine`, `token_broker`, `tool_gateway`, `identity`.
-- AI/security reasoning: `aatl`, `aatr`, `cognition_engine`, `ai_reasoning`, `cce_worker`.
-- Threat data and memory: `mcp_server`, `vector_memory`, `vns`, `vns_alerts`, `telemetry_chain`.
-- Deployment and operations: `agent_deployment`, `network_discovery`, `siem`.
+Important service families:
 
-Core engine modules:
-- `threat_response`, `threat_correlation`, `threat_timeline`, `threat_intel`.
-- `ransomware_protection`, `quarantine`, `container_security`, `browser_isolation`, `zero_trust`.
-- `identity_protection`, `ml_threat_prediction`, `sandbox_analysis`, `quantum_security`, `deception_engine`.
+- AI-native detection: `aatl.py`, `aatr.py`, `cognition_engine.py`, `cce_worker.py`, `ai_reasoning.py`.
+- Triune/world: `cognition_fabric.py`, `triune_orchestrator.py`, `world_model.py`, `world_events.py`, `backend/triune/*`.
+- Governance: `identity.py`, `policy_engine.py`, `token_broker.py`, `tool_gateway.py`, `telemetry_chain.py`.
+- Security operations: `agent_deployment.py`, `network_discovery.py`, `siem.py`, `mcp_server.py`, `quantum_security.py`.
+- Response engines and scanners: root-level backend modules such as `threat_response.py`, `cspm_engine.py`, `browser_isolation.py`, `container_security.py`, `email_gateway.py`, `mdm_connectors.py`.
 
-## 5) Endpoint and Agent Implementations
+## 5. Data and storage
 
-Unified agent stack:
-- Main endpoint agent: `unified_agent/core/agent.py`.
-- Local control and UI: `unified_agent/server_api.py`, `unified_agent/ui/web/app.py`, `unified_agent/ui/desktop/main.py`.
-- Deployment helpers and diagnostics: `unified_agent/auto_deployment.py`, tests/utilities in `unified_agent/`.
+Primary state is MongoDB database `seraph_ai_defense`.
 
-Agent install paths:
-- Backend-served installers/downloads via `backend/routers/unified_agent.py` and swarm routes.
-- Scripted local installers in `scripts/`.
+Redis is used for Celery broker/result backend in the current Compose topology. Elasticsearch/Kibana provide optional local SIEM/search visualization. Some services still keep process-local state for fast-moving queues, connector state, or fallback paths; these remain durability targets.
 
-Implementation model:
-- Local: endpoint agent + local UI/service for host-level visibility and control.
-- Remote: endpoint heartbeat/events to backend control plane, command dispatch from backend to agents.
+## 6. Unified agent plane
 
-## 6) Data and Storage Architecture
+The agent plane includes:
 
-Primary data store:
-- MongoDB (`seraph_ai_defense`) for platform state, telemetry, commands, and control-plane records.
+- Cross-platform monitoring and response in `unified_agent/core/agent.py`.
+- Local UI/API shells in `unified_agent/ui/*` and `unified_agent/server_api.py`.
+- Installer/download endpoints from the backend unified-agent router.
+- Legacy and helper installers in `scripts/`.
+- Tests under `unified_agent/tests/` and backend unified-agent suites.
 
-Observability and SIEM:
-- Elasticsearch + Kibana local stack.
-- Optional external SIEM forwarding via `services/siem.py`.
+Agent flows:
 
-EDM-specific data path:
-- Dataset metadata/versioning and rollout state persisted by unified-agent router.
-- Agent EDM hits ingested centrally for analytics and readiness evaluation.
+1. Agent registers.
+2. Agent heartbeats with telemetry and posture.
+3. Backend queues commands or policy/config updates.
+4. Agent polls/receives commands and reports results.
+5. EDM and other specialized telemetry loop back into backend analytics.
 
-## 7) Local vs Remote Implementation Split
+## 7. Optional integration profiles
 
-Local/on-host implementations:
-- Endpoint monitors and remediation primitives in unified agent.
-- Desktop/local web control surfaces for agent utilities.
-- Dockerized local stack for full platform bring-up.
+Default optional integrations:
 
-Remote/distributed implementations:
-- Central API control plane and SOC UI.
-- Remote agent deployment over SSH/WinRM.
-- Optional external integrations (SIEM APIs, threat feeds, communication channels).
-- Reverse proxy/TLS ingress for internet-facing operation.
+- WireGuard
+- Elasticsearch/Kibana
+- Ollama
+- Nginx/reverse proxy
 
-## 8) End-to-End Runtime Flows
+Security profile:
 
-Primary SOC flow:
-1. Agent/events/sensors feed backend APIs and websockets.
-2. Backend correlates and enriches alerts/threats.
-3. Frontend renders situational and investigative views.
-4. Analyst executes response/SOAR/deployment commands.
-5. Backend dispatches and tracks command/deployment outcomes.
+- Trivy
+- Falco
+- Suricata
+- Zeek
+- Volatility helper
 
-EDM flow:
-1. Dataset version published in backend source-of-truth.
-2. Staged rollout to target cohorts (5/25/100) with readiness checks.
-3. Agents perform EDM matching and emit hit telemetry.
-4. Backend evaluates anomaly thresholds and can auto-rollback.
+Sandbox profile:
 
-## 9) Current Architectural Risk Focus
+- Cuckoo
+- Cuckoo MongoDB
+- Cuckoo web UI
 
-- Contract governance and schema invariants across fast-moving routes.
-- Hardening consistency across all legacy and secondary entry paths.
-- Durability guarantees for governance-critical state under restart/scale.
-- Assurance depth (security regression and denial-path coverage).
+These integrations should degrade explicitly when unavailable.
+
+## 8. Adjacent CAS Shield sidecar
+
+The repository also includes CAS Shield Sentinel, a sidecar reverse proxy for CAS authentication protection. It is separate from the main Seraph API/frontend stack and implements:
+
+- PASS_THROUGH
+- FRICTION
+- TRAP_SINK
+- Pebbles trace IDs
+- Mystique adaptive knobs
+- Stonewall escalation
+
+It intentionally avoids credential harvesting and request-body storage.
+
+## 9. Architectural risk focus
+
+- Contract drift across backend routers, frontend workspaces, scripts, and docs.
+- Durable state for governance, deployment, connector, and queue-like features.
+- Accurate deployment success semantics.
+- Optional integration state clarity in API and UI.
+- Detection-quality measurement and false-positive governance.
