@@ -78,6 +78,16 @@ class AtomicValidationManager:
         # the Docker socket spawns containers on the host, not inside this container.
         self.sandbox_atomic_host_path = os.environ.get("ATOMIC_RED_TEAM_HOST_PATH", "").strip()
         self.sandbox_invoke_host_path = os.environ.get("INVOKE_ATOMICREDTEAM_HOST_PATH", "").strip()
+        # Optional host-side path to the bundled PowerShell distribution (tools/powershell).
+        # If omitted, we try to derive it from ATOMIC_RED_TEAM_HOST_PATH's parent folder.
+        self.sandbox_pwsh_host_path = os.environ.get("ATOMIC_PWSH_HOST_PATH", "").strip()
+        if not self.sandbox_pwsh_host_path and self.sandbox_atomic_host_path:
+            try:
+                self.sandbox_pwsh_host_path = str(
+                    Path(self.sandbox_atomic_host_path).resolve().parent / "tools" / "powershell"
+                )
+            except Exception:
+                self.sandbox_pwsh_host_path = ""
         # Named volume that holds run result JSON files; shared between backend and sandbox.
         self.sandbox_validation_volume = os.environ.get(
             "ATOMIC_VALIDATION_VOLUME", "metatron-triune-outbound-gate_atomic_validation_reports"
@@ -151,6 +161,17 @@ class AtomicValidationManager:
         if not isinstance(payload, dict):
             return
 
+        def _expand(value: Any) -> Any:
+            if isinstance(value, str):
+                return os.path.expandvars(value)
+            if isinstance(value, dict):
+                return {k: _expand(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [_expand(v) for v in value]
+            return value
+
+        payload = _expand(payload)
+
         runner = str(payload.get("runner") or "").strip()
         if runner:
             self.runner = runner
@@ -174,6 +195,11 @@ class AtomicValidationManager:
                 profile_type = str(profile.get("type") or "local").strip().lower()
                 if not profile_id:
                     continue
+                def _parse_int(value: Any, default: int) -> int:
+                    try:
+                        return int(value)
+                    except Exception:
+                        return default
                 parsed_profiles.append(
                     {
                         "profile_id": profile_id,
@@ -190,7 +216,9 @@ class AtomicValidationManager:
                         "sandbox_validation_volume": str(profile.get("sandbox_validation_volume") or "").strip(),
                         "remote_host": str(profile.get("remote_host") or "").strip(),
                         "remote_user": str(profile.get("remote_user") or "").strip(),
-                        "remote_port": int(profile.get("remote_port") or 22),
+                        "remote_port": _parse_int(profile.get("remote_port"), 22),
+                        "ssh_key_path": str(profile.get("ssh_key_path") or "").strip(),
+                        "ssh_options": [str(o).strip() for o in (profile.get("ssh_options") or []) if str(o).strip()],
                         "password_env": str(profile.get("password_env") or "").strip(),
                         "remote_shell": str(profile.get("remote_shell") or "pwsh").strip(),
                         "winrm_transport": str(profile.get("winrm_transport") or "ntlm").strip().lower(),
@@ -224,6 +252,8 @@ class AtomicValidationManager:
                     "priority": str(job.get("priority") or "high").strip(),
                     "frequency": str(job.get("frequency") or "weekly").strip(),
                     "runner_profile": str(job.get("runner_profile") or "").strip(),
+                    "skip_prereqs": bool(job.get("skip_prereqs", False)),
+                    "show_details_brief": bool(job.get("show_details_brief", False)),
                 }
             )
 
@@ -527,10 +557,13 @@ class AtomicValidationManager:
         atomic_root = str(profile.get("atomic_root") or self.atomic_root.as_posix()).strip()
         if profile_type in {"winrm", "ssh"}:
             return self.atomic_root.as_posix()
-        if profile_type != "docker":
-            return atomic_root
-        sandbox_atomic_host_path = str(profile.get("sandbox_atomic_host_path") or self.sandbox_atomic_host_path or "").strip()
-        return str(Path(sandbox_atomic_host_path) / "atomics") if sandbox_atomic_host_path else atomic_root
+        # For docker sandbox profiles, this function is used for preflight checks (YAML existence)
+        # inside the current backend process. The backend container typically has atomics mounted
+        # at /opt/atomic-red-team/atomics, while the sandbox uses host-side bind mounts when
+        # spawning sibling containers via the host Docker socket. Host filesystem paths (e.g.
+        # /home/.../atomic-red-team/atomics) are not visible from inside the backend container,
+        # so do NOT use them for existence checks here.
+        return atomic_root
 
     def _build_invoke_script(
         self,
@@ -540,6 +573,7 @@ class AtomicValidationManager:
         host_atomic_root: Optional[str] = None,
         module_path: str,
         show_details_brief: bool = False,
+        skip_prereqs: bool = False,
     ) -> str:
         technique_list = self._filter_runnable_techniques(techniques, host_atomic_root or atomic_root)
         if not technique_list:
@@ -548,8 +582,9 @@ class AtomicValidationManager:
             )
         import_cmd = f"Import-Module {self._ps_quote(module_path)} -ErrorAction Stop" if module_path else "Import-Module Invoke-AtomicRedTeam -ErrorAction Stop"
         show_details = " -ShowDetailsBrief" if show_details_brief else ""
+        prereqs = " -SkipPrereqs" if skip_prereqs else ""
         invoke_cmds = "; ".join(
-            f"Invoke-AtomicTest {t} -PathToAtomicsFolder {self._ps_quote(atomic_root)}{show_details}"
+            f"Invoke-AtomicTest {t} -PathToAtomicsFolder {self._ps_quote(atomic_root)}{show_details}{prereqs}"
             for t in technique_list
         )
         return (
@@ -558,18 +593,27 @@ class AtomicValidationManager:
             f"{invoke_cmds}"
         )
 
-    def _build_command(self, techniques: List[str]) -> List[str]:
+    def _build_command(self, techniques: List[str], *, show_details_brief: bool = False, skip_prereqs: bool = False) -> List[str]:
         runner = self._resolve_runner() or self.runner or "pwsh"
         script = self._build_invoke_script(
             techniques,
             atomic_root=self.atomic_root.as_posix(),
             host_atomic_root=self.atomic_root.as_posix(),
             module_path=str(self.module_path),
-            show_details_brief=False,
+            show_details_brief=show_details_brief,
+            skip_prereqs=skip_prereqs,
         )
         return [runner, "-NoProfile", "-Command", script]
 
-    def _build_sandbox_command(self, techniques: List[str], run_id: str, profile: Optional[Dict[str, Any]] = None) -> Optional[List[str]]:
+    def _build_sandbox_command(
+        self,
+        techniques: List[str],
+        run_id: str,
+        profile: Optional[Dict[str, Any]] = None,
+        *,
+        show_details_brief: bool = False,
+        skip_prereqs: bool = False,
+    ) -> Optional[List[str]]:
         """Wrap the pwsh atomic command in a Docker sandbox container.
 
         Returns None if sandbox is not configured (caller falls back to direct exec).
@@ -585,7 +629,9 @@ class AtomicValidationManager:
         module_path = str(profile.get("module_path") or self.module_path or "Invoke-AtomicRedTeam").strip()
         atomic_root = str(profile.get("atomic_root") or "/opt/atomic-red-team/atomics").strip()
         sandbox_atomic_host_path = str(profile.get("sandbox_atomic_host_path") or self.sandbox_atomic_host_path or "").strip()
-        host_atomic_root = str((Path(sandbox_atomic_host_path) / "atomics") if sandbox_atomic_host_path else atomic_root)
+        # Use the container-visible atomic root for YAML existence checks; the sandbox container
+        # itself is mounted from host paths later via `sandbox_atomic_host_path`.
+        host_atomic_root = atomic_root
         pwsh_cmd = [
             profile_runner,
             "-NoProfile",
@@ -595,11 +641,13 @@ class AtomicValidationManager:
                 atomic_root=atomic_root,
                 host_atomic_root=host_atomic_root,
                 module_path=module_path,
-                show_details_brief=False,
+                show_details_brief=show_details_brief,
+                skip_prereqs=skip_prereqs,
             ),
         ]
-        # pwsh_cmd = ["pwsh", "-NoProfile", "-Command", "<script>"]
-        # We re-use the container-internal pwsh path; the sandbox image has it.
+        # Note: the sandbox image may not have pwsh installed. We bind-mount the
+        # repo-bundled PowerShell distribution (tools/powershell) into /opt/pwsh
+        # when available and, if the runner is `pwsh`, switch to /opt/pwsh/pwsh.
 
         cmd = [
             "docker", "run", "--rm",
@@ -618,10 +666,15 @@ class AtomicValidationManager:
         # Bind-mount atomics and invoke-atomicredteam from host paths
         sandbox_invoke_host_path = str(profile.get("sandbox_invoke_host_path") or self.sandbox_invoke_host_path or "").strip()
         sandbox_validation_volume = str(profile.get("sandbox_validation_volume") or self.sandbox_validation_volume or "").strip()
+        sandbox_pwsh_host_path = str(profile.get("sandbox_pwsh_host_path") or self.sandbox_pwsh_host_path or "").strip()
         if sandbox_atomic_host_path:
             cmd += ["-v", f"{sandbox_atomic_host_path}:/opt/atomic-red-team:ro"]
         if sandbox_invoke_host_path:
             cmd += ["-v", f"{sandbox_invoke_host_path}:/opt/invoke-atomicredteam:ro"]
+        if sandbox_pwsh_host_path:
+            cmd += ["-v", f"{sandbox_pwsh_host_path}:/opt/pwsh:ro"]
+            if profile_runner == "pwsh":
+                pwsh_cmd[0] = "/opt/pwsh/pwsh"
 
         # Named volume for results — shared with the backend
         if sandbox_validation_volume:
@@ -631,7 +684,14 @@ class AtomicValidationManager:
         cmd.extend(pwsh_cmd)
         return cmd
 
-    def _build_ssh_command(self, techniques: List[str], profile: Dict[str, Any]) -> List[str]:
+    def _build_ssh_command(
+        self,
+        techniques: List[str],
+        profile: Dict[str, Any],
+        *,
+        show_details_brief: bool = False,
+        skip_prereqs: bool = False,
+    ) -> List[str]:
         remote_host = str(profile.get("remote_host") or "").strip()
         remote_user = str(profile.get("remote_user") or "").strip()
         if not remote_host:
@@ -647,15 +707,30 @@ class AtomicValidationManager:
             atomic_root=atomic_root,
             host_atomic_root=host_atomic_root,
             module_path=module_path,
-            show_details_brief=False,
+            show_details_brief=show_details_brief,
+            skip_prereqs=skip_prereqs,
         )
         remote_cmd = " ".join(
             shlex.quote(part)
             for part in [remote_shell, "-NoProfile", "-NonInteractive", "-Command", remote_script]
         )
-        return ["ssh", "-p", str(remote_port), remote_target, remote_cmd]
+        cmd = ["ssh", "-p", str(remote_port)]
+        ssh_key_path = str(profile.get("ssh_key_path") or "").strip()
+        if ssh_key_path:
+            cmd += ["-i", ssh_key_path]
+        for opt in (profile.get("ssh_options") or []):
+            cmd += ["-o", str(opt)]
+        cmd += [remote_target, remote_cmd]
+        return cmd
 
-    def _build_winrm_command(self, techniques: List[str], profile: Dict[str, Any]) -> List[str]:
+    def _build_winrm_command(
+        self,
+        techniques: List[str],
+        profile: Dict[str, Any],
+        *,
+        show_details_brief: bool = False,
+        skip_prereqs: bool = False,
+    ) -> List[str]:
         remote_host = str(profile.get("remote_host") or "").strip()
         remote_user = str(profile.get("remote_user") or "").strip()
         remote_port = int(profile.get("remote_port") or 5985)
@@ -682,7 +757,8 @@ class AtomicValidationManager:
             atomic_root=atomic_root,
             host_atomic_root=atomic_root,
             module_path=module_path,
-            show_details_brief=False,
+            show_details_brief=show_details_brief,
+            skip_prereqs=skip_prereqs,
         )
         if remote_user and password_env:
             outer_script = (
@@ -696,7 +772,14 @@ class AtomicValidationManager:
             )
         return [runner, "-NoProfile", "-NonInteractive", "-Command", outer_script]
 
-    def _build_local_profile_command(self, techniques: List[str], profile: Dict[str, Any]) -> List[str]:
+    def _build_local_profile_command(
+        self,
+        techniques: List[str],
+        profile: Dict[str, Any],
+        *,
+        show_details_brief: bool = False,
+        skip_prereqs: bool = False,
+    ) -> List[str]:
         runner = self._resolve_runner(str(profile.get("runner") or self.runner or "")) or self.runner or "pwsh"
         module_path = str(profile.get("module_path") or self.module_path or "Invoke-AtomicRedTeam").strip()
         atomic_root = str(profile.get("atomic_root") or self.atomic_root.as_posix()).strip()
@@ -705,22 +788,61 @@ class AtomicValidationManager:
             atomic_root=atomic_root,
             host_atomic_root=atomic_root,
             module_path=module_path,
-            show_details_brief=False,
+            show_details_brief=show_details_brief,
+            skip_prereqs=skip_prereqs,
         )
         return [runner, "-NoProfile", "-Command", script]
 
-    def _build_profile_command(self, techniques: List[str], run_id: str, profile: Dict[str, Any]) -> Tuple[List[str], str]:
+    def _build_profile_command(
+        self,
+        techniques: List[str],
+        run_id: str,
+        profile: Dict[str, Any],
+        *,
+        show_details_brief: bool = False,
+        skip_prereqs: bool = False,
+    ) -> Tuple[List[str], str]:
         profile_type = str(profile.get("type") or "local").strip().lower()
         if profile_type == "docker":
-            command = self._build_sandbox_command(techniques, run_id, profile)
+            command = self._build_sandbox_command(
+                techniques,
+                run_id,
+                profile,
+                show_details_brief=show_details_brief,
+                skip_prereqs=skip_prereqs,
+            )
             if not command:
                 raise ValueError("docker runner profile is missing sandbox_image")
             return command, "sandbox"
         if profile_type == "ssh":
-            return self._build_ssh_command(techniques, profile), "remote_ssh"
+            return (
+                self._build_ssh_command(
+                    techniques,
+                    profile,
+                    show_details_brief=show_details_brief,
+                    skip_prereqs=skip_prereqs,
+                ),
+                "remote_ssh",
+            )
         if profile_type == "winrm":
-            return self._build_winrm_command(techniques, profile), "remote_winrm"
-        return self._build_local_profile_command(techniques, profile), "direct"
+            return (
+                self._build_winrm_command(
+                    techniques,
+                    profile,
+                    show_details_brief=show_details_brief,
+                    skip_prereqs=skip_prereqs,
+                ),
+                "remote_winrm",
+            )
+        return (
+            self._build_local_profile_command(
+                techniques,
+                profile,
+                show_details_brief=show_details_brief,
+                skip_prereqs=skip_prereqs,
+            ),
+            "direct",
+        )
 
     def _execute_winrm_profile(self, techniques: List[str], profile: Dict[str, Any]) -> Tuple[int, str, str]:
         if winrm is None:
@@ -976,15 +1098,19 @@ class AtomicValidationManager:
                 job.get("techniques", []),
                 run_id,
                 selected_profile,
+                show_details_brief=bool(job.get("show_details_brief", False)),
+                skip_prereqs=bool(job.get("skip_prereqs", False)),
             )
             command = effective_command
         except ValueError as exc:
+            message = str(exc)
+            status = "skipped" if message.lower().startswith("atomic validation skipped:") else "failed"
             payload = {
                 "run_id": run_id,
                 "job_id": job_id,
                 "job_name": job["name"],
-                "status": "skipped",
-                "message": f"Atomic validation skipped: {exc}",
+                "status": status,
+                "message": message if message.lower().startswith("atomic validation") else f"Atomic validation failed: {message}",
                 "techniques": runnable_techniques,
                 "techniques_executed": [],
                 "started_at": started_at,

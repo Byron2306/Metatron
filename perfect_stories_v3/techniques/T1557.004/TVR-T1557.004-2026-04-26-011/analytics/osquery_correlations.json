@@ -1,0 +1,26 @@
+[
+  {
+    "query_id": "OSQ-T1557_004_SHADOW_READ",
+    "name": "t1557_004_shadow_read",
+    "query_text": "SELECT target_path, action, uid, time FROM file_events WHERE (target_path LIKE '%shadow%' OR target_path LIKE '%passwd%' OR target_path LIKE '%.ssh/%' OR target_path LIKE '%credential%') LIMIT 100;",
+    "matched": false,
+    "result_count": 0,
+    "supporting_event_ids": []
+  },
+  {
+    "query_id": "OSQ-T1557_004_PROC_CRED",
+    "name": "t1557_004_proc_cred",
+    "query_text": "SELECT pid, name, path, cmdline FROM processes WHERE cmdline LIKE '%shadow%' OR cmdline LIKE '%passwd%' OR cmdline LIKE '%mimikatz%' OR cmdline LIKE '%credential%' OR cmdline LIKE '%hashdump%' LIMIT 100;",
+    "matched": false,
+    "result_count": 0,
+    "supporting_event_ids": []
+  },
+  {
+    "query_id": "OSQ-T1557_004_FILE_ACCESS",
+    "name": "t1557_004_file_access",
+    "query_text": "SELECT target_path, action, uid, time FROM file_events WHERE action IN ('OPEN', 'READ') AND target_path NOT LIKE '/proc/%' ORDER BY time DESC LIMIT 100;",
+    "matched": false,
+    "result_count": 0,
+    "supporting_event_ids": []
+  }
+]

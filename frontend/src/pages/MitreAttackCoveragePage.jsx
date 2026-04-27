@@ -245,6 +245,11 @@ const MitreAttackCoveragePage = () => {
                       SOAR linked: {item.evidence.soar_playbook_count} playbooks, {item.evidence.soar_execution_count || 0} executions
                     </p>
                   )}
+                  {Number(item?.evidence?.arda_exec_denied_events || 0) > 0 && (
+                    <p className="text-rose-300 text-xs mt-1">
+                      ARDA prevented executions: {item.evidence.arda_exec_denied_events} (events: {item.evidence.arda_prevention_events || 0})
+                    </p>
+                  )}
                   {Number(item?.tvr_score || 0) >= 5 && !item?.soar_linked && (
                     <div className="flex items-center justify-between gap-2 mt-2">
                       <p className="text-amber-300 text-xs">S5 pending: missing SOAR response evidence</p>

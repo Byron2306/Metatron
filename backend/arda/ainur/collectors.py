@@ -93,9 +93,28 @@ class ManweCollector:
     async def collect(self, evidence: Optional[Dict[str, Any]] = None, sweep_id: Optional[str] = None) -> EvidencePacket:
         if evidence:
              # Prioritize provided evidence (for testing stale breath etc)
+             secret_fire = evidence.get("secret_fire")
+             secret_fire_dict = None
+             try:
+                 if secret_fire and hasattr(secret_fire, "model_dump"):
+                     secret_fire_dict = secret_fire.model_dump(mode="json")
+                 elif isinstance(secret_fire, dict):
+                     secret_fire_dict = dict(secret_fire)
+             except Exception:
+                 secret_fire_dict = None
+
+             enriched = dict(evidence.get("manwe_evidence", evidence))
+             if secret_fire_dict:
+                 # These two anchors are used downstream to coronate the subject into
+                 # the Arda Fabric and (optionally) synchronize into ring-0 allowlists.
+                 if secret_fire_dict.get("workload_hash"):
+                     enriched["workload_hash"] = secret_fire_dict.get("workload_hash")
+                 if secret_fire_dict.get("executable_path"):
+                     enriched["executable_path"] = secret_fire_dict.get("executable_path")
+
              return EvidencePacket(
                 source="ManweCollector",
-                evidence=evidence.get("manwe_evidence", evidence),
+                evidence=enriched,
                 freshness=evidence.get("freshness") or Freshness(observed_at=time.time(), window_ms=2000, nonce=str(uuid.uuid4())),
                 confidence=1.0,
                 sweep_id=sweep_id

@@ -66,7 +66,9 @@ jobs:
       # ── Clone ART atomics catalog ─────────────────────────────────────────
       - name: Clone atomic-red-team atomics
         run: |
-          git clone --depth=1 --filter=blob:none --sparse \
+          # Sparse checkout WITHOUT --filter=blob:none — lazy blob loading causes
+          # Invoke-AtomicRedTeam to report "does not exist" for all technique YAMLs.
+          git clone --depth=1 --sparse \
             https://github.com/redcanaryco/atomic-red-team.git /opt/atomic-red-team-src
           cd /opt/atomic-red-team-src
           git sparse-checkout set atomics

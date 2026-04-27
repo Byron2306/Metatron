@@ -14140,6 +14140,17 @@ class UnifiedAgent:
             return False
         
         try:
+            exe_path = None
+            exe_hash = None
+            try:
+                exe_path = sys.executable
+                if exe_path and os.path.exists(exe_path):
+                    with open(exe_path, "rb") as f:
+                        exe_hash = hashlib.sha256(f.read()).hexdigest()
+            except Exception:
+                exe_path = None
+                exe_hash = None
+
             # Build auth headers
             headers = {}
             if self.config.enrollment_key:
@@ -14153,6 +14164,11 @@ class UnifiedAgent:
                 headers=headers,
                 json={
                     'agent_id': self.config.agent_id,
+                    # node_id is the canonical identity used by the Arda Fabric registry
+                    # and constitutional→kernel friend/foe bridging.
+                    'node_id': self.config.agent_id,
+                    'executable_path': exe_path,
+                    'workload_hash': exe_hash,
                     'platform': PLATFORM,
                     'hostname': HOSTNAME,
                     'ip_address': self._get_primary_ip(),
@@ -14505,6 +14521,17 @@ class UnifiedAgent:
             return False
         
         try:
+            exe_path = None
+            exe_hash = None
+            try:
+                exe_path = sys.executable
+                if exe_path and os.path.exists(exe_path):
+                    with open(exe_path, "rb") as f:
+                        exe_hash = hashlib.sha256(f.read()).hexdigest()
+            except Exception:
+                exe_path = None
+                exe_hash = None
+
             pending_hit_items = list(self._pending_edm_hits.items())
             max_hits_per_heartbeat = 200
             outbound_hits = [item[1] for item in pending_hit_items[:max_hits_per_heartbeat]]
@@ -14514,6 +14541,9 @@ class UnifiedAgent:
                 headers=self._get_auth_headers(),
                 json={
                     "agent_id": self.config.agent_id,
+                    "node_id": self.config.agent_id,
+                    "executable_path": exe_path,
+                    "workload_hash": exe_hash,
                     "status": "online",
                     "cpu_usage": self.telemetry.cpu_usage,
                     "memory_usage": self.telemetry.memory_usage,

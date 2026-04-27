@@ -8,6 +8,13 @@ LABEL maintainer="Seraph AI Team"
 LABEL description="Seraph AI Defense System Backend"
 LABEL version="5.0.0"
 
+# Add osquery apt repository
+RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg ca-certificates \
+    && curl -fsSL https://pkg.osquery.io/deb/pubkey.gpg | gpg --dearmor -o /usr/share/keyrings/osquery-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/osquery-archive-keyring.gpg] https://pkg.osquery.io/deb deb main" \
+       > /etc/apt/sources.list.d/osquery.list \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -29,12 +36,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Detection/forensics tooling
     suricata \
     yara \
+    osquery \
     jq \
     # Network tools
     nmap \
     tcpdump \
     # Process tools
     procps \
+    # Remote runners (macOS/Linux over SSH)
+    openssh-client \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

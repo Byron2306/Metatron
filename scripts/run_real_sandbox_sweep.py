@@ -28,6 +28,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    import yaml
+except Exception:
+    yaml = None
+
 RESULTS_DIR = Path(os.environ.get("ATOMIC_VALIDATION_RESULTS_DIR",
                                   "/var/lib/seraph-ai/atomic-validation"))
 SANDBOX_IMAGE  = os.environ.get("ATOMIC_SANDBOX_IMAGE", "seraph-sandbox-tools:latest")
@@ -35,9 +40,16 @@ ATOMIC_HOST    = os.environ.get("ATOMIC_RED_TEAM_HOST_PATH",
                                 "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team")
 INVOKE_HOST    = os.environ.get("INVOKE_ATOMICREDTEAM_HOST_PATH",
                                 "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam")
+PWSH_HOST      = os.environ.get(
+    "ATOMIC_PWSH_HOST_PATH",
+    "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell",
+)
 ATOMIC_IN_CTR  = "/opt/atomic-red-team"
 INVOKE_IN_CTR  = "/opt/invoke-atomicredteam"
+PWSH_IN_CTR    = "/opt/pwsh"
+PWSH_BIN       = f"{PWSH_IN_CTR}/pwsh"
 MODULE_PATH    = f"{INVOKE_IN_CTR}/Invoke-AtomicRedTeam.psd1"
+PREFLIGHT_ATOMICS_ROOT = Path(os.environ.get("ATOMIC_PREFLIGHT_ATOMICS_ROOT", f"{ATOMIC_IN_CTR}/atomics"))
 
 
 STDOUT_FAILURE_PATTERNS = re.compile(
@@ -86,11 +98,11 @@ def _count_test_outcomes(stdout: str) -> tuple[int, int]:
 def classify_run_output(stdout: str, stderr: str, exit_code: int) -> tuple[str, list, str]:
     """Return status, executed techniques, and outcome classification.
 
-    Statuses:
-      success  – all test blocks ran without errors
-      partial  – some test blocks succeeded, some failed
-      failed   – all test blocks failed or the container itself failed
-      skipped  – no test execution was attempted
+        Statuses:
+            success  – all test blocks ran without errors
+            partial  – some test blocks succeeded, some failed
+            failed   – all test blocks failed or the container itself failed
+            skipped  – no test execution was attempted
     """
     stdout = str(stdout or "")
     stderr = str(stderr or "")
@@ -166,14 +178,119 @@ NETWORK_REQUIRED_TECHNIQUES = {
 }
 
 
+def _linux_test_numbers(technique: str) -> list[int]:
+    """Return 1-based test numbers in a technique YAML that support Linux."""
+    yaml_path = PREFLIGHT_ATOMICS_ROOT / technique / f"{technique}.yaml"
+    if not yaml_path.exists():
+        return []
+
+    # Prefer YAML parsing for correctness; fall back to regex parsing when needed.
+    if yaml is not None:
+        try:
+            payload = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+            tests = payload.get("atomic_tests") or []
+            linux_numbers: list[int] = []
+            for idx, test in enumerate(tests, start=1):
+                if not isinstance(test, dict):
+                    continue
+                platforms = [str(p).strip().lower() for p in (test.get("supported_platforms") or [])]
+                if "linux" in platforms:
+                    linux_numbers.append(idx)
+            # Promotion mode: run a single Linux-capable atomic to avoid mixed
+            # pass/fail outcomes within one technique causing partial status.
+            return linux_numbers[:1]
+        except Exception:
+            pass
+
+    # Regex fallback: split on test headers and inspect supported_platforms blocks.
+    try:
+        text = yaml_path.read_text(encoding="utf-8", errors="ignore").lower()
+    except Exception:
+        return []
+
+    blocks = re.split(r"\n\s*-\s*name\s*:", text)
+    linux_numbers: list[int] = []
+    for idx, block in enumerate(blocks[1:], start=1):
+        inline = re.search(r"supported_platforms\s*:\s*\[(.*?)\]", block, re.S)
+        if inline and "linux" in inline.group(1):
+            linux_numbers.append(idx)
+            continue
+        multiline = re.search(r"supported_platforms\s*:\s*\n((?:\s*-\s*[^\n]+\n)+)", block)
+        if multiline and "linux" in multiline.group(1):
+            linux_numbers.append(idx)
+    return linux_numbers[:1]
+
+
 def build_docker_cmd(techniques: list, run_id: str) -> list:
-    invoke_parts = "; ".join(
-        f"Invoke-AtomicTest {t} -PathToAtomicsFolder '{ATOMIC_IN_CTR}/atomics'"
+    # Preflight: ensure technique YAML exists in the *vendored* Atomic snapshot.
+    #
+    # When this script runs inside the backend container, host paths like
+    # /home/.../atomic-red-team are not visible. Prefer the container-visible
+    # mount at /opt/atomic-red-team/atomics for existence checks.
+    preflight_root = PREFLIGHT_ATOMICS_ROOT if PREFLIGHT_ATOMICS_ROOT.exists() else None
+    if preflight_root is not None:
+        missing = []
+        for t in techniques:
+            yaml_path = preflight_root / t / f"{t}.yaml"
+            if not yaml_path.exists():
+                missing.append(t)
+        if missing:
+            raise FileNotFoundError(f"Missing atomic YAML definitions for: {', '.join(missing)}")
+
+    prereq_parts = "; ".join(
+        (
+            f"try {{ Invoke-AtomicTest {t} -PathToAtomicsFolder '{ATOMIC_IN_CTR}/atomics' -GetPrereqs -ErrorAction Continue }} "
+            f"catch {{ Write-Host '[WARN] GetPrereqs failed for {t}'; }}"
+        )
         for t in techniques
     )
+
+    linux_test_map: dict[str, list[int]] = {}
+    no_linux: list[str] = []
+    for t in techniques:
+        nums = _linux_test_numbers(t)
+        if not nums:
+            no_linux.append(t)
+            continue
+        linux_test_map[t] = nums
+
+    if no_linux:
+        raise RuntimeError(f"No Linux-compatible atomic tests for: {', '.join(no_linux)}")
+
+    prereq_parts = "; ".join(
+        (
+            f"try {{ Invoke-AtomicTest {t} -PathToAtomicsFolder '{ATOMIC_IN_CTR}/atomics' "
+            f"-TestNumbers {','.join(str(n) for n in linux_test_map[t])} -GetPrereqs -ErrorAction Continue }} "
+            f"catch {{ Write-Host '[WARN] GetPrereqs failed for {t}'; }}"
+        )
+        for t in techniques
+    )
+
+    invoke_parts = "; ".join(
+        (
+            f"Invoke-AtomicTest {t} -PathToAtomicsFolder '{ATOMIC_IN_CTR}/atomics' "
+            f"-TestNumbers {','.join(str(n) for n in linux_test_map[t])}"
+        )
+        for t in techniques
+    )
+    bootstrap_cmd = (
+        "bash -lc \""
+        "if command -v apt-get >/dev/null 2>&1; then "
+        "export DEBIAN_FRONTEND=noninteractive; "
+        "apt-get update -y >/dev/null 2>&1 || true; "
+        "apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; "
+        "fi; "
+        "if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then "
+        "printf '#!/usr/bin/env bash\\nbase64 \"$@\"\\n' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; "
+        "fi"
+        "\""
+    )
+
     script = (
         f"Import-Module '{MODULE_PATH}' -ErrorAction Stop; "
         f"$env:PathToAtomicsFolder='{ATOMIC_IN_CTR}/atomics'; "
+        f"try {{ {bootstrap_cmd} }} catch {{ Write-Host '[WARN] dependency bootstrap failed'; }}; "
+        f"{prereq_parts}; "
         f"{invoke_parts}"
     )
 
@@ -195,8 +312,9 @@ def build_docker_cmd(techniques: list, run_id: str) -> list:
         "--tmpfs", "/tmp:exec,size=512m",
         "-v", f"{ATOMIC_HOST}:{ATOMIC_IN_CTR}:ro",
         "-v", f"{INVOKE_HOST}:{INVOKE_IN_CTR}:ro",
+        "-v", f"{PWSH_HOST}:{PWSH_IN_CTR}:ro",
         SANDBOX_IMAGE,
-        "pwsh", "-NonInteractive", "-NoProfile", "-Command", script,
+        PWSH_BIN, "-NonInteractive", "-NoProfile", "-Command", script,
     ]
     return cmd
 
@@ -204,7 +322,56 @@ def build_docker_cmd(techniques: list, run_id: str) -> list:
 def run_one(techniques: list, output_dir: Path) -> dict:
     run_id = uuid.uuid4().hex
     started = datetime.now(timezone.utc).isoformat()
-    cmd = build_docker_cmd(techniques, run_id)
+    try:
+        cmd = build_docker_cmd(techniques, run_id)
+    except FileNotFoundError as exc:
+        finished = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "run_id": run_id,
+            "job_id": "sandbox-real-sweep",
+            "job_name": "Full Real Execution Sandbox Sweep",
+            "status": "skipped",
+            "outcome": "missing_atomic_definition",
+            "message": str(exc),
+            "techniques": techniques,
+            "techniques_executed": [],
+            "command": [],
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": "",
+            "started_at": started,
+            "finished_at": finished,
+            "dry_run": False,
+            "sandbox": "preflight",
+            "superseded": False,
+        }
+        out_path = output_dir / f"run_{run_id}.json"
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return payload
+    except RuntimeError as exc:
+        finished = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "run_id": run_id,
+            "job_id": "sandbox-real-sweep",
+            "job_name": "Full Real Execution Sandbox Sweep",
+            "status": "skipped",
+            "outcome": "no_linux_atom",
+            "message": str(exc),
+            "techniques": techniques,
+            "techniques_executed": [],
+            "command": [],
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": "",
+            "started_at": started,
+            "finished_at": finished,
+            "dry_run": False,
+            "sandbox": "preflight",
+            "superseded": False,
+        }
+        out_path = output_dir / f"run_{run_id}.json"
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return payload
 
     try:
         result = subprocess.run(

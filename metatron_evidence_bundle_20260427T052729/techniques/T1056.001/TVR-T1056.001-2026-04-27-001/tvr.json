@@ -1,0 +1,3163 @@
+{
+  "record_type": "technique_validation_record",
+  "schema_version": "1.0.0",
+  "validation_id": "TVR-T1056.001-2026-04-27-001",
+  "technique": {
+    "attack_id": "T1056.001",
+    "name": "T1056.001",
+    "tactics": [
+      "collection",
+      "credential-access"
+    ],
+    "platforms": [
+      "Linux"
+    ]
+  },
+  "procedure": {
+    "source": "atomic_red_team",
+    "procedure_id": "ART-T1056.001-1",
+    "name": "Atomic Red Team validation for T1056.001",
+    "description": "Automated emulation procedure for T1056.001 executed via Invoke-AtomicRedTeam inside the Metatron lab environment.",
+    "test_ref": "atomics/T1056.001/T1056.001.yaml#test-1"
+  },
+  "environment": {
+    "lab_id": "metatron-lab-a",
+    "hostname": "debian-node-01",
+    "asset_id": "asset-001",
+    "os": {
+      "family": "linux",
+      "name": "Debian",
+      "version": "12"
+    },
+    "kernel_version": "6.12.74+deb12-amd64",
+    "sensor_stack": [
+      {
+        "name": "sigma-engine",
+        "version": "2026.04.27",
+        "rules_loaded": 505
+      },
+      {
+        "name": "osquery",
+        "version": "5.15.0"
+      },
+      {
+        "name": "atomic_red_team",
+        "version": "2025.01"
+      }
+    ]
+  },
+  "execution": {
+    "started_at": "2026-04-27T06:55:01.827321+00:00",
+    "ended_at": "2026-04-27T06:55:01.827321+00:00",
+    "executor": "atomic_red_team",
+    "operator": "Byron Bunt",
+    "status": "completed",
+    "exit_code": 0,
+    "real_execution": true,
+    "execution_mode": "docker_sandbox",
+    "execution_trust_level": "docker_sandbox_verified",
+    "sandbox_verified": true,
+    "evidence_inheritance": "direct",
+    "expected_outcome": "detect",
+    "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-7f8339446cad', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--cap-add', 'NET_RAW', '--security-opt', 'no-new-privileges:false', '--tmpfs', '/tmp:exec,size=512m', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro', 'seraph-sandbox-tools:latest', '/opt/pwsh/pwsh', '-NonInteractive', '-NoProfile', '-Command', 'Import-Module \\'/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1\\' -ErrorAction Stop; $env:PathToAtomicsFolder=\\'/opt/atomic-red-team/atomics\\'; try { bash -lc \"if command -v apt-get >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null 2>&1 || true; apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; fi; if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then printf \\'#!/usr/bin/env bash\\\\nbase64 \"$@\"\\\\n\\' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; fi\" } catch { Write-Host \\'[WARN] dependency bootstrap failed\\'; }; try { Invoke-AtomicTest T1056.001 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 2 -GetPrereqs -ErrorAction Continue } catch { Write-Host \\'[WARN] GetPrereqs failed for T1056.001\\'; }; Invoke-AtomicTest T1056.001 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 2']",
+    "run_count": 1,
+    "direct_run_count": 1,
+    "run_ids": [
+      "7f8339446cad4c18973a93cf1ce30c0e"
+    ],
+    "job_ids": [
+      "sandbox-real-sweep"
+    ],
+    "runs": [
+      {
+        "run_id": "7f8339446cad4c18973a93cf1ce30c0e",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-27T06:55:01.827321+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-7f8339446cad",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--cap-add",
+          "NET_RAW",
+          "--security-opt",
+          "no-new-privileges:false",
+          "--tmpfs",
+          "/tmp:exec,size=512m",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro",
+          "seraph-sandbox-tools:latest",
+          "/opt/pwsh/pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; try { bash -lc \"if command -v apt-get >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null 2>&1 || true; apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; fi; if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then printf '#!/usr/bin/env bash\\nbase64 \"$@\"\\n' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; fi\" } catch { Write-Host '[WARN] dependency bootstrap failed'; }; try { Invoke-AtomicTest T1056.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TestNumbers 2 -GetPrereqs -ErrorAction Continue } catch { Write-Host '[WARN] GetPrereqs failed for T1056.001'; }; Invoke-AtomicTest T1056.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TestNumbers 2"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nGetPrereq's for: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nAttempting to satisfy prereq: Checking if pam_tty_audit.so is installed\nSorry, you must install module pam_tty_audit.so and recompile, for this test to work\nFailed to meet prereq: Checking if pam_tty_audit.so is installed\nPathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\n",
+        "stdout_sha256": "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+        "stderr_sha256": "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics"
+          ]
+        }
+      }
+    ]
+  },
+  "telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "ddb0f0d53aa4f911fb4545f5a8e6749899b2d1c10ae820d6a45f9d9448538583"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c"
+      }
+    ],
+    "key_events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1777272902-atomic_t1056_001_b1",
+        "timestamp": "2026-04-27T06:55:01.827321+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "7f8339446cad4c18973a93cf1ce30c0e",
+          "CommandLine": "sudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927913-atomic_t1056_001_b1",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "sudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927914-atomic_t1056_001_b2",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-3 Logging bash history to syslog",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog",
+          "Image": "/var/log/syslog",
+          "TargetFilename": "/var/log/syslog",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/var/log/syslog\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-3 Logging bash history to syslog\n\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927915-atomic_t1056_001_b3",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-4 Logging sh history to syslog/messages",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "logger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages",
+          "Image": "/root/.sh_history:",
+          "TargetFilename": "/root/.sh_history:",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/root/.sh_history:\", \"/var/log/messages\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-4 Logging sh history to syslog/messages\nlogger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927916-atomic_t1056_001_b4",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-5 Bash session based keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "Hello World!\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-5 Bash session based keylogger\nHello World!\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927917-atomic_t1056_001_b5",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-6 SSHD PAM keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "root\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be",
+          "Image": "/etc/pam.d/sshd",
+          "TargetFilename": "/etc/pam.d/sshd",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/etc/pam.d/sshd\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[1, 1]",
+          "stdout_block": "Executing test: T1056.001-6 SSHD PAM keylogger\nroot\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be allocated because stdin is not a terminal.\nssh: connect to host "
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927918-atomic_t1056_001_b6",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-7 Auditd keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "root\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-7 Auditd keylogger\nroot\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927913-atomic_t1056_001_b1",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "sudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927914-atomic_t1056_001_b2",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-3 Logging bash history to syslog",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog",
+          "Image": "/var/log/syslog",
+          "TargetFilename": "/var/log/syslog",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/var/log/syslog\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-3 Logging bash history to syslog\n\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927915-atomic_t1056_001_b3",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-4 Logging sh history to syslog/messages",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "logger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages",
+          "Image": "/root/.sh_history:",
+          "TargetFilename": "/root/.sh_history:",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/root/.sh_history:\", \"/var/log/messages\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-4 Logging sh history to syslog/messages\nlogger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927916-atomic_t1056_001_b4",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-5 Bash session based keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "Hello World!\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-5 Bash session based keylogger\nHello World!\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927917-atomic_t1056_001_b5",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-6 SSHD PAM keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "root\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be",
+          "Image": "/etc/pam.d/sshd",
+          "TargetFilename": "/etc/pam.d/sshd",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/etc/pam.d/sshd\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[1, 1]",
+          "stdout_block": "Executing test: T1056.001-6 SSHD PAM keylogger\nroot\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be allocated because stdin is not a terminal.\nssh: connect to host "
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927918-atomic_t1056_001_b6",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-7 Auditd keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "root\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-7 Auditd keylogger\nroot\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518428-atomic_t1056_001_b1",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "sudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518429-atomic_t1056_001_b2",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-3 Logging bash history to syslog",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog",
+          "Image": "/var/log/syslog",
+          "TargetFilename": "/var/log/syslog",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/var/log/syslog\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-3 Logging bash history to syslog\n\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518430-atomic_t1056_001_b3",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-4 Logging sh history to syslog/messages",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "logger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages",
+          "Image": "/root/.sh_history:",
+          "TargetFilename": "/root/.sh_history:",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/root/.sh_history:\", \"/var/log/messages\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-4 Logging sh history to syslog/messages\nlogger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518431-atomic_t1056_001_b4",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-5 Bash session based keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "Hello World!\n18/04/26 13:20:26.1776518426  echo \"Hello World!\"\n18/04/26 13:20:26.1776518426  cat /tmp/.keyboard.log\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger",
+          "Image": "/04/26",
+          "TargetFilename": "/04/26",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/04/26\", \"/tmp/.keyboard.log\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-5 Bash session based keylogger\nHello World!\n18/04/26 13:20:26.1776518426  echo \"Hello World!\"\n18/04/26 13:20:26.1776518426  cat /tmp/.keyboard.log\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518432-atomic_t1056_001_b5",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-6 SSHD PAM keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "root\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be",
+          "Image": "/etc/pam.d/sshd",
+          "TargetFilename": "/etc/pam.d/sshd",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/etc/pam.d/sshd\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[1, 1]",
+          "stdout_block": "Executing test: T1056.001-6 SSHD PAM keylogger\nroot\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be allocated because stdin is not a terminal.\nssh: connect to host "
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518433-atomic_t1056_001_b6",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-7 Auditd keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "root\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-7 Auditd keylogger\nroot\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518428-atomic_t1056_001_b1",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "sudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "execution_evidence": {
+    "observed": true,
+    "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-7f8339446cad', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--cap-add', 'NET_RAW', '--security-opt', 'no-new-privileges:false', '--tmpfs', '/tmp:exec,size=512m', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro', 'seraph-sandbox-tools:latest', '/opt/pwsh/pwsh', '-NonInteractive', '-NoProfile', '-Command', 'Import-Module \\'/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1\\' -ErrorAction Stop; $env:PathToAtomicsFolder=\\'/opt/atomic-red-team/atomics\\'; try { bash -lc \"if command -v apt-get >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null 2>&1 || true; apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; fi; if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then printf \\'#!/usr/bin/env bash\\\\nbase64 \"$@\"\\\\n\\' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; fi\" } catch { Write-Host \\'[WARN] dependency bootstrap failed\\'; }; try { Invoke-AtomicTest T1056.001 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 2 -GetPrereqs -ErrorAction Continue } catch { Write-Host \\'[WARN] GetPrereqs failed for T1056.001\\'; }; Invoke-AtomicTest T1056.001 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 2']",
+    "exit_code": 0,
+    "run_ids": [
+      "7f8339446cad4c18973a93cf1ce30c0e"
+    ],
+    "process_ids": [
+      4242
+    ],
+    "timestamps": [
+      "2026-04-27T06:55:01.827321+00:00",
+      "2026-04-23T07:05:12.687625+00:00",
+      "2026-04-18T13:20:27.214681+00:00",
+      "2026-04-18T09:09:17.316601+00:00",
+      "2026-04-18T09:09:17.317455+00:00",
+      "2026-04-19T02:32:04.061787+00:00",
+      "2026-04-18T09:09:17.316857+00:00",
+      "2026-04-18T09:09:17.317506+00:00"
+    ]
+  },
+  "host_telemetry_evidence": {
+    "observed": true,
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "ddb0f0d53aa4f911fb4545f5a8e6749899b2d1c10ae820d6a45f9d9448538583"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c"
+      }
+    ],
+    "events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1777272902-atomic_t1056_001_b1",
+        "timestamp": "2026-04-27T06:55:01.827321+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "7f8339446cad4c18973a93cf1ce30c0e",
+          "CommandLine": "sudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a5f539bb5d91: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927913-atomic_t1056_001_b1",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "sudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927914-atomic_t1056_001_b2",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-3 Logging bash history to syslog",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog",
+          "Image": "/var/log/syslog",
+          "TargetFilename": "/var/log/syslog",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/var/log/syslog\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-3 Logging bash history to syslog\n\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927915-atomic_t1056_001_b3",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-4 Logging sh history to syslog/messages",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "logger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages",
+          "Image": "/root/.sh_history:",
+          "TargetFilename": "/root/.sh_history:",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/root/.sh_history:\", \"/var/log/messages\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-4 Logging sh history to syslog/messages\nlogger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927916-atomic_t1056_001_b4",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-5 Bash session based keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "Hello World!\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-5 Bash session based keylogger\nHello World!\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927917-atomic_t1056_001_b5",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-6 SSHD PAM keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "root\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be",
+          "Image": "/etc/pam.d/sshd",
+          "TargetFilename": "/etc/pam.d/sshd",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/etc/pam.d/sshd\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[1, 1]",
+          "stdout_block": "Executing test: T1056.001-6 SSHD PAM keylogger\nroot\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be allocated because stdin is not a terminal.\nssh: connect to host "
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927918-atomic_t1056_001_b6",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-7 Auditd keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "root\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-7 Auditd keylogger\nroot\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927913-atomic_t1056_001_b1",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "sudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host 711343b959dc: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927914-atomic_t1056_001_b2",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-3 Logging bash history to syslog",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog",
+          "Image": "/var/log/syslog",
+          "TargetFilename": "/var/log/syslog",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/var/log/syslog\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-3 Logging bash history to syslog\n\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927915-atomic_t1056_001_b3",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-4 Logging sh history to syslog/messages",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "logger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages",
+          "Image": "/root/.sh_history:",
+          "TargetFilename": "/root/.sh_history:",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/root/.sh_history:\", \"/var/log/messages\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-4 Logging sh history to syslog/messages\nlogger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927916-atomic_t1056_001_b4",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-5 Bash session based keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "Hello World!\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-5 Bash session based keylogger\nHello World!\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927917-atomic_t1056_001_b5",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-6 SSHD PAM keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "root\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be",
+          "Image": "/etc/pam.d/sshd",
+          "TargetFilename": "/etc/pam.d/sshd",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/etc/pam.d/sshd\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[1, 1]",
+          "stdout_block": "Executing test: T1056.001-6 SSHD PAM keylogger\nroot\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be allocated because stdin is not a terminal.\nssh: connect to host "
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927918-atomic_t1056_001_b6",
+        "timestamp": "2026-04-23T07:05:12.687625+00:00",
+        "query_name": "atomic_t1056_001_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-7 Auditd keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "ba33df21e0eb48fb8d90672b3072b54c",
+          "CommandLine": "root\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-7 Auditd keylogger\nroot\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518428-atomic_t1056_001_b1",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "sudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518429-atomic_t1056_001_b2",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-3 Logging bash history to syslog",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog",
+          "Image": "/var/log/syslog",
+          "TargetFilename": "/var/log/syslog",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/var/log/syslog\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-3 Logging bash history to syslog\n\\history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")=history -a >(tee -a ~/.bash_history |logger -t \"$USER[$$] $SSH_CONNECTION \")\ntail: cannot open '/var/log/syslog' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-3 Logging bash history to syslog\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518430-atomic_t1056_001_b3",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-4 Logging sh history to syslog/messages",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "logger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages",
+          "Image": "/root/.sh_history:",
+          "TargetFilename": "/root/.sh_history:",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/root/.sh_history:\", \"/var/log/messages\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-4 Logging sh history to syslog/messages\nlogger: file /root/.sh_history: No such file or directory\ntail: cannot open '/var/log/messages' for reading: No such file or directory\nExit code: 1\nDone executing test: T1056.001-4 Logging sh history to syslog/messages\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518431-atomic_t1056_001_b4",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-5 Bash session based keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "Hello World!\n18/04/26 13:20:26.1776518426  echo \"Hello World!\"\n18/04/26 13:20:26.1776518426  cat /tmp/.keyboard.log\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger",
+          "Image": "/04/26",
+          "TargetFilename": "/04/26",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/04/26\", \"/tmp/.keyboard.log\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-5 Bash session based keylogger\nHello World!\n18/04/26 13:20:26.1776518426  echo \"Hello World!\"\n18/04/26 13:20:26.1776518426  cat /tmp/.keyboard.log\nExit code: 0\nDone executing test: T1056.001-5 Bash session based keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518432-atomic_t1056_001_b5",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-6 SSHD PAM keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "root\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be",
+          "Image": "/etc/pam.d/sshd",
+          "TargetFilename": "/etc/pam.d/sshd",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/etc/pam.d/sshd\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[1, 1]",
+          "stdout_block": "Executing test: T1056.001-6 SSHD PAM keylogger\nroot\nroot\ncp: cannot stat '/etc/pam.d/sshd': No such file or directory\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nSystem has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to system scope bus via local transport: Host is down\nPseudo-terminal will not be allocated because stdin is not a terminal.\nssh: connect to host "
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518433-atomic_t1056_001_b6",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-7 Auditd keylogger",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "root\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-7 Auditd keylogger\nroot\nsh: 1: auditctl: not found\nsh: 1: auditctl: not found\nsh: 1: ausearch: not found\nExit code: 127\nDone executing test: T1056.001-7 Auditd keylogger\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518428-atomic_t1056_001_b1",
+        "timestamp": "2026-04-18T13:20:27.214681+00:00",
+        "query_name": "atomic_t1056_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d",
+          "technique_id": "T1056.001",
+          "run_id": "fbdd0f3e3c9b4d4eadbf835f989c9374",
+          "CommandLine": "sudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Oper",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1056.001-2 Living off the land Terminal Input Capture on Linux with pam.d\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: unable to resolve host a047fc5f8137: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\ns"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "network_telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "zeek_conn",
+        "file": "conn.log",
+        "match_methods": [
+          "time_window"
+        ]
+      }
+    ],
+    "key_events": [
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.173587",
+        "src_ip": "192.168.101.183",
+        "src_port": "34820",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C6kAey1Xwhov3qtrq7"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.166485",
+        "src_ip": "192.168.101.183",
+        "src_port": "44587",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C4EWG11CY3dcG4SO2k"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.175578",
+        "src_ip": "192.168.101.183",
+        "src_port": "44736",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CYnQA64Ym1fVz61psf"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.171940",
+        "src_ip": "192.168.101.183",
+        "src_port": "33002",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C1lRqy4bvul27cdp89"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.172079",
+        "src_ip": "192.168.101.183",
+        "src_port": "44857",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CG1EP33lnYCNdl0qEc"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.187661",
+        "src_ip": "192.168.101.183",
+        "src_port": "56803",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CXt6WU1G6duvc1nZo6"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.187631",
+        "src_ip": "192.168.101.183",
+        "src_port": "49206",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C0hFj01W1mlSxg7JZe"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.300124",
+        "src_ip": "192.168.101.183",
+        "src_port": "44681",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CpLl6B2klInBLm3Zdl"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.296382",
+        "src_ip": "192.168.101.183",
+        "src_port": "50982",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "Ccnydf3OTNEhfeL3Bh"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.197436",
+        "src_ip": "192.168.101.183",
+        "src_port": "42895",
+        "dest_ip": "142.251.47.99",
+        "dest_port": "443",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "Cmx5ls1cKjrGpGCCW4"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.774093",
+        "src_ip": "192.168.101.183",
+        "src_port": "53317",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CfSWOS1Ove40RnOqXa"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.774221",
+        "src_ip": "192.168.101.183",
+        "src_port": "47109",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C06q4e4Kn1owG9Rua6"
+      }
+    ],
+    "observed": true
+  },
+  "analytic_evidence": {
+    "sigma": [
+      {
+        "analytic_id": "SIG-49aae26c-450e-448b-911d-b3c13d178dfc",
+        "rule_id": "49aae26c-450e-448b-911d-b3c13d178dfc",
+        "source_id": "49aae26c-450e-448b-911d-b3c13d178dfc",
+        "title": "Linux Keylogging with Pam.d",
+        "rule_file": "lnx_auditd_keylogging_with_pam_d.yml",
+        "rule_sha256": "6d8c21170ae1127d0332decff157db704c6664c96eee4cb956dc3a6d33696eb8",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-34f90d3c-c297-49e9-b26d-911b05a4866c",
+        "rule_id": "34f90d3c-c297-49e9-b26d-911b05a4866c",
+        "source_id": "34f90d3c-c297-49e9-b26d-911b05a4866c",
+        "title": "Powershell Keylogging",
+        "rule_file": "posh_ps_keylogging.yml",
+        "rule_sha256": "dd24faf45e48ac8cb54037c3d929a8456573f15c15bf8db61e7213a6507610b0",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-965e2db9-eddb-4cf6-a986-7a967df651e4",
+        "rule_id": "965e2db9-eddb-4cf6-a986-7a967df651e4",
+        "source_id": "965e2db9-eddb-4cf6-a986-7a967df651e4",
+        "title": "Potential Keylogger Activity",
+        "rule_file": "posh_ps_susp_keylogger_activity.yml",
+        "rule_sha256": "b98325e9bdbb16a988ad137f74d765765b0e110a36ffb374a4fa0d0bbbbdfb8f",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-eb6c2004-1cef-427f-8885-9042974e5eb6",
+        "rule_id": "eb6c2004-1cef-427f-8885-9042974e5eb6",
+        "source_id": "eb6c2004-1cef-427f-8885-9042974e5eb6",
+        "title": "Suspicious Network Communication With IPFS",
+        "rule_file": "proxy_susp_ipfs_cred_harvest.yml",
+        "rule_sha256": "bcccd19eaf3af48b350e91a3083002fc85243457215cf8bf8d6f463ac39dbae2",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-df68f791-ad95-447f-a271-640a0dab9cf8",
+        "rule_id": "df68f791-ad95-447f-a271-640a0dab9cf8",
+        "source_id": "df68f791-ad95-447f-a271-640a0dab9cf8",
+        "title": "DNS Query Request To OneLaunch Update Service",
+        "rule_file": "dns_query_win_onelaunch_update_service.yml",
+        "rule_sha256": "a760822ce1d7697b89b96ffa03b70ec913a6624cea8415594a2736a33920cffe",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      }
+    ],
+    "osquery": [
+      {
+        "query_id": "OSQ-T1056_001_FILE_ACCESS",
+        "name": "t1056_001_file_access",
+        "query_text": "SELECT target_path, action, uid, time FROM file_events WHERE action IN ('OPEN', 'READ') AND target_path NOT LIKE '/proc/%' ORDER BY time DESC LIMIT 100;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": []
+      },
+      {
+        "query_id": "OSQ-T1056_001_SHADOW_READ",
+        "name": "t1056_001_shadow_read",
+        "query_text": "SELECT target_path, action, uid, time FROM file_events WHERE (target_path LIKE '%shadow%' OR target_path LIKE '%passwd%' OR target_path LIKE '%.ssh/%' OR target_path LIKE '%credential%') LIMIT 100;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": []
+      },
+      {
+        "query_id": "OSQ-T1056_001_PROC_CRED",
+        "name": "t1056_001_proc_cred",
+        "query_text": "SELECT pid, name, path, cmdline FROM processes WHERE cmdline LIKE '%shadow%' OR cmdline LIKE '%passwd%' OR cmdline LIKE '%mimikatz%' OR cmdline LIKE '%credential%' OR cmdline LIKE '%hashdump%' LIMIT 100;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": []
+      }
+    ],
+    "custom": []
+  },
+  "detection_evidence": {
+    "observed": true,
+    "sigma_matches": [
+      {
+        "analytic_id": "SIG-49aae26c-450e-448b-911d-b3c13d178dfc",
+        "rule_id": "49aae26c-450e-448b-911d-b3c13d178dfc",
+        "source_id": "49aae26c-450e-448b-911d-b3c13d178dfc",
+        "title": "Linux Keylogging with Pam.d",
+        "rule_file": "lnx_auditd_keylogging_with_pam_d.yml",
+        "rule_sha256": "6d8c21170ae1127d0332decff157db704c6664c96eee4cb956dc3a6d33696eb8",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-34f90d3c-c297-49e9-b26d-911b05a4866c",
+        "rule_id": "34f90d3c-c297-49e9-b26d-911b05a4866c",
+        "source_id": "34f90d3c-c297-49e9-b26d-911b05a4866c",
+        "title": "Powershell Keylogging",
+        "rule_file": "posh_ps_keylogging.yml",
+        "rule_sha256": "dd24faf45e48ac8cb54037c3d929a8456573f15c15bf8db61e7213a6507610b0",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-965e2db9-eddb-4cf6-a986-7a967df651e4",
+        "rule_id": "965e2db9-eddb-4cf6-a986-7a967df651e4",
+        "source_id": "965e2db9-eddb-4cf6-a986-7a967df651e4",
+        "title": "Potential Keylogger Activity",
+        "rule_file": "posh_ps_susp_keylogger_activity.yml",
+        "rule_sha256": "b98325e9bdbb16a988ad137f74d765765b0e110a36ffb374a4fa0d0bbbbdfb8f",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-eb6c2004-1cef-427f-8885-9042974e5eb6",
+        "rule_id": "eb6c2004-1cef-427f-8885-9042974e5eb6",
+        "source_id": "eb6c2004-1cef-427f-8885-9042974e5eb6",
+        "title": "Suspicious Network Communication With IPFS",
+        "rule_file": "proxy_susp_ipfs_cred_harvest.yml",
+        "rule_sha256": "bcccd19eaf3af48b350e91a3083002fc85243457215cf8bf8d6f463ac39dbae2",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-df68f791-ad95-447f-a271-640a0dab9cf8",
+        "rule_id": "df68f791-ad95-447f-a271-640a0dab9cf8",
+        "source_id": "df68f791-ad95-447f-a271-640a0dab9cf8",
+        "title": "DNS Query Request To OneLaunch Update Service",
+        "rule_file": "dns_query_win_onelaunch_update_service.yml",
+        "rule_sha256": "a760822ce1d7697b89b96ffa03b70ec913a6624cea8415594a2736a33920cffe",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1777272902-atomic_t1056_001_b1",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776927913-atomic_t1056_001_b1",
+          "osq-1776927914-atomic_t1056_001_b2",
+          "osq-1776927915-atomic_t1056_001_b3",
+          "osq-1776927916-atomic_t1056_001_b4",
+          "osq-1776927917-atomic_t1056_001_b5",
+          "osq-1776927918-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1",
+          "osq-1776518429-atomic_t1056_001_b2",
+          "osq-1776518430-atomic_t1056_001_b3",
+          "osq-1776518431-atomic_t1056_001_b4",
+          "osq-1776518432-atomic_t1056_001_b5",
+          "osq-1776518433-atomic_t1056_001_b6",
+          "osq-1776518428-atomic_t1056_001_b1"
+        ],
+        "match_type": "heuristic_telemetry"
+      }
+    ],
+    "osquery_matches": []
+  },
+  "artifact_evidence": {
+    "files": [
+      {
+        "path": "/tmp:exec,size=512m",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/opt/pwsh/pwsh",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/dev/null",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/usr/bin/env",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/usr/local/bin/b64encode",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/.bash_history",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      },
+      {
+        "path": "/var/log/syslog",
+        "hashes": [
+          "7f8339446cad4c18973a93cf1ce30c0e",
+          "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "ba33df21e0eb48fb8d90672b3072b54c",
+          "fbdd0f3e3c9b4d4eadbf835f989c9374"
+        ]
+      }
+    ],
+    "hashes": [
+      "7f8339446cad4c18973a93cf1ce30c0e",
+      "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+      "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+      "ba33df21e0eb48fb8d90672b3072b54c",
+      "fbdd0f3e3c9b4d4eadbf835f989c9374"
+    ],
+    "observed": true
+  },
+  "response_evidence": {
+    "executions": [
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "status": "completed",
+        "started_at": "2026-04-18T09:09:17.316601+00:00",
+        "completed_at": "2026-04-18T09:09:17.316857+00:00",
+        "host_id": "coverage-host-01",
+        "source_ip": "203.0.113.10",
+        "session_id": "coverage-ai_exfil_cut_01",
+        "pid": 4242,
+        "file_path": "/tmp/ai_exfil_cut_01.bin",
+        "reason": "Materialized real SOAR execution for persisted MITRE evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-18T09:09:17.316637+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316640+00:00",
+              "session_id": "coverage-ai_exfil_cut_01",
+              "tags_applied": [
+                "ai_confirmed",
+                "exfiltration",
+                "level_4",
+                "critical"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-18T09:09:17.316645+00:00"
+          },
+          {
+            "step": 2,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-18T09:09:17.316647+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316649+00:00",
+              "isolated_agent": "coverage-host-01",
+              "network_blocked": true,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-18T09:09:17.316658+00:00"
+          },
+          {
+            "step": 3,
+            "action": "capture_memory_snapshot",
+            "started_at": "2026-04-18T09:09:17.316659+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_memory_snapshot",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316661+00:00",
+              "snapshot_id": "mem_3da80d094342",
+              "mode": "full",
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-18T09:09:17.316675+00:00"
+          },
+          {
+            "step": 4,
+            "action": "capture_triage_bundle",
+            "started_at": "2026-04-18T09:09:17.316678+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_triage_bundle",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316685+00:00",
+              "bundle_id": "triage_b4b89e55f049",
+              "window_s": 600,
+              "include": [
+                "processes",
+                "network",
+                "files",
+                "memory"
+              ],
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-18T09:09:17.316693+00:00"
+          },
+          {
+            "step": 5,
+            "action": "quarantine_file",
+            "started_at": "2026-04-18T09:09:17.316695+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_file",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316696+00:00",
+              "quarantined": "/tmp/ai_exfil_cut_01.bin",
+              "quarantine_id": "quar_be324d3fd491",
+              "auto_sandbox": true,
+              "pipeline_stage": "quarantined",
+              "status": "quarantined"
+            },
+            "completed_at": "2026-04-18T09:09:17.316707+00:00"
+          },
+          {
+            "step": 6,
+            "action": "quarantine_to_sandbox",
+            "started_at": "2026-04-18T09:09:17.316708+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_to_sandbox",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316710+00:00",
+              "sandbox_id": "sandbox_7bd34416dcdc",
+              "analyze": true,
+              "detonation_time": 300,
+              "pipeline_stage": "sandboxing",
+              "status": "analyzing"
+            },
+            "completed_at": "2026-04-18T09:09:17.316720+00:00"
+          },
+          {
+            "step": 7,
+            "action": "escalate_to_human",
+            "started_at": "2026-04-18T09:09:17.316721+00:00",
+            "status": "completed",
+            "result": {
+              "action": "escalate_to_human",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316723+00:00",
+              "escalation_id": "esc_a084325b",
+              "reason": "ai_exfiltration_attempt",
+              "required": true,
+              "page_oncall": false,
+              "expertise_required": null,
+              "status": "escalated"
+            },
+            "completed_at": "2026-04-18T09:09:17.316833+00:00"
+          },
+          {
+            "step": 8,
+            "action": "send_alert",
+            "started_at": "2026-04-18T09:09:17.316835+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316836+00:00",
+              "channels_notified": [
+                "slack",
+                "email",
+                "sms"
+              ],
+              "priority": "critical",
+              "template": "ai_exfiltration",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-18T09:09:17.316840+00:00"
+          },
+          {
+            "step": 9,
+            "action": "create_ticket",
+            "started_at": "2026-04-18T09:09:17.316841+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316842+00:00",
+              "ticket_id": "TKT-D7BC6F35",
+              "ticket_created": true,
+              "category": "ai_exfiltration",
+              "priority": "P0",
+              "escalate_to_ciso": true,
+              "status": "created"
+            },
+            "completed_at": "2026-04-18T09:09:17.316849+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/generated_soar_executions.json"
+      },
+      {
+        "execution_id": "exec_9f96a5e3fc13",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "status": "completed",
+        "started_at": "2026-04-18T09:09:17.317455+00:00",
+        "completed_at": "2026-04-18T09:09:17.317506+00:00",
+        "host_id": "coverage-host-01",
+        "source_ip": "203.0.113.10",
+        "session_id": "coverage-ai_sys_evasion_response",
+        "pid": 4242,
+        "file_path": "/tmp/ai_sys_evasion_response.bin",
+        "reason": "Materialized real SOAR execution for persisted MITRE evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "collect_forensics",
+            "started_at": "2026-04-18T09:09:17.317466+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317467+00:00",
+              "forensics_id": "forensics_700cff1f5fed",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "loaded_modules": true,
+                "registry_artifacts": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-18T09:09:17.317472+00:00"
+          },
+          {
+            "step": 2,
+            "action": "kill_process",
+            "started_at": "2026-04-18T09:09:17.317473+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317475+00:00",
+              "killed_pid": 4242,
+              "force": false,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-18T09:09:17.317477+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-18T09:09:17.317478+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317479+00:00",
+              "firewall_updated": true,
+              "rule_type": "block",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-18T09:09:17.317482+00:00"
+          },
+          {
+            "step": 4,
+            "action": "sync_threat_intel",
+            "started_at": "2026-04-18T09:09:17.317483+00:00",
+            "status": "completed",
+            "result": {
+              "action": "sync_threat_intel",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317485+00:00",
+              "share_iocs": false,
+              "query_ttps": true,
+              "communities": [
+                "internal"
+              ],
+              "urgent": false,
+              "status": "syncing"
+            },
+            "completed_at": "2026-04-18T09:09:17.317488+00:00"
+          },
+          {
+            "step": 5,
+            "action": "send_alert",
+            "started_at": "2026-04-18T09:09:17.317491+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317492+00:00",
+              "channels_notified": [
+                "slack",
+                "email"
+              ],
+              "priority": "high",
+              "template": "sys_evasion",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-18T09:09:17.317495+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-18T09:09:17.317496+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317497+00:00",
+              "ticket_id": "TKT-F112C6A3",
+              "ticket_created": true,
+              "category": "defense_evasion",
+              "priority": "P1",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-18T09:09:17.317502+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/generated_soar_executions.json"
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "status": "completed",
+        "started_at": "2026-04-19T02:32:04.061787+00:00",
+        "completed_at": "2026-04-19T02:32:04.062595+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-19T02:32:04.061850+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.061864+00:00",
+              "session_id": null,
+              "tags_applied": [
+                "ai_confirmed",
+                "exfiltration",
+                "level_4",
+                "critical"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-19T02:32:04.061904+00:00"
+          },
+          {
+            "step": 2,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-19T02:32:04.061912+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.061920+00:00",
+              "isolated_agent": null,
+              "network_blocked": true,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-19T02:32:04.061939+00:00"
+          },
+          {
+            "step": 3,
+            "action": "capture_memory_snapshot",
+            "started_at": "2026-04-19T02:32:04.061946+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_memory_snapshot",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.061953+00:00",
+              "snapshot_id": "mem_8417c76f068d",
+              "mode": "full",
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-19T02:32:04.062010+00:00"
+          },
+          {
+            "step": 4,
+            "action": "capture_triage_bundle",
+            "started_at": "2026-04-19T02:32:04.062019+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_triage_bundle",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062026+00:00",
+              "bundle_id": "triage_7948393f7813",
+              "window_s": 600,
+              "include": [
+                "processes",
+                "network",
+                "files",
+                "memory"
+              ],
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-19T02:32:04.062070+00:00"
+          },
+          {
+            "step": 5,
+            "action": "quarantine_file",
+            "started_at": "2026-04-19T02:32:04.062077+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_file",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062085+00:00",
+              "quarantined": "staged_data",
+              "quarantine_id": "quar_f140ba209ab8",
+              "auto_sandbox": true,
+              "pipeline_stage": "quarantined",
+              "status": "quarantined"
+            },
+            "completed_at": "2026-04-19T02:32:04.062131+00:00"
+          },
+          {
+            "step": 6,
+            "action": "quarantine_to_sandbox",
+            "started_at": "2026-04-19T02:32:04.062140+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_to_sandbox",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062147+00:00",
+              "sandbox_id": "sandbox_82f89d6134af",
+              "analyze": true,
+              "detonation_time": 300,
+              "pipeline_stage": "sandboxing",
+              "status": "analyzing"
+            },
+            "completed_at": "2026-04-19T02:32:04.062188+00:00"
+          },
+          {
+            "step": 7,
+            "action": "escalate_to_human",
+            "started_at": "2026-04-19T02:32:04.062196+00:00",
+            "status": "completed",
+            "result": {
+              "action": "escalate_to_human",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062203+00:00",
+              "escalation_id": "esc_6c59d7fe",
+              "reason": "ai_exfiltration_attempt",
+              "required": true,
+              "page_oncall": false,
+              "expertise_required": null,
+              "status": "escalated"
+            },
+            "completed_at": "2026-04-19T02:32:04.062482+00:00"
+          },
+          {
+            "step": 8,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:32:04.062493+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062501+00:00",
+              "channels_notified": [
+                "slack",
+                "email",
+                "sms"
+              ],
+              "priority": "critical",
+              "template": "ai_exfiltration",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:32:04.062519+00:00"
+          },
+          {
+            "step": 9,
+            "action": "create_ticket",
+            "started_at": "2026-04-19T02:32:04.062526+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062532+00:00",
+              "ticket_id": "TKT-A2BA3BE4",
+              "ticket_created": true,
+              "category": "ai_exfiltration",
+              "priority": "P0",
+              "escalate_to_ciso": true,
+              "status": "created"
+            },
+            "completed_at": "2026-04-19T02:32:04.062564+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/generated_soar_executions.json"
+      },
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "status": "completed",
+        "started_at": "2026-04-18T09:09:17.316601+00:00",
+        "completed_at": "2026-04-18T09:09:17.316857+00:00",
+        "host_id": "coverage-host-01",
+        "source_ip": "203.0.113.10",
+        "session_id": "coverage-ai_exfil_cut_01",
+        "pid": 4242,
+        "file_path": "/tmp/ai_exfil_cut_01.bin",
+        "reason": "Materialized real SOAR execution for persisted MITRE evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-18T09:09:17.316637+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316640+00:00",
+              "session_id": "coverage-ai_exfil_cut_01",
+              "tags_applied": [
+                "ai_confirmed",
+                "exfiltration",
+                "level_4",
+                "critical"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-18T09:09:17.316645+00:00"
+          },
+          {
+            "step": 2,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-18T09:09:17.316647+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316649+00:00",
+              "isolated_agent": "coverage-host-01",
+              "network_blocked": true,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-18T09:09:17.316658+00:00"
+          },
+          {
+            "step": 3,
+            "action": "capture_memory_snapshot",
+            "started_at": "2026-04-18T09:09:17.316659+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_memory_snapshot",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316661+00:00",
+              "snapshot_id": "mem_3da80d094342",
+              "mode": "full",
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-18T09:09:17.316675+00:00"
+          },
+          {
+            "step": 4,
+            "action": "capture_triage_bundle",
+            "started_at": "2026-04-18T09:09:17.316678+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_triage_bundle",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316685+00:00",
+              "bundle_id": "triage_b4b89e55f049",
+              "window_s": 600,
+              "include": [
+                "processes",
+                "network",
+                "files",
+                "memory"
+              ],
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-18T09:09:17.316693+00:00"
+          },
+          {
+            "step": 5,
+            "action": "quarantine_file",
+            "started_at": "2026-04-18T09:09:17.316695+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_file",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316696+00:00",
+              "quarantined": "/tmp/ai_exfil_cut_01.bin",
+              "quarantine_id": "quar_be324d3fd491",
+              "auto_sandbox": true,
+              "pipeline_stage": "quarantined",
+              "status": "quarantined"
+            },
+            "completed_at": "2026-04-18T09:09:17.316707+00:00"
+          },
+          {
+            "step": 6,
+            "action": "quarantine_to_sandbox",
+            "started_at": "2026-04-18T09:09:17.316708+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_to_sandbox",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316710+00:00",
+              "sandbox_id": "sandbox_7bd34416dcdc",
+              "analyze": true,
+              "detonation_time": 300,
+              "pipeline_stage": "sandboxing",
+              "status": "analyzing"
+            },
+            "completed_at": "2026-04-18T09:09:17.316720+00:00"
+          },
+          {
+            "step": 7,
+            "action": "escalate_to_human",
+            "started_at": "2026-04-18T09:09:17.316721+00:00",
+            "status": "completed",
+            "result": {
+              "action": "escalate_to_human",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316723+00:00",
+              "escalation_id": "esc_a084325b",
+              "reason": "ai_exfiltration_attempt",
+              "required": true,
+              "page_oncall": false,
+              "expertise_required": null,
+              "status": "escalated"
+            },
+            "completed_at": "2026-04-18T09:09:17.316833+00:00"
+          },
+          {
+            "step": 8,
+            "action": "send_alert",
+            "started_at": "2026-04-18T09:09:17.316835+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316836+00:00",
+              "channels_notified": [
+                "slack",
+                "email",
+                "sms"
+              ],
+              "priority": "critical",
+              "template": "ai_exfiltration",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-18T09:09:17.316840+00:00"
+          },
+          {
+            "step": 9,
+            "action": "create_ticket",
+            "started_at": "2026-04-18T09:09:17.316841+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.316842+00:00",
+              "ticket_id": "TKT-D7BC6F35",
+              "ticket_created": true,
+              "category": "ai_exfiltration",
+              "priority": "P0",
+              "escalate_to_ciso": true,
+              "status": "created"
+            },
+            "completed_at": "2026-04-18T09:09:17.316849+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_9f96a5e3fc13",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "status": "completed",
+        "started_at": "2026-04-18T09:09:17.317455+00:00",
+        "completed_at": "2026-04-18T09:09:17.317506+00:00",
+        "host_id": "coverage-host-01",
+        "source_ip": "203.0.113.10",
+        "session_id": "coverage-ai_sys_evasion_response",
+        "pid": 4242,
+        "file_path": "/tmp/ai_sys_evasion_response.bin",
+        "reason": "Materialized real SOAR execution for persisted MITRE evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "collect_forensics",
+            "started_at": "2026-04-18T09:09:17.317466+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317467+00:00",
+              "forensics_id": "forensics_700cff1f5fed",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "loaded_modules": true,
+                "registry_artifacts": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-18T09:09:17.317472+00:00"
+          },
+          {
+            "step": 2,
+            "action": "kill_process",
+            "started_at": "2026-04-18T09:09:17.317473+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317475+00:00",
+              "killed_pid": 4242,
+              "force": false,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-18T09:09:17.317477+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-18T09:09:17.317478+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317479+00:00",
+              "firewall_updated": true,
+              "rule_type": "block",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-18T09:09:17.317482+00:00"
+          },
+          {
+            "step": 4,
+            "action": "sync_threat_intel",
+            "started_at": "2026-04-18T09:09:17.317483+00:00",
+            "status": "completed",
+            "result": {
+              "action": "sync_threat_intel",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317485+00:00",
+              "share_iocs": false,
+              "query_ttps": true,
+              "communities": [
+                "internal"
+              ],
+              "urgent": false,
+              "status": "syncing"
+            },
+            "completed_at": "2026-04-18T09:09:17.317488+00:00"
+          },
+          {
+            "step": 5,
+            "action": "send_alert",
+            "started_at": "2026-04-18T09:09:17.317491+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317492+00:00",
+              "channels_notified": [
+                "slack",
+                "email"
+              ],
+              "priority": "high",
+              "template": "sys_evasion",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-18T09:09:17.317495+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-18T09:09:17.317496+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.317497+00:00",
+              "ticket_id": "TKT-F112C6A3",
+              "ticket_created": true,
+              "category": "defense_evasion",
+              "priority": "P1",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-18T09:09:17.317502+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "status": "completed",
+        "started_at": "2026-04-19T02:32:04.061787+00:00",
+        "completed_at": "2026-04-19T02:32:04.062595+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-19T02:32:04.061850+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.061864+00:00",
+              "session_id": null,
+              "tags_applied": [
+                "ai_confirmed",
+                "exfiltration",
+                "level_4",
+                "critical"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-19T02:32:04.061904+00:00"
+          },
+          {
+            "step": 2,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-19T02:32:04.061912+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.061920+00:00",
+              "isolated_agent": null,
+              "network_blocked": true,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-19T02:32:04.061939+00:00"
+          },
+          {
+            "step": 3,
+            "action": "capture_memory_snapshot",
+            "started_at": "2026-04-19T02:32:04.061946+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_memory_snapshot",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.061953+00:00",
+              "snapshot_id": "mem_8417c76f068d",
+              "mode": "full",
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-19T02:32:04.062010+00:00"
+          },
+          {
+            "step": 4,
+            "action": "capture_triage_bundle",
+            "started_at": "2026-04-19T02:32:04.062019+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_triage_bundle",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062026+00:00",
+              "bundle_id": "triage_7948393f7813",
+              "window_s": 600,
+              "include": [
+                "processes",
+                "network",
+                "files",
+                "memory"
+              ],
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-19T02:32:04.062070+00:00"
+          },
+          {
+            "step": 5,
+            "action": "quarantine_file",
+            "started_at": "2026-04-19T02:32:04.062077+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_file",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062085+00:00",
+              "quarantined": "staged_data",
+              "quarantine_id": "quar_f140ba209ab8",
+              "auto_sandbox": true,
+              "pipeline_stage": "quarantined",
+              "status": "quarantined"
+            },
+            "completed_at": "2026-04-19T02:32:04.062131+00:00"
+          },
+          {
+            "step": 6,
+            "action": "quarantine_to_sandbox",
+            "started_at": "2026-04-19T02:32:04.062140+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_to_sandbox",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062147+00:00",
+              "sandbox_id": "sandbox_82f89d6134af",
+              "analyze": true,
+              "detonation_time": 300,
+              "pipeline_stage": "sandboxing",
+              "status": "analyzing"
+            },
+            "completed_at": "2026-04-19T02:32:04.062188+00:00"
+          },
+          {
+            "step": 7,
+            "action": "escalate_to_human",
+            "started_at": "2026-04-19T02:32:04.062196+00:00",
+            "status": "completed",
+            "result": {
+              "action": "escalate_to_human",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062203+00:00",
+              "escalation_id": "esc_6c59d7fe",
+              "reason": "ai_exfiltration_attempt",
+              "required": true,
+              "page_oncall": false,
+              "expertise_required": null,
+              "status": "escalated"
+            },
+            "completed_at": "2026-04-19T02:32:04.062482+00:00"
+          },
+          {
+            "step": 8,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:32:04.062493+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062501+00:00",
+              "channels_notified": [
+                "slack",
+                "email",
+                "sms"
+              ],
+              "priority": "critical",
+              "template": "ai_exfiltration",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:32:04.062519+00:00"
+          },
+          {
+            "step": 9,
+            "action": "create_ticket",
+            "started_at": "2026-04-19T02:32:04.062526+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:04.062532+00:00",
+              "ticket_id": "TKT-A2BA3BE4",
+              "ticket_created": true,
+              "category": "ai_exfiltration",
+              "priority": "P0",
+              "escalate_to_ciso": true,
+              "status": "created"
+            },
+            "completed_at": "2026-04-19T02:32:04.062564+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/soar_executions_archive.json"
+      }
+    ],
+    "actions": [
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.316645+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_exfil_cut_01"
+      },
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.316658+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_exfil_cut_01"
+      },
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "capture_memory_snapshot",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.316675+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_exfil_cut_01"
+      },
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "capture_triage_bundle",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.316693+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_exfil_cut_01"
+      },
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "quarantine_file",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.316707+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_exfil_cut_01"
+      },
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "quarantine_to_sandbox",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.316720+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_exfil_cut_01"
+      },
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "escalate_to_human",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.316833+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_exfil_cut_01"
+      },
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.316840+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_exfil_cut_01"
+      },
+      {
+        "execution_id": "exec_0cf4ad8ad74b",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.316849+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_exfil_cut_01"
+      },
+      {
+        "execution_id": "exec_9f96a5e3fc13",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.317472+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_sys_evasion_response"
+      },
+      {
+        "execution_id": "exec_9f96a5e3fc13",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "action": "kill_process",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.317477+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_sys_evasion_response"
+      },
+      {
+        "execution_id": "exec_9f96a5e3fc13",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.317482+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_sys_evasion_response"
+      },
+      {
+        "execution_id": "exec_9f96a5e3fc13",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "action": "sync_threat_intel",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.317488+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_sys_evasion_response"
+      },
+      {
+        "execution_id": "exec_9f96a5e3fc13",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.317495+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_sys_evasion_response"
+      },
+      {
+        "execution_id": "exec_9f96a5e3fc13",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.317502+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-ai_sys_evasion_response"
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:04.061904+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:04.061939+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "capture_memory_snapshot",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:04.062010+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "capture_triage_bundle",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:04.062070+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "quarantine_file",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:04.062131+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "quarantine_to_sandbox",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:04.062188+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "escalate_to_human",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:04.062482+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:04.062519+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_7f24f0685bd6",
+        "playbook_id": "ai_exfil_cut_01",
+        "playbook_name": "AI Exfil Prep - Cut Egress",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:04.062564+00:00",
+        "host_id": "",
+        "session_id": ""
+      }
+    ],
+    "observed": true
+  },
+  "correlation": {
+    "direct_detection": true,
+    "correlated_detection": true,
+    "evidence_chain": [
+      "execution.command_line",
+      "telemetry_evidence.key_events[0]",
+      "network_telemetry_evidence.key_events[0]",
+      "analytic_evidence.sigma[0]",
+      "artifact_evidence.files[0]",
+      "response_evidence.actions[0]"
+    ],
+    "anchors": {
+      "timestamp_window": {
+        "first_seen": "2026-04-27T06:55:01.827321+00:00",
+        "last_seen": "1777117750.774221",
+        "samples": [
+          "2026-04-27T06:55:01.827321+00:00",
+          "2026-04-23T07:05:12.687625+00:00",
+          "2026-04-18T13:20:27.214681+00:00",
+          "2026-04-18T09:09:17.316601+00:00",
+          "2026-04-18T09:09:17.317455+00:00",
+          "2026-04-19T02:32:04.061787+00:00",
+          "2026-04-18T09:09:17.316857+00:00",
+          "2026-04-18T09:09:17.317506+00:00"
+        ]
+      },
+      "host_ids": [
+        "debian-node-01",
+        "coverage-host-01"
+      ],
+      "process_ids": [
+        4242
+      ],
+      "ip_addresses": [
+        "203.0.113.10",
+        "192.168.101.183",
+        "192.168.101.1",
+        "142.251.47.99"
+      ],
+      "file_paths": [
+        "/.bash_history",
+        "/var/log/syslog",
+        "/messages",
+        "/root/.sh_history:",
+        "/var/log/messages",
+        "/etc/pam.d/sshd",
+        "/04/26",
+        "/tmp/.keyboard.log",
+        "/tmp:exec,size=512m",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro"
+      ],
+      "hashes": [
+        "7f8339446cad4c18973a93cf1ce30c0e",
+        "5234545f8b5a062a9f674995d98d0533d83dbf73917c299ef1a217cc0bb39b3c",
+        "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74"
+      ],
+      "event_ids": [
+        "osq-1777272902-atomic_t1056_001_b1",
+        "osq-1776927913-atomic_t1056_001_b1",
+        "osq-1776927914-atomic_t1056_001_b2",
+        "osq-1776927915-atomic_t1056_001_b3",
+        "osq-1776927916-atomic_t1056_001_b4",
+        "osq-1776927917-atomic_t1056_001_b5",
+        "osq-1776927918-atomic_t1056_001_b6",
+        "osq-1776518428-atomic_t1056_001_b1",
+        "osq-1776518429-atomic_t1056_001_b2",
+        "osq-1776518430-atomic_t1056_001_b3",
+        "osq-1776518431-atomic_t1056_001_b4",
+        "osq-1776518432-atomic_t1056_001_b5",
+        "osq-1776518433-atomic_t1056_001_b6"
+      ]
+    },
+    "story_assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 1,
+        "ip_addresses": 4,
+        "file_paths": 12,
+        "hashes": 3,
+        "event_ids": 13
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    }
+  },
+  "quality": {
+    "repeated_runs": 1,
+    "successful_detections": 1,
+    "effective_runs": 1,
+    "unique_successful_direct_run_ids": [
+      "7f8339446cad4c18973a93cf1ce30c0e"
+    ],
+    "clean_run_count": 1,
+    "quality_run_count": 1,
+    "run_validity_summary": {
+      "success_clean": 1
+    },
+    "has_fatal_stdout_markers": false,
+    "has_vns_or_simulation_only": false,
+    "evidence_inheritance": "direct",
+    "execution_source": "docker_sandbox",
+    "osquery_status": "executed_no_match",
+    "baseline_window_minutes": 60,
+    "baseline_false_positives": 0,
+    "analyst_reviewed": true,
+    "reviewer": "Byron Bunt",
+    "review_class": "internal_author_reviewed",
+    "reviewed_at": "2026-04-27T10:24:42.313940+00:00"
+  },
+  "story": {
+    "goal": "one_event_many_witnesses_one_story",
+    "layered_presence": {
+      "execution": true,
+      "host_telemetry": true,
+      "network_telemetry": true,
+      "detection": true,
+      "artifact": true,
+      "response": true
+    },
+    "assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 1,
+        "ip_addresses": 4,
+        "file_paths": 12,
+        "hashes": 3,
+        "event_ids": 13
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    },
+    "narrative": "Execution, telemetry, detections, artifacts, network observations, and SOAR response are tracked as separate witnesses and tied together through shared anchors."
+  },
+  "promotion": {
+    "score": 5,
+    "tier": "S5",
+    "tier_name": "platinum",
+    "certification_tier": "S5-P",
+    "certification_label": "platinum_provisional",
+    "status": "validated",
+    "reason": "Full S5 validation (Linux Docker sandbox): 1 direct run(s), 5/5 Sigma rules matched with event linkage, 0 osquery correlations confirmed, raw telemetry preserved, analyst reviewed, clean baseline."
+  },
+  "integrity": {
+    "record_sha256": "d466f409d34f220aba171c6ef25c531a7cfbe2397218e46fee969bdbcc58fb78",
+    "hash_method": "SHA-256 of canonical JSON (sort_keys=True, default=str) excluding the integrity block itself",
+    "created_at": "2026-04-27T10:24:42.313940+00:00"
+  }
+}

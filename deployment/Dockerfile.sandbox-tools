@@ -16,10 +16,12 @@
 
 FROM metatron-triune-outbound-gate-backend:latest
 
-RUN apt-get update && \
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && \
     apt-get install -y --no-install-recommends \
+        libicu-dev \
         sudo \
         openssh-client \
+        sshpass \
         # -- tools required by atomic tests --
         xxd \
         iputils-ping \
@@ -36,6 +38,7 @@ RUN apt-get update && \
         sysstat \
         strace \
         python3 \
+        python3-pip \
         perl \
         dnsutils \
         socat \
@@ -50,4 +53,19 @@ RUN apt-get update && \
         tar \
         bzip2 \
         xz-utils \
+        tshark \
+        awscli \
     && rm -rf /var/lib/apt/lists/*
+
+# kubectl is not consistently available via distro repos. Install a pinned
+# upstream binary for atomics that rely on kubectl presence.
+RUN set -euo pipefail; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64)  karch="amd64" ;; \
+      arm64)  karch="arm64" ;; \
+      *) echo "Unsupported arch for kubectl: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.30.3/bin/linux/${karch}/kubectl"; \
+    chmod +x /usr/local/bin/kubectl; \
+    kubectl version --client=true --output=yaml >/dev/null 2>&1 || true

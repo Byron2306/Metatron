@@ -1,0 +1,40 @@
+title: Network Reconnaissance Tool Execution
+id: a3c8f7e1-d2b4-4c9f-8e5a-1f6b3d7e2a4c
+status: stable
+description: Detects execution of common network reconnaissance and scanning tools via process output signatures.
+references:
+    - https://attack.mitre.org/techniques/T1595/
+    - https://attack.mitre.org/techniques/T1046/
+author: Seraph Security
+date: 2026-04-27
+tags:
+    - attack.reconnaissance
+    - attack.discovery
+    - attack.t1595
+    - attack.t1595.001
+    - attack.t1595.002
+    - attack.t1046
+    - attack.t1590
+    - attack.t1590.001
+    - attack.t1590.002
+    - attack.t1590.004
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_nmap:
+        CommandLine|contains:
+            - 'Starting Nmap'
+            - 'Nmap scan report'
+            - 'Nmap done'
+            - 'Host is up'
+            - 'PORT   STATE SERVICE'
+    selection_scan_output:
+        CommandLine|contains:
+            - 'scan report for'
+            - 'hosts scanned'
+            - 'host up'
+    condition: selection_nmap or selection_scan_output
+level: medium
+falsepositives:
+    - Legitimate network administration scanning

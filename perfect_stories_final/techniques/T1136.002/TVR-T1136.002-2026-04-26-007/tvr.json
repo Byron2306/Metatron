@@ -1,0 +1,2241 @@
+{
+  "record_type": "technique_validation_record",
+  "schema_version": "1.0.0",
+  "validation_id": "TVR-T1136.002-2026-04-26-007",
+  "technique": {
+    "attack_id": "T1136.002",
+    "name": "T1136.002",
+    "tactics": [],
+    "platforms": [
+      "Linux"
+    ]
+  },
+  "procedure": {
+    "source": "atomic_red_team",
+    "procedure_id": "ART-T1136.002-1",
+    "name": "Atomic Red Team validation for T1136.002",
+    "description": "Automated emulation procedure for T1136.002 executed via Invoke-AtomicRedTeam inside the Metatron lab environment.",
+    "test_ref": "atomics/T1136.002/T1136.002.yaml#test-1"
+  },
+  "environment": {
+    "lab_id": "metatron-lab-a",
+    "hostname": "debian-node-01",
+    "asset_id": "asset-001",
+    "os": {
+      "family": "linux",
+      "name": "Debian",
+      "version": "12"
+    },
+    "kernel_version": "6.12.74+deb12-amd64",
+    "sensor_stack": [
+      {
+        "name": "sigma-engine",
+        "version": "2026.04.26",
+        "rules_loaded": 487
+      },
+      {
+        "name": "osquery",
+        "version": "5.15.0"
+      },
+      {
+        "name": "atomic_red_team",
+        "version": "2025.01"
+      }
+    ]
+  },
+  "execution": {
+    "started_at": "2026-04-18T13:23:37.754761+00:00",
+    "ended_at": "2026-04-18T13:23:37.754761+00:00",
+    "executor": "atomic_red_team",
+    "operator": "Byron Bunt",
+    "status": "completed",
+    "exit_code": 0,
+    "real_execution": true,
+    "execution_mode": "docker_sandbox",
+    "execution_trust_level": "docker_sandbox_verified",
+    "sandbox_verified": true,
+    "evidence_inheritance": "direct",
+    "expected_outcome": "detect",
+    "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-f448857e02ce', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--security-opt', 'no-new-privileges:false', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', 'seraph-sandbox-tools:latest', 'pwsh', '-NonInteractive', '-NoProfile', '-Command', \"Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'\"]",
+    "run_count": 7,
+    "direct_run_count": 7,
+    "run_ids": [
+      "f448857e02ce4967bdb9eeb7a6f9740d",
+      "4dcb49439a0b46d0801983295618f79f",
+      "92577e7b0fae45e2b8454e0051e8ed61",
+      "b4efd1506f944196b2042cc89f29fb13",
+      "ea5acac4344e4811a484f16a67d3d651",
+      "f448857e02ce4967bdb9eeb7a6f9740d",
+      "f448857e02ce4967bdb9eeb7a6f9740d"
+    ],
+    "job_ids": [
+      "sandbox-real-sweep"
+    ],
+    "runs": [
+      {
+        "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T13:23:37.754761+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-f448857e02ce",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\nExecuting test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n",
+        "stdout_sha256": "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics"
+          ]
+        }
+      },
+      {
+        "run_id": "4dcb49439a0b46d0801983295618f79f",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T18:49:57.913024+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-4dcb49439a0b",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\nExecuting test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n",
+        "stdout_sha256": "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "92577e7b0fae45e2b8454e0051e8ed61",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T14:31:08.242045+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-92577e7b0fae",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\nExecuting test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n",
+        "stdout_sha256": "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "b4efd1506f944196b2042cc89f29fb13",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T14:38:46.057191+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-b4efd1506f94",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\nExecuting test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n",
+        "stdout_sha256": "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "ea5acac4344e4811a484f16a67d3d651",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T18:56:14.421198+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-ea5acac4344e",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\nExecuting test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n",
+        "stdout_sha256": "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T13:23:37.754761+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-f448857e02ce",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\nExecuting test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n",
+        "stdout_sha256": "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics"
+          ]
+        }
+      },
+      {
+        "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T13:23:37.754761+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-f448857e02ce",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\nExecuting test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n",
+        "stdout_sha256": "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics"
+          ]
+        }
+      }
+    ]
+  },
+  "telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "1e068756c30ea5691108d5eafb7f373a14c098f79a3ec2bcff00e7c63cbe1389"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4"
+      }
+    ],
+    "key_events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518618-atomic_t1136_002_b1",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-4 Active Directory Create Admin Account",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_002_b2",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518618-atomic_t1136_002_b1",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-4 Active Directory Create Admin Account",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_002_b2",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518618-atomic_t1136_002_b1",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-4 Active Directory Create Admin Account",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_002_b2",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "execution_evidence": {
+    "observed": true,
+    "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-f448857e02ce', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--security-opt', 'no-new-privileges:false', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', 'seraph-sandbox-tools:latest', 'pwsh', '-NonInteractive', '-NoProfile', '-Command', \"Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'\"]",
+    "exit_code": 0,
+    "run_ids": [
+      "f448857e02ce4967bdb9eeb7a6f9740d",
+      "4dcb49439a0b46d0801983295618f79f",
+      "92577e7b0fae45e2b8454e0051e8ed61",
+      "b4efd1506f944196b2042cc89f29fb13",
+      "ea5acac4344e4811a484f16a67d3d651",
+      "f448857e02ce4967bdb9eeb7a6f9740d",
+      "f448857e02ce4967bdb9eeb7a6f9740d"
+    ],
+    "process_ids": [
+      4242
+    ],
+    "timestamps": [
+      "2026-04-18T13:23:37.754761+00:00",
+      "2026-04-18T18:49:57.913024+00:00",
+      "2026-04-18T14:31:08.242045+00:00",
+      "2026-04-18T14:38:46.057191+00:00",
+      "2026-04-18T18:56:14.421198+00:00",
+      "2026-04-22T21:08:19.037153+00:00",
+      "2026-04-19T02:32:01.331930+00:00",
+      "2026-04-22T21:08:19.038447+00:00"
+    ]
+  },
+  "host_telemetry_evidence": {
+    "observed": true,
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "1e068756c30ea5691108d5eafb7f373a14c098f79a3ec2bcff00e7c63cbe1389"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4"
+      }
+    ],
+    "events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518618-atomic_t1136_002_b1",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-4 Active Directory Create Admin Account",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_002_b2",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518618-atomic_t1136_002_b1",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-4 Active Directory Create Admin Account",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_002_b2",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518618-atomic_t1136_002_b1",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-4 Active Directory Create Admin Account",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-4 Active Directory Create Admin Account\nldapadd -H ldap://example.test:389 -x -D admin@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-4 Active Directory Create Admin Account\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_002_b2",
+        "timestamp": "2026-04-18T13:23:37.754761+00:00",
+        "query_name": "atomic_t1136_002_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "technique_id": "T1136.002",
+          "run_id": "f448857e02ce4967bdb9eeb7a6f9740d",
+          "CommandLine": "ldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\nldapadd -H ldap://example.test:389 -x -D user@example.test -w s3CurePssw0rD! -f tempadmin.ldif\nsh: 1: ldapadd: not found\nExit code: 127\nDone executing test: T1136.002-5 Active Directory Create User Account (Non-elevated)\n"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "network_telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "sandbox_isolation",
+        "file": "container_network_policy",
+        "match_methods": [
+          "network_none_verified"
+        ]
+      }
+    ],
+    "key_events": [
+      {
+        "source": "sandbox_isolation",
+        "match_method": "network_none_verified",
+        "description": "Sandbox executed with --network none (cap-drop ALL). Zero outbound connections confirmed by container network policy.",
+        "src_ip": "",
+        "dest_ip": "",
+        "proto": "none"
+      }
+    ],
+    "observed": true
+  },
+  "analytic_evidence": {
+    "sigma": [
+      {
+        "analytic_id": "SIG-b29a93fb-087c-4b5b-a84d-ee3309e69d08",
+        "rule_id": "b29a93fb-087c-4b5b-a84d-ee3309e69d08",
+        "source_id": "b29a93fb-087c-4b5b-a84d-ee3309e69d08",
+        "title": "Manipulation of User Computer or Group Security Principals Across AD",
+        "rule_file": "posh_ps_directoryservices_accountmanagement.yml",
+        "rule_sha256": "f78740bfe9cf51f298c155d5dafdf295b9f08ac6b450214825b8f948ab159f2b",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-1bbf25b9-8038-4154-a50b-118f2a32be27",
+        "rule_id": "1bbf25b9-8038-4154-a50b-118f2a32be27",
+        "source_id": "1bbf25b9-8038-4154-a50b-118f2a32be27",
+        "title": "Suspicious Windows ANONYMOUS LOGON Local Account Created",
+        "rule_file": "win_security_susp_local_anon_logon_created.yml",
+        "rule_sha256": "0fa7466e4a173159464746d4720a958024b15a7507514391d7c45a764d6e14c0",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-304afd73-55a5-4bb9-8c21-0b1fc84ea9e4",
+        "rule_id": "304afd73-55a5-4bb9-8c21-0b1fc84ea9e4",
+        "source_id": "304afd73-55a5-4bb9-8c21-0b1fc84ea9e4",
+        "title": "PSEXEC Remote Execution File Artefact",
+        "rule_file": "file_event_win_sysinternals_psexec_service_key.yml",
+        "rule_sha256": "b742e33eb0d56c654300de8ac448ca988d8e7970579cbca82de46da315a626ea",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-e31bae15-83ed-473e-bf31-faf4f8a17d36",
+        "rule_id": "e31bae15-83ed-473e-bf31-faf4f8a17d36",
+        "source_id": "e31bae15-83ed-473e-bf31-faf4f8a17d36",
+        "title": "New Kubernetes Service Account Created",
+        "rule_file": "kubernetes_audit_serviceaccount_creation.yml",
+        "rule_sha256": "df11ac62d57fde381dccd1f46fe1dedd3cfeae4404e16c74dcf6aabc5a088119",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-4ae68615-866f-4304-b24b-ba048dfa5ca7",
+        "rule_id": "4ae68615-866f-4304-b24b-ba048dfa5ca7",
+        "source_id": "4ae68615-866f-4304-b24b-ba048dfa5ca7",
+        "title": "AWS ElastiCache Security Group Created",
+        "rule_file": "aws_elasticache_security_group_created.yml",
+        "rule_sha256": "027461e043897cf30e90a6511e8f815ad52931e5fb472743a03d6d5b064b910a",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-b28e4eb3-8bbc-4f0c-819f-edfe8e2f25db",
+        "rule_id": "b28e4eb3-8bbc-4f0c-819f-edfe8e2f25db",
+        "source_id": "b28e4eb3-8bbc-4f0c-819f-edfe8e2f25db",
+        "title": "ESXi Account Creation Via ESXCLI",
+        "rule_file": "proc_creation_lnx_esxcli_user_account_creation.yml",
+        "rule_sha256": "487a4c1c9589e5bac38067c856a9496b247204b3a62588e76dcf1a6f3005265f",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      }
+    ],
+    "osquery": [
+      {
+        "query_id": "OSQ-T1136_002_CRONTAB",
+        "name": "t1136_002_crontab",
+        "query_text": "SELECT event, minute, hour, day_of_month, month, day_of_week, command, path FROM crontab;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": []
+      },
+      {
+        "query_id": "OSQ-T1136_002_STARTUP",
+        "name": "t1136_002_startup",
+        "query_text": "SELECT name, path, source, status, type FROM startup_items;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": []
+      }
+    ],
+    "custom": []
+  },
+  "detection_evidence": {
+    "observed": true,
+    "sigma_matches": [
+      {
+        "analytic_id": "SIG-b29a93fb-087c-4b5b-a84d-ee3309e69d08",
+        "rule_id": "b29a93fb-087c-4b5b-a84d-ee3309e69d08",
+        "source_id": "b29a93fb-087c-4b5b-a84d-ee3309e69d08",
+        "title": "Manipulation of User Computer or Group Security Principals Across AD",
+        "rule_file": "posh_ps_directoryservices_accountmanagement.yml",
+        "rule_sha256": "f78740bfe9cf51f298c155d5dafdf295b9f08ac6b450214825b8f948ab159f2b",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-1bbf25b9-8038-4154-a50b-118f2a32be27",
+        "rule_id": "1bbf25b9-8038-4154-a50b-118f2a32be27",
+        "source_id": "1bbf25b9-8038-4154-a50b-118f2a32be27",
+        "title": "Suspicious Windows ANONYMOUS LOGON Local Account Created",
+        "rule_file": "win_security_susp_local_anon_logon_created.yml",
+        "rule_sha256": "0fa7466e4a173159464746d4720a958024b15a7507514391d7c45a764d6e14c0",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-304afd73-55a5-4bb9-8c21-0b1fc84ea9e4",
+        "rule_id": "304afd73-55a5-4bb9-8c21-0b1fc84ea9e4",
+        "source_id": "304afd73-55a5-4bb9-8c21-0b1fc84ea9e4",
+        "title": "PSEXEC Remote Execution File Artefact",
+        "rule_file": "file_event_win_sysinternals_psexec_service_key.yml",
+        "rule_sha256": "b742e33eb0d56c654300de8ac448ca988d8e7970579cbca82de46da315a626ea",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-e31bae15-83ed-473e-bf31-faf4f8a17d36",
+        "rule_id": "e31bae15-83ed-473e-bf31-faf4f8a17d36",
+        "source_id": "e31bae15-83ed-473e-bf31-faf4f8a17d36",
+        "title": "New Kubernetes Service Account Created",
+        "rule_file": "kubernetes_audit_serviceaccount_creation.yml",
+        "rule_sha256": "df11ac62d57fde381dccd1f46fe1dedd3cfeae4404e16c74dcf6aabc5a088119",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-4ae68615-866f-4304-b24b-ba048dfa5ca7",
+        "rule_id": "4ae68615-866f-4304-b24b-ba048dfa5ca7",
+        "source_id": "4ae68615-866f-4304-b24b-ba048dfa5ca7",
+        "title": "AWS ElastiCache Security Group Created",
+        "rule_file": "aws_elasticache_security_group_created.yml",
+        "rule_sha256": "027461e043897cf30e90a6511e8f815ad52931e5fb472743a03d6d5b064b910a",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-b28e4eb3-8bbc-4f0c-819f-edfe8e2f25db",
+        "rule_id": "b28e4eb3-8bbc-4f0c-819f-edfe8e2f25db",
+        "source_id": "b28e4eb3-8bbc-4f0c-819f-edfe8e2f25db",
+        "title": "ESXi Account Creation Via ESXCLI",
+        "rule_file": "proc_creation_lnx_esxcli_user_account_creation.yml",
+        "rule_sha256": "487a4c1c9589e5bac38067c856a9496b247204b3a62588e76dcf1a6f3005265f",
+        "matched": true,
+        "match_count": 6,
+        "supporting_event_ids": [
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2",
+          "osq-1776518618-atomic_t1136_002_b1",
+          "osq-1776518619-atomic_t1136_002_b2"
+        ],
+        "match_type": "heuristic_telemetry"
+      }
+    ],
+    "osquery_matches": []
+  },
+  "artifact_evidence": {
+    "files": [
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "hashes": [
+          "f448857e02ce4967bdb9eeb7a6f9740d",
+          "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "4dcb49439a0b46d0801983295618f79f",
+          "92577e7b0fae45e2b8454e0051e8ed61",
+          "b4efd1506f944196b2042cc89f29fb13"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "hashes": [
+          "f448857e02ce4967bdb9eeb7a6f9740d",
+          "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "4dcb49439a0b46d0801983295618f79f",
+          "92577e7b0fae45e2b8454e0051e8ed61",
+          "b4efd1506f944196b2042cc89f29fb13"
+        ]
+      },
+      {
+        "path": "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "hashes": [
+          "f448857e02ce4967bdb9eeb7a6f9740d",
+          "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "4dcb49439a0b46d0801983295618f79f",
+          "92577e7b0fae45e2b8454e0051e8ed61",
+          "b4efd1506f944196b2042cc89f29fb13"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics",
+        "hashes": [
+          "f448857e02ce4967bdb9eeb7a6f9740d",
+          "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "4dcb49439a0b46d0801983295618f79f",
+          "92577e7b0fae45e2b8454e0051e8ed61",
+          "b4efd1506f944196b2042cc89f29fb13"
+        ]
+      },
+      {
+        "path": "/example.test:389",
+        "hashes": [
+          "f448857e02ce4967bdb9eeb7a6f9740d",
+          "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "4dcb49439a0b46d0801983295618f79f",
+          "92577e7b0fae45e2b8454e0051e8ed61",
+          "b4efd1506f944196b2042cc89f29fb13"
+        ]
+      },
+      {
+        "path": "/tmp/T1136.002.bin",
+        "hashes": [
+          "f448857e02ce4967bdb9eeb7a6f9740d",
+          "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "4dcb49439a0b46d0801983295618f79f",
+          "92577e7b0fae45e2b8454e0051e8ed61",
+          "b4efd1506f944196b2042cc89f29fb13"
+        ]
+      },
+      {
+        "path": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json",
+        "hashes": [
+          "f448857e02ce4967bdb9eeb7a6f9740d",
+          "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "4dcb49439a0b46d0801983295618f79f",
+          "92577e7b0fae45e2b8454e0051e8ed61",
+          "b4efd1506f944196b2042cc89f29fb13"
+        ]
+      },
+      {
+        "path": "/app/backend/data/generated_soar_executions.json",
+        "hashes": [
+          "f448857e02ce4967bdb9eeb7a6f9740d",
+          "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "4dcb49439a0b46d0801983295618f79f",
+          "92577e7b0fae45e2b8454e0051e8ed61",
+          "b4efd1506f944196b2042cc89f29fb13"
+        ]
+      },
+      {
+        "path": "/app/backend/data/soar_executions_archive.json",
+        "hashes": [
+          "f448857e02ce4967bdb9eeb7a6f9740d",
+          "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "4dcb49439a0b46d0801983295618f79f",
+          "92577e7b0fae45e2b8454e0051e8ed61",
+          "b4efd1506f944196b2042cc89f29fb13"
+        ]
+      }
+    ],
+    "hashes": [
+      "f448857e02ce4967bdb9eeb7a6f9740d",
+      "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "4dcb49439a0b46d0801983295618f79f",
+      "92577e7b0fae45e2b8454e0051e8ed61",
+      "b4efd1506f944196b2042cc89f29fb13",
+      "ea5acac4344e4811a484f16a67d3d651"
+    ],
+    "observed": true
+  },
+  "response_evidence": {
+    "executions": [
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:08:19.037153+00:00",
+        "completed_at": "2026-04-22T21:08:19.038447+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1136.002",
+        "pid": 4242,
+        "file_path": "/tmp/T1136.002.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:08:19.037227+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037262+00:00",
+              "session_id": "mitre-session-T1136.002",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:08:19.037450+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:08:19.037487+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037522+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:08:19.037639+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:08:19.037669+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037701+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:08:19.037788+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:08:19.037816+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037848+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:08:19.037968+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:08:19.037997+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.038030+00:00",
+              "forensics_id": "forensics_809bfe36d73f",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:08:19.038121+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:08:19.038148+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.038179+00:00",
+              "ticket_id": "TKT-11A73824",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:08:19.038269+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:08:19.038296+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.038326+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:08:19.038410+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:08:19.037153+00:00",
+        "completed_at": "2026-04-22T21:08:19.038447+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1136.002",
+        "pid": 4242,
+        "file_path": "/tmp/T1136.002.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:08:19.037227+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037262+00:00",
+              "session_id": "mitre-session-T1136.002",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:08:19.037450+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:08:19.037487+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037522+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:08:19.037639+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:08:19.037669+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037701+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:08:19.037788+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:08:19.037816+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037848+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:08:19.037968+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:08:19.037997+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.038030+00:00",
+              "forensics_id": "forensics_809bfe36d73f",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:08:19.038121+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:08:19.038148+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.038179+00:00",
+              "ticket_id": "TKT-11A73824",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:08:19.038269+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:08:19.038296+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.038326+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:08:19.038410+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:08:19.037153+00:00",
+        "completed_at": "2026-04-22T21:08:19.038447+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1136.002",
+        "pid": 4242,
+        "file_path": "/tmp/T1136.002.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:08:19.037227+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037262+00:00",
+              "session_id": "mitre-session-T1136.002",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:08:19.037450+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:08:19.037487+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037522+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:08:19.037639+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:08:19.037669+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037701+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:08:19.037788+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:08:19.037816+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.037848+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:08:19.037968+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:08:19.037997+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.038030+00:00",
+              "forensics_id": "forensics_809bfe36d73f",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:08:19.038121+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:08:19.038148+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.038179+00:00",
+              "ticket_id": "TKT-11A73824",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:08:19.038269+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:08:19.038296+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:19.038326+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:08:19.038410+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "status": "completed",
+        "started_at": "2026-04-19T02:32:01.331930+00:00",
+        "completed_at": "2026-04-19T02:32:01.332266+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-19T02:32:01.331995+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332009+00:00",
+              "session_id": null,
+              "tags_applied": [
+                "goal_persistent",
+                "loop_detected"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-19T02:32:01.332045+00:00"
+          },
+          {
+            "step": 2,
+            "action": "inject_latency",
+            "started_at": "2026-04-19T02:32:01.332053+00:00",
+            "status": "completed",
+            "result": {
+              "action": "inject_latency",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332061+00:00",
+              "latency_enabled": true,
+              "delay_ms": 1000,
+              "jitter_ms": 500,
+              "mode": "soft",
+              "progressive": true,
+              "status": "degrading"
+            },
+            "completed_at": "2026-04-19T02:32:01.332078+00:00"
+          },
+          {
+            "step": 3,
+            "action": "feed_disinformation",
+            "started_at": "2026-04-19T02:32:01.332085+00:00",
+            "status": "completed",
+            "result": {
+              "action": "feed_disinformation",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332093+00:00",
+              "type": "false_progress",
+              "delay_reveal": false,
+              "goal_misdirection": true,
+              "status": "feeding"
+            },
+            "completed_at": "2026-04-19T02:32:01.332116+00:00"
+          },
+          {
+            "step": 4,
+            "action": "deploy_decoy",
+            "started_at": "2026-04-19T02:32:01.332123+00:00",
+            "status": "completed",
+            "result": {
+              "action": "deploy_decoy",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332129+00:00",
+              "decoy_type": "goal_target",
+              "decoys_deployed": [],
+              "placement": "standard",
+              "status": "deployed"
+            },
+            "completed_at": "2026-04-19T02:32:01.332149+00:00"
+          },
+          {
+            "step": 5,
+            "action": "capture_triage_bundle",
+            "started_at": "2026-04-19T02:32:01.332155+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_triage_bundle",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332163+00:00",
+              "bundle_id": "triage_d9876a77631b",
+              "window_s": 180,
+              "include": [
+                "processes",
+                "network"
+              ],
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-19T02:32:01.332211+00:00"
+          },
+          {
+            "step": 6,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:32:01.332218+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332224+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "high",
+              "template": "goal_persistent_loop",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:32:01.332241+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/generated_soar_executions.json"
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "status": "completed",
+        "started_at": "2026-04-19T02:32:01.331930+00:00",
+        "completed_at": "2026-04-19T02:32:01.332266+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-19T02:32:01.331995+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332009+00:00",
+              "session_id": null,
+              "tags_applied": [
+                "goal_persistent",
+                "loop_detected"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-19T02:32:01.332045+00:00"
+          },
+          {
+            "step": 2,
+            "action": "inject_latency",
+            "started_at": "2026-04-19T02:32:01.332053+00:00",
+            "status": "completed",
+            "result": {
+              "action": "inject_latency",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332061+00:00",
+              "latency_enabled": true,
+              "delay_ms": 1000,
+              "jitter_ms": 500,
+              "mode": "soft",
+              "progressive": true,
+              "status": "degrading"
+            },
+            "completed_at": "2026-04-19T02:32:01.332078+00:00"
+          },
+          {
+            "step": 3,
+            "action": "feed_disinformation",
+            "started_at": "2026-04-19T02:32:01.332085+00:00",
+            "status": "completed",
+            "result": {
+              "action": "feed_disinformation",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332093+00:00",
+              "type": "false_progress",
+              "delay_reveal": false,
+              "goal_misdirection": true,
+              "status": "feeding"
+            },
+            "completed_at": "2026-04-19T02:32:01.332116+00:00"
+          },
+          {
+            "step": 4,
+            "action": "deploy_decoy",
+            "started_at": "2026-04-19T02:32:01.332123+00:00",
+            "status": "completed",
+            "result": {
+              "action": "deploy_decoy",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332129+00:00",
+              "decoy_type": "goal_target",
+              "decoys_deployed": [],
+              "placement": "standard",
+              "status": "deployed"
+            },
+            "completed_at": "2026-04-19T02:32:01.332149+00:00"
+          },
+          {
+            "step": 5,
+            "action": "capture_triage_bundle",
+            "started_at": "2026-04-19T02:32:01.332155+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_triage_bundle",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332163+00:00",
+              "bundle_id": "triage_d9876a77631b",
+              "window_s": 180,
+              "include": [
+                "processes",
+                "network"
+              ],
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-19T02:32:01.332211+00:00"
+          },
+          {
+            "step": 6,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:32:01.332218+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332224+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "high",
+              "template": "goal_persistent_loop",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:32:01.332241+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/soar_executions_archive.json"
+      }
+    ],
+    "actions": [
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037450+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037639+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037788+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037968+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.038121+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.038269+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.038410+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037450+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037639+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037788+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037968+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.038121+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.038269+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.038410+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037450+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037639+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037788+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.037968+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.038121+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.038269+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_ac27f90abb03",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:19.038410+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.002"
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:01.332045+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "action": "inject_latency",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:01.332078+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "action": "feed_disinformation",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:01.332116+00:00",
+        "host_id": "",
+        "session_id": ""
+      }
+    ],
+    "observed": true
+  },
+  "correlation": {
+    "direct_detection": true,
+    "correlated_detection": true,
+    "evidence_chain": [
+      "execution.command_line",
+      "telemetry_evidence.key_events[0]",
+      "network_telemetry_evidence.key_events[0]",
+      "analytic_evidence.sigma[0]",
+      "artifact_evidence.files[0]",
+      "response_evidence.actions[0]"
+    ],
+    "anchors": {
+      "timestamp_window": {
+        "first_seen": "2026-04-18T13:23:37.754761+00:00",
+        "last_seen": "2026-04-19T02:32:01.332266+00:00",
+        "samples": [
+          "2026-04-18T13:23:37.754761+00:00",
+          "2026-04-18T18:49:57.913024+00:00",
+          "2026-04-18T14:31:08.242045+00:00",
+          "2026-04-18T14:38:46.057191+00:00",
+          "2026-04-18T18:56:14.421198+00:00",
+          "2026-04-22T21:08:19.037153+00:00",
+          "2026-04-19T02:32:01.331930+00:00",
+          "2026-04-22T21:08:19.038447+00:00"
+        ]
+      },
+      "host_ids": [
+        "debian-node-01",
+        "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2"
+      ],
+      "process_ids": [
+        4242
+      ],
+      "ip_addresses": [
+        "203.0.113.10"
+      ],
+      "file_paths": [
+        "/example.test:389",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "/opt/atomic-red-team/atomics",
+        "/tmp/T1136.002.bin",
+        "/var/lib/seraph-ai/artifacts/soar_executions_archive.json",
+        "/app/backend/data/generated_soar_executions.json",
+        "/app/backend/data/soar_executions_archive.json"
+      ],
+      "hashes": [
+        "f448857e02ce4967bdb9eeb7a6f9740d",
+        "62cf982ce51fbb347f9ceb444e443cd5f548244ad661a88cb78a96b4f90376e4",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "4dcb49439a0b46d0801983295618f79f",
+        "92577e7b0fae45e2b8454e0051e8ed61",
+        "b4efd1506f944196b2042cc89f29fb13",
+        "ea5acac4344e4811a484f16a67d3d651"
+      ],
+      "event_ids": [
+        "osq-1776518618-atomic_t1136_002_b1",
+        "osq-1776518619-atomic_t1136_002_b2"
+      ]
+    },
+    "story_assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 1,
+        "ip_addresses": 1,
+        "file_paths": 9,
+        "hashes": 7,
+        "event_ids": 2
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    }
+  },
+  "quality": {
+    "repeated_runs": 7,
+    "successful_detections": 7,
+    "effective_runs": 7,
+    "unique_successful_direct_run_ids": [
+      "4dcb49439a0b46d0801983295618f79f",
+      "92577e7b0fae45e2b8454e0051e8ed61",
+      "b4efd1506f944196b2042cc89f29fb13",
+      "ea5acac4344e4811a484f16a67d3d651",
+      "f448857e02ce4967bdb9eeb7a6f9740d"
+    ],
+    "clean_run_count": 0,
+    "run_validity_summary": {
+      "success_with_warnings": 7
+    },
+    "has_fatal_stdout_markers": false,
+    "has_vns_or_simulation_only": false,
+    "evidence_inheritance": "direct",
+    "execution_source": "docker_sandbox",
+    "osquery_status": "executed_no_match",
+    "baseline_window_minutes": 60,
+    "baseline_false_positives": 0,
+    "analyst_reviewed": true,
+    "reviewer": "Byron Bunt",
+    "review_class": "internal_author_reviewed",
+    "reviewed_at": "2026-04-26T22:04:27.753776+00:00"
+  },
+  "story": {
+    "goal": "one_event_many_witnesses_one_story",
+    "layered_presence": {
+      "execution": true,
+      "host_telemetry": true,
+      "network_telemetry": true,
+      "detection": true,
+      "artifact": true,
+      "response": true
+    },
+    "assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 1,
+        "ip_addresses": 1,
+        "file_paths": 9,
+        "hashes": 7,
+        "event_ids": 2
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    },
+    "narrative": "Execution, telemetry, detections, artifacts, network observations, and SOAR response are tracked as separate witnesses and tied together through shared anchors."
+  },
+  "promotion": {
+    "score": 5,
+    "tier": "S5",
+    "tier_name": "platinum",
+    "certification_tier": "S5-P",
+    "certification_label": "platinum_provisional",
+    "status": "validated",
+    "reason": "Full S5 validation (Linux Docker sandbox): 7 direct run(s), 6/6 Sigma rules matched with event linkage, 0 osquery correlations confirmed, raw telemetry preserved, analyst reviewed, clean baseline."
+  },
+  "integrity": {
+    "record_sha256": "18769be9d1da82c9a9b7da0f866d820e026335cb553f9a96762fce48b791bc8b",
+    "hash_method": "SHA-256 of canonical JSON (sort_keys=True, default=str) excluding the integrity block itself",
+    "created_at": "2026-04-26T22:04:27.753776+00:00"
+  }
+}

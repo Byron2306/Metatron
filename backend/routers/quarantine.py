@@ -7,11 +7,11 @@ from dataclasses import asdict
 from .dependencies import get_current_user, get_db
 
 # Import quarantine service
-from quarantine import (
+from backend.quarantine import (
     get_quarantine_summary, list_quarantined,
     get_quarantine_entry, restore_file, delete_quarantined
 )
-from quarantine import ingest_quarantine_metadata
+from backend.quarantine import ingest_quarantine_metadata
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 

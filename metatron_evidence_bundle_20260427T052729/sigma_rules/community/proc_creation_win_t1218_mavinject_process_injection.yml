@@ -1,0 +1,72 @@
+title: Proxy Execution via Mavinject.exe Code Injection
+id: c2f3a4b5-6d7e-4f8g-9h1i-2j3k4l5m6n7o
+status: experimental
+description: |
+    Detects mavinject.exe being used to inject a DLL into a running process.
+    Mavinject.exe is a signed Microsoft binary used by App-V that accepts a PID
+    and DLL path on the command line, performing DLL injection. Adversaries use it
+    (T1218.015) to inject malicious code into legitimate processes, bypassing
+    application whitelisting and evading detection since the injection comes from
+    a trusted signed binary.
+references:
+    - https://attack.mitre.org/techniques/T1218/015/
+    - https://lolbas-project.github.io/lolbas/Binaries/Mavinject/
+    - https://posts.specterops.io/mavinject-exe-functionality-deconstructed-c29ab2cf5c0e
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1218.015
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\mavinject.exe'
+        CommandLine|contains: '/INJECTRUNNING'
+    condition: selection
+falsepositives:
+    - Legitimate App-V application virtualization (rare in modern environments)
+level: high
+---
+title: Proxy Execution via InstallUtil.exe Loading Serialized Payload
+id: d3e4f5a6-7b8c-9d0e-1f2g-3h4i5j6k7l8m
+status: experimental
+description: |
+    Detects InstallUtil.exe being invoked with command-line arguments or from
+    suspicious parent processes in a way consistent with proxy execution (T1218.004).
+    InstallUtil.exe is a .NET binary that runs installer components — adversaries
+    use it to execute arbitrary .NET assemblies by embedding malicious installer
+    classes that run during the install/uninstall phase. Commonly used in
+    AppLocker and WDAC bypasses.
+references:
+    - https://attack.mitre.org/techniques/T1218/004/
+    - https://lolbas-project.github.io/lolbas/Binaries/Installutil/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1218.004
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_installutil:
+        Image|endswith: '\InstallUtil.exe'
+    filter_legit_parent:
+        ParentImage|endswith:
+            - '\msiexec.exe'
+            - '\setup.exe'
+            - '\install.exe'
+        CurrentDirectory|contains: '\Program Files'
+    selection_suspicious:
+        CommandLine|contains:
+            - '/logfile='
+            - '/LogToConsole='
+            - '/U '
+            - '/uninstall'
+        CommandLine|re: '(?i)(temp|appdata|users\\public|downloads|desktop)'
+    condition: selection_installutil and (selection_suspicious or not filter_legit_parent)
+falsepositives:
+    - Legitimate .NET component installation during software setup
+level: medium
