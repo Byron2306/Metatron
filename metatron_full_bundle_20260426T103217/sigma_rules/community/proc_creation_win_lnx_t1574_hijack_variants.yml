@@ -1,0 +1,104 @@
+title: Hijack Execution Flow - KernelCallbackTable Manipulation
+id: c7d8e9f0-a1b2-3456-cdef-456789012345
+status: experimental
+description: |
+    Detects indicators of KernelCallbackTable (KCT) hijacking (T1574.013), a process
+    injection technique where the PEB's KernelCallbackTable pointer is overwritten to
+    redirect GUI callback execution to shellcode. Used in sophisticated implants to
+    execute code within target processes without common injection APIs. Detected via
+    unusual memory write patterns to the PEB region of GUI processes.
+references:
+    - https://attack.mitre.org/techniques/T1574/013/
+    - https://www.ired.team/offensive-security/code-injection-process-injection/kernelcallbacktable-shellcode-injection
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.privilege_escalation
+    - attack.t1574.013
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging'
+detection:
+    selection:
+        ScriptBlockText|contains:
+            - 'KernelCallbackTable'
+            - 'NtQueryInformationProcess'
+            - 'WriteProcessMemory'
+        ScriptBlockText|contains:
+            - 'PEB'
+            - 'ProcessBasicInformation'
+    condition: all of selection_*
+falsepositives:
+    - Security research and malware analysis tools
+level: critical
+---
+title: Hijack Execution Flow - Dynamic Linker Hijacking via LD_PRELOAD on Linux
+id: d8e9f0a1-b2c3-4567-defa-567890123456
+status: experimental
+description: |
+    Detects LD_PRELOAD or LD_LIBRARY_PATH manipulation to hijack shared library
+    loading (T1574.006 / T1574.009). On Linux, these environment variables cause
+    the dynamic linker to load attacker-specified libraries before system libraries,
+    intercepting function calls. Used for credential harvesting (e.g., intercepting
+    PAM auth), rootkit functionality, and sandbox evasion.
+references:
+    - https://attack.mitre.org/techniques/T1574/006/
+    - https://attack.mitre.org/techniques/T1574/009/
+    - https://www.anomali.com/blog/linux-threat-hunting-ld_preload
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.privilege_escalation
+    - attack.persistence
+    - attack.t1574.006
+    - attack.t1574.009
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_env_preload:
+        CommandLine|contains:
+            - 'LD_PRELOAD='
+            - 'LD_LIBRARY_PATH='
+        CommandLine|re: '(?i)(LD_PRELOAD|LD_LIBRARY_PATH)=(/tmp/|/dev/shm/|/var/tmp/|\.so)'
+    selection_etc_preload:
+        TargetFilename:
+            - '/etc/ld.so.preload'
+    condition: selection_env_preload
+falsepositives:
+    - Developers using LD_PRELOAD for legitimate library override during testing
+    - Valgrind, ASan, and other memory debugging tools
+level: high
+---
+title: Hijack Execution Flow - Path Interception via Unquoted Service Path
+id: e9f0a1b2-c3d4-5678-efab-678901234567
+status: experimental
+description: |
+    Detects creation of executables in directories that can intercept unquoted
+    Windows service paths (T1574.009). When a service path contains spaces and
+    is not quoted, Windows searches each path component for an executable.
+    "C:\Program Files\My App\service.exe" → Windows checks C:\Program.exe first.
+    Adversaries place malicious binaries at these intercept points for persistence.
+references:
+    - https://attack.mitre.org/techniques/T1574/009/
+    - https://medium.com/@SumitVerma101/windows-privilege-escalation-part-1-unquoted-service-path-c7a011a8d8ae
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.privilege_escalation
+    - attack.persistence
+    - attack.t1574.009
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_intercept_path:
+        TargetFilename|re: '(?i)^C:\\(Program|Windows)\.exe$|^C:\\Program Files\.exe$|^C:\\Program Files \(x86\)\.exe$'
+    condition: selection_intercept_path
+falsepositives:
+    - Obscure legitimate software installed at root of C drive (extremely rare)
+level: critical

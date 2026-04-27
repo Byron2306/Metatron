@@ -57,6 +57,7 @@ class SecretFirePacket(BaseModel):
     # Identity
     node_id: str
     covenant_id: str
+    executable_path: Optional[str] = None
     
     # Ancestral Lineage (Voice of Eru)
     voice_id: Optional[str] = None

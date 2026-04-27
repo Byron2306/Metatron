@@ -1,0 +1,3345 @@
+{
+  "record_type": "technique_validation_record",
+  "schema_version": "1.0.0",
+  "validation_id": "TVR-T1136.001-2026-04-26-010",
+  "technique": {
+    "attack_id": "T1136.001",
+    "name": "T1136.001",
+    "tactics": [],
+    "platforms": [
+      "Linux"
+    ]
+  },
+  "procedure": {
+    "source": "atomic_red_team",
+    "procedure_id": "ART-T1136.001-1",
+    "name": "Atomic Red Team validation for T1136.001",
+    "description": "Automated emulation procedure for T1136.001 executed via Invoke-AtomicRedTeam inside the Metatron lab environment.",
+    "test_ref": "atomics/T1136.001/T1136.001.yaml#test-1"
+  },
+  "environment": {
+    "lab_id": "metatron-lab-a",
+    "hostname": "debian-node-01",
+    "asset_id": "asset-001",
+    "os": {
+      "family": "linux",
+      "name": "Debian",
+      "version": "12"
+    },
+    "kernel_version": "6.12.74+deb12-amd64",
+    "sensor_stack": [
+      {
+        "name": "sigma-engine",
+        "version": "2026.04.26",
+        "rules_loaded": 427
+      },
+      {
+        "name": "osquery",
+        "version": "5.15.0"
+      },
+      {
+        "name": "atomic_red_team",
+        "version": "2025.01"
+      }
+    ]
+  },
+  "execution": {
+    "started_at": "2026-04-18T13:23:38.312570+00:00",
+    "ended_at": "2026-04-18T13:23:38.312570+00:00",
+    "executor": "atomic_red_team",
+    "operator": "Byron Bunt",
+    "status": "completed",
+    "exit_code": 0,
+    "real_execution": true,
+    "execution_mode": "docker_sandbox",
+    "sandbox_verified": true,
+    "evidence_inheritance": "direct",
+    "expected_outcome": "detect",
+    "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-d737c4f653a4', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--security-opt', 'no-new-privileges:false', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', 'seraph-sandbox-tools:latest', 'pwsh', '-NonInteractive', '-NoProfile', '-Command', \"Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'\"]",
+    "run_count": 10,
+    "direct_run_count": 10,
+    "run_ids": [
+      "420f1dea6234493ab8ec1aa81fa47462",
+      "71c05443303847fcae1e91dd5c72d679",
+      "d737c4f653a44aa48806c4aedd74f2f9",
+      "215132807cb3478792d08f7dad26bddb",
+      "b84f4b5b1ae24521a7dbac95411ba39f",
+      "c20e9777ce614b7b9d0a118ad81a401b",
+      "d737c4f653a44aa48806c4aedd74f2f9",
+      "df0bf5d080e149939135195bfd28cb43",
+      "f48500ff6302466ba2e4f673a3d72037",
+      "d737c4f653a44aa48806c4aedd74f2f9"
+    ],
+    "job_ids": [
+      "sandbox-real-sweep"
+    ],
+    "runs": [
+      {
+        "run_id": "420f1dea6234493ab8ec1aa81fa47462",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-26T06:52:40.027023+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-420f1dea6234",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--cap-add",
+          "NET_RAW",
+          "--security-opt",
+          "no-new-privileges:false",
+          "--tmpfs",
+          "/tmp:exec,size=512m",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro",
+          "seraph-sandbox-tools:latest",
+          "/opt/pwsh/pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; try { bash -lc \"if command -v apt-get >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null 2>&1 || true; apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; fi; if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then printf '#!/usr/bin/env bash\\nbase64 \"$@\"\\n' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; fi\" } catch { Write-Host '[WARN] dependency bootstrap failed'; }; try { Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TestNumbers 1 -GetPrereqs -ErrorAction Continue } catch { Write-Host '[WARN] GetPrereqs failed for T1136.001'; }; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TestNumbers 1"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nGetPrereq's for: T1136.001-1 Create a user account on a Linux system\nNo Preqs Defined\nPathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n",
+        "stdout_sha256": "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+        "stderr_sha256": "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics"
+          ]
+        }
+      },
+      {
+        "run_id": "71c05443303847fcae1e91dd5c72d679",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-26T06:44:49.465908+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-71c054433038",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--cap-add",
+          "NET_RAW",
+          "--security-opt",
+          "no-new-privileges:false",
+          "--tmpfs",
+          "/tmp:exec,size=512m",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro",
+          "seraph-sandbox-tools:latest",
+          "/opt/pwsh/pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; try { bash -lc \"if command -v apt-get >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null 2>&1 || true; apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; fi; if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then printf '#!/usr/bin/env bash\\nbase64 \"$@\"\\n' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; fi\" } catch { Write-Host '[WARN] dependency bootstrap failed'; }; try { Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TestNumbers 1 -GetPrereqs -ErrorAction Continue } catch { Write-Host '[WARN] GetPrereqs failed for T1136.001'; }; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TestNumbers 1"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nGetPrereq's for: T1136.001-1 Create a user account on a Linux system\nNo Preqs Defined\nPathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n",
+        "stdout_sha256": "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+        "stderr_sha256": "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics"
+          ]
+        }
+      },
+      {
+        "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T13:23:38.312570+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-d737c4f653a4",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\nExecuting test: T1136.001-2 Create a user account on a FreeBSD system\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\nExecuting test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExecuting test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nExecuting test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n",
+        "stdout_sha256": "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics"
+          ]
+        }
+      },
+      {
+        "run_id": "215132807cb3478792d08f7dad26bddb",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T18:56:14.587455+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-215132807cb3",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\nExecuting test: T1136.001-2 Create a user account on a FreeBSD system\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\nExecuting test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExecuting test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nExecuting test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n",
+        "stdout_sha256": "dccd7825a1d724887b5d16d217180c918b6d254f5bfb17c6290a7479c74e79db",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "b84f4b5b1ae24521a7dbac95411ba39f",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T14:38:45.119557+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-b84f4b5b1ae2",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\nExecuting test: T1136.001-2 Create a user account on a FreeBSD system\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\nExecuting test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExecuting test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nExecuting test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n",
+        "stdout_sha256": "dccd7825a1d724887b5d16d217180c918b6d254f5bfb17c6290a7479c74e79db",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "c20e9777ce614b7b9d0a118ad81a401b",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T14:31:09.224567+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-c20e9777ce61",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\nExecuting test: T1136.001-2 Create a user account on a FreeBSD system\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\nExecuting test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExecuting test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nExecuting test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n",
+        "stdout_sha256": "dccd7825a1d724887b5d16d217180c918b6d254f5bfb17c6290a7479c74e79db",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T13:23:38.312570+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-d737c4f653a4",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\nExecuting test: T1136.001-2 Create a user account on a FreeBSD system\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\nExecuting test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExecuting test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nExecuting test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n",
+        "stdout_sha256": "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics"
+          ]
+        }
+      },
+      {
+        "run_id": "df0bf5d080e149939135195bfd28cb43",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T18:49:56.941497+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-df0bf5d080e1",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\nExecuting test: T1136.001-2 Create a user account on a FreeBSD system\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\nExecuting test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExecuting test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nExecuting test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n",
+        "stdout_sha256": "dccd7825a1d724887b5d16d217180c918b6d254f5bfb17c6290a7479c74e79db",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "f48500ff6302466ba2e4f673a3d72037",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T19:09:25.441072+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-f48500ff6302",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\nExecuting test: T1136.001-2 Create a user account on a FreeBSD system\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\nExecuting test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExecuting test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nExecuting test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n",
+        "stdout_sha256": "dccd7825a1d724887b5d16d217180c918b6d254f5bfb17c6290a7479c74e79db",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T13:23:38.312570+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-d737c4f653a4",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\nExecuting test: T1136.001-2 Create a user account on a FreeBSD system\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\nExecuting test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExecuting test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nExecuting test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n",
+        "stdout_sha256": "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics"
+          ]
+        }
+      }
+    ]
+  },
+  "telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "118fa185950402e5888935f17caf70ba322be265d1523f734e4f5f1c1fcaaa86"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+      }
+    ],
+    "key_events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1777186361-atomic_t1136_001_b1",
+        "timestamp": "2026-04-26T06:52:40.027023+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "420f1dea6234493ab8ec1aa81fa47462",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1777185890-atomic_t1136_001_b1",
+        "timestamp": "2026-04-26T06:44:49.465908+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "71c05443303847fcae1e91dd5c72d679",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_001_b1",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518620-atomic_t1136_001_b2",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-2 Create a user account on a FreeBSD system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-2 Create a user account on a FreeBSD system\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518621-atomic_t1136_001_b3",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518622-atomic_t1136_001_b4",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "sh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518623-atomic_t1136_001_b5",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "bash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_001_b1",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518620-atomic_t1136_001_b2",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-2 Create a user account on a FreeBSD system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-2 Create a user account on a FreeBSD system\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518621-atomic_t1136_001_b3",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518622-atomic_t1136_001_b4",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "sh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518623-atomic_t1136_001_b5",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "bash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_001_b1",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518620-atomic_t1136_001_b2",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-2 Create a user account on a FreeBSD system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-2 Create a user account on a FreeBSD system\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518621-atomic_t1136_001_b3",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518622-atomic_t1136_001_b4",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "sh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518623-atomic_t1136_001_b5",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "bash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "execution_evidence": {
+    "observed": true,
+    "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-d737c4f653a4', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--security-opt', 'no-new-privileges:false', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', 'seraph-sandbox-tools:latest', 'pwsh', '-NonInteractive', '-NoProfile', '-Command', \"Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1136.001 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'\"]",
+    "exit_code": 0,
+    "run_ids": [
+      "420f1dea6234493ab8ec1aa81fa47462",
+      "71c05443303847fcae1e91dd5c72d679",
+      "d737c4f653a44aa48806c4aedd74f2f9",
+      "215132807cb3478792d08f7dad26bddb",
+      "b84f4b5b1ae24521a7dbac95411ba39f",
+      "c20e9777ce614b7b9d0a118ad81a401b",
+      "d737c4f653a44aa48806c4aedd74f2f9",
+      "df0bf5d080e149939135195bfd28cb43",
+      "f48500ff6302466ba2e4f673a3d72037",
+      "d737c4f653a44aa48806c4aedd74f2f9"
+    ],
+    "process_ids": [
+      4242
+    ],
+    "timestamps": [
+      "2026-04-26T06:52:40.027023+00:00",
+      "2026-04-26T06:44:49.465908+00:00",
+      "2026-04-18T13:23:38.312570+00:00",
+      "2026-04-18T18:56:14.587455+00:00",
+      "2026-04-18T14:38:45.119557+00:00",
+      "2026-04-18T14:31:09.224567+00:00",
+      "2026-04-18T18:49:56.941497+00:00",
+      "2026-04-18T19:09:25.441072+00:00"
+    ]
+  },
+  "host_telemetry_evidence": {
+    "observed": true,
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "118fa185950402e5888935f17caf70ba322be265d1523f734e4f5f1c1fcaaa86"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+      }
+    ],
+    "events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1777186361-atomic_t1136_001_b1",
+        "timestamp": "2026-04-26T06:52:40.027023+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "420f1dea6234493ab8ec1aa81fa47462",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1777185890-atomic_t1136_001_b1",
+        "timestamp": "2026-04-26T06:44:49.465908+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "71c05443303847fcae1e91dd5c72d679",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_001_b1",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518620-atomic_t1136_001_b2",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-2 Create a user account on a FreeBSD system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-2 Create a user account on a FreeBSD system\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518621-atomic_t1136_001_b3",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518622-atomic_t1136_001_b4",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "sh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518623-atomic_t1136_001_b5",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "bash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_001_b1",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518620-atomic_t1136_001_b2",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-2 Create a user account on a FreeBSD system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-2 Create a user account on a FreeBSD system\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518621-atomic_t1136_001_b3",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518622-atomic_t1136_001_b4",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "sh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518623-atomic_t1136_001_b5",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "bash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518619-atomic_t1136_001_b1",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-1 Create a user account on a Linux system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-1 Create a user account on a Linux system\nExit code: 0\nDone executing test: T1136.001-1 Create a user account on a Linux system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518620-atomic_t1136_001_b2",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-2 Create a user account on a FreeBSD system",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-2 Create a user account on a FreeBSD system\nExit code: 127\nDone executing test: T1136.001-2 Create a user account on a FreeBSD system\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518621-atomic_t1136_001_b3",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "Exit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\nExit code: 0\nDone executing test: T1136.001-6 Create a new user in Linux with `root` UID and GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518622-atomic_t1136_001_b4",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "sh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\nsh: 1: pw: not found\nsh: 1: pw: not found\nExit code: 127\nDone executing test: T1136.001-7 Create a new user in FreeBSD with `root` GID.\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776518623-atomic_t1136_001_b5",
+        "timestamp": "2026-04-18T13:23:38.312570+00:00",
+        "query_name": "atomic_t1136_001_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "technique_id": "T1136.001",
+          "run_id": "d737c4f653a44aa48806c4aedd74f2f9",
+          "CommandLine": "bash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\nbash: line 1: kubectl: command not found\nExit code: 127\nDone executing test: T1136.001-10 Create a Linux user via kubectl in a Pod\n"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "network_telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "zeek_conn",
+        "file": "conn.log",
+        "match_methods": [
+          "time_window"
+        ]
+      }
+    ],
+    "key_events": [
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.173587",
+        "src_ip": "192.168.101.183",
+        "src_port": "34820",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C6kAey1Xwhov3qtrq7"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.166485",
+        "src_ip": "192.168.101.183",
+        "src_port": "44587",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C4EWG11CY3dcG4SO2k"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.175578",
+        "src_ip": "192.168.101.183",
+        "src_port": "44736",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CYnQA64Ym1fVz61psf"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.171940",
+        "src_ip": "192.168.101.183",
+        "src_port": "33002",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C1lRqy4bvul27cdp89"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117748.172079",
+        "src_ip": "192.168.101.183",
+        "src_port": "44857",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CG1EP33lnYCNdl0qEc"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.187661",
+        "src_ip": "192.168.101.183",
+        "src_port": "56803",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CXt6WU1G6duvc1nZo6"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.187631",
+        "src_ip": "192.168.101.183",
+        "src_port": "49206",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C0hFj01W1mlSxg7JZe"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.300124",
+        "src_ip": "192.168.101.183",
+        "src_port": "44681",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CpLl6B2klInBLm3Zdl"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.296382",
+        "src_ip": "192.168.101.183",
+        "src_port": "50982",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "Ccnydf3OTNEhfeL3Bh"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.197436",
+        "src_ip": "192.168.101.183",
+        "src_port": "42895",
+        "dest_ip": "142.251.47.99",
+        "dest_port": "443",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "Cmx5ls1cKjrGpGCCW4"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.774093",
+        "src_ip": "192.168.101.183",
+        "src_port": "53317",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "CfSWOS1Ove40RnOqXa"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "time_window",
+        "timestamp": "1777117750.774221",
+        "src_ip": "192.168.101.183",
+        "src_port": "47109",
+        "dest_ip": "192.168.101.1",
+        "dest_port": "53",
+        "proto": "udp",
+        "service": "-",
+        "connection_uid": "C06q4e4Kn1owG9Rua6"
+      }
+    ],
+    "observed": true
+  },
+  "analytic_evidence": {
+    "sigma": [
+      {
+        "analytic_id": "SIG-759d0d51-bc99-4b5e-9add-8f5b2c8e7512",
+        "rule_id": "759d0d51-bc99-4b5e-9add-8f5b2c8e7512",
+        "source_id": "759d0d51-bc99-4b5e-9add-8f5b2c8e7512",
+        "title": "Creation Of An User Account",
+        "rule_file": "lnx_auditd_create_account.yml",
+        "rule_sha256": "b65ae8b342d4f0ec2603a65cda8a6762dad58a8ecdc8fd0ddf097e885d6cde4f",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-0ac15ec3-d24f-4246-aa2a-3077bb1cf90e",
+        "rule_id": "0ac15ec3-d24f-4246-aa2a-3077bb1cf90e",
+        "source_id": "0ac15ec3-d24f-4246-aa2a-3077bb1cf90e",
+        "title": "Privileged User Has Been Created",
+        "rule_file": "lnx_privileged_user_creation.yml",
+        "rule_sha256": "d3077e7863686f8da3428c8b3d5ab819648fc0dbeead29ac1792ab138a28f967",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-51719bf5-e4fd-4e44-8ba8-b830e7ac0731",
+        "rule_id": "51719bf5-e4fd-4e44-8ba8-b830e7ac0731",
+        "source_id": "51719bf5-e4fd-4e44-8ba8-b830e7ac0731",
+        "title": "Creation Of A Local User Account",
+        "rule_file": "proc_creation_macos_create_account.yml",
+        "rule_sha256": "dead2ec096d7681f144d8c25839f743dbe3b4622466debc978b92791378fb693",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-6d844f0f-1c18-41af-8f19-33e7654edfc3",
+        "rule_id": "6d844f0f-1c18-41af-8f19-33e7654edfc3",
+        "source_id": "6d844f0f-1c18-41af-8f19-33e7654edfc3",
+        "title": "Cisco Local Accounts",
+        "rule_file": "cisco_cli_local_accounts.yml",
+        "rule_sha256": "8dc681bb2d349b6803b32bdd3e24c4bdd37998da40dec46ca29887540b80f587",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-cd0a4943-0edd-42cf-b50c-06f77a10d4c1",
+        "rule_id": "cd0a4943-0edd-42cf-b50c-06f77a10d4c1",
+        "source_id": "cd0a4943-0edd-42cf-b50c-06f77a10d4c1",
+        "title": "FortiGate - New Administrator Account Created",
+        "rule_file": "fortinet_fortigate_new_admin_account_created.yml",
+        "rule_sha256": "91c1c46a70d3a3b6b1c9b980007fb189517a12ac9702d57738b5cef8b8f35d36",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-ddbbe845-1d74-43a8-8231-2156d180234d",
+        "rule_id": "ddbbe845-1d74-43a8-8231-2156d180234d",
+        "source_id": "ddbbe845-1d74-43a8-8231-2156d180234d",
+        "title": "FortiGate - New Local User Created",
+        "rule_file": "fortinet_fortigate_new_local_user_created.yml",
+        "rule_sha256": "e4af3e66b590041d027944daa344ad50e5aff0500c9217117e4893a8e8e766b8",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-cd219ff3-fa99-45d4-8380-a7d15116c6dc",
+        "rule_id": "cd219ff3-fa99-45d4-8380-a7d15116c6dc",
+        "source_id": "cd219ff3-fa99-45d4-8380-a7d15116c6dc",
+        "title": "New User Created Via Net.EXE",
+        "rule_file": "proc_creation_win_net_user_add.yml",
+        "rule_sha256": "6e9c5d7ef5eaab2ecc8064d6f4176b22d9cd31676ad190ce554414212b7a4206",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-b9f0e6f5-09b4-4358-bae4-08408705bd5c",
+        "rule_id": "b9f0e6f5-09b4-4358-bae4-08408705bd5c",
+        "source_id": "b9f0e6f5-09b4-4358-bae4-08408705bd5c",
+        "title": "New User Created Via Net.EXE With Never Expire Option",
+        "rule_file": "proc_creation_win_net_user_add_never_expire.yml",
+        "rule_sha256": "9070224d4323df03f66f8209c0ccbfc793ee95436041a079990dfb73533be489",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      }
+    ],
+    "osquery": [
+      {
+        "query_id": "OSQ-T1136_001_CRONTAB",
+        "name": "t1136_001_crontab",
+        "query_text": "SELECT event, minute, hour, day_of_month, month, day_of_week, command, path FROM crontab;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": []
+      },
+      {
+        "query_id": "OSQ-T1136_001_STARTUP",
+        "name": "t1136_001_startup",
+        "query_text": "SELECT name, path, source, status, type FROM startup_items;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": []
+      }
+    ],
+    "custom": []
+  },
+  "detection_evidence": {
+    "observed": true,
+    "sigma_matches": [
+      {
+        "analytic_id": "SIG-759d0d51-bc99-4b5e-9add-8f5b2c8e7512",
+        "rule_id": "759d0d51-bc99-4b5e-9add-8f5b2c8e7512",
+        "source_id": "759d0d51-bc99-4b5e-9add-8f5b2c8e7512",
+        "title": "Creation Of An User Account",
+        "rule_file": "lnx_auditd_create_account.yml",
+        "rule_sha256": "b65ae8b342d4f0ec2603a65cda8a6762dad58a8ecdc8fd0ddf097e885d6cde4f",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-0ac15ec3-d24f-4246-aa2a-3077bb1cf90e",
+        "rule_id": "0ac15ec3-d24f-4246-aa2a-3077bb1cf90e",
+        "source_id": "0ac15ec3-d24f-4246-aa2a-3077bb1cf90e",
+        "title": "Privileged User Has Been Created",
+        "rule_file": "lnx_privileged_user_creation.yml",
+        "rule_sha256": "d3077e7863686f8da3428c8b3d5ab819648fc0dbeead29ac1792ab138a28f967",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-51719bf5-e4fd-4e44-8ba8-b830e7ac0731",
+        "rule_id": "51719bf5-e4fd-4e44-8ba8-b830e7ac0731",
+        "source_id": "51719bf5-e4fd-4e44-8ba8-b830e7ac0731",
+        "title": "Creation Of A Local User Account",
+        "rule_file": "proc_creation_macos_create_account.yml",
+        "rule_sha256": "dead2ec096d7681f144d8c25839f743dbe3b4622466debc978b92791378fb693",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-6d844f0f-1c18-41af-8f19-33e7654edfc3",
+        "rule_id": "6d844f0f-1c18-41af-8f19-33e7654edfc3",
+        "source_id": "6d844f0f-1c18-41af-8f19-33e7654edfc3",
+        "title": "Cisco Local Accounts",
+        "rule_file": "cisco_cli_local_accounts.yml",
+        "rule_sha256": "8dc681bb2d349b6803b32bdd3e24c4bdd37998da40dec46ca29887540b80f587",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-cd0a4943-0edd-42cf-b50c-06f77a10d4c1",
+        "rule_id": "cd0a4943-0edd-42cf-b50c-06f77a10d4c1",
+        "source_id": "cd0a4943-0edd-42cf-b50c-06f77a10d4c1",
+        "title": "FortiGate - New Administrator Account Created",
+        "rule_file": "fortinet_fortigate_new_admin_account_created.yml",
+        "rule_sha256": "91c1c46a70d3a3b6b1c9b980007fb189517a12ac9702d57738b5cef8b8f35d36",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-ddbbe845-1d74-43a8-8231-2156d180234d",
+        "rule_id": "ddbbe845-1d74-43a8-8231-2156d180234d",
+        "source_id": "ddbbe845-1d74-43a8-8231-2156d180234d",
+        "title": "FortiGate - New Local User Created",
+        "rule_file": "fortinet_fortigate_new_local_user_created.yml",
+        "rule_sha256": "e4af3e66b590041d027944daa344ad50e5aff0500c9217117e4893a8e8e766b8",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-cd219ff3-fa99-45d4-8380-a7d15116c6dc",
+        "rule_id": "cd219ff3-fa99-45d4-8380-a7d15116c6dc",
+        "source_id": "cd219ff3-fa99-45d4-8380-a7d15116c6dc",
+        "title": "New User Created Via Net.EXE",
+        "rule_file": "proc_creation_win_net_user_add.yml",
+        "rule_sha256": "6e9c5d7ef5eaab2ecc8064d6f4176b22d9cd31676ad190ce554414212b7a4206",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      },
+      {
+        "analytic_id": "SIG-b9f0e6f5-09b4-4358-bae4-08408705bd5c",
+        "rule_id": "b9f0e6f5-09b4-4358-bae4-08408705bd5c",
+        "source_id": "b9f0e6f5-09b4-4358-bae4-08408705bd5c",
+        "title": "New User Created Via Net.EXE With Never Expire Option",
+        "rule_file": "proc_creation_win_net_user_add_never_expire.yml",
+        "rule_sha256": "9070224d4323df03f66f8209c0ccbfc793ee95436041a079990dfb73533be489",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1777186361-atomic_t1136_001_b1",
+          "osq-1777185890-atomic_t1136_001_b1",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5",
+          "osq-1776518619-atomic_t1136_001_b1",
+          "osq-1776518620-atomic_t1136_001_b2",
+          "osq-1776518621-atomic_t1136_001_b3",
+          "osq-1776518622-atomic_t1136_001_b4",
+          "osq-1776518623-atomic_t1136_001_b5"
+        ],
+        "match_type": "heuristic_telemetry"
+      }
+    ],
+    "osquery_matches": []
+  },
+  "artifact_evidence": {
+    "files": [
+      {
+        "path": "/tmp:exec,size=512m",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/opt/pwsh/pwsh",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/dev/null",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/usr/bin/env",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/usr/local/bin/b64encode",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/tmp/T1136.001.bin",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      },
+      {
+        "path": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json",
+        "hashes": [
+          "420f1dea6234493ab8ec1aa81fa47462",
+          "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+          "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+          "71c05443303847fcae1e91dd5c72d679",
+          "d737c4f653a44aa48806c4aedd74f2f9",
+          "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92"
+        ]
+      }
+    ],
+    "hashes": [
+      "420f1dea6234493ab8ec1aa81fa47462",
+      "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+      "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+      "71c05443303847fcae1e91dd5c72d679",
+      "d737c4f653a44aa48806c4aedd74f2f9",
+      "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92",
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "215132807cb3478792d08f7dad26bddb",
+      "dccd7825a1d724887b5d16d217180c918b6d254f5bfb17c6290a7479c74e79db",
+      "b84f4b5b1ae24521a7dbac95411ba39f",
+      "c20e9777ce614b7b9d0a118ad81a401b",
+      "df0bf5d080e149939135195bfd28cb43"
+    ],
+    "observed": true
+  },
+  "response_evidence": {
+    "executions": [
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:08:18.608719+00:00",
+        "completed_at": "2026-04-22T21:08:18.610231+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1136.001",
+        "pid": 4242,
+        "file_path": "/tmp/T1136.001.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:08:18.608796+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.608832+00:00",
+              "session_id": "mitre-session-T1136.001",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:08:18.609031+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:08:18.609070+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609109+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:08:18.609239+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:08:18.609271+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609312+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:08:18.609416+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:08:18.609447+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609486+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:08:18.609606+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:08:18.609638+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609675+00:00",
+              "forensics_id": "forensics_5559c03dad49",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:08:18.609789+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:08:18.609824+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609860+00:00",
+              "ticket_id": "TKT-737A9395",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:08:18.610007+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:08:18.610042+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.610080+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:08:18.610188+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:08:18.608719+00:00",
+        "completed_at": "2026-04-22T21:08:18.610231+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1136.001",
+        "pid": 4242,
+        "file_path": "/tmp/T1136.001.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:08:18.608796+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.608832+00:00",
+              "session_id": "mitre-session-T1136.001",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:08:18.609031+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:08:18.609070+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609109+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:08:18.609239+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:08:18.609271+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609312+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:08:18.609416+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:08:18.609447+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609486+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:08:18.609606+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:08:18.609638+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609675+00:00",
+              "forensics_id": "forensics_5559c03dad49",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:08:18.609789+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:08:18.609824+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609860+00:00",
+              "ticket_id": "TKT-737A9395",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:08:18.610007+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:08:18.610042+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.610080+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:08:18.610188+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:08:18.608719+00:00",
+        "completed_at": "2026-04-22T21:08:18.610231+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1136.001",
+        "pid": 4242,
+        "file_path": "/tmp/T1136.001.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:08:18.608796+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.608832+00:00",
+              "session_id": "mitre-session-T1136.001",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:08:18.609031+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:08:18.609070+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609109+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:08:18.609239+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:08:18.609271+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609312+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:08:18.609416+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:08:18.609447+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609486+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:08:18.609606+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:08:18.609638+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609675+00:00",
+              "forensics_id": "forensics_5559c03dad49",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:08:18.609789+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:08:18.609824+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.609860+00:00",
+              "ticket_id": "TKT-737A9395",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:08:18.610007+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:08:18.610042+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:18.610080+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:08:18.610188+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "status": "completed",
+        "started_at": "2026-04-19T02:32:01.331930+00:00",
+        "completed_at": "2026-04-19T02:32:01.332266+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-19T02:32:01.331995+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332009+00:00",
+              "session_id": null,
+              "tags_applied": [
+                "goal_persistent",
+                "loop_detected"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-19T02:32:01.332045+00:00"
+          },
+          {
+            "step": 2,
+            "action": "inject_latency",
+            "started_at": "2026-04-19T02:32:01.332053+00:00",
+            "status": "completed",
+            "result": {
+              "action": "inject_latency",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332061+00:00",
+              "latency_enabled": true,
+              "delay_ms": 1000,
+              "jitter_ms": 500,
+              "mode": "soft",
+              "progressive": true,
+              "status": "degrading"
+            },
+            "completed_at": "2026-04-19T02:32:01.332078+00:00"
+          },
+          {
+            "step": 3,
+            "action": "feed_disinformation",
+            "started_at": "2026-04-19T02:32:01.332085+00:00",
+            "status": "completed",
+            "result": {
+              "action": "feed_disinformation",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332093+00:00",
+              "type": "false_progress",
+              "delay_reveal": false,
+              "goal_misdirection": true,
+              "status": "feeding"
+            },
+            "completed_at": "2026-04-19T02:32:01.332116+00:00"
+          },
+          {
+            "step": 4,
+            "action": "deploy_decoy",
+            "started_at": "2026-04-19T02:32:01.332123+00:00",
+            "status": "completed",
+            "result": {
+              "action": "deploy_decoy",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332129+00:00",
+              "decoy_type": "goal_target",
+              "decoys_deployed": [],
+              "placement": "standard",
+              "status": "deployed"
+            },
+            "completed_at": "2026-04-19T02:32:01.332149+00:00"
+          },
+          {
+            "step": 5,
+            "action": "capture_triage_bundle",
+            "started_at": "2026-04-19T02:32:01.332155+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_triage_bundle",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332163+00:00",
+              "bundle_id": "triage_d9876a77631b",
+              "window_s": 180,
+              "include": [
+                "processes",
+                "network"
+              ],
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-19T02:32:01.332211+00:00"
+          },
+          {
+            "step": 6,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:32:01.332218+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332224+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "high",
+              "template": "goal_persistent_loop",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:32:01.332241+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/generated_soar_executions.json"
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "status": "completed",
+        "started_at": "2026-04-19T02:32:01.331930+00:00",
+        "completed_at": "2026-04-19T02:32:01.332266+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-19T02:32:01.331995+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332009+00:00",
+              "session_id": null,
+              "tags_applied": [
+                "goal_persistent",
+                "loop_detected"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-19T02:32:01.332045+00:00"
+          },
+          {
+            "step": 2,
+            "action": "inject_latency",
+            "started_at": "2026-04-19T02:32:01.332053+00:00",
+            "status": "completed",
+            "result": {
+              "action": "inject_latency",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332061+00:00",
+              "latency_enabled": true,
+              "delay_ms": 1000,
+              "jitter_ms": 500,
+              "mode": "soft",
+              "progressive": true,
+              "status": "degrading"
+            },
+            "completed_at": "2026-04-19T02:32:01.332078+00:00"
+          },
+          {
+            "step": 3,
+            "action": "feed_disinformation",
+            "started_at": "2026-04-19T02:32:01.332085+00:00",
+            "status": "completed",
+            "result": {
+              "action": "feed_disinformation",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332093+00:00",
+              "type": "false_progress",
+              "delay_reveal": false,
+              "goal_misdirection": true,
+              "status": "feeding"
+            },
+            "completed_at": "2026-04-19T02:32:01.332116+00:00"
+          },
+          {
+            "step": 4,
+            "action": "deploy_decoy",
+            "started_at": "2026-04-19T02:32:01.332123+00:00",
+            "status": "completed",
+            "result": {
+              "action": "deploy_decoy",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332129+00:00",
+              "decoy_type": "goal_target",
+              "decoys_deployed": [],
+              "placement": "standard",
+              "status": "deployed"
+            },
+            "completed_at": "2026-04-19T02:32:01.332149+00:00"
+          },
+          {
+            "step": 5,
+            "action": "capture_triage_bundle",
+            "started_at": "2026-04-19T02:32:01.332155+00:00",
+            "status": "completed",
+            "result": {
+              "action": "capture_triage_bundle",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332163+00:00",
+              "bundle_id": "triage_d9876a77631b",
+              "window_s": 180,
+              "include": [
+                "processes",
+                "network"
+              ],
+              "pipeline_stage": "collecting",
+              "status": "capturing"
+            },
+            "completed_at": "2026-04-19T02:32:01.332211+00:00"
+          },
+          {
+            "step": 6,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:32:01.332218+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:32:01.332224+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "high",
+              "template": "goal_persistent_loop",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:32:01.332241+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/soar_executions_archive.json"
+      }
+    ],
+    "actions": [
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609031+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609239+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609416+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609606+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609789+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.610007+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.610188+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609031+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609239+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609416+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609606+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609789+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.610007+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.610188+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609031+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609239+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609416+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609606+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.609789+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.610007+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d62c7951600b",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:18.610188+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1136.001"
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:01.332045+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "action": "inject_latency",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:01.332078+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_d890d5a468a6",
+        "playbook_id": "ai_goal_loop_01",
+        "playbook_name": "Goal Persistent Loop Detection",
+        "action": "feed_disinformation",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:32:01.332116+00:00",
+        "host_id": "",
+        "session_id": ""
+      }
+    ],
+    "observed": true
+  },
+  "correlation": {
+    "direct_detection": true,
+    "correlated_detection": true,
+    "evidence_chain": [
+      "execution.command_line",
+      "telemetry_evidence.key_events[0]",
+      "network_telemetry_evidence.key_events[0]",
+      "analytic_evidence.sigma[0]",
+      "artifact_evidence.files[0]",
+      "response_evidence.actions[0]"
+    ],
+    "anchors": {
+      "timestamp_window": {
+        "first_seen": "2026-04-26T06:52:40.027023+00:00",
+        "last_seen": "1777117750.774221",
+        "samples": [
+          "2026-04-26T06:52:40.027023+00:00",
+          "2026-04-26T06:44:49.465908+00:00",
+          "2026-04-18T13:23:38.312570+00:00",
+          "2026-04-18T18:56:14.587455+00:00",
+          "2026-04-18T14:38:45.119557+00:00",
+          "2026-04-18T14:31:09.224567+00:00",
+          "2026-04-18T18:49:56.941497+00:00",
+          "2026-04-18T19:09:25.441072+00:00"
+        ]
+      },
+      "host_ids": [
+        "debian-node-01",
+        "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2"
+      ],
+      "process_ids": [
+        4242
+      ],
+      "ip_addresses": [
+        "203.0.113.10",
+        "192.168.101.183",
+        "192.168.101.1",
+        "142.251.47.99"
+      ],
+      "file_paths": [
+        "/tmp:exec,size=512m",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro",
+        "/opt/pwsh/pwsh",
+        "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "/opt/atomic-red-team/atomics",
+        "/dev/null",
+        "/usr/bin/env",
+        "/usr/local/bin/b64encode",
+        "/tmp/T1136.001.bin",
+        "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      ],
+      "hashes": [
+        "420f1dea6234493ab8ec1aa81fa47462",
+        "381a6dca2dbb58d027546fd48063e8416773e8f6fad0acf127fedbd1ad8d9e3f",
+        "5806f2eea2beb8c1be744430dc0a75220200035d8c8ce743ac44188bf6c8ff74",
+        "71c05443303847fcae1e91dd5c72d679",
+        "d737c4f653a44aa48806c4aedd74f2f9",
+        "cfb54b50c57d2e6c0fbad111d8b5d8db10c9a93e9a58ff216dc3d0db52dcbf92",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "215132807cb3478792d08f7dad26bddb",
+        "dccd7825a1d724887b5d16d217180c918b6d254f5bfb17c6290a7479c74e79db",
+        "b84f4b5b1ae24521a7dbac95411ba39f",
+        "c20e9777ce614b7b9d0a118ad81a401b",
+        "df0bf5d080e149939135195bfd28cb43"
+      ],
+      "event_ids": [
+        "osq-1777186361-atomic_t1136_001_b1",
+        "osq-1777185890-atomic_t1136_001_b1",
+        "osq-1776518619-atomic_t1136_001_b1",
+        "osq-1776518620-atomic_t1136_001_b2",
+        "osq-1776518621-atomic_t1136_001_b3",
+        "osq-1776518622-atomic_t1136_001_b4",
+        "osq-1776518623-atomic_t1136_001_b5"
+      ]
+    },
+    "story_assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 1,
+        "ip_addresses": 4,
+        "file_paths": 12,
+        "hashes": 12,
+        "event_ids": 7
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    }
+  },
+  "quality": {
+    "repeated_runs": 10,
+    "successful_detections": 10,
+    "effective_runs": 10,
+    "evidence_inheritance": "direct",
+    "execution_source": "docker_sandbox",
+    "baseline_window_minutes": 60,
+    "baseline_false_positives": 0,
+    "analyst_reviewed": true,
+    "reviewer": "Byron Bunt",
+    "reviewed_at": "2026-04-26T15:48:50.357527+00:00"
+  },
+  "story": {
+    "goal": "one_event_many_witnesses_one_story",
+    "layered_presence": {
+      "execution": true,
+      "host_telemetry": true,
+      "network_telemetry": true,
+      "detection": true,
+      "artifact": true,
+      "response": true
+    },
+    "assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 1,
+        "ip_addresses": 4,
+        "file_paths": 12,
+        "hashes": 12,
+        "event_ids": 7
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    },
+    "narrative": "Execution, telemetry, detections, artifacts, network observations, and SOAR response are tracked as separate witnesses and tied together through shared anchors."
+  },
+  "promotion": {
+    "score": 5,
+    "tier": "S5",
+    "tier_name": "platinum",
+    "status": "validated",
+    "reason": "Full S5 validation (Linux Docker sandbox): 10 direct run(s), 8/8 Sigma rules matched with event linkage, 0 osquery correlations confirmed, raw telemetry preserved, analyst reviewed, clean baseline."
+  },
+  "integrity": {
+    "record_sha256": "0758a6e4902cd0b662267b40531d25d6579142d35b42c47bf4948e89869fbedf",
+    "created_at": "2026-04-26T15:48:50.357527+00:00"
+  }
+}

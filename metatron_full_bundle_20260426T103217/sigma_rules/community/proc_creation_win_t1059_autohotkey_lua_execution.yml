@@ -1,0 +1,119 @@
+title: Suspicious Script Execution via AutoHotKey
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+status: experimental
+description: |
+    Detects AutoHotKey (AHK) script execution from suspicious locations or with
+    unusual parent processes. AutoHotKey is a legitimate scripting language used
+    for automation, but adversaries (T1059.010) use it to execute arbitrary code
+    because AHK scripts are text files that run via the AHK interpreter — not a
+    compiled executable — making them less likely to trigger AV alerts. AHK has
+    been used in RAT delivery, keylogging, and persistence mechanisms.
+references:
+    - https://attack.mitre.org/techniques/T1059/010/
+    - https://www.fortinet.com/blog/threat-research/latest-remcos-rat-phishing
+    - https://any.run/malware-trends/autohotkey
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.execution
+    - attack.t1059.010
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_ahk:
+        Image|endswith:
+            - '\AutoHotkey.exe'
+            - '\AutoHotkey32.exe'
+            - '\AutoHotkey64.exe'
+            - '\AutoHotkeyU32.exe'
+            - '\AutoHotkeyU64.exe'
+    selection_suspicious_location:
+        CommandLine|re: '(?i)(\\AppData\\|\\Temp\\|\\Downloads\\|\\Users\\Public\\|\\ProgramData\\)'
+    filter_legit:
+        CurrentDirectory|contains: '\AutoHotkey'
+    condition: selection_ahk and selection_suspicious_location and not filter_legit
+falsepositives:
+    - Legitimate AHK automation scripts run by users from their profile directories
+level: medium
+---
+title: Suspicious Script Execution via Lua Interpreter
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+status: experimental
+description: |
+    Detects the Lua interpreter executing scripts from suspicious filesystem locations.
+    Lua (T1059.011) is embedded in many gaming engines and applications. Adversaries
+    have leveraged Lua's small footprint and wide availability as a scripting backend
+    to execute payloads. Netsupport RAT and several C2 frameworks support Lua-based
+    payload execution. The interpreter is also commonly bundled with game cheating
+    software used as delivery vectors.
+references:
+    - https://attack.mitre.org/techniques/T1059/011/
+    - https://www.elastic.co/security-labs/luna-ransomware-attack-pattern
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.execution
+    - attack.t1059.011
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_lua:
+        Image|endswith:
+            - '\lua.exe'
+            - '\lua54.exe'
+            - '\lua53.exe'
+            - '\lua52.exe'
+            - '\lua51.exe'
+            - '\luajit.exe'
+    selection_suspicious:
+        CommandLine|re: '(?i)(\\Temp\\|\\AppData\\|\\Downloads\\|\\Public\\|\\ProgramData\\)'
+    condition: selection_lua and selection_suspicious
+falsepositives:
+    - Game modding and scripting environments
+    - Legitimate embedded application scripting
+level: low
+---
+title: Suspicious Script Execution via Network Device CLI Scripting
+id: c3d4e5f6-a7b8-9012-cdef-012345678901
+status: experimental
+description: |
+    Detects command interpreters or expect-like scripting tools that can be used
+    to automate interaction with network device CLIs (T1059.008). Adversaries use
+    tools like expect, plink, SecureCRT scripts, or Python paramiko to automate
+    commands on routers, switches, and firewalls — enabling configuration changes,
+    credential harvesting, or persistence on network infrastructure.
+references:
+    - https://attack.mitre.org/techniques/T1059/008/
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-335a
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.execution
+    - attack.t1059.008
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_expect:
+        Image|endswith:
+            - '/expect'
+            - '/autoexpect'
+        CommandLine|re: '(?i)(telnet|ssh|cisco|junos|enable|conf t|interface)'
+    selection_plink:
+        Image|endswith: '/plink'
+        CommandLine|contains:
+            - '-batch'
+            - '-m '
+            - '-pw '
+    selection_paramiko:
+        Image|endswith:
+            - '/python'
+            - '/python3'
+        CommandLine|contains: 'paramiko'
+    condition: 1 of selection_*
+falsepositives:
+    - Network automation engineers using Ansible, Netmiko, NAPALM
+    - Legitimate NOC automation scripts
+level: low

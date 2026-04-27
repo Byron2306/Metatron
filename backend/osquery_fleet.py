@@ -175,6 +175,35 @@ class OsqueryFleetIntegration:
 
         return list(reversed(rows))[:limit]
 
+    def ingest_results(self, records: List[Dict], *, source: str = "api") -> Dict[str, str | int]:
+        """Append osquery JSON records to the configured results log.
+
+        This enables external hosts (e.g., a Windows laptop) to push osquery
+        telemetry into the Seraph backend without standing up Fleet.
+        """
+        if not isinstance(records, list):
+            return {"ingested": 0, "path": str(self.results_log)}
+
+        safe_records = [r for r in records if isinstance(r, dict)]
+        if not safe_records:
+            return {"ingested": 0, "path": str(self.results_log)}
+
+        try:
+            self.results_log.parent.mkdir(parents=True, exist_ok=True)
+            ingested = 0
+            now = datetime.now(timezone.utc).isoformat()
+            with open(self.results_log, "a", encoding="utf-8") as handle:
+                for row in safe_records[:2000]:
+                    payload = dict(row)
+                    payload.setdefault("ingested_at", now)
+                    payload.setdefault("ingest_source", source)
+                    handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                    ingested += 1
+            return {"ingested": ingested, "path": str(self.results_log)}
+        except Exception as exc:
+            logger.warning("Failed to ingest osquery results: %s", exc)
+            return {"ingested": 0, "path": str(self.results_log)}
+
     def _hosts_from_results_log(self, limit: int = 50) -> List[Dict]:
         hosts: Dict[str, Dict] = {}
         for record in self._parse_results_log(limit=2000):

@@ -1,0 +1,36 @@
+title: Proxy Execution via Verclsid.exe CLSID Enumeration
+id: b1e4e6e5-2d3a-4c8f-9a1b-7e2d5f3a8c4d
+status: experimental
+description: |
+    Detects verclsid.exe being used to proxy execution of a COM object. Verclsid.exe
+    is a Windows utility that verifies shell extensions and COM objects. Adversaries
+    abuse it (T1218.012) to execute arbitrary code by registering a malicious CLSID
+    or pointing it at a COM object that loads a DLL. It can bypass application
+    whitelisting since verclsid.exe is a signed Microsoft binary.
+references:
+    - https://attack.mitre.org/techniques/T1218/012/
+    - https://lolbas-project.github.io/lolbas/Binaries/Verclsid/
+    - https://bohops.com/2018/08/18/abusing-the-com-registry-structure-part-2-loading-techniques-for-evasion-and-persistence/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1218.012
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\verclsid.exe'
+        CommandLine|contains:
+            - '/S'
+            - '/C'
+    filter_system:
+        ParentImage|endswith:
+            - '\explorer.exe'
+            - '\svchost.exe'
+        CommandLine|contains: '{8'
+    condition: selection and not filter_system
+falsepositives:
+    - Legitimate COM object verification during software installation
+level: medium

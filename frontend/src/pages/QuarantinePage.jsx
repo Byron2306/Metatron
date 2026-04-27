@@ -19,6 +19,52 @@ const QuarantinePage = () => {
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [filter, setFilter] = useState({ status: '', threat_type: '' });
   const [actionLoading, setActionLoading] = useState(null);
+  const [showDemo, setShowDemo] = useState(true);
+
+  const demoEntries = [
+    {
+      id: 'demo-001',
+      original_path: '/home/user/Downloads/invoice_2026_04_24.pdf.exe',
+      quarantine_path: '/var/lib/anti-ai-defense/quarantine/demo/invoice_2026_04_24.pdf.exe',
+      file_hash: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+      file_hash_md5: null,
+      file_hash_sha1: null,
+      file_size: 481239,
+      file_type: 'pe32',
+      mime_type: 'application/x-dosexec',
+      threat_name: 'Ransom.Win32.MockLock',
+      threat_type: 'ransomware',
+      detection_source: 'demo',
+      agent_id: 'local',
+      agent_name: 'Seraph Agent',
+      quarantined_at: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
+      status: 'quarantined',
+      pipeline_stage: 'quarantined',
+      final_verdict: 'pending',
+      metadata: { demo: true }
+    },
+    {
+      id: 'demo-002',
+      original_path: '/tmp/dropper.sh',
+      quarantine_path: '/var/lib/anti-ai-defense/quarantine/demo/dropper.sh',
+      file_hash: '3a7bd3e2360a3d80f7b1a0f6f5b3a9d6fd45d5b1c2b5c1b6f5a5a5a5a5a5a5a5',
+      file_hash_md5: null,
+      file_hash_sha1: null,
+      file_size: 9216,
+      file_type: 'shell',
+      mime_type: 'text/x-shellscript',
+      threat_name: 'Trojan.Linux.MockPersist',
+      threat_type: 'trojan',
+      detection_source: 'demo',
+      agent_id: 'local',
+      agent_name: 'Seraph Agent',
+      quarantined_at: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
+      status: 'quarantined',
+      pipeline_stage: 'scanning',
+      final_verdict: 'pending',
+      metadata: { demo: true }
+    }
+  ];
 
   const fetchData = async () => {
     setLoading(true);
@@ -34,18 +80,35 @@ const QuarantinePage = () => {
       if (entriesRes.ok) {
         const data = await entriesRes.json();
         // Backend returns array directly, not wrapped in { entries: [] }
-        setEntries(Array.isArray(data) ? data : (data.entries || []));
+        const next = Array.isArray(data) ? data : (data.entries || []);
+        setEntries(next);
       }
       
       if (summaryRes.ok) {
         const data = await summaryRes.json();
         // Map backend response to expected format
-        setSummary({
+        const mapped = {
           total_entries: data.total_files || 0,
           by_status: data.by_status || {},
           by_threat_type: data.by_threat_type || {},
           storage: data.storage || {}
-        });
+        };
+        setSummary(mapped);
+
+        // Restore the previous "demo visible" behavior when the backend has no entries yet.
+        if (showDemo && (!entriesRes.ok || mapped.total_entries === 0)) {
+          setEntries((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : demoEntries));
+          setSummary((prev) => (prev && prev.total_entries > 0 ? prev : {
+            total_entries: demoEntries.length,
+            by_status: { quarantined: demoEntries.length, restored: 0, deleted: 0 },
+            by_threat_type: demoEntries.reduce((acc, e) => {
+              const k = e.threat_type || 'unknown';
+              acc[k] = (acc[k] || 0) + 1;
+              return acc;
+            }, {}),
+            storage: { total_size_bytes: demoEntries.reduce((s, e) => s + (e.file_size || 0), 0) }
+          }));
+        }
       }
     } catch (err) {
       console.error('Failed to fetch quarantine data:', err);
@@ -169,6 +232,13 @@ const QuarantinePage = () => {
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
+        </button>
+        <button
+          onClick={() => setShowDemo((v) => !v)}
+          className="ml-2 px-3 py-2 text-xs rounded border border-slate-700 text-slate-300 hover:bg-slate-800/60"
+          title="Toggle demo data when quarantine is empty"
+        >
+          Demo: {showDemo ? 'On' : 'Off'}
         </button>
       </div>
 

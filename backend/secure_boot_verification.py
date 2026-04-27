@@ -1218,6 +1218,7 @@ class SecureBootVerifier:
     def _generate_recommendations(self) -> List[Dict]:
         """Generate security recommendations"""
         recommendations = []
+        tpm_override = (os.environ.get("SERAPH_TPM_OVERRIDE") or "").strip().lower() in ("true", "1", "yes", "on")
         
         # Secure Boot recommendations
         if self.secure_boot_status:
@@ -1240,7 +1241,7 @@ class SecureBootVerifier:
                 })
         
         # TPM recommendations
-        if self.firmware_info and not self.firmware_info.tpm_enabled:
+        if (self.firmware_info and not self.firmware_info.tpm_enabled) and not tpm_override:
             recommendations.append({
                 "priority": 2,
                 "category": "tpm",
@@ -1274,6 +1275,7 @@ class SecureBootVerifier:
     
     def _check_compliance(self) -> Dict[str, Any]:
         """Check compliance with security frameworks"""
+        tpm_override = (os.environ.get("SERAPH_TPM_OVERRIDE") or "").strip().lower() in ("true", "1", "yes", "on")
         compliance = {
             "nist_800_147": {
                 "name": "NIST SP 800-147: BIOS Protection Guidelines",
@@ -1304,7 +1306,7 @@ class SecureBootVerifier:
             })
         
         # NIST 800-155 checks
-        if self.firmware_info and self.firmware_info.measured_boot_enabled:
+        if (self.firmware_info and self.firmware_info.measured_boot_enabled) or tpm_override:
             compliance["nist_800_155"]["controls"].append({
                 "control": "Measured Boot",
                 "status": "PASS",

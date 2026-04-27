@@ -91,11 +91,13 @@ jobs:
       # ── Clone ART atomics catalog ────────────────────────────────────────
       - name: Clone atomic-red-team atomics
         run: |
-          git clone --depth=1 --filter=blob:none --sparse \
+          # Use sparse checkout WITHOUT --filter=blob:none so all YAML files are
+          # fully downloaded. --filter=blob:none lazy-loads blobs, which causes
+          # Invoke-AtomicRedTeam to fail with "does not exist" errors at runtime.
+          git clone --depth=1 --sparse \
             https://github.com/redcanaryco/atomic-red-team.git /opt/atomic-red-team-src
           cd /opt/atomic-red-team-src
           git sparse-checkout set atomics
-          # Symlink so the module finds them at the expected path
           ln -s /opt/atomic-red-team-src/atomics /opt/atomic-red-team-atomics
           echo "Atomics cloned: $(ls /opt/atomic-red-team-atomics | wc -l) technique dirs"
 

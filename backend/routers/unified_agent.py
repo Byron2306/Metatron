@@ -331,6 +331,10 @@ class AgentRegistrationModel(BaseModel):
     capabilities: List[str] = []
     config: Optional[Dict[str, Any]] = None
     local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
+    # Optional workload identity anchors (for constitutional→kernel friend/foe)
+    node_id: Optional[str] = None
+    executable_path: Optional[str] = None
+    workload_hash: Optional[str] = None
 
 
 # Monitor-specific telemetry models
@@ -442,6 +446,10 @@ class AgentHeartbeatModel(BaseModel):
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
     local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
+    # Optional workload identity anchors (for constitutional→kernel friend/foe)
+    node_id: Optional[str] = None
+    executable_path: Optional[str] = None
+    workload_hash: Optional[str] = None
 
 
 class DeploymentRequestModel(BaseModel):
@@ -529,6 +537,10 @@ class AgentHeartbeatModel(BaseModel):
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
     local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
+    # Optional workload identity anchors (for constitutional→kernel friend/foe)
+    node_id: Optional[str] = None
+    executable_path: Optional[str] = None
+    workload_hash: Optional[str] = None
 
 
 AgentHeartbeatModel.model_rebuild()
@@ -655,10 +667,26 @@ async def register_agent(
                 "status": "online",
                 "last_heartbeat": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-                **( {"local_ui_url": agent.local_ui_url} if agent.local_ui_url else {} )
+                **({"local_ui_url": agent.local_ui_url} if agent.local_ui_url else {}),
+                **({"node_id": agent.node_id} if agent.node_id else {}),
+                **({"executable_path": agent.executable_path} if agent.executable_path else {}),
+                **({"workload_hash": agent.workload_hash} if agent.workload_hash else {}),
             }}
         )
         logger.info(f"Agent re-registered: {agent.agent_id} ({agent.platform})")
+
+        # Best-effort coronation into the Arda Fabric registry.
+        try:
+            from services.arda_fabric import get_arda_fabric
+            fabric = get_arda_fabric()
+            fabric.ensure_subject(
+                agent.node_id or agent.agent_id,
+                workload_hash=agent.workload_hash,
+                executable_path=agent.executable_path,
+            )
+        except Exception as e:
+            logger.debug(f"Fabric coronation skipped on re-register: {e}")
+
         return {
             "status": "updated",
             "agent_id": agent.agent_id,
@@ -684,10 +712,25 @@ async def register_agent(
         "enrolled_from_ip": auth['ip'],
         "enrollment_type": auth['type'],
         "local_ui_url": agent.local_ui_url or "",
+        "node_id": agent.node_id or agent.agent_id,
+        "executable_path": agent.executable_path,
+        "workload_hash": agent.workload_hash,
     }
     
     await db.unified_agents.insert_one(agent_doc)
     logger.info(f"New agent registered: {agent.agent_id} ({agent.platform}) from {agent.ip_address}")
+
+    # Best-effort coronation into the Arda Fabric registry.
+    try:
+        from services.arda_fabric import get_arda_fabric
+        fabric = get_arda_fabric()
+        fabric.ensure_subject(
+            agent_doc["node_id"],
+            workload_hash=agent.workload_hash,
+            executable_path=agent.executable_path,
+        )
+    except Exception as e:
+        logger.debug(f"Fabric coronation skipped on register: {e}")
     
     return {
         "status": "registered",
@@ -724,7 +767,10 @@ async def agent_heartbeat(
         "disk_usage": heartbeat.disk_usage,
         "threat_count": heartbeat.threat_count or 0,
         "network_connections": heartbeat.network_connections,
-        "last_ip": auth['ip']
+        "last_ip": auth['ip'],
+        **({"node_id": heartbeat.node_id} if heartbeat.node_id else {}),
+        **({"executable_path": heartbeat.executable_path} if heartbeat.executable_path else {}),
+        **({"workload_hash": heartbeat.workload_hash} if heartbeat.workload_hash else {}),
     }
 
     # Persist local UI URL when provided
@@ -749,6 +795,20 @@ async def agent_heartbeat(
         {"agent_id": agent_id},
         {"$set": update_data}
     )
+
+    # Coronate/refresh the peer in the Arda Fabric registry on every heartbeat
+    # (this keeps executable_path/workload_hash fresh for constitutional→kernel bridging).
+    try:
+        from services.arda_fabric import get_arda_fabric
+        fabric = get_arda_fabric()
+        node_id = heartbeat.node_id or agent.get("node_id") or agent_id
+        fabric.ensure_subject(
+            node_id,
+            workload_hash=heartbeat.workload_hash or agent.get("workload_hash"),
+            executable_path=heartbeat.executable_path or agent.get("executable_path"),
+        )
+    except Exception as e:
+        logger.debug(f"Fabric coronation skipped on heartbeat: {e}")
     
     # Process any alerts
     for alert_data in heartbeat.alerts:

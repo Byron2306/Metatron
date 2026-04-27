@@ -422,26 +422,34 @@ async def run_amass(
     job_id = await _new_running_job("amass", params)
 
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    outname = f"amass_{domain}_{ts}.json"
+    outname = f"amass_{domain}_{ts}_{job_id}.txt"
+    errname = f"amass_{domain}_{ts}_{job_id}.stderr.txt"
     outpath = INTEGRATIONS_DIR / outname
+    errpath = INTEGRATIONS_DIR / errname
 
-    # Docker amass command writes JSON-lines to mounted folder
-    cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "-v",
-        f"{INTEGRATIONS_DIR}:/data",
-        "caffix/amass:latest",
-        "enum",
-        "-d",
-        domain,
-        "-oJ",
-        f"/data/{outname}",
-    ]
+    # OWASP Amass v4 writes results to a file; because this runs via the host Docker socket,
+    # avoid bind-mounts (host-path ambiguity) and instead cat the output back over stdout.
+    timeout_minutes = int(os.environ.get("AMASS_TIMEOUT_MINUTES", "2") or 2)
+    amass_script = (
+        f"amass enum -d {domain} -timeout {timeout_minutes} -dir /tmp -o /tmp/amass_out.txt "
+        f">/dev/null 2>/tmp/amass_err.txt; "
+        f"rc=$?; "
+        f"cat /tmp/amass_out.txt 2>/dev/null || true; "
+        f"cat /tmp/amass_err.txt >&2 || true; "
+        f"exit $rc"
+    )
+    cmd = ["docker", "run", "--rm", "caffix/amass:latest", "sh", "-lc", amass_script]
 
     try:
-        rc, out, err = await _run_subprocess(cmd)
+        rc, out, err = await _run_subprocess(cmd, timeout=max(300, timeout_minutes * 60 + 180))
+        try:
+            outpath.write_text(out or "", encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            errpath.write_text(err or "", encoding="utf-8")
+        except Exception:
+            pass
         if rc != 0:
             await _persist_job(
                 job_id,
@@ -451,27 +459,25 @@ async def run_amass(
                     "stderr_tail": (err or "")[-4000:],
                     "stdout_tail": (out or "")[-4000:],
                     "artifact_dir": str(INTEGRATIONS_DIR),
-                    "artifacts": [outname] if outpath.exists() else [],
+                    "artifacts": [n for n in [outname, errname] if (INTEGRATIONS_DIR / n).exists()],
                 },
             )
             return _jobs[job_id]
 
-        # Parse JSON-lines
+        # Parse output text (one host per line).
         indicators = []
         discovered_domains = set()
         if outpath.exists():
-            with open(outpath, 'r', encoding='utf-8') as fh:
-                for line in fh:
-                    line=line.strip()
-                    if not line: continue
-                    try:
-                        j = json.loads(line)
-                        name = j.get('name') or j.get('host')
-                        if name:
-                            discovered_domains.add(str(name).strip().lower())
-                            indicators.append({'type':'domain','value':name, 'confidence':50})
-                    except Exception:
-                        continue
+            for line in outpath.read_text(encoding="utf-8", errors="ignore").splitlines():
+                row = line.strip()
+                if not row:
+                    continue
+                # Amass output may include source annotations; keep the first token-like field.
+                value = row.split()[0].strip().strip(",")
+                if not value:
+                    continue
+                discovered_domains.add(value.lower())
+                indicators.append({"type": "domain", "value": value, "confidence": 50})
 
         # Ingest into threat intel
         if indicators:
@@ -482,7 +488,7 @@ async def run_amass(
         result_payload = {
             **(res if isinstance(res, dict) else {"ingested": 0}),
             "artifact_dir": str(INTEGRATIONS_DIR),
-            "artifacts": [outname] if outpath.exists() else [],
+            "artifacts": [n for n in [outname, errname] if (INTEGRATIONS_DIR / n).exists()],
             "indicators_extracted": len(indicators),
             "enumerated_domain_count": len(discovered_domains),
             "stdout_tail": (out or "")[-4000:],
@@ -785,11 +791,33 @@ async def run_purplesharp(
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
         out = (stdout.decode(errors="ignore") or "").strip()
         err = (stderr.decode(errors="ignore") or "").strip()
+        recent_artifacts = []
+        try:
+            now_ts = datetime.now(timezone.utc).timestamp()
+            candidates = [p for p in INTEGRATIONS_DIR.glob("purplesharp_*") if p.is_file()]
+            candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            for p in candidates[:15]:
+                if now_ts - p.stat().st_mtime <= 600:
+                    recent_artifacts.append(p.name)
+        except Exception:
+            recent_artifacts = []
         if proc.returncode != 0:
+            outfile = out.splitlines()[-1].strip() if out else ""
+            artifact_name = Path(outfile).name if outfile and Path(outfile).exists() else ""
             await _persist_job(
                 job_id,
                 status="failed",
-                result={"rc": proc.returncode, "stderr": err, "stdout": out[-4000:]},
+                result={
+                    "rc": proc.returncode,
+                    "stderr": err,
+                    "stdout": out[-4000:],
+                    "artifact_dir": str(INTEGRATIONS_DIR),
+                    "artifacts": (
+                        [artifact_name]
+                        if artifact_name
+                        else sorted(set(recent_artifacts))[:8]
+                    ),
+                },
             )
             return _jobs[job_id]
         outfile = out.splitlines()[-1].strip() if out else ""

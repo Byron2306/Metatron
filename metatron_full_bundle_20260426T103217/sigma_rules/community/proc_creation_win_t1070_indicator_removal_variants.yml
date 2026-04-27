@@ -1,0 +1,116 @@
+title: Indicator Removal - USN Journal Deletion or Corruption
+id: f2a3b4c5-d6e7-8901-fabe-901234567890
+status: experimental
+description: |
+    Detects deletion or manipulation of the NTFS USN Journal, which records all
+    file system changes. Adversaries use T1070.009 to destroy forensic evidence
+    of file operations — malware drops, lateral movement tools, and staging.
+    Fsutil.exe is the standard tool; PowerShell and direct DeviceIoControl calls
+    are also used. Deleting the USN journal is rare in legitimate operations.
+references:
+    - https://attack.mitre.org/techniques/T1070/009/
+    - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/fsutil-usn
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1070.009
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_fsutil_usn:
+        Image|endswith: '\fsutil.exe'
+        CommandLine|contains:
+            - 'usn'
+            - 'deletejournal'
+    selection_wevtutil_clear:
+        Image|endswith: '\wevtutil.exe'
+        CommandLine|re: '(?i)(cl |clear-log )'
+    condition: 1 of selection_*
+falsepositives:
+    - Windows Server administrators performing disk maintenance (rare)
+level: high
+---
+title: Indicator Removal - Email Deletion from Mailbox via PowerShell or EWS
+id: a3b4c5d6-e7f8-9012-abcd-012345678901
+status: experimental
+description: |
+    Detects deletion of email messages via PowerShell Exchange cmdlets or the
+    Exchange Web Services (EWS) API. Adversaries use T1070.008 to delete spearphishing
+    emails sent to victims (covering tracks) or to delete exfiltrated mailbox content
+    evidence. Common in BEC (Business Email Compromise) and nation-state intrusions
+    where adversaries clean up after mail-based collection.
+references:
+    - https://attack.mitre.org/techniques/T1070/008/
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-193a
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1070.008
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging'
+detection:
+    selection_exchange_delete:
+        ScriptBlockText|contains:
+            - 'Remove-MailboxMessage'
+            - 'Remove-Item'
+            - 'HardDelete'
+            - 'SoftDelete'
+        ScriptBlockText|contains:
+            - 'ExchangeWebServices'
+            - 'EWS'
+            - 'Microsoft.Exchange'
+            - 'Invoke-RestMethod'
+    filter_admin:
+        ScriptBlockText|contains:
+            - 'Compliance'
+            - 'eDiscovery'
+    condition: all of selection_delete and not filter_admin
+    selection_delete:
+        ScriptBlockText|contains:
+            - 'Remove-MailboxMessage'
+            - 'HardDelete'
+falsepositives:
+    - Exchange administrators performing mailbox management
+    - eDiscovery and compliance holds operations
+level: medium
+---
+title: Indicator Removal - Timestomp via PowerShell or Touch Command
+id: b4c5d6e7-f8a9-0123-bcde-123456789012
+status: experimental
+description: |
+    Detects file timestamp manipulation (T1070.006 / T1070.007 variant) using
+    PowerShell .NET date manipulation or the touch/SetFileTime API. Adversaries
+    modify file creation/modification/access timestamps to blend malware files
+    into the surrounding filesystem timeline, hindering forensic triage.
+references:
+    - https://attack.mitre.org/techniques/T1070/007/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1070.007
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging'
+detection:
+    selection:
+        ScriptBlockText|contains:
+            - '.CreationTime'
+            - '.LastWriteTime'
+            - '.LastAccessTime'
+        ScriptBlockText|contains:
+            - 'Get-Item'
+            - 'Set-ItemProperty'
+            - '[System.IO.File]'
+        ScriptBlockText|re: '(?i)(exe|dll|bat|ps1|vbs|hta|scr)'
+    condition: all of selection_*
+falsepositives:
+    - Software installers preserving original file timestamps
+    - Backup/restore operations
+level: medium

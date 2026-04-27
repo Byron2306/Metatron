@@ -128,9 +128,13 @@ class ContainerInfo:
     """Information about a running container"""
     container_id: str
     name: str
+    # Prefer a human-readable reference (repo:tag or build name). If Docker only
+    # reports an image ID, we resolve it via `docker inspect` Config.Image.
     image: str
     status: str
     created: str
+    # Raw immutable image identifier (e.g. sha256:...).
+    image_id: str = ""
     ports: List[str] = field(default_factory=list)
     is_privileged: bool = False
     capabilities: List[str] = field(default_factory=list)
@@ -462,6 +466,17 @@ class ContainerRuntimeMonitor:
     
     async def get_running_containers(self) -> List[ContainerInfo]:
         """Get list of running containers with security assessment"""
+        def _looks_like_image_id(value: str) -> bool:
+            v = (value or "").strip().lower()
+            if not v:
+                return False
+            if v.startswith("sha256:"):
+                return True
+            # docker ps often renders untagged images as a 12-char hex ID
+            if re.fullmatch(r"[0-9a-f]{12,64}", v):
+                return True
+            return False
+
         try:
             result = await asyncio.create_subprocess_exec(
                 "docker", "ps", "--format", 
@@ -479,6 +494,7 @@ class ContainerRuntimeMonitor:
                 try:
                     data = json.loads(line)
                     container_id = data.get("id", "")
+                    docker_ps_image = data.get("image", "") or ""
                     
                     # Get detailed inspection
                     inspect_result = await asyncio.create_subprocess_exec(
@@ -488,11 +504,21 @@ class ContainerRuntimeMonitor:
                     )
                     inspect_stdout, _ = await inspect_result.communicate()
                     inspect_data = json.loads(inspect_stdout.decode())[0] if inspect_stdout else {}
-                    
+
                     host_config = inspect_data.get("HostConfig", {})
                     is_privileged = host_config.get("Privileged", False)
                     cap_add = host_config.get("CapAdd", []) or []
-                    
+
+                    config_image = ""
+                    try:
+                        config_image = str(inspect_data.get("Config", {}).get("Image") or "")
+                    except Exception:
+                        config_image = ""
+                    image_id = str(inspect_data.get("Image") or "")
+                    image_display = docker_ps_image
+                    if _looks_like_image_id(image_display) and config_image:
+                        image_display = config_image
+
                     # Calculate security score
                     security_score = 100
                     if is_privileged:
@@ -504,7 +530,8 @@ class ContainerRuntimeMonitor:
                     containers.append(ContainerInfo(
                         container_id=container_id,
                         name=data.get("name", ""),
-                        image=data.get("image", ""),
+                        image=image_display,
+                        image_id=image_id,
                         status=data.get("status", ""),
                         created=inspect_data.get("Created", ""),
                         ports=data.get("ports", "").split(", ") if data.get("ports") else [],

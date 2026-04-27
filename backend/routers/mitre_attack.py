@@ -171,6 +171,43 @@ def _load_soar_overlay() -> Dict[str, Dict[str, int]]:
     return overlay
 
 
+def _load_arda_prevention_overlay() -> Dict[str, Dict[str, int]]:
+    """Load per-technique ARDA exec-prevention evidence counts.
+
+    Evidence records are written by scripts/run_arda_prevention_evidence.py.
+    """
+    import json
+    from pathlib import Path
+
+    overlay: Dict[str, Dict[str, int]] = {}
+    default_dir = (
+        Path(__file__).resolve().parents[3]
+        / "artifacts"
+        / "evidence"
+        / "arda_prevention"
+    )
+    evidence_dir = Path(os.environ.get("ARDA_PREVENTION_EVIDENCE_DIR", str(default_dir)))
+    if not evidence_dir.exists():
+        return overlay
+
+    for path in sorted(evidence_dir.glob("*.json")):
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        tid = str(row.get("technique_id") or "").strip().upper()
+        if not tid:
+            continue
+        exec_attempt = row.get("exec_attempt") if isinstance(row.get("exec_attempt"), dict) else {}
+        denied = bool(exec_attempt.get("denied"))
+        overlay.setdefault(tid, {"prevention_events": 0, "exec_denied_events": 0})
+        overlay[tid]["prevention_events"] += 1
+        if denied:
+            overlay[tid]["exec_denied_events"] += 1
+
+    return overlay
+
+
 def _build_coverage_response(force_refresh: bool = False) -> Dict[str, Any]:
     global _coverage_cache, _coverage_cache_ts
 
@@ -190,6 +227,7 @@ def _build_coverage_response(force_refresh: bool = False) -> Dict[str, Any]:
     unified = summary.get("unified_coverage") or {}
     sigma_rows = {row.get("technique"): row for row in (unified.get("techniques") or []) if row.get("technique")}
     soar_overlay = _load_soar_overlay()
+    arda_prevention_overlay = _load_arda_prevention_overlay()
 
     # When TVR index is populated, it is the authoritative key set. Sigma augments
     # evidence (SOAR/osquery/atomic) but must not add new technique IDs.
@@ -204,6 +242,7 @@ def _build_coverage_response(force_refresh: bool = False) -> Dict[str, Any]:
         sigma_row = sigma_rows.get(tid) or {}
         evidence = sigma_row.get("evidence") or {}
         overlay = soar_overlay.get(tid) or {}
+        prevention = arda_prevention_overlay.get(tid) or {}
         if "soar_playbook_count" not in evidence and overlay:
             evidence = dict(evidence)
             evidence["soar_playbook_count"] = _as_int(overlay.get("playbook_count", 0), 0)
@@ -212,6 +251,11 @@ def _build_coverage_response(force_refresh: bool = False) -> Dict[str, Any]:
             evidence = dict(evidence)
             evidence["soar_playbook_count"] = 0
             evidence["soar_execution_count"] = 0
+
+        if prevention:
+            evidence = dict(evidence)
+            evidence["arda_prevention_events"] = _as_int(prevention.get("prevention_events", 0), 0)
+            evidence["arda_exec_denied_events"] = _as_int(prevention.get("exec_denied_events", 0), 0)
 
         # Base score from TVR validation (0-5, integer). Sigma augments with SOAR
         # evidence; when SOAR response evidence is present we treat S5 as "validated

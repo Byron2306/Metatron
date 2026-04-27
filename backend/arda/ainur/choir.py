@@ -176,6 +176,22 @@ class AinurChoir:
                 packet.sweep_id = sweep_id
                 packet.ainur_target = name
                 packet.secret_fire_ref = getattr(raw_context.get("secret_fire"), "nonce", None)
+
+                # Identity anchors must survive tier inhibition.
+                # If Manwë is inhibited, the projection layer still needs the
+                # SecretFire workload identity to coronate the subject.
+                try:
+                    sf = raw_context.get("secret_fire")
+                    if sf:
+                        sf_workload_hash = getattr(sf, "workload_hash", None)
+                        sf_executable_path = getattr(sf, "executable_path", None)
+                        if isinstance(packet.evidence, dict):
+                            if sf_workload_hash and not packet.evidence.get("workload_hash"):
+                                packet.evidence["workload_hash"] = sf_workload_hash
+                            if sf_executable_path and not packet.evidence.get("executable_path"):
+                                packet.evidence["executable_path"] = sf_executable_path
+                except Exception:
+                    pass
                 
                 evidence_map[name.capitalize()] = [packet]
                 evidence_map[name] = [packet]

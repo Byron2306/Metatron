@@ -47,12 +47,14 @@ run_local() {
   if command -v pwsh >/dev/null 2>&1; then
     pwsh_bin="pwsh"
   elif command -v powershell >/dev/null 2>&1; then
-    pwsh_bin="powershell"  elif [[ -x "/opt/pwsh/pwsh" ]]; then
+    pwsh_bin="powershell"
+  elif [[ -x "/opt/pwsh/pwsh" ]]; then
     pwsh_bin="/opt/pwsh/pwsh"
   elif [[ -x "/usr/bin/pwsh" ]]; then
     pwsh_bin="/usr/bin/pwsh"
   elif [[ -x "/usr/local/bin/pwsh" ]]; then
-    pwsh_bin="/usr/local/bin/pwsh"  fi
+    pwsh_bin="/usr/local/bin/pwsh"
+  fi
   [[ -n "$pwsh_bin" ]] || emit_failure "PowerShell runtime not found for local PurpleSharp execution"
 
   local default_cmd='try { Import-Module C:\\Tools\\PurpleSharp\\PurpleSharp.psm1 -ErrorAction Stop; $r = Invoke-PurpleSharp -OutputJson; $r | ConvertTo-Json -Depth 8 } catch { @{status="failed"; message=$_.Exception.Message} | ConvertTo-Json -Depth 8 }'

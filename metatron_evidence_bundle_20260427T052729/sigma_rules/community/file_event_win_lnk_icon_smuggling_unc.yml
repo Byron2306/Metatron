@@ -1,0 +1,75 @@
+title: LNK Icon Smuggling - Shortcut with External UNC or URL Icon Path
+id: 09165ac7-d7da-4f89-adc7-4b789fe9f28e
+status: experimental
+description: |
+    Detects creation of Windows shortcut (LNK) files with an icon path pointing to
+    a UNC share, WebDAV path, or external URL. Adversaries abuse the IconEnvironmentDataBlock
+    in LNK files to trigger outbound connections when Windows Explorer previews the
+    parent folder, enabling credential harvesting (NTLMv2 via UNC) or payload staging.
+    This technique (T1027.012) is used in spearphishing and supply chain attacks.
+references:
+    - https://attack.mitre.org/techniques/T1027/012/
+    - https://www.outflank.nl/blog/2023/03/28/smuggling-files-through-lnk-metadata/
+    - https://github.com/AmnesiacSecurity/LNKStealer
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.credential_access
+    - attack.t1027.012
+    - attack.t1187
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_lnk:
+        TargetFilename|endswith: '.lnk'
+    selection_lnk_location:
+        TargetFilename|contains:
+            - '\Desktop\'
+            - '\Downloads\'
+            - '\AppData\Roaming\Microsoft\Windows\Recent\'
+            - '\Startup\'
+    condition: selection_lnk and selection_lnk_location
+falsepositives:
+    - Legitimate shortcut creation by installers
+level: low
+---
+title: LNK Icon Smuggling - PowerShell or CMD Creating LNK with UNC IconLocation
+id: 8d5f2aa8-6bd0-4b6b-8c50-f61ae44c1e1c
+status: experimental
+description: |
+    Detects PowerShell or scripting creating a Windows shortcut (.lnk) that sets the
+    IconLocation to a UNC path (\\server\share) or external URL. This is the scripted
+    form of T1027.012 (LNK Icon Smuggling), commonly seen in phishing toolkits.
+    When the folder containing the LNK is opened in Explorer, Windows automatically
+    resolves the icon path — triggering NTLM authentication to the attacker's SMB server.
+references:
+    - https://attack.mitre.org/techniques/T1027/012/
+    - https://www.mdsec.co.uk/2023/01/lnk-icon-smuggling/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.credential_access
+    - attack.t1027.012
+    - attack.t1187
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging (Event ID 4104)'
+detection:
+    selection_lnk_create:
+        ScriptBlockText|contains:
+            - 'CreateShortcut'
+            - 'WScript.Shell'
+            - 'ShellLinkObject'
+    selection_unc_icon:
+        ScriptBlockText|contains:
+            - 'IconLocation'
+            - 'IconPath'
+        ScriptBlockText|re: '(?i)(\\\\[^\\]+\\|http[s]?://|ftp://)'
+    condition: all of selection_*
+falsepositives:
+    - Legitimate IT provisioning scripts creating desktop shortcuts
+level: high

@@ -1,0 +1,33 @@
+title: Chromium Browser Launched With Custom Extension on Linux
+id: a4f1e2d3-b5c6-7890-abcd-ef0123456789
+status: experimental
+description: |
+    Detects a Chromium-based browser process launched with the --load-extension flag
+    on Linux. Adversaries use this to silently load malicious or surveillance extensions.
+    Maps to T1176 (Browser Extensions) and T1176.001.
+references:
+    - https://attack.mitre.org/techniques/T1176/001/
+    - https://securityintelligence.com/posts/grandoreiro-malware-now-targeting-banks-in-spain/
+    - https://redcanary.com/blog/chromeloader/
+author: Seraph AI Defense Platform
+date: 2026/04/27
+tags:
+    - attack.persistence
+    - attack.t1176
+    - attack.t1176.001
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        CommandLine|contains: '--load-extension='
+    filter_benign:
+        CommandLine|contains:
+            - 'chromedriver'
+            - 'selenium'
+            - '--load-extension=/usr/share'
+    condition: selection and not filter_benign
+falsepositives:
+    - Browser automation frameworks (Selenium, Playwright) using test extensions
+    - System-installed browser extensions via package manager
+level: high

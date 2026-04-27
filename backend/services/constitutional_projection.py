@@ -52,20 +52,25 @@ async def project_choir_truth(verdict: ChoirVerdict):
 
     fabric = get_arda_fabric()
     
-    # Phase C: Extract workload hash from evidence if available
+    # Phase C: Extract workload identity anchors from evidence if available
     workload_hash = None
+    executable_path = None
     for ainur_verdict in verdict.ainur:
-        # print(f"DEBUG: Checking {ainur_verdict.ainur} verdict...")
-        for evidence in ainur_verdict.evidence:
-            # print(f"DEBUG: Checking evidence source: {evidence.source}")
-            if evidence.source == "manwe":
-                # Manwe collects the SecretFirePacket
-                workload_hash = evidence.evidence.get("workload_hash")
-                # print(f"DEBUG: Found workload_hash: {workload_hash}")
-                if workload_hash: break
-        if workload_hash: break
+        for ev in ainur_verdict.evidence or []:
+            try:
+                payload = getattr(ev, "evidence", None) or {}
+                if isinstance(payload, dict):
+                    if not workload_hash and payload.get("workload_hash"):
+                        workload_hash = payload.get("workload_hash")
+                    if not executable_path and payload.get("executable_path"):
+                        executable_path = payload.get("executable_path")
+            except Exception:
+                continue
 
-    fabric.ensure_subject(node_id, workload_hash=workload_hash)
+        if workload_hash and executable_path:
+            break
+
+    fabric.ensure_subject(node_id, workload_hash=workload_hash, executable_path=executable_path)
     fabric.update_resonance_amplitude(node_id, node_amplitude)
 
     # Propagate dual-scoped truth across the fabric

@@ -96,6 +96,22 @@ const SecureBootPage = () => {
         setFirmware([]);
       }
 
+      // Populate the top "fleet" tiles even in single-host mode.
+      if (statusRes?.data) {
+        const components = firmwareRes?.data?.components || [];
+        const pendingUpdates = Array.isArray(components)
+          ? components.filter((c) => c?.update_available).length
+          : 0;
+        const threatCount = Array.isArray(alertsRes?.data?.alerts) ? alertsRes.data.alerts.length : 0;
+        setFleetStats({
+          total_endpoints: 1,
+          secure_boot_enabled: statusRes.data.secure_boot_enabled ? 1 : 0,
+          tpm_present: statusRes.data.tpm_present ? 1 : 0,
+          threats_detected: threatCount,
+          pending_updates: pendingUpdates,
+        });
+      }
+
       // Only fall back to demo if the core endpoints are unavailable.
       if (!statusRes || !chainRes) {
         setDemoMode(true);

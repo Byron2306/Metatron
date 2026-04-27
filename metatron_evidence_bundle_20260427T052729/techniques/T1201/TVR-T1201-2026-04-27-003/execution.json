@@ -1,0 +1,17 @@
+{
+  "status": "completed",
+  "exit_code": 0,
+  "executor": "atomic_red_team",
+  "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-e63d37cce56b', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--cap-add', 'NET_RAW', '--security-opt', 'no-new-privileges:false', '--tmpfs', '/tmp:exec,size=512m', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro', 'seraph-sandbox-tools:latest', '/opt/pwsh/pwsh', '-NonInteractive', '-NoProfile', '-Command', 'Import-Module \\'/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1\\' -ErrorAction Stop; $env:PathToAtomicsFolder=\\'/opt/atomic-red-team/atomics\\'; try { bash -lc \"if command -v apt-get >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null 2>&1 || true; apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; fi; if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then printf \\'#!/usr/bin/env bash\\\\nbase64 \"$@\"\\\\n\\' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; fi\" } catch { Write-Host \\'[WARN] dependency bootstrap failed\\'; }; try { Invoke-AtomicTest T1201 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 1 -GetPrereqs -ErrorAction Continue } catch { Write-Host \\'[WARN] GetPrereqs failed for T1201\\'; }; Invoke-AtomicTest T1201 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 1']",
+  "run_count": 3,
+  "run_ids": [
+    "bab9865b2df146f19246d91cc4f19049",
+    "5d5e00f09b834760813bed6d49e4ed78",
+    "e63d37cce56b4acab105939a2f181934"
+  ],
+  "job_ids": [
+    "sandbox-real-sweep"
+  ],
+  "stdout_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "stderr_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+}

@@ -68,11 +68,21 @@ class ArdaFabricEngine:
         if time.time() > handshake["expiry"]:
             del self.active_handshakes[session_id]
             return False
-        voice_id = getattr(secret_fire_packet, "voice_id", None)
+        # Accept either a pydantic model or a dict coming from the API router.
+        if isinstance(secret_fire_packet, dict):
+            voice_id = secret_fire_packet.get("voice_id")
+            tpm_quote = secret_fire_packet.get("tpm_quote")
+            workload_hash = secret_fire_packet.get("workload_hash")
+            executable_path = secret_fire_packet.get("executable_path")
+        else:
+            voice_id = getattr(secret_fire_packet, "voice_id", None)
+            tpm_quote = getattr(secret_fire_packet, "tpm_quote", None)
+            workload_hash = getattr(secret_fire_packet, "workload_hash", None)
+            executable_path = getattr(secret_fire_packet, "executable_path", None)
+
         current_voice = self.forge.get_current_packet()
         if not current_voice or voice_id != current_voice.voice_id:
              return False
-        tpm_quote = getattr(secret_fire_packet, "tpm_quote", None)
         if not tpm_quote or not await self.tpm.verify_quote(tpm_quote, handshake["nonce"]):
              return False
         remote_node_id = handshake["remote_node_id"]
@@ -82,7 +92,10 @@ class ArdaFabricEngine:
             "wg_pubkey": "local-only",
             "last_handshake": time.time(),
             "pcr_baseline": getattr(tpm_quote, "pcr_values", {}),
-            "influence_budget": initial_budget
+            "influence_budget": initial_budget,
+            "workload_hash": workload_hash,
+            "executable_path": executable_path,
+            "is_peer_verified": True,
         }
         del self.active_handshakes[session_id]
         return True
@@ -101,9 +114,11 @@ class ArdaFabricEngine:
                     behavioral_score=1.0
                 )
             }
-        elif workload_hash:
-             self.known_peers[node_id]["workload_hash"] = workload_hash
-             if executable_path: self.known_peers[node_id]["executable_path"] = executable_path
+        else:
+            if workload_hash:
+                self.known_peers[node_id]["workload_hash"] = workload_hash
+            if executable_path:
+                self.known_peers[node_id]["executable_path"] = executable_path
 
     async def broadcast_sovereign_summons(self, truth_payload: Dict[str, Any]):
         logger.info("Fabric: Igniting Sovereign Summons across the Mesh.")

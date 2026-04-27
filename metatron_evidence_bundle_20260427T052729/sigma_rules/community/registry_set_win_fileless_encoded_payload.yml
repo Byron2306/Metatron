@@ -1,0 +1,47 @@
+title: Fileless Malware - Base64 or Compressed Payload Stored in Registry
+id: 4db66a45-a174-4167-b397-e174d0b22105
+status: experimental
+description: |
+    Detects registry value writes containing suspiciously long Base64-encoded strings
+    or compressed payload headers (MZ, PK, MSCF) in persistence-relevant registry keys.
+    Adversaries using T1027.011 (Fileless Storage) store encoded shellcode or scripts
+    in the registry to avoid writing to disk, loading and decoding at runtime.
+    Common locations include Run/RunOnce keys, TypedPaths, and Class registrations.
+references:
+    - https://attack.mitre.org/techniques/T1027/011/
+    - https://www.microsoft.com/en-us/security/blog/2018/03/01/finfisher-exposed-a-researchers-tale-of-defeating-traps-tricks-and-complex-virtual-machines/
+    - https://securelist.com/fileless-attacks-against-enterprise-networks/77403/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.persistence
+    - attack.t1027.011
+    - attack.t1547.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection_persistence_key:
+        TargetObject|contains:
+            - '\Software\Microsoft\Windows\CurrentVersion\Run'
+            - '\Software\Microsoft\Windows\CurrentVersion\RunOnce'
+            - '\Software\Microsoft\Windows NT\CurrentVersion\Winlogon'
+            - '\Software\Classes\CLSID\'
+            - '\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths'
+            - '\Environment'
+            - '\SYSTEM\CurrentControlSet\Services\'
+    selection_encoded_content:
+        Details|re: '^[A-Za-z0-9+/]{200,}={0,2}$'
+    selection_payload_magic:
+        Details|contains:
+            - 'TVqQAA'
+            - 'TVpQAA'
+            - 'TVoAAA'
+            - 'UEsDBA'
+            - 'MSCF'
+    condition: selection_persistence_key and (selection_encoded_content or selection_payload_magic)
+falsepositives:
+    - Some legitimate applications store encoded configuration data in registry
+    - Certificate or key material in registry
+level: high

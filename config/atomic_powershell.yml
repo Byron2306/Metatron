@@ -1,7 +1,7 @@
 default_runner_profile: linux-sandbox
 
-runner: /usr/bin/pwsh
-module_path: /opt/invoke-atomicredteam/Invoke-AtomicRedTeam
+runner: /opt/pwsh/pwsh
+module_path: /opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1
 atomic_root: /opt/atomic-red-team/atomics
 
 runner_profiles:
@@ -35,6 +35,33 @@ runner_profiles:
     winrm_server_cert_validation: ignore
     module_path: C:/AtomicRedTeam/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1
     atomic_root: C:/AtomicRedTeam/atomics
+
+  - profile_id: linux-direct
+    type: local
+    enabled: true
+    description: Direct execution inside backend container (network enabled)
+    platforms:
+      - linux
+    runner: /opt/pwsh/pwsh
+    module_path: /opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1
+    atomic_root: /opt/atomic-red-team/atomics
+
+  - profile_id: macos-lab-ssh
+    type: ssh
+    enabled: false
+    description: Remote macOS lab host over SSH (requires pwsh + Atomic Red Team on the Mac)
+    platforms:
+      - macos
+    remote_host: ${MACOS_LAB_HOST}
+    remote_user: ${MACOS_LAB_USER}
+    remote_port: ${MACOS_LAB_PORT}
+    ssh_key_path: ${MACOS_SSH_KEY_PATH}
+    ssh_options:
+      - StrictHostKeyChecking=no
+      - UserKnownHostsFile=/dev/null
+    remote_shell: pwsh
+    module_path: ${MACOS_INVOKE_ATOMICREDTEAM_MODULE_PATH}
+    atomic_root: ${MACOS_ATOMIC_ROOT}
 
 jobs:
   - job_id: windows-browser-extension-smoke
@@ -133,6 +160,66 @@ jobs:
     default_test_guids: []
     priority: high
     frequency: weekly
+
+  - job_id: macos-persistence
+    name: macOS Persistence Techniques
+    description: Validate launchd/StartupItems persistence telemetry on a macOS lab host (SSH).
+    runner_profile: macos-lab-ssh
+    techniques:
+      - T1543.001
+      - T1543.004
+      - T1037.005
+    default_test_guids: []
+    priority: high
+    frequency: on_demand
+
+  - job_id: macos-execution
+    name: macOS Execution Techniques
+    description: Validate AppleScript execution and related telemetry on a macOS lab host (SSH).
+    runner_profile: macos-lab-ssh
+    techniques:
+      - T1059.002
+    default_test_guids: []
+    priority: high
+    frequency: on_demand
+
+  - job_id: macos-credential-access
+    name: macOS Credential Access Techniques
+    description: Validate Keychain dumping/copy behavior on a macOS lab host (SSH).
+    runner_profile: macos-lab-ssh
+    techniques:
+      - T1555.001
+      - T1553.004
+    default_test_guids: []
+    priority: critical
+    frequency: on_demand
+
+  - job_id: container-kubernetes
+    name: Container & Kubernetes Techniques
+    description: Validate container-orchestration technique telemetry (runs locally; may require Docker socket).
+    runner_profile: linux-direct
+    skip_prereqs: true
+    techniques:
+      - T1610
+      - T1611
+      - T1613
+    default_test_guids: []
+    priority: critical
+    frequency: on_demand
+
+  - job_id: network-c2
+    name: Network & C2 Techniques
+    description: Validate network/C2 technique execution (runs locally; ensure Zeek/Suricata visibility).
+    runner_profile: linux-direct
+    techniques:
+      - T1071
+      - T1071.001
+      - T1071.004
+      - T1571
+      - T1573
+    default_test_guids: []
+    priority: high
+    frequency: on_demand
 
   - job_id: linux-credential-access
     name: Linux Credential Access Techniques
@@ -354,6 +441,7 @@ jobs:
   - job_id: cloud-iaas
     name: Cloud IaaS Techniques (AWS/Azure/GCP)
     description: Cloud account abuse, storage access, snapshot exfil, serverless execution.
+    runner_profile: linux-direct
     techniques:
       - T1078.004
       - T1098.001
@@ -375,6 +463,7 @@ jobs:
   - job_id: identity-saas
     name: Identity and SaaS Techniques (M365/AzureAD/Google Workspace)
     description: Exchange mail rules, AAD privilege escalation, OAuth token theft, conditional access abuse.
+    runner_profile: linux-direct
     techniques:
       - T1484
       - T1550

@@ -39,8 +39,32 @@ import zipfile
 from pathlib import Path
 
 
-CONTAINER_RESULTS_DIR = "/var/lib/seraph-ai/atomic-validation"
+CONTAINER_RESULTS_DIR = "/var/lib/seraph-ai/artifacts/atomic-validation"
 CONTAINER_EVIDENCE_DIR = "/var/lib/seraph-ai/evidence-bundle"
+
+
+def detect_backend_container(preferred: str | None = None) -> str:
+    candidates = []
+    if preferred:
+        candidates.append(preferred)
+    candidates.extend([
+        os.environ.get("SERAPH_BACKEND_CONTAINER", "").strip(),
+        "seraph-backend",
+        "metatron-seraph-v9-backend-1",
+    ])
+    seen = set()
+    for name in candidates:
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        result = subprocess.run(
+            ["docker", "ps", "--filter", f"name=^/{name}$", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip() == name:
+            return name
+    return preferred or "seraph-backend"
 
 
 def find_run_files(directory: Path) -> list[Path]:
@@ -62,11 +86,27 @@ def filter_by_techniques(run_files: list[Path], technique_filter: set[str]) -> l
     return filtered
 
 
-def copy_to_container(run_files: list[Path], container: str, dry_run: bool) -> int:
-    """Copy run_*.json files into the container's atomic-validation dir."""
+def copy_to_container(run_files: list[Path], container: str, dry_run: bool, local_results_dir: Path | None = None) -> int:
+    """Copy run_*.json files into the container's atomic-validation dir or a local directory."""
     if not run_files:
         print("No run files to copy.", flush=True)
         return 0
+
+    if local_results_dir is not None:
+        local_results_dir.mkdir(parents=True, exist_ok=True)
+        copied = 0
+        for run_file in run_files:
+            dest = local_results_dir / run_file.name
+            if dest.resolve() == run_file.resolve():
+                copied += 1
+                continue
+            if dry_run:
+                print(f"  [dry-run] would copy {run_file.name} → {dest}", flush=True)
+                copied += 1
+                continue
+            shutil.copy2(run_file, dest)
+            copied += 1
+        return copied
 
     copied = 0
     for run_file in run_files:
@@ -87,22 +127,39 @@ def copy_to_container(run_files: list[Path], container: str, dry_run: bool) -> i
     return copied
 
 
-def docker_exec(container: str, python_code: str, dry_run: bool) -> str:
+def docker_exec(container: str, python_code: str, dry_run: bool, local_mode: bool = False) -> str:
     """Run a Python snippet inside the container and return stdout."""
     if dry_run:
-        print(f"  [dry-run] would exec in container:\n{python_code[:200]}", flush=True)
+        target = "local" if local_mode else "container"
+        print(f"  [dry-run] would exec in {target}:\n{python_code[:200]}", flush=True)
         return ""
-    result = subprocess.run(
-        ["docker", "exec", container, "python3", "-c", python_code],
-        capture_output=True, text=True
-    )
+    if local_mode:
+        result = subprocess.run(
+            ["python3", "-c", python_code],
+            capture_output=True, text=True
+        )
+    else:
+        result = subprocess.run(
+            ["docker", "exec", container, "python3", "-c", python_code],
+            capture_output=True, text=True
+        )
     if result.returncode != 0:
-        print(f"  WARN: docker exec failed: {result.stderr.strip()}", flush=True)
+        print(f"  WARN: {'local exec' if local_mode else 'docker exec'} failed: {result.stderr.strip()}", flush=True)
     return result.stdout.strip()
 
 
-def get_current_scores(container: str) -> dict[str, str]:
+def get_current_scores(container: str, local_mode: bool = False, evidence_root: Path | None = None) -> dict[str, str]:
     """Return technique_id → tier for all techniques currently in the bundle."""
+    if local_mode:
+        root = evidence_root or EVIDENCE_ROOT
+        p = root / "coverage_summary.json"
+        if not p.exists():
+            return {}
+        try:
+            data = json.loads(p.read_text())
+            return {t['technique_id']: t['tier'] for t in data.get('techniques', [])}
+        except Exception:
+            return {}
     code = """
 import json
 from pathlib import Path
@@ -118,10 +175,38 @@ print(json.dumps(out))
         return {}
 
 
-def regenerate_tvrs(container: str, technique_ids: list[str], dry_run: bool) -> dict:
+def regenerate_tvrs(container: str, technique_ids: list[str], dry_run: bool, local_mode: bool = False, evidence_root: Path | None = None, results_dir: Path | None = None) -> dict:
     """Regenerate TVRs for the affected techniques and rebuild coverage summary."""
     techs_json = json.dumps(technique_ids)
-    code = f"""
+    if local_mode:
+        root = evidence_root or EVIDENCE_ROOT
+        results_path = results_dir or Path(os.environ.get("ATOMIC_VALIDATION_RESULTS_DIR", "/var/lib/seraph-ai/atomic-validation"))
+        code = f"""
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, os.getcwd() + '/backend')
+os.environ['EVIDENCE_BUNDLE_ROOT'] = {json.dumps(str(root))}
+os.environ['ATOMIC_VALIDATION_RESULTS_DIR'] = {json.dumps(str(results_path))}
+from evidence_bundle import EvidenceBundleManager
+mgr = EvidenceBundleManager(Path({json.dumps(str(root))}))
+mgr._atomic_runs_cache = None
+results = {{}}
+for tid in {techs_json}:
+    try:
+        record = mgr.generate_tvr_for_technique(tid)
+        mgr.write_tvr(tid, record)
+        score = record.get('promotion', {{}}).get('score', 0)
+        tier = record.get('promotion', {{}}).get('tier_name', 'none')
+        results[tid] = {{'score': score, 'tier': tier}}
+    except Exception as e:
+        results[tid] = {{'score': -1, 'tier': 'error', 'err': str(e)}}
+mgr._atomic_runs_cache = None
+mgr.build_coverage_summary()
+print(json.dumps(results))
+"""
+        raw = docker_exec(container, code, dry_run, local_mode=True)
+    else:
+        code = f"""
 import json, sys
 sys.path.insert(0, '/app/backend')
 try:
@@ -138,14 +223,13 @@ try:
             results[tid] = {{'score': score, 'tier': tier}}
         except Exception as e:
             results[tid] = {{'score': -1, 'tier': 'error', 'err': str(e)}}
-    # Rebuild coverage summary
     mgr._atomic_runs_cache = None
     mgr.build_coverage_summary()
     print(json.dumps(results))
 except Exception as e:
     print(json.dumps({{'_fatal': str(e)}}))
 """
-    raw = docker_exec(container, code, dry_run)
+        raw = docker_exec(container, code, dry_run)
     if dry_run:
         return {}
     try:
@@ -158,10 +242,13 @@ except Exception as e:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifacts-dir", required=True)
-    parser.add_argument("--container", default="metatron-seraph-v9-backend-1")
+    parser.add_argument("--container", default="")
     parser.add_argument("--unzip", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--techniques", default="")
+    parser.add_argument("--local", action="store_true", help="Run entirely on the local filesystem instead of Docker")
+    parser.add_argument("--results-dir", default="", help="Local atomic-validation results directory to use in --local mode")
+    parser.add_argument("--evidence-root", default="", help="Local evidence bundle root to use in --local mode")
     args = parser.parse_args()
 
     artifacts_dir = Path(args.artifacts_dir).expanduser().resolve()
@@ -215,22 +302,28 @@ def main():
     if args.dry_run:
         print("\n[DRY RUN] No files will be written.\n", flush=True)
 
+    local_mode = bool(args.local)
+    evidence_root = Path(args.evidence_root).expanduser().resolve() if args.evidence_root else None
+    results_dir = Path(args.results_dir).expanduser().resolve() if args.results_dir else None
+    if not local_mode:
+        args.container = detect_backend_container(args.container or None)
+
     # Snapshot current scores before import
     if not args.dry_run:
         print("\nSnapshotting current scores ...", flush=True)
-        before = get_current_scores(args.container)
+        before = get_current_scores(args.container, local_mode=local_mode, evidence_root=evidence_root)
     else:
         before = {}
 
     # Copy run files into container
     print(f"\nCopying {len(run_files)} run files into container ...", flush=True)
-    copied = copy_to_container(run_files, args.container, args.dry_run)
+    copied = copy_to_container(run_files, args.container, args.dry_run, local_results_dir=results_dir if local_mode else None)
     print(f"Copied: {copied}", flush=True)
 
     # Regenerate TVRs + coverage summary
     sorted_techs = sorted(technique_ids)
     print(f"\nRegenerating TVRs for {len(sorted_techs)} techniques ...", flush=True)
-    results = regenerate_tvrs(args.container, sorted_techs, args.dry_run)
+    results = regenerate_tvrs(args.container, sorted_techs, args.dry_run, local_mode=local_mode, evidence_root=evidence_root, results_dir=results_dir)
 
     if "_fatal" in results:
         print(f"FATAL during TVR regeneration: {results['_fatal']}", flush=True)
