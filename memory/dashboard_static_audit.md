@@ -1,5 +1,11 @@
 # Dashboard Static Wiring Audit
 
+Updated: 2026-04-27
+
+- Current UI routing in `frontend/src/App.js` is workspace-oriented. Several older direct routes intentionally redirect into workspace tabs rather than rendering separate pages.
+- Treat redirects such as `/alerts` -> `/command?tab=alerts`, `/threats` -> `/command?tab=threats`, `/email-gateway` -> `/email-security?tab=gateway`, and `/mdm` -> `/endpoint-mobility?tab=mdm` as valid wiring when reviewing current code.
+- Static call-site counts below are retained as the previous audit baseline; rerun the audit before using them as exact current totals.
+
 - Backend routes total: 397
 - Frontend call-sites checked: 66
 - Matched call-sites: 65

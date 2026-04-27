@@ -1,11 +1,20 @@
-# Metatron Full Architecture Map (March 6, 2026)
+# Metatron Full Architecture Map (Updated April 27, 2026)
+
+## Current Code-Logic Summary
+
+- The active platform is a FastAPI backend, React frontend, MongoDB datastore, and unified endpoint agent, with optional Elasticsearch/Kibana, WireGuard, Ollama, Trivy, Falco, Suricata, and Cuckoo services.
+- `backend/server.py` remains the central router composition point. Most routers mount under `/api`; selected routers retain native `/api/v1` prefixes.
+- `frontend/src/App.js` has been consolidated around workspace pages. Older direct pages now often redirect into command, investigation, response-operations, email-security, endpoint-mobility, detection-engineering, and AI-activity workspaces.
+- Advanced services are grouped under `/api/advanced/*`: MCP, vector memory, VNS, quantum security, AI reasoning, VNS alerts, and related status APIs.
+- Governance is now present in more high-impact flows: MCP execution routes queue through `OutboundGateService`, unified-agent commands queue through governed dispatch, CSPM scans emit gated world events, and several services emit tamper/world-event audit records.
+- Several advanced stores are intentionally lightweight/in-process in current code (`vector_memory`, `vns`, MCP execution history, token broker runtime state). MongoDB persistence is stronger in unified-agent telemetry/commands/EDM, CSPM scans/findings, deployment tasks, policy decisions, and related audit/event collections.
 
 ## 1) System Topology at a Glance
 
 - Primary stack: `frontend` (React) + `backend` (FastAPI) + `mongodb`.
 - Security/ops stack: `elasticsearch`, `kibana`, `wireguard`, optional `ollama`, `trivy`, `falco`, `suricata`, `cuckoo`.
 - Entry channels:
-- Web UI routes from `frontend/src/App.js` (47 route entries, including redirects).
+- Web UI routes from `frontend/src/App.js` (workspace-oriented routes plus compatibility redirects).
 - REST API under `/api/*` and `/api/v1/*`.
 - WebSockets under `/ws/*`.
 - Endpoint-agent control plane under `/api/unified/*` and `/api/swarm/*`.
@@ -17,11 +26,14 @@ Core frontend shell:
 - Auth/session context: `frontend/src/context/AuthContext.jsx`.
 
 Operational page groups:
-- SOC and incident ops: dashboard, threats, alerts, hunting, correlation, timeline, audit, reports.
-- Response and containment: quarantine, threat response, SOAR, ransomware, honey tokens, deception.
-- Endpoint and swarm ops: unified agent, command center, cli sessions, network topology.
-- Platform security: zero trust, cspm, attack paths, kernel sensors, secure boot, identity.
-- Advanced services: AI threats, advanced services, VNS alerts, browser extension, kibana.
+- Command workspace: dashboard, command center, threats, and alerts.
+- Investigation workspace: threat intel, correlation, attack paths, and related investigation views.
+- Response operations: quarantine, EDR, threat response, SOAR, and containment flows.
+- Email security workspace: email protection and email gateway.
+- Endpoint mobility workspace: mobile security and MDM connectors.
+- Detection engineering workspace: Sigma, Atomic Validation, MITRE coverage, and detection tooling.
+- AI activity workspace: AI signals, CLI sessions, and AI threat-intelligence views.
+- Standalone pages remain for network, hunting, reports, VPN, zero trust, CSPM, deception, kernel sensors, secure boot, identity, Kibana, advanced services, VNS alerts, setup, tenants, and unified agent.
 
 Frontend implementation model:
 - Local: browser to `http://localhost:3000` with backend fallback or configured API base.
@@ -38,9 +50,9 @@ Major API domains:
 - Security analytics: threats, alerts, threat intel, hunting, correlation, timeline, audit.
 - Response plane: response, quarantine, SOAR, ransomware, honeypots, honey tokens, deception.
 - Endpoint plane: agents, agent commands, swarm, unified agent.
-- Enterprise plane: enterprise, zero trust, multi-tenant, extension.
+- Enterprise plane: enterprise, zero trust, multi-tenant, extension, identity, governance.
 - Advanced plane: advanced, AI analysis, AI threats, ML prediction, sandbox, EDR, containers, VPN, CSPM.
-- Tier-1 security routers: attack paths, secure boot, kernel sensors, identity.
+- Tier-1 security routers: attack paths, secure boot, kernel sensors, email protection, email gateway, mobile security, MDM connectors.
 
 Real-time plane:
 - `/ws/threats` and `/ws/agent/{agent_id}`.
@@ -50,8 +62,9 @@ Real-time plane:
 Key service families:
 - Control and governance: `policy_engine`, `token_broker`, `tool_gateway`, `identity`.
 - AI/security reasoning: `aatl`, `aatr`, `cognition_engine`, `ai_reasoning`, `cce_worker`.
-- Threat data and memory: `mcp_server`, `vector_memory`, `vns`, `vns_alerts`, `telemetry_chain`.
+- Threat data and memory: `mcp_server`, `vector_memory`, `vns`, `vns_alerts`, `telemetry_chain`, `world_events`.
 - Deployment and operations: `agent_deployment`, `network_discovery`, `siem`.
+- Email/mobile plane: `email_protection`, `email_gateway`, `mobile_security`, `mdm_connectors`.
 
 Core engine modules:
 - `threat_response`, `threat_correlation`, `threat_timeline`, `threat_intel`.
@@ -86,6 +99,11 @@ EDM-specific data path:
 - Dataset metadata/versioning and rollout state persisted by unified-agent router.
 - Agent EDM hits ingested centrally for analytics and readiness evaluation.
 
+Advanced-service data path:
+- Vector memory and VNS use in-process indexes/queues in current code and should be treated as local runtime memory unless promoted to durable storage.
+- Advanced writes emit world events and tamper-audit records where supported, giving downstream persistence even when the service-local cache is ephemeral.
+- MCP stores tool catalogs and execution history in process, while gated requests and high-impact execution paths are recorded through governance/audit/event services.
+
 ## 7) Local vs Remote Implementation Split
 
 Local/on-host implementations:
@@ -106,7 +124,7 @@ Primary SOC flow:
 2. Backend correlates and enriches alerts/threats.
 3. Frontend renders situational and investigative views.
 4. Analyst executes response/SOAR/deployment commands.
-5. Backend dispatches and tracks command/deployment outcomes.
+5. Backend gates high-impact commands, dispatches approved work, and tracks command/deployment outcomes.
 
 EDM flow:
 1. Dataset version published in backend source-of-truth.
@@ -114,9 +132,21 @@ EDM flow:
 3. Agents perform EDM matching and emit hit telemetry.
 4. Backend evaluates anomaly thresholds and can auto-rollback.
 
+Advanced MCP flow:
+1. Operator requests a tool through `/api/advanced/mcp/execute`.
+2. The route sends the action to `OutboundGateService` with critical impact and triune approval required.
+3. A world event records the gated request.
+4. Execution is released only through the governance path rather than direct route execution.
+
+Email/mobile flow:
+1. Email protection and gateway APIs analyze submitted mail, headers, URLs, attachments, DLP findings, policy thresholds, and block/allow lists.
+2. MDM connector APIs manage connector definitions, sync devices/policies, and invoke device actions through provider-specific connector classes.
+3. Both planes emit world events for notable operations; production fidelity depends on real SMTP/MTA and MDM tenant configuration.
+
 ## 9) Current Architectural Risk Focus
 
 - Contract governance and schema invariants across fast-moving routes.
 - Hardening consistency across all legacy and secondary entry paths.
-- Durability guarantees for governance-critical state under restart/scale.
+- Durability guarantees for advanced-service and governance-critical in-process state under restart/scale.
 - Assurance depth (security regression and denial-path coverage).
+- Production integration truth for SMTP gateway, MDM providers, cloud scanners, sandbox, AI model providers, and optional tooling.

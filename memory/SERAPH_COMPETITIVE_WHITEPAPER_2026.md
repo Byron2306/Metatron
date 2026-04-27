@@ -3,6 +3,7 @@
 ## Strategic Comparison and Advantage-Led Convergence Blueprint
 
 **Date:** 2026-03-04  
+**Current code review update:** 2026-04-27  
 **Prepared for:** Seraph / Metatron product, engineering, architecture, and security leadership  
 **Purpose:** Provide a deep comparative assessment of Seraph AI Defender versus major endpoint/XDR providers and define a non-copycat, strength-preserving remediation and convergence framework.
 
@@ -19,6 +20,18 @@ Compared with CrowdStrike Falcon, SentinelOne Singularity, Microsoft Defender fo
 - Has a strong opportunity to win as an **adaptive defense fabric** for organizations that value customization and rapid feature evolution, if it executes a disciplined hardening and convergence program.
 
 This whitepaper proposes a strategic path that **does not clone incumbent providers**, but selectively integrates high-value operating patterns from them while preserving Seraph’s unique strengths.
+
+### 2026-04-27 code-logic update
+
+The current branch strengthens the platform's evidence base in several areas:
+
+- `backend/server.py` mounts a broad active router mesh, including advanced services, unified agent, email protection, email gateway, mobile security, MDM connectors, CSPM, identity, governance, deception, and world-ingest routes.
+- MCP route execution is governance-queued through `OutboundGateService`; high-impact tool execution is no longer represented as immediate route-side execution.
+- Unified-agent telemetry, monitor telemetry, EDM dataset versions, EDM hit telemetry, rollout state, deployment tasks, CSPM scans/findings, and several governance artifacts are persisted in MongoDB.
+- Vector memory, VNS, token broker runtime state, and portions of MCP execution history remain in-process stores with audit/world-event hooks rather than HA-safe durable service state.
+- Email Gateway and MDM Connectors are real code surfaces, but production effectiveness depends on real SMTP/MTA wiring, MDM tenant credentials, provider APIs, and optional Python libraries.
+
+This does not change the strategic thesis: Seraph has unusually strong adaptive architecture and composability, while incumbent-grade assurance still requires durability hardening, contract gates, detection quality measurement, and production integration discipline.
 
 ---
 

@@ -1,5 +1,19 @@
 # Seraph AI Defense System - Product Requirements Document
 
+## Current Code-Logic Summary (2026-04-27)
+
+This PRD is an accumulated product history. The current repository state should be interpreted through the active code paths below:
+
+- `backend/server.py` wires the FastAPI router mesh under `/api` plus selected `/api/v1` routers for SOC operations, unified agent control, CSPM, advanced services, email/mobile, MDM, identity, governance, and deception.
+- `frontend/src/App.js` consolidates older feature pages into workspace routes. Several legacy paths now redirect into `CommandWorkspacePage`, `InvestigationWorkspacePage`, `ResponseOperationsPage`, `EmailSecurityWorkspacePage`, `EndpointMobilityWorkspacePage`, `DetectionEngineeringWorkspacePage`, or `AIActivityWorkspacePage`.
+- The advanced plane exposes MCP, vector memory, VNS, quantum, and AI reasoning through `backend/routers/advanced.py`. MCP route execution is governance-queued; vector memory and VNS are in-process service stores with world-event/audit hooks.
+- The unified agent plane persists registration, heartbeat telemetry, monitor telemetry, command records, EDM versions, EDM hit telemetry, and rollout state in MongoDB. High-impact commands route through governance dispatch before endpoint delivery.
+- Email protection and email gateway logic exists in backend services and routers, with policy, quarantine, allow/block list, parsing, SPF/DKIM/DMARC, URL/attachment/DLP, and world-event behavior. Production relay operation still requires real mail infrastructure.
+- Mobile security and MDM connectors exist for iOS/Android security workflows and Intune/JAMF/Workspace ONE/Google Workspace connector APIs. Live sync/action fidelity depends on provider credentials and available optional HTTP libraries.
+- CSPM scan start is authenticated, scan/finding state is persisted, and demo fallback is explicit when no provider scanners are configured.
+
+When older sections below use broad product language such as "full", "production", or "enterprise ready", read it as "implemented framework and active route logic exists" unless the section explicitly calls out durable persistence, live provider credentials, or production infrastructure.
+
 ## Overview
 The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensive cybersecurity platform designed to counter malicious AI agents and advanced malware. Features the "Seraphic Watch" futuristic divine observer aesthetic.
 
@@ -44,7 +58,7 @@ The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensiv
 ### Major Additions
 
 #### 1. Email Gateway (SMTP Relay Mode)
-- **Full SMTP Gateway** for real-time email interception and threat analysis
+- **SMTP Gateway framework** for email interception and threat analysis; production relay requires real SMTP/MTA configuration
 - **Endpoints**:
   - `GET /api/email-gateway/stats` - Gateway statistics
   - `GET /api/email-gateway/quarantine` - Quarantined messages

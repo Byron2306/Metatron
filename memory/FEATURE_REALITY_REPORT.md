@@ -1,33 +1,52 @@
 # Feature Reality Report
 
-Generated: 2026-03-09
-Version: v6.7.0
-Scope: Qualitative implementation narrative (feature depth, durability, contract assurance, operational realism)
-**Update:** Comprehensive assessment including Email Gateway, MDM Connectors, and Security Hardening
+Updated: 2026-04-27  
+Baseline reviewed: current repository on `cursor/memory-review-documentation-update-b00c`  
+Scope: qualitative implementation narrative for feature depth, durability, contract assurance, and operational realism.
+
+## Current Code-Logic Summary
+
+Metatron/Seraph is a broad FastAPI + React + unified-agent security platform with real route wiring across SOC, endpoint, cloud, email, mobile, governance, and advanced-service domains. The current code demonstrates working implementation depth in many modules, but the most accurate status is **production-capable with explicit integration and durability caveats**, not blanket enterprise completion.
+
+Key current logic:
+
+- `backend/server.py` mounts the active router mesh under `/api` plus selected `/api/v1` routers, including advanced services, unified agent, CSPM, email protection, email gateway, mobile security, MDM connectors, identity, governance, and deception.
+- `frontend/src/App.js` now streamlines multiple older pages into workspaces: command, investigation, response operations, email security, endpoint mobility, detection engineering, and AI activity. Legacy routes such as `/email-gateway`, `/mdm`, `/agents`, `/alerts`, `/threats`, and `/soar` redirect into those workspaces where appropriate.
+- `backend/routers/advanced.py` exposes MCP, vector memory, VNS, quantum, and AI reasoning APIs. MCP execution is now queued through `OutboundGateService` and emits world events instead of immediately executing high-impact tools from the route. Vector memory and VNS remain in-process stores; their API writes also emit world events and tamper-audit records.
+- `backend/services/mcp_server.py` registers a large built-in governed tool catalog and validates signing-key strength in strict/production modes. It still keeps execution/message history in process, so durable replay at scale depends on surrounding audit/world-event persistence rather than the service object itself.
+- `backend/services/vector_memory.py` provides namespace isolation, trust levels, PII redaction, 128-dimensional hash embeddings, semantic retrieval, and incident case helpers. It is not a Mongo/vector-database-backed store in current code.
+- `backend/services/vns.py` provides independent flow, DNS, JA3, beacon, zone, and deception-trigger logic using bounded in-memory collections.
+- `backend/services/agent_deployment.py` supports queued SSH/WinRM deployment with DB-backed task transitions and world events. Simulated success is gated by `ALLOW_SIMULATED_DEPLOYMENTS`; without credentials and without that flag, deployment fails rather than silently claiming success.
+- `backend/routers/unified_agent.py` persists agent registration, heartbeat telemetry, monitor telemetry, commands, EDM dataset versions, EDM hit telemetry, and rollout state in MongoDB. High-impact commands are routed through governance dispatch before delivery.
+- `unified_agent/core/agent.py` contains the endpoint monitor set, EDM fingerprint engine, local governance-aware command handling, CLI telemetry, memory scanning, rootkit/kernel monitors, DLP/EDM, ransomware checks, and performance throttling.
+- `backend/email_gateway.py` and `backend/routers/email_gateway.py` implement an API-driven SMTP gateway service with parsing, policy thresholds, block/allow lists, quarantine, and world events. The code is framework-complete for relay/gateway behavior, but production SMTP/MTA operation still depends on real mail infrastructure and configuration.
+- `backend/mdm_connectors.py` and `backend/routers/mdm_connectors.py` implement Intune, JAMF, Workspace ONE, and Google Workspace connector classes plus connector/device/action APIs. Live fidelity depends on real tenant credentials and provider API availability; mock/fallback behavior exists where optional libraries or credentials are absent.
+- `backend/routers/cspm.py` requires authentication for scan start, persists scan/task/finding state, uses guarded state transitions, and can fall back to demo seeding when no cloud scanners are configured.
 
 ## Executive Verdict
-Metatron has achieved **enterprise-grade security platform** status with full Email Gateway and MDM Connectors capabilities. The platform now provides comprehensive protection across endpoints, cloud, network, identity, email (including gateway mode), and mobile devices (including MDM integration). All previously identified Tier 3 domain expansion gaps have been closed. Core domains are operational, DB-backed, and contract-assured.
+
+The platform is best described as a **high-breadth governed adaptive defense system in active hardening**. Core SOC and endpoint control-plane paths are materially implemented, Email/MDM surfaces are present, and governance/audit hooks have been added to many high-impact flows. The remaining risk is not basic feature absence; it is consistency across production integrations, durable state semantics for in-process advanced services, and verification depth for fast-moving contracts.
 
 ---
 
 ## Feature Maturity Table
 | Domain | Score (0-10) | Status | Key Recent Enhancements |
 |---|---|---|---|
-| Unified Agent Control Plane | 10 | PASS | Full telemetry, Email/Mobile/Gateway monitor integration |
-| EDM Governance & Telemetry | 10 | PASS | Complete governance pipeline |
-| DLP & Exact Data Match | 10 | PASS | Enhanced with OCR-ready architecture |
-| **Email Protection** | **9** | **PASS** | **SPF/DKIM/DMARC, phishing, attachment scanning, impersonation, DLP** |
-| **Email Gateway** | **8.5** | **PASS** | **NEW: SMTP relay, quarantine, blocklist/allowlist, policy engine** |
-| **Mobile Security** | **8.5** | **PASS** | **Device management, jailbreak detection, app analysis, compliance** |
-| **MDM Connectors** | **8.5** | **PASS** | **NEW: Intune, JAMF, Workspace ONE, Google Workspace** |
-| Identity Protection | 9 | PASS | DB-backed incident durability |
-| CSPM Capability Plane | 9 | PASS | Multi-cloud with audit trails, **now authenticated** |
-| Deployment Realism | 8 | PASS/PARTIAL | Real execution paths |
-| Security Hardening | 9 | PASS | **CSPM auth fix**, enhanced CORS |
+| Unified Agent Control Plane | 9 | PASS | Mongo-backed registration/heartbeat/telemetry, governance-gated command dispatch |
+| EDM Governance & Telemetry | 9 | PASS | Versioned dataset registry, signatures/checksums, staged rollout, hit loop-back, rollback controls |
+| DLP & Exact Data Match | 8.5 | PASS | Endpoint fingerprint engine, Bloom precheck, clipboard/file scan, backend dataset governance |
+| **Email Protection** | **8** | **PASS/PARTIAL** | **SPF/DKIM/DMARC-style checks, phishing/URL/attachment/DLP analysis; production efficacy depends on live DNS/mail context** |
+| **Email Gateway** | **7.5** | **PASS/PARTIAL** | **API-driven gateway framework with policies, quarantine, block/allow lists; production SMTP/MTA integration remains external** |
+| **Mobile Security** | **8** | **PASS/PARTIAL** | **Device model, threat/compliance/app analysis; live mobile telemetry depends on integration source** |
+| **MDM Connectors** | **7.5** | **PASS/PARTIAL** | **Intune, JAMF, Workspace ONE, Google Workspace connector classes and APIs; live operation requires tenant credentials/provider APIs** |
+| Identity Protection | 8 | PASS/PARTIAL | Detection and API surfaces present; enterprise response depth still maturing |
+| CSPM Capability Plane | 8.5 | PASS/PARTIAL | Authenticated scan start, DB-backed scans/findings, guarded transitions; demo fallback when scanners absent |
+| Deployment Realism | 8 | PASS/PARTIAL | SSH/WinRM execution with queued DB transitions; simulation requires explicit opt-in |
+| Security Hardening | 8 | PASS/PARTIAL | Stronger CORS/JWT/CSPM controls; legacy/alternate surfaces still require normalization |
 | Timeline/Forensics | 8 | PASS/PARTIAL | Core flows operational |
 | Quarantine/Response | 8 | PASS/PARTIAL | Guarded transitions |
 | SOAR Playbooks | 8 | PASS/PARTIAL | Audit logging complete |
-| Kernel Security | 8.5 | PASS | eBPF sensors, rootkit detection |
+| Kernel Security | 8 | PASS/PARTIAL | eBPF/rootkit/kernel modules present; platform-level hardening varies by host privileges/runtime |
 | Zero-Trust Durability | 7 | PARTIAL | Improving across restart scenarios |
 | Browser Isolation | 6.5 | PARTIAL | URL analysis, filtering, sanitization |
 | Optional AI Augmentation | 6 | PARTIAL | Rule-based fallback operational |
@@ -254,14 +273,14 @@ Security improvements applied:
 | Docker | Strong | Image/runtime checks present |
 | Kubernetes | Partial | Admission/runtime policy maturing |
 | AWS/Azure/GCP | Strong | CSPM operational |
-| **Email Gateway** | **Strong** | **NEW: SMTP relay mode** |
-| **Email Protection** | **Strong** | **Full authentication and DLP** |
-| **Mobile iOS** | **Strong** | **Full capability with MDM** |
-| **Mobile Android** | **Strong** | **Full capability with MDM** |
-| **MDM Intune** | **Strong** | **NEW: Full connector** |
-| **MDM JAMF** | **Strong** | **NEW: Full connector** |
-| **MDM Workspace ONE** | **Strong** | **NEW: Full connector** |
-| **MDM Google Workspace** | **Strong** | **NEW: Full connector** |
+| Email Gateway | Partial/Strong | API/service framework, quarantine, lists, policies, and decisions; production MTA/relay wiring required. |
+| Email Protection | Strong | SPF/DKIM/DMARC, URL, attachment, impersonation, and DLP analysis; quality depends on DNS/feed/test coverage. |
+| Mobile iOS | Partial/Strong | Device/compliance/threat logic exists; production depth depends on telemetry and MDM enrollment. |
+| Mobile Android | Partial/Strong | Device/compliance/threat logic exists; production depth depends on telemetry and MDM enrollment. |
+| MDM Intune | Partial/Strong | Connector class and APIs exist; live operation requires tenant credentials and Graph API success. |
+| MDM JAMF | Partial/Strong | Connector class and APIs exist; live operation requires JAMF credentials/API success. |
+| MDM Workspace ONE | Partial/Strong | Connector class and APIs exist; live operation requires Workspace ONE credentials/API success. |
+| MDM Google Workspace | Partial/Strong | Connector class and APIs exist; live operation requires Google Workspace credentials/API success. |
 | Serverless | Limited | Not materially implemented |
 | SaaS platforms | Limited | Not materially implemented |
 
@@ -269,7 +288,7 @@ Security improvements applied:
 
 ## Final Reality Statement
 
-Metatron has achieved **enterprise-grade unified security platform** status with the addition of Email Gateway and MDM Connectors. All previously identified Tier 3 domain expansion gaps have been closed. The platform now provides comprehensive protection across:
+Metatron has achieved broad **code-level security platform coverage** with the addition of Email Gateway and MDM Connectors. The prior Tier 3 gaps are no longer pure feature absence, but production readiness still depends on configuration, live integrations, durable persistence, and verification depth. The platform now provides implemented surfaces across:
 
 - **Endpoints** (Windows, macOS, Linux)
 - **Cloud** (AWS, Azure, GCP with authenticated CSPM)
@@ -280,18 +299,20 @@ Metatron has achieved **enterprise-grade unified security platform** status with
 - **Kernel** (eBPF sensors, rootkit detection)
 
 **Key Achievements (v6.7.0):**
-- Email Gateway: 8.5/10 maturity with SMTP relay mode
-- MDM Connectors: 8.5/10 maturity with 4 platform support
-- Email Protection: Enhanced to 9/10 with gateway integration
-- Mobile Security: Enhanced to 8.5/10 with MDM integration
+- Email Gateway: 7-8/10 code maturity with SMTP relay framework and API processing
+- MDM Connectors: 7-8/10 code maturity with 4 platform connector classes
+- Email Protection: strong rule/DNS-driven analysis with gateway integration points
+- Mobile Security: strong service logic with MDM integration points
 - Security Hardening: CSPM auth fix, enhanced CORS
-- Overall platform implementation: ~90-94%
+- Overall platform implementation: broad but mixed; strongest in core SOC/agent/CSPM/EDM, more conditional in advanced in-process services and external integrations
 
 **Remaining Work:**
 - Production SMTP server integration
 - Production MDM platform credentials
 - Full remote browser isolation
+- Durable external backing for advanced in-process stores where HA behavior is required
+- Expanded contract, denial-path, and integration tests
 
-**Composite Maturity Score: 8.6/10** (up from 8.0/10)
+**Composite Maturity Score: 8.0/10** (high breadth, active hardening)
 
-**Platform Status: ENTERPRISE READY**
+**Platform Status: PRODUCTION-CAPABLE WITH EXPLICIT INTEGRATION AND DURABILITY CAVEATS**

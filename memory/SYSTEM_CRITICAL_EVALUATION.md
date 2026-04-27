@@ -1,7 +1,19 @@
 # Metatron / Seraph AI Defense System - Full Critical Evaluation
 
-**Date:** 2026-03-06  
+**Updated:** 2026-04-27  
 **Scope:** End-to-end platform review (architecture, security posture, operations, delivery maturity) using current repository evidence.
+
+## Current Code-Logic Summary
+
+This review has been rebaselined against the current repository. The active implementation is a broad FastAPI backend, React workspace UI, MongoDB-backed control plane, and unified endpoint agent. Major current facts:
+
+- `backend/server.py` mounts the active routers for SOC, response, endpoint, advanced services, cloud posture, email, mobile, identity, governance, and deception.
+- `frontend/src/App.js` consolidates older feature pages into workspaces and redirects several legacy routes into command, investigation, response, email-security, endpoint-mobility, detection-engineering, and AI-activity surfaces.
+- Advanced services are active under `/api/advanced/*`: MCP, vector memory, VNS, quantum, and AI reasoning. MCP route execution is governance-queued through `OutboundGateService`; memory and VNS writes emit world events and audit records.
+- Vector memory and VNS are currently in-process services, not durable vector/network telemetry databases. They are useful functional primitives but remain restart/scale durability risks.
+- Unified-agent registration, heartbeat, commands, EDM versions, EDM hits, and rollout state are Mongo-backed. High-impact commands flow through governance dispatch before endpoint release.
+- Deployment service supports real SSH/WinRM paths with DB-backed task transitions. Simulation only succeeds when `ALLOW_SIMULATED_DEPLOYMENTS` is explicitly enabled.
+- Email gateway/protection and mobile/MDM modules are present with API routers, permission checks, and workspace UI wiring. Live production value depends on SMTP/MTA configuration and real MDM tenant credentials.
 
 ---
 

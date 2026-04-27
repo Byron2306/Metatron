@@ -1,5 +1,17 @@
 # Metatron Run-Mode Contract (Source of Truth)
 
+Updated: 2026-04-27
+
+## Current Code-Logic Summary
+
+The active run mode is a FastAPI backend, React frontend, and MongoDB core with optional infrastructure around it. Current code keeps the dashboard usable when optional services are unavailable, but some feature depth is conditional:
+
+- `backend/server.py` mounts active APIs under `/api` and selected native `/api/v1` routers.
+- `frontend/src/App.js` consolidates older standalone routes into workspace pages while preserving redirects for legacy paths.
+- `backend/routers/advanced.py` exposes MCP, vector memory, VNS, quantum, and AI reasoning APIs. MCP execution is governance-queued; vector memory and VNS are in-process stores with audit/world-event emission.
+- `backend/services/agent_deployment.py` performs real SSH/WinRM deployment when credentials are present. Simulated deployment success is only allowed when `ALLOW_SIMULATED_DEPLOYMENTS` is explicitly enabled.
+- Email gateway and MDM connector APIs are available in the core backend, but live SMTP/MDM production behavior depends on configured external systems and credentials.
+
 ## Goal
 Define what is **required** vs **optional** so operators can run the platform predictably and understand why some dashboard features may be unavailable.
 
@@ -52,7 +64,7 @@ These are intentionally profile-gated and not required for baseline operation.
 
 ## 6) Health Validation Sequence
 1. `docker compose ps`
-2. `curl -fsS http://localhost:8000/health`
+2. `curl -fsS http://localhost:8001/api/health`
 3. `curl -fsS http://localhost:3000` (or deployed frontend URL)
 4. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
 
@@ -62,6 +74,8 @@ These are intentionally profile-gated and not required for baseline operation.
 - Dashboard UX mismatch fixed:
   - "View All" buttons on dashboard now navigate to `/threats` and `/alerts`.
 - Remaining UI gaps are primarily feature-completeness gaps (buttons rendered without action handlers), not fatal routing failures.
+- Latest route shape uses workspace consolidation: `/alerts`, `/threats`, `/soar`, `/edr`, `/email-gateway`, `/email-protection`, `/mdm`, and `/mobile-security` may redirect to workspace tabs rather than rendering one page per route.
+- Advanced service pages should be treated as operational when authenticated APIs respond, but vector memory and VNS data do not survive process restart unless mirrored through audit/world-event persistence.
 
 ## 8) Acceptance Criteria for "Working"
 - Core services up and healthy.
@@ -69,7 +83,7 @@ These are intentionally profile-gated and not required for baseline operation.
 - At least one page each from: Threats, Alerts, Agents, Settings can load data successfully.
 - Optional integration pages degrade gracefully if their service is not enabled.
 
-## 9) Consolidated Reality Conditions (2026-03-04)
+## 9) Consolidated Reality Conditions (updated 2026-04-27)
 
 These conditions align run-mode expectations with the critical evaluation and feature reality artifacts.
 
@@ -79,20 +93,20 @@ These conditions align run-mode expectations with the critical evaluation and fe
 - Threat response routes should remain functional even when optional providers (Twilio/OpenClaw) are unavailable.
 
 ### 9.2 Known degraded/conditional contracts
-- Unified deployment endpoint currently represents a queued/simulated flow unless backed by real deployment execution plumbing.
+- Unified deployment is queued and state-tracked. Real execution requires SSH/WinRM credentials and reachable endpoints; simulation is explicit via `ALLOW_SIMULATED_DEPLOYMENTS`.
 - WinRM auto-deployment is conditional on:
   - valid credentials (password-based auth),
   - `pywinrm` installed,
   - remote endpoint availability (port/protocol/security policy).
 - OpenClaw integration is optional and should never block core SOC operation.
+- SMTP gateway relay behavior requires mail infrastructure configuration beyond the API test path.
+- MDM connectors require real tenant/API credentials for live inventory, policy sync, and device actions.
 
 ### 9.3 Contract integrity risks to monitor
-- Unified command schema mismatch risk between frontend and backend payload models.
-- Threat-response OpenClaw analyze payload mapping mismatch risk.
-- Mixed frontend API base strategy (`REACT_APP_BACKEND_URL` hard dependency in some pages vs `/api` fallback in others).
-- Script ecosystem endpoint drift (`/api/agent/*` legacy paths vs active `/api/swarm` and `/api/unified` contracts).
-- Script/default URL drift across `localhost:8001`, `localhost:8002`, and legacy cloud defaults.
-- Validation script mismatch risk (`/api/zero-trust/overview` probe not aligned to active router paths).
+- Workspace redirects reduce duplicated UI surfaces, but API-client contract testing is still needed for pages that call many endpoint families.
+- Script ecosystem endpoint drift remains possible (`/api/agent/*` legacy paths vs active `/api/swarm` and `/api/unified` contracts).
+- Script/default URL drift across `localhost:8001`, `localhost:8002`, and legacy cloud defaults should be normalized before production packaging.
+- Advanced service state expectations must be explicit: vector memory, VNS, MCP queues/history, token broker state, and some gateway/connector state are process-local unless the route/service writes separate DB/audit records.
 
 ### 9.4 Updated "Working" interpretation
 System is considered **working** when:

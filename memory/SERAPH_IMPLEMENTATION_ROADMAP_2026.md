@@ -1,9 +1,22 @@
 # Seraph AI Defender — Technical Implementation Roadmap (2026)
 
 **Date:** 2026-03-04  
+**Review update:** 2026-04-27  
 **Derived from:** `memory/SERAPH_COMPETITIVE_WHITEPAPER_2026.md`  
 **Horizon:** 12 months (rolling)  
 **Goal:** Converge to enterprise-grade operational confidence while preserving Seraph’s adaptive and composable strengths.
+
+## 2026-04-27 Current-Code Roadmap Adjustment
+
+Current repository logic changes the emphasis of this roadmap:
+
+- Contract drift has improved at the main page/API layer, but workspace redirects and compatibility routes should be documented as intentional contracts.
+- Deployment truth improved: SSH/WinRM paths have DB-backed state transitions, retries, world events, and simulation requires `ALLOW_SIMULATED_DEPLOYMENTS`.
+- Governance is more concrete: high-impact MCP and unified-agent commands route through outbound/governance queues, policy decisions can be persisted, and token-broker admin actions require approved governance context unless explicitly disabled.
+- Advanced services remain partly in-process: vector memory, VNS, MCP local execution history, token stores, and some policy state need durable backing before scale/HA claims.
+- Email gateway and MDM connectors now exist as code surfaces, but production value depends on mail/MDM credentials, optional client libraries, and provider availability.
+
+The near-term roadmap should therefore prioritize durable advanced-service state, contract/schema automation, and production integration certification rather than broad new feature expansion.
 
 ---
 
