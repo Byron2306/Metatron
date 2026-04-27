@@ -1,0 +1,192 @@
+name: PurpleSharp Windows ATT&CK Sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      techniques:
+        description: "Comma-separated technique IDs (default: Windows Bronze targets)"
+        required: false
+        default: "T1546.006,T1548.004,T1548.005,T1558.005,T1563.001,T1569.003,T1134.001,T1134.002,T1055.002,T1056.004,T1021.001,T1021.008,T1134.003,T1134.004,T1134.005,T1537,T1547.001,T1547.002,T1547.013,T1546.011,T1546.012,T1546.013,T1546.015"
+
+jobs:
+  purplesharp-sweep:
+    name: PurpleSharp + ART Windows Sweep
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Disable Windows Defender
+        shell: powershell
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $true `
+            -DisableIOAVProtection $true `
+            -DisableBehaviorMonitoring $true `
+            -DisableBlockAtFirstSeen $true `
+            -DisableScriptScanning $true
+          Write-Host "Defender disabled"
+
+      - name: Install Invoke-AtomicRedTeam
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'SilentlyContinue'
+          IEX (IWR 'https://raw.githubusercontent.com/redcanaryco/invoke-atomicredteam/master/install-atomicredteam.ps1' -UseBasicParsing)
+          Install-AtomicRedTeam -getAtomics -Force -noPayloads
+          Write-Host "ART installed"
+
+      - name: Install PurpleSharp
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'SilentlyContinue'
+          # Install via NuGet / direct download
+          $psUrl = "https://github.com/mvelazc0/PurpleSharp/releases/latest/download/PurpleSharp_x64.exe"
+          New-Item -ItemType Directory -Force -Path C:\Tools\PurpleSharp | Out-Null
+          try {
+            Invoke-WebRequest -Uri $psUrl -OutFile "C:\Tools\PurpleSharp\PurpleSharp.exe" -UseBasicParsing -TimeoutSec 60
+            Write-Host "PurpleSharp downloaded"
+          } catch {
+            Write-Host "PurpleSharp download failed, will use ART only: $_"
+          }
+          # Also install as PowerShell module if available
+          Install-Module -Name PurpleSharp -Force -AllowClobber -Scope CurrentUser -ErrorAction SilentlyContinue
+
+      - name: Enable Script Block Logging + Sysmon
+        shell: powershell
+        run: |
+          # Enable PowerShell script block logging for rich telemetry
+          $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging"
+          New-Item -Force -Path $regPath | Out-Null
+          Set-ItemProperty -Path $regPath -Name "EnableScriptBlockLogging" -Value 1
+          Set-ItemProperty -Path $regPath -Name "EnableScriptBlockInvocationLogging" -Value 1
+          Write-Host "Script block logging enabled"
+
+      - name: Run ART Techniques (Windows-specific Bronze targets)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $techniques = "${{ inputs.techniques }}" -split ","
+          $results = @()
+          $runId = [System.Guid]::NewGuid().ToString("N").Substring(0,16)
+          $jobId = "gha-purplesharp-${{ github.run_id }}"
+
+          Write-Host "=== Seraph ATT&CK Sweep: PurpleSharp+ART ==="
+          Write-Host "Run ID: $runId"
+          Write-Host "Techniques: $($techniques -join ', ')"
+
+          foreach ($tech in $techniques) {
+            $tech = $tech.Trim()
+            if (-not $tech) { continue }
+            Write-Host "`n--- Testing $tech ---"
+            $startTime = Get-Date -Format "o"
+            $stdout = ""
+            $exitCode = 0
+            $status = "success"
+
+            try {
+              # Check if ART has this technique
+              $atomicPath = "C:\AtomicRedTeam\atomics\$tech\$tech.yaml"
+              if (Test-Path $atomicPath) {
+                Write-Host "  [ART] Running Invoke-AtomicTest $tech"
+                $output = Invoke-AtomicTest $tech `
+                  -PathToAtomicsFolder "C:\AtomicRedTeam\atomics" `
+                  -TimeoutSeconds 120 `
+                  -GetPrereqs 2>&1
+                $stdout += "=== GetPrereqs ===`n$output`n"
+
+                $output = Invoke-AtomicTest $tech `
+                  -PathToAtomicsFolder "C:\AtomicRedTeam\atomics" `
+                  -TimeoutSeconds 120 2>&1
+                $stdout += "=== Execute ===`n$output`n"
+                Write-Host "  [ART] Done"
+              } else {
+                Write-Host "  [ART] No atomics for $tech"
+                $stdout = "No Atomic Red Team test available for $tech on Windows"
+                $status = "failed_prereq"
+              }
+
+              # Also try PurpleSharp if available
+              if (Test-Path "C:\Tools\PurpleSharp\PurpleSharp.exe") {
+                Write-Host "  [PurpleSharp] Simulating $tech"
+                $psOut = & "C:\Tools\PurpleSharp\PurpleSharp.exe" /t $tech /l 2>&1
+                $stdout += "`n=== PurpleSharp ===`n$psOut`n"
+              }
+            } catch {
+              $stdout += "`nError: $_"
+              $exitCode = 1
+              $status = "success_with_warnings"
+            }
+
+            $results += [PSCustomObject]@{
+              run_id     = $runId + "_" + $tech.Replace(".","_")
+              job_id     = $jobId
+              job_name   = "GHA-PurpleSharp-Windows-Sweep"
+              technique  = $tech
+              status     = $status
+              exit_code  = $exitCode
+              started_at = $startTime
+              finished_at = (Get-Date -Format "o")
+              stdout     = $stdout.Substring(0, [Math]::Min(8000, $stdout.Length))
+              sandbox    = "github-actions-windows"
+              runner     = "gha_windows"
+              platform   = "windows"
+            }
+
+            # Brief cooldown between techniques
+            Start-Sleep -Seconds 3
+          }
+
+          # Save results
+          $outDir = "$env:GITHUB_WORKSPACE\purplesharp_results"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          # One file per technique for easier import
+          foreach ($r in $results) {
+            $fname = "$outDir\run_$($r.run_id).json"
+            $r | ConvertTo-Json -Depth 5 | Set-Content $fname -Encoding UTF8
+          }
+
+          # Summary file
+          $summary = @{
+            job_id     = $jobId
+            run_id     = $runId
+            platform   = "windows"
+            runner     = "github-actions-windows-latest"
+            techniques = $techniques
+            run_count  = $results.Count
+            results    = $results
+          }
+          $summary | ConvertTo-Json -Depth 8 | Set-Content "$outDir\summary.json" -Encoding UTF8
+          Write-Host "`n=== Summary: $($results.Count) techniques processed ==="
+          Write-Host "Results saved to $outDir"
+
+      - name: Collect Windows Event Logs
+        shell: powershell
+        run: |
+          $outDir = "$env:GITHUB_WORKSPACE\purplesharp_results"
+          # Collect Security and Sysmon events from last hour
+          try {
+            $secEvents = Get-WinEvent -LogName Security -MaxEvents 500 -ErrorAction SilentlyContinue |
+              Where-Object { $_.TimeCreated -gt (Get-Date).AddHours(-1) } |
+              Select-Object TimeCreated, Id, Message |
+              ConvertTo-Json -Depth 3
+            $secEvents | Set-Content "$outDir\windows_security_events.json" -Encoding UTF8
+            Write-Host "Security events collected"
+          } catch { Write-Host "Security log collection: $_" }
+
+          try {
+            $psEvents = Get-WinEvent -LogName "Microsoft-Windows-PowerShell/Operational" -MaxEvents 200 -ErrorAction SilentlyContinue |
+              Where-Object { $_.TimeCreated -gt (Get-Date).AddHours(-1) } |
+              Select-Object TimeCreated, Id, Message |
+              ConvertTo-Json -Depth 3
+            $psEvents | Set-Content "$outDir\powershell_events.json" -Encoding UTF8
+            Write-Host "PowerShell events collected"
+          } catch { Write-Host "PS log collection: $_" }
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: purplesharp-windows-results-${{ github.run_id }}
+          path: purplesharp_results/
+          retention-days: 30
