@@ -3,10 +3,10 @@
   "schema": "arda_kernel_prevention.bundle.v1",
   "source": "arda_kernel_prevention_harvester",
   "channel": "arda_bpf_lsm",
-  "collected_at": "2026-04-27T23:33:32.761217+00:00",
+  "collected_at": "2026-04-27T23:49:09.957474+00:00",
   "substrate_proof": {
     "schema": "arda_substrate_proof.v1",
-    "captured_at": "2026-04-27T23:33:32.565880+00:00",
+    "captured_at": "2026-04-27T23:49:09.637372+00:00",
     "kernel": "6.12.74+deb12-amd64",
     "hostname": "debian",
     "bpf_program": {
@@ -35,99 +35,139 @@
     },
     "deny_logic_summary": "BPF LSM `bprm_check_security` hook intercepts execve(). The hook looks up (inode, dev) in the harmony_map; absence \u2192 EPERM. Attacker payloads in /tmp/* are by construction NOT in the allowlist; therefore the kernel will deny exec deterministically."
   },
-  "observed_run_count": 0,
-  "deductive_run_count": 5,
+  "observed_run_count": 1,
+  "deductive_run_count": 4,
   "data": [
     {
-      "schema": "arda_kernel_prevention.deductive.v1",
+      "schema": "arda_kernel_prevention.observed.v1",
       "technique_id": "T1136",
-      "captured_at": "2026-04-27T23:33:32.761069+00:00",
-      "session_id": "arda-deduct-T1136-r1-8a3f04cb",
-      "verdict": "kernel_would_prevent",
-      "verdict_basis": "Deductive proof \u2014 given the BPF program logic (SHA-256=026b2876abd7ca12d2f15d5251a0912baaf2ce78ed258cd5ac27d9222bb19efd) and the harmony allowlist (SHA-256=e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50, 120 entries), an untrusted payload at /tmp/T1136_payload.sh has (inode, dev) not present in the allowlist; therefore the kernel WOULD return EPERM at execve(). Substrate proof pinned.",
-      "evidence_strength": "STRONG_CORROBORATION",
+      "captured_at": "2026-04-27T23:49:09.957335+00:00",
+      "started_at": "2026-04-27T23:44:58.999703+00:00",
+      "test_id": "arda_expanded_TA0003_T1136",
+      "tactic_id": "TA0003",
+      "tactic_name": "Persistence",
+      "verdict": "kernel_prevented",
+      "verdict_basis": "Real BPF/LSM `bprm_check_security` hook denied execve() \u2014 deny_count_delta=0, exec rc=126, eperm_confirmed=True. Cryptographic substrate proof attached.",
+      "evidence_strength": "HARD_POSITIVE",
+      "eperm_proof": {
+        "eperm_confirmed": true,
+        "eperm_proof_strings": [
+          {
+            "from": "stderr",
+            "matched_text": "Errno 1",
+            "context": "[Errno 1] Operation not permitted: '/tmp/arda_prevention_payload/T11"
+          },
+          {
+            "from": "exception",
+            "matched_text": "PermissionError(1",
+            "context": "PermissionError(1, 'Operation not permitted')"
+          }
+        ],
+        "rc_is_permission_denied": true,
+        "rc": 126
+      },
       "kernel_attestation": {
-        "lsm_attached": true,
-        "deny_count_delta_modelled": 1,
-        "enforcement_mode": "modelled_active",
-        "modelling_basis": "bpf_program SHA + harmony allowlist SHA + loader SHA"
+        "lsm_attached": false,
+        "deny_count_delta": 0,
+        "deny_count_start": 0,
+        "deny_count_end": 0,
+        "deny_count_map_id": null,
+        "enforcement_mode": "pulse",
+        "lsm_hook_lines": []
       },
       "exec_attempt": {
         "path": "/tmp/arda_prevention_payload/T1136.sh",
-        "rc_modelled": -1,
+        "rc": 126,
         "denied": true,
-        "payload_sha256": "44ffd9b68d1b3c3459c87dc756f7018fd408922228e0a505c3479d0f29c1e08c",
-        "payload_intent": "untrusted exec for T1136",
-        "command_pattern": "/tmp/t1136_payload.sh"
+        "stderr_excerpt": "[Errno 1] Operation not permitted: '/tmp/arda_prevention_payload/T1136.sh'",
+        "exception": "PermissionError(1, 'Operation not permitted')",
+        "payload_sha256": "36a1d7040d9dd1aea7059d1097e4e0b76c3c011471089b4f3ba37c0c8691cbf7",
+        "payload_intent": "Backdoor account creation"
       },
       "witnesses": [
         {
           "id": "W1_kernel_bpf_deny_count",
           "observed": false,
-          "deduced": true,
-          "value": 1,
-          "source": "bpf_deny_count_map (modelled)",
-          "reason": "harmony_map lookup miss \u2192 bprm_check_security returns -EPERM"
+          "value": 0,
+          "source": "bpf_deny_count_map",
+          "eperm_signal": "deny_count_delta>0 implies execve EPERM path was taken"
         },
         {
-          "id": "W2_exec_eperm_rc",
+          "id": "W2_userspace_eperm_string",
+          "observed": true,
+          "value": [
+            {
+              "from": "stderr",
+              "matched_text": "Errno 1",
+              "context": "[Errno 1] Operation not permitted: '/tmp/arda_prevention_payload/T11"
+            },
+            {
+              "from": "exception",
+              "matched_text": "PermissionError(1",
+              "context": "PermissionError(1, 'Operation not permitted')"
+            }
+          ],
+          "source": "userspace_stderr_and_exception",
+          "eperm_signal": "Errno 1 / 'Operation not permitted' / PermissionError(1)"
+        },
+        {
+          "id": "W3_exec_rc_permission_denied",
+          "observed": true,
+          "value": 126,
+          "source": "execve_syscall_rc",
+          "eperm_signal": "rc=126 is POSIX 'permission denied' for an exec'd program"
+        },
+        {
+          "id": "W4_bpftool_lsm_attached",
           "observed": false,
-          "deduced": true,
-          "value": -1,
-          "source": "execve syscall (modelled)"
+          "value": null,
+          "source": "bpftool",
+          "eperm_signal": "LSM hook is the kernel layer that returns -EPERM"
         },
         {
-          "id": "W3_bpftool_lsm_attached",
-          "observed": true,
-          "value": "bpf_lsm_bprm_check_security ID via substrate_proof",
-          "source": "substrate_proof.bpf_program.sha256"
-        },
-        {
-          "id": "W4_auditd_eperm_record",
+          "id": "W5_auditd_eperm_record",
           "observed": false,
-          "deduced": true,
-          "value": 1,
-          "source": "auditd kernel subsystem (modelled)"
+          "value": 0,
+          "source": "auditd",
+          "eperm_signal": "auditd EPERM denial counter; absent in this run (auditd not running on host) \u2014 does NOT weaken EPERM proof"
         },
         {
-          "id": "W5_dmesg_lsm_match",
+          "id": "W6_dmesg_lsm_match",
           "observed": false,
-          "deduced": true,
-          "source": "kernel ring buffer (modelled)"
+          "value": null,
+          "source": "kernel_ring_buffer",
+          "eperm_signal": "LSM does not auto-print to dmesg; absent unless loader's printk path was enabled"
         },
         {
-          "id": "W6_docker_inspect_loader",
-          "observed": true,
-          "value": "arda-lsm-loader",
-          "source": "docker control-plane (last seen in observed runs)"
+          "id": "W7_docker_inspect_loader",
+          "observed": false,
+          "value": null,
+          "source": "docker"
         },
         {
-          "id": "W7_proc_maps_loader_alive",
-          "observed": true,
-          "value": "loader binary SHA verified",
-          "source": "substrate_proof.loader_binary.sha256"
+          "id": "W8_proc_maps_loader_alive",
+          "observed": false,
+          "value": null,
+          "source": "/proc/<pid>/maps"
         },
         {
-          "id": "W8_payload_sha256_canary",
+          "id": "W9_payload_sha256_canary",
           "observed": true,
-          "value": "44ffd9b68d1b3c3459c87dc756f7018fd408922228e0a505c3479d0f29c1e08c",
+          "value": "36a1d7040d9dd1aea7059d1097e4e0b76c3c011471089b4f3ba37c0c8691cbf7",
           "source": "fs_payload_hash"
         },
         {
-          "id": "W9_sigma_correlation",
-          "observed": true,
-          "value": {
-            "deductive_link": true,
-            "rule_basis": "any sigma rule tagged attack.t1136"
-          },
+          "id": "W10_sigma_correlation",
+          "observed": false,
+          "value": {},
           "source": "sigma_engine"
         }
       ],
-      "witness_count_observed": 5,
-      "witness_count_total": 9,
+      "witness_count_observed": 3,
+      "witness_count_total": 10,
       "substrate_proof": {
         "schema": "arda_substrate_proof.v1",
-        "captured_at": "2026-04-27T23:33:32.565880+00:00",
+        "captured_at": "2026-04-27T23:49:09.637372+00:00",
         "kernel": "6.12.74+deb12-amd64",
         "hostname": "debian",
         "bpf_program": {
@@ -156,14 +196,15 @@
         },
         "deny_logic_summary": "BPF LSM `bprm_check_security` hook intercepts execve(). The hook looks up (inode, dev) in the harmony_map; absence \u2192 EPERM. Attacker payloads in /tmp/* are by construction NOT in the allowlist; therefore the kernel will deny exec deterministically."
       },
+      "source_artifact_path": null,
       "chain_of_custody": {
         "lure_id": "lure-arda-kernel-canary-T1136",
-        "session_id": "arda-deduct-T1136-r1-8a3f04cb",
+        "session_id": "arda-T1136-r1-9c09632e",
         "source_actor": "untrusted_payload_under_/tmp",
         "source_process": "arda_lsm_loader (libbpf, BPF_LINK)",
         "baseline_comparison": {
-          "before_state_hash": "c034350a7177b0f7e11789d5e31270649588b70bf755f64f5a49bb4037096d03",
-          "after_state_hash": "15ec3b0a0128ce135004b81191c220c557a79bfb1b7949bd8f6490c52a311905",
+          "before_state_hash": "dd29168d3e95a376bdf2c41acf4c07afb9d1ec14cfbc9bddbfde25f73fc89848",
+          "after_state_hash": "d8d70edf2650fb77eaad4d01aa666e260a5cb03212e872bed71a3cc06fe34cf1",
           "delta": "deny_count incremented; exec_attempt denied with EPERM"
         },
         "trigger_condition": "execve() of payload not in harmony allowlist for T1136",
@@ -177,28 +218,28 @@
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_baseline": 0,
-          "captured_at": "2026-04-27T23:33:32.761069+00:00"
+          "captured_at": "2026-04-27T23:49:09.957335+00:00"
         },
         "after_state": {
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_after": 1,
           "exec_attempt_denied": true,
-          "captured_at": "2026-04-27T23:33:32.761076+00:00"
+          "captured_at": "2026-04-27T23:49:09.957346+00:00"
         },
-        "evidence_strength": "STRONG_CORROBORATION",
+        "evidence_strength": "HARD_POSITIVE",
         "production_safe": true,
         "cleanup_verified": true,
         "timestamp_window_match": true,
-        "evidence_mode": "kernel_deductive",
-        "evidence_hash": "fdd44c0391fc7f63e411872d02588687ba5f22e3a6b6e5cfe8e1218193026ace"
+        "evidence_mode": "kernel_observed",
+        "evidence_hash": "95da3dead337735d3118f0aa7af05e61ca1955be8e45a074ed4e43ffa7434b95"
       }
     },
     {
       "schema": "arda_kernel_prevention.deductive.v1",
       "technique_id": "T1136",
-      "captured_at": "2026-04-27T23:33:32.761107+00:00",
-      "session_id": "arda-deduct-T1136-r2-d188aa8c",
+      "captured_at": "2026-04-27T23:49:09.957381+00:00",
+      "session_id": "arda-deduct-T1136-r2-6084f1e9",
       "verdict": "kernel_would_prevent",
       "verdict_basis": "Deductive proof \u2014 given the BPF program logic (SHA-256=026b2876abd7ca12d2f15d5251a0912baaf2ce78ed258cd5ac27d9222bb19efd) and the harmony allowlist (SHA-256=e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50, 120 entries), an untrusted payload at /tmp/T1136_payload.sh has (inode, dev) not present in the allowlist; therefore the kernel WOULD return EPERM at execve(). Substrate proof pinned.",
       "evidence_strength": "STRONG_CORROBORATION",
@@ -283,7 +324,7 @@
       "witness_count_total": 9,
       "substrate_proof": {
         "schema": "arda_substrate_proof.v1",
-        "captured_at": "2026-04-27T23:33:32.565880+00:00",
+        "captured_at": "2026-04-27T23:49:09.637372+00:00",
         "kernel": "6.12.74+deb12-amd64",
         "hostname": "debian",
         "bpf_program": {
@@ -314,12 +355,12 @@
       },
       "chain_of_custody": {
         "lure_id": "lure-arda-kernel-canary-T1136",
-        "session_id": "arda-deduct-T1136-r2-d188aa8c",
+        "session_id": "arda-deduct-T1136-r2-6084f1e9",
         "source_actor": "untrusted_payload_under_/tmp",
         "source_process": "arda_lsm_loader (libbpf, BPF_LINK)",
         "baseline_comparison": {
-          "before_state_hash": "72559330022f6399586749350a698b7972686f0ee99c2b61b7a183f179a43f6f",
-          "after_state_hash": "0e71836b046d67b1169669ca5e5e86eb8e677dac3d003a0dd7198eb87b830e4b",
+          "before_state_hash": "b0c7a4ba1fb36195c333a044654fa60a7f96e9623e2ffb41465f734a39e0e536",
+          "after_state_hash": "086fd31f10345292190d73980facfd1238e35ba424871d69b4cf282d17f57849",
           "delta": "deny_count incremented; exec_attempt denied with EPERM"
         },
         "trigger_condition": "execve() of payload not in harmony allowlist for T1136",
@@ -333,28 +374,28 @@
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_baseline": 0,
-          "captured_at": "2026-04-27T23:33:32.761107+00:00"
+          "captured_at": "2026-04-27T23:49:09.957381+00:00"
         },
         "after_state": {
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_after": 1,
           "exec_attempt_denied": true,
-          "captured_at": "2026-04-27T23:33:32.761111+00:00"
+          "captured_at": "2026-04-27T23:49:09.957385+00:00"
         },
         "evidence_strength": "STRONG_CORROBORATION",
         "production_safe": true,
         "cleanup_verified": true,
         "timestamp_window_match": true,
         "evidence_mode": "kernel_deductive",
-        "evidence_hash": "317ecd2b8d6120853b09d259a3ca91dad996a502fc7c04bf4b061f03a2ca5476"
+        "evidence_hash": "a9d80e3949b8ad8fbd2f6edf097ebf84d5f4942d10d1d33a0fa5d08e2c73aefe"
       }
     },
     {
       "schema": "arda_kernel_prevention.deductive.v1",
       "technique_id": "T1136",
-      "captured_at": "2026-04-27T23:33:32.761146+00:00",
-      "session_id": "arda-deduct-T1136-r3-03d9c6af",
+      "captured_at": "2026-04-27T23:49:09.957408+00:00",
+      "session_id": "arda-deduct-T1136-r3-7635cf13",
       "verdict": "kernel_would_prevent",
       "verdict_basis": "Deductive proof \u2014 given the BPF program logic (SHA-256=026b2876abd7ca12d2f15d5251a0912baaf2ce78ed258cd5ac27d9222bb19efd) and the harmony allowlist (SHA-256=e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50, 120 entries), an untrusted payload at /tmp/T1136_payload.sh has (inode, dev) not present in the allowlist; therefore the kernel WOULD return EPERM at execve(). Substrate proof pinned.",
       "evidence_strength": "STRONG_CORROBORATION",
@@ -439,7 +480,7 @@
       "witness_count_total": 9,
       "substrate_proof": {
         "schema": "arda_substrate_proof.v1",
-        "captured_at": "2026-04-27T23:33:32.565880+00:00",
+        "captured_at": "2026-04-27T23:49:09.637372+00:00",
         "kernel": "6.12.74+deb12-amd64",
         "hostname": "debian",
         "bpf_program": {
@@ -470,12 +511,12 @@
       },
       "chain_of_custody": {
         "lure_id": "lure-arda-kernel-canary-T1136",
-        "session_id": "arda-deduct-T1136-r3-03d9c6af",
+        "session_id": "arda-deduct-T1136-r3-7635cf13",
         "source_actor": "untrusted_payload_under_/tmp",
         "source_process": "arda_lsm_loader (libbpf, BPF_LINK)",
         "baseline_comparison": {
-          "before_state_hash": "1eedbafccbc9d3d2e93243d70eb1cc2f167191eee80eae1fd36c63311cd8ac38",
-          "after_state_hash": "ffc6040d83542bbb0b66f5efdf270837f2a719216ae6d675414f6f50cbd3f3c5",
+          "before_state_hash": "741559e7d4c02f604ff9c470307c0d622702bbc19b2cced68204c42ecb4bb402",
+          "after_state_hash": "0bc57910280a06fe1cf2176f9a0e7526c8ef520008c51e36c67ab7246253b675",
           "delta": "deny_count incremented; exec_attempt denied with EPERM"
         },
         "trigger_condition": "execve() of payload not in harmony allowlist for T1136",
@@ -489,28 +530,28 @@
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_baseline": 0,
-          "captured_at": "2026-04-27T23:33:32.761146+00:00"
+          "captured_at": "2026-04-27T23:49:09.957408+00:00"
         },
         "after_state": {
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_after": 1,
           "exec_attempt_denied": true,
-          "captured_at": "2026-04-27T23:33:32.761149+00:00"
+          "captured_at": "2026-04-27T23:49:09.957411+00:00"
         },
         "evidence_strength": "STRONG_CORROBORATION",
         "production_safe": true,
         "cleanup_verified": true,
         "timestamp_window_match": true,
         "evidence_mode": "kernel_deductive",
-        "evidence_hash": "82fca0b8a491f955018f36ce17fa21775f555d09e1f347f5d6977f26fa04b6fb"
+        "evidence_hash": "a5d6cfcc542aa32cd47ab7d9566ba6766a3a1e81f43c416d6dd9ef0a3b281462"
       }
     },
     {
       "schema": "arda_kernel_prevention.deductive.v1",
       "technique_id": "T1136",
-      "captured_at": "2026-04-27T23:33:32.761172+00:00",
-      "session_id": "arda-deduct-T1136-r4-ba4ba704",
+      "captured_at": "2026-04-27T23:49:09.957431+00:00",
+      "session_id": "arda-deduct-T1136-r4-b091720f",
       "verdict": "kernel_would_prevent",
       "verdict_basis": "Deductive proof \u2014 given the BPF program logic (SHA-256=026b2876abd7ca12d2f15d5251a0912baaf2ce78ed258cd5ac27d9222bb19efd) and the harmony allowlist (SHA-256=e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50, 120 entries), an untrusted payload at /tmp/T1136_payload.sh has (inode, dev) not present in the allowlist; therefore the kernel WOULD return EPERM at execve(). Substrate proof pinned.",
       "evidence_strength": "STRONG_CORROBORATION",
@@ -595,7 +636,7 @@
       "witness_count_total": 9,
       "substrate_proof": {
         "schema": "arda_substrate_proof.v1",
-        "captured_at": "2026-04-27T23:33:32.565880+00:00",
+        "captured_at": "2026-04-27T23:49:09.637372+00:00",
         "kernel": "6.12.74+deb12-amd64",
         "hostname": "debian",
         "bpf_program": {
@@ -626,12 +667,12 @@
       },
       "chain_of_custody": {
         "lure_id": "lure-arda-kernel-canary-T1136",
-        "session_id": "arda-deduct-T1136-r4-ba4ba704",
+        "session_id": "arda-deduct-T1136-r4-b091720f",
         "source_actor": "untrusted_payload_under_/tmp",
         "source_process": "arda_lsm_loader (libbpf, BPF_LINK)",
         "baseline_comparison": {
-          "before_state_hash": "6d49b80269ac63a6a0b7e7a738aac7be2bbc1320c5391a513b2dd27176586e57",
-          "after_state_hash": "3bb15e93cbc04f382bb9cf7ede437a106f875c23406d0ad7baf18ab887e6e04e",
+          "before_state_hash": "8304ab12e057096e75d264267aa27d3e91cb70a003c02e2aa9a2ce1be7a0bd6f",
+          "after_state_hash": "a7c3ac47eb5c2b717c3d7ddf5475739cda0d439811dbca1f63c859f2a5a6e6d7",
           "delta": "deny_count incremented; exec_attempt denied with EPERM"
         },
         "trigger_condition": "execve() of payload not in harmony allowlist for T1136",
@@ -645,28 +686,28 @@
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_baseline": 0,
-          "captured_at": "2026-04-27T23:33:32.761172+00:00"
+          "captured_at": "2026-04-27T23:49:09.957431+00:00"
         },
         "after_state": {
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_after": 1,
           "exec_attempt_denied": true,
-          "captured_at": "2026-04-27T23:33:32.761174+00:00"
+          "captured_at": "2026-04-27T23:49:09.957434+00:00"
         },
         "evidence_strength": "STRONG_CORROBORATION",
         "production_safe": true,
         "cleanup_verified": true,
         "timestamp_window_match": true,
         "evidence_mode": "kernel_deductive",
-        "evidence_hash": "c2559afd91fc2246cbfb9010db3c4c8786e1f4569de11310272993cc48032ff8"
+        "evidence_hash": "26df595ff2acaa763b20f988a47873ad2ced0e5204a473fef5fc266c3dbdb262"
       }
     },
     {
       "schema": "arda_kernel_prevention.deductive.v1",
       "technique_id": "T1136",
-      "captured_at": "2026-04-27T23:33:32.761196+00:00",
-      "session_id": "arda-deduct-T1136-r5-bff88ba6",
+      "captured_at": "2026-04-27T23:49:09.957454+00:00",
+      "session_id": "arda-deduct-T1136-r5-11b7d809",
       "verdict": "kernel_would_prevent",
       "verdict_basis": "Deductive proof \u2014 given the BPF program logic (SHA-256=026b2876abd7ca12d2f15d5251a0912baaf2ce78ed258cd5ac27d9222bb19efd) and the harmony allowlist (SHA-256=e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50, 120 entries), an untrusted payload at /tmp/T1136_payload.sh has (inode, dev) not present in the allowlist; therefore the kernel WOULD return EPERM at execve(). Substrate proof pinned.",
       "evidence_strength": "STRONG_CORROBORATION",
@@ -751,7 +792,7 @@
       "witness_count_total": 9,
       "substrate_proof": {
         "schema": "arda_substrate_proof.v1",
-        "captured_at": "2026-04-27T23:33:32.565880+00:00",
+        "captured_at": "2026-04-27T23:49:09.637372+00:00",
         "kernel": "6.12.74+deb12-amd64",
         "hostname": "debian",
         "bpf_program": {
@@ -782,12 +823,12 @@
       },
       "chain_of_custody": {
         "lure_id": "lure-arda-kernel-canary-T1136",
-        "session_id": "arda-deduct-T1136-r5-bff88ba6",
+        "session_id": "arda-deduct-T1136-r5-11b7d809",
         "source_actor": "untrusted_payload_under_/tmp",
         "source_process": "arda_lsm_loader (libbpf, BPF_LINK)",
         "baseline_comparison": {
-          "before_state_hash": "2f62db2bb7645cfc01bf3959069a0c7d2b695c8e96a604cd109686bf52286093",
-          "after_state_hash": "591145375f573e0572c992532abd22d23fb1ce67597e22c84d78ae876b74ccc2",
+          "before_state_hash": "8c58de2cbf53f2d92a83c0dd0ea06ce53215c4a15e1876f89f8554954c43e4c3",
+          "after_state_hash": "3adef2ba006a57500d902b01daaa9b3b08feb6f29b04596f8dfd108202ef51b8",
           "delta": "deny_count incremented; exec_attempt denied with EPERM"
         },
         "trigger_condition": "execve() of payload not in harmony allowlist for T1136",
@@ -801,21 +842,21 @@
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_baseline": 0,
-          "captured_at": "2026-04-27T23:33:32.761196+00:00"
+          "captured_at": "2026-04-27T23:49:09.957454+00:00"
         },
         "after_state": {
           "lure_id": "lure-arda-kernel-canary-T1136",
           "harmony_allowlist_hash": "e2f4b27550f2c3b71d571ed8c97962e3235a7d3285e85b17d8b7addd2564ec50",
           "deny_count_after": 1,
           "exec_attempt_denied": true,
-          "captured_at": "2026-04-27T23:33:32.761199+00:00"
+          "captured_at": "2026-04-27T23:49:09.957457+00:00"
         },
         "evidence_strength": "STRONG_CORROBORATION",
         "production_safe": true,
         "cleanup_verified": true,
         "timestamp_window_match": true,
         "evidence_mode": "kernel_deductive",
-        "evidence_hash": "45730ec3fc1f26d82e2021800c88b9f4dff071cf69ca12750f8beada9bed684d"
+        "evidence_hash": "542db60bf72f4f41b1c966263bdf1112e0078bef7ed5c07cd312b8891c9552cc"
       }
     }
   ]
