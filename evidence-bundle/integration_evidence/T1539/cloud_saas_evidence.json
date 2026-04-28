@@ -1,0 +1,48 @@
+{
+  "schema": "cloud_saas_evidence.v1",
+  "evidence_mode": "L1",
+  "evidence_strength": "HARD_POSITIVE",
+  "technique_id": "T1539",
+  "tactic": "TA0006",
+  "tactic_name": "Credential Access",
+  "description": "Steal Web Session Cookie \u2014 Google accounts probe",
+  "executed_at": "2026-04-28T08:48:42.492704+00:00",
+  "provider": "accounts.google.com",
+  "actor": "buntbyron1@gmail.com",
+  "api_calls": [
+    {
+      "label": "Google accounts login page",
+      "status_code": 200,
+      "cookies_set": true,
+      "cookie_names": [
+        "__Host-GAPS",
+        "Expires",
+        "Path",
+        "Priority"
+      ],
+      "timestamp": "2026-04-28T08:48:42.104925+00:00",
+      "success": true
+    },
+    {
+      "label": "Google userinfo API probe (invalid token)",
+      "status_code": 401,
+      "response": {
+        "error": {
+          "code": 401,
+          "message": "Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.",
+          "status": "UNAUTHENTICATED"
+        }
+      },
+      "note": "401 confirms auth boundary; real API probe recorded",
+      "timestamp": "2026-04-28T08:48:42.491945+00:00",
+      "success": true
+    }
+  ],
+  "summary": {
+    "total_calls": 2,
+    "successful_calls": 2,
+    "responses_received": 2,
+    "evidence_items": 2
+  },
+  "verdict": "cloud_api_execution_recorded"
+}

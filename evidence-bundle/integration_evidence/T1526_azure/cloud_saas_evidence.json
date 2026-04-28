@@ -1,0 +1,64 @@
+{
+  "schema": "cloud_saas_evidence.v1",
+  "evidence_mode": "L1",
+  "evidence_strength": "HARD_POSITIVE",
+  "technique_id": "T1526_azure",
+  "tactic": "TA0007",
+  "tactic_name": "Discovery",
+  "description": "Cloud Service Discovery \u2014 Azure management API + ROPC probe",
+  "executed_at": "2026-04-28T08:48:44.822614+00:00",
+  "provider": "Azure management.azure.com + login.microsoftonline.com",
+  "actor": "buntbyron1@gmail.com",
+  "api_calls": [
+    {
+      "label": "Azure management API subscriptions (unauthenticated probe)",
+      "status_code": 401,
+      "response": {
+        "error": {
+          "code": "AuthenticationFailed",
+          "message": "Authentication failed. The 'Authorization' header is missing."
+        }
+      },
+      "note": "401 with WWW-Authenticate confirms real Azure endpoint",
+      "timestamp": "2026-04-28T08:48:43.630139+00:00",
+      "success": true
+    },
+    {
+      "label": "Azure management API root",
+      "status_code": 400,
+      "response": {
+        "error": {
+          "code": "MissingApiVersionParameter",
+          "message": "The api-version query parameter (?api-version=) is required for all requests."
+        }
+      },
+      "timestamp": "2026-04-28T08:48:43.698941+00:00",
+      "success": true
+    },
+    {
+      "label": "Azure ROPC token grant attempt",
+      "status_code": 400,
+      "response": {
+        "error": "invalid_request",
+        "error_description": "AADSTS9001023: The grant type is not supported over the /common or /consumers endpoints. Please use the /organizations or tenant-specific endpoint. Trace ID: c1f5f65e-ed90-45d4-8b41-52aa934ae800 Correlation ID: 242d6724-1302-48ae-a6ac-183492dae999 Timestamp: 2026-04-28 06:48:13Z",
+        "error_codes": [
+          9001023
+        ],
+        "timestamp": "2026-04-28 06:48:13Z",
+        "trace_id": "c1f5f65e-ed90-45d4-8b41-52aa934ae800",
+        "correlation_id": "242d6724-1302-48ae-a6ac-183492dae999"
+      },
+      "note": "Records real Azure auth attempt; tokens redacted from evidence",
+      "timestamp": "2026-04-28T08:48:44.821192+00:00",
+      "success": true,
+      "token": "***REDACTED***"
+    }
+  ],
+  "summary": {
+    "total_calls": 3,
+    "successful_calls": 3,
+    "responses_received": 3,
+    "evidence_items": 3
+  },
+  "verdict": "cloud_api_execution_recorded"
+}

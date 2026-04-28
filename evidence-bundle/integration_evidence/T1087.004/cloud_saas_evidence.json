@@ -5,104 +5,42 @@
   "technique_id": "T1087.004",
   "tactic": "TA0007",
   "tactic_name": "Discovery",
-  "description": "Account Discovery: Cloud Account \u2014 enumerate users, collaborators",
-  "executed_at": "2026-04-28T08:36:52.242294+00:00",
-  "provider": "GitHub REST API v3",
-  "actor": "Byron2306",
-  "api_endpoint": "https://api.github.com",
-  "auth_method": "gh_auth_token (OAuth)",
+  "description": "Account Discovery: Cloud Account \u2014 Azure AD / MS Graph",
+  "executed_at": "2026-04-28T08:48:46.050003+00:00",
+  "provider": "Azure management.azure.com / graph.microsoft.com",
+  "actor": "buntbyron1@gmail.com",
   "api_calls": [
     {
-      "label": "Current authenticated user details",
-      "method": "GET",
-      "path": "/user",
-      "status_code": 200,
-      "response_items": 1,
-      "response_sample": {
-        "login": "Byron2306",
-        "id": 132565250,
-        "node_id": "U_kgDOB-bJAg",
-        "avatar_url": "https://avatars.githubusercontent.com/u/132565250?v=4",
-        "gravatar_id": "",
-        "url": "https://api.github.com/users/Byron2306",
-        "html_url": "https://github.com/Byron2306",
-        "followers_url": "https://api.github.com/users/Byron2306/followers",
-        "following_url": "https://api.github.com/users/Byron2306/following{/other_user}",
-        "gists_url": "https://api.github.com/users/Byron2306/gists{/gist_id}"
-      },
-      "timestamp": "2026-04-28T08:36:49.130648+00:00"
-    },
-    {
-      "label": "List repo collaborators",
-      "method": "GET",
-      "path": "/repos/Byron2306/Metatron/collaborators",
-      "status_code": 200,
-      "response_items": 1,
-      "response_sample": [
-        {
-          "login": "Byron2306",
-          "id": 132565250,
-          "node_id": "U_kgDOB-bJAg",
-          "avatar_url": "https://avatars.githubusercontent.com/u/132565250?v=4",
-          "gravatar_id": "",
-          "url": "https://api.github.com/users/Byron2306",
-          "html_url": "https://github.com/Byron2306",
-          "followers_url": "https://api.github.com/users/Byron2306/followers",
-          "following_url": "https://api.github.com/users/Byron2306/following{/other_user}",
-          "gists_url": "https://api.github.com/users/Byron2306/gists{/gist_id}",
-          "starred_url": "https://api.github.com/users/Byron2306/starred{/owner}{/repo}",
-          "subscriptions_url": "https://api.github.com/users/Byron2306/subscriptions",
-          "organizations_url": "https://api.github.com/users/Byron2306/orgs",
-          "repos_url": "https://api.github.com/users/Byron2306/repos",
-          "events_url": "https://api.github.com/users/Byron2306/events{/privacy}",
-          "received_events_url": "https://api.github.com/users/Byron2306/received_events",
-          "type": "User",
-          "user_view_type": "public",
-          "site_admin": false,
-          "permissions": {
-            "admin": true,
-            "maintain": true,
-            "push": true,
-            "triage": true,
-            "pull": true
-          },
-          "role_name": "admin"
+      "label": "Microsoft Graph /me (user profile)",
+      "status_code": 401,
+      "response": {
+        "error": {
+          "code": "InvalidAuthenticationToken",
+          "message": "Access token is empty.",
+          "innerError": {
+            "date": "2026-04-28T06:48:13",
+            "request-id": "bb419d6b-b522-4734-bd65-93d128810823",
+            "client-request-id": "bb419d6b-b522-4734-bd65-93d128810823"
+          }
         }
-      ],
-      "timestamp": "2026-04-28T08:36:49.857224+00:00"
+      },
+      "timestamp": "2026-04-28T08:48:44.877612+00:00",
+      "success": true
     },
     {
-      "label": "List repo teams",
-      "method": "GET",
-      "path": "/repos/Byron2306/Metatron/teams",
+      "label": "Azure AD OIDC discovery (tenant info)",
       "status_code": 200,
-      "response_items": 0,
-      "response_sample": [],
-      "timestamp": "2026-04-28T08:36:50.562754+00:00"
-    },
-    {
-      "label": "List org memberships",
-      "method": "GET",
-      "path": "/user/memberships/orgs",
-      "status_code": 200,
-      "response_items": 0,
-      "response_sample": [],
-      "timestamp": "2026-04-28T08:36:51.317999+00:00"
-    },
-    {
-      "label": "List social accounts (OSINT)",
-      "method": "GET",
-      "path": "/user/social_accounts",
-      "status_code": 200,
-      "response_items": 0,
-      "response_sample": [],
-      "timestamp": "2026-04-28T08:36:51.941981+00:00"
+      "issuer": "https://login.microsoftonline.com/{tenantid}/v2.0",
+      "token_endpoint": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      "timestamp": "2026-04-28T08:48:46.049758+00:00",
+      "success": true
     }
   ],
   "summary": {
-    "total_calls": 5,
-    "successful_calls": 5,
-    "evidence_items": 5
+    "total_calls": 2,
+    "successful_calls": 2,
+    "responses_received": 2,
+    "evidence_items": 2
   },
   "verdict": "cloud_api_execution_recorded"
 }

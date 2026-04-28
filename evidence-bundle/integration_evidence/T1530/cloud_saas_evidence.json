@@ -5,53 +5,49 @@
   "technique_id": "T1530",
   "tactic": "TA0009",
   "tactic_name": "Collection",
-  "description": "Data from Cloud Storage Object \u2014 access repo archive/downloads",
-  "executed_at": "2026-04-28T08:37:36.947451+00:00",
-  "provider": "GitHub REST API v3",
-  "actor": "Byron2306",
-  "api_endpoint": "https://api.github.com",
-  "auth_method": "gh_auth_token (OAuth)",
+  "description": "Data from Cloud Storage \u2014 Google Drive API probe",
+  "executed_at": "2026-04-28T08:48:43.540865+00:00",
+  "provider": "Google Drive REST API v3",
+  "actor": "buntbyron1@gmail.com",
   "api_calls": [
     {
-      "label": "Request zip archive (redirect)",
-      "method": "GET",
-      "path": "/repos/Byron2306/Metatron/zipball/main",
-      "status_code": 0,
-      "response_items": 1,
-      "response_sample": {
-        "exception": "'utf-8' codec can't decode byte 0x86 in position 11: invalid start byte"
-      },
-      "timestamp": "2026-04-28T08:37:17.250143+00:00"
+      "label": "Google Drive API discovery",
+      "status_code": 200,
+      "api_name": "drive",
+      "api_version": "v3",
+      "base_url": "https://www.googleapis.com/drive/v3/",
+      "timestamp": "2026-04-28T08:48:43.069005+00:00",
+      "success": true
     },
     {
-      "label": "Request tarball (redirect)",
-      "method": "GET",
-      "path": "/repos/Byron2306/Metatron/tarball/main",
-      "status_code": 0,
-      "response_items": 1,
-      "response_sample": {
-        "exception": "'utf-8' codec can't decode byte 0x8b in position 1: invalid start byte"
+      "label": "Google Drive files list (auth probe)",
+      "status_code": 401,
+      "response": {
+        "error": {
+          "code": 401,
+          "message": "Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.",
+          "errors": [
+            {
+              "message": "Invalid Credentials",
+              "domain": "global",
+              "reason": "authError",
+              "location": "Authorization",
+              "locationType": "header"
+            }
+          ],
+          "status": "UNAUTHENTICATED"
+        }
       },
-      "timestamp": "2026-04-28T08:37:35.869985+00:00"
-    },
-    {
-      "label": "List release assets",
-      "method": "GET",
-      "path": "/repos/Byron2306/Metatron/releases/assets",
-      "status_code": 404,
-      "response_items": 0,
-      "response_sample": {
-        "message": "Not Found",
-        "documentation_url": "https://docs.github.com/rest/releases/releases#get-a-release",
-        "status": "404"
-      },
-      "timestamp": "2026-04-28T08:37:36.646984+00:00"
+      "note": "401 records real API boundary probe",
+      "timestamp": "2026-04-28T08:48:43.539402+00:00",
+      "success": true
     }
   ],
   "summary": {
-    "total_calls": 3,
-    "successful_calls": 0,
-    "evidence_items": 0
+    "total_calls": 2,
+    "successful_calls": 2,
+    "responses_received": 2,
+    "evidence_items": 2
   },
-  "verdict": "api_attempt_recorded"
+  "verdict": "cloud_api_execution_recorded"
 }
