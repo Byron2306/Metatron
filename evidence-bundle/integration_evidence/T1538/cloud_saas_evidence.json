@@ -1,0 +1,467 @@
+{
+  "schema": "cloud_saas_evidence.v1",
+  "evidence_mode": "L1",
+  "evidence_strength": "HARD_POSITIVE",
+  "technique_id": "T1538",
+  "tactic": "TA0007",
+  "tactic_name": "Discovery",
+  "description": "Cloud Service Dashboard \u2014 query GitHub API metadata and settings",
+  "executed_at": "2026-04-28T08:37:41.268916+00:00",
+  "provider": "GitHub REST API v3",
+  "actor": "Byron2306",
+  "api_endpoint": "https://api.github.com",
+  "auth_method": "gh_auth_token (OAuth)",
+  "api_calls": [
+    {
+      "label": "Query API rate limit status",
+      "method": "GET",
+      "path": "/rate_limit",
+      "status_code": 200,
+      "response_items": 1,
+      "response_sample": {
+        "resources": {
+          "core": {
+            "limit": 5000,
+            "used": 77,
+            "remaining": 4923,
+            "reset": 1777359061
+          },
+          "search": {
+            "limit": 30,
+            "used": 0,
+            "remaining": 30,
+            "reset": 1777358285
+          },
+          "graphql": {
+            "limit": 5000,
+            "used": 10,
+            "remaining": 4990,
+            "reset": 1777360462
+          },
+          "integration_manifest": {
+            "limit": 5000,
+            "used": 0,
+            "remaining": 5000,
+            "reset": 1777361825
+          },
+          "source_import": {
+            "limit": 100,
+            "used": 0,
+            "remaining": 100,
+            "reset": 1777358285
+          },
+          "code_scanning_upload": {
+            "limit": 5000,
+            "used": 77,
+            "remaining": 4923,
+            "reset": 1777359061
+          },
+          "code_scanning_autofix": {
+            "limit": 10,
+            "used": 0,
+            "remaining": 10,
+            "reset": 1777358285
+          },
+          "actions_runner_registration": {
+            "limit": 10000,
+            "used": 0,
+            "remaining": 10000,
+            "reset": 1777361825
+          },
+          "scim": {
+            "limit": 15000,
+            "used": 0,
+            "remaining": 15000,
+            "reset": 1777361825
+          },
+          "dependency_snapshots": {
+            "limit": 100,
+            "used": 0,
+            "remaining": 100,
+            "reset": 1777358285
+          },
+          "dependency_sbom": {
+            "limit": 100,
+            "used": 0,
+            "remaining": 100,
+            "reset": 1777358285
+          },
+          "audit_log": {
+            "limit": 1750,
+            "used": 0,
+            "remaining": 1750,
+            "reset": 1777361825
+          },
+          "audit_log_streaming": {
+            "limit": 15,
+            "used": 0,
+            "remaining": 15,
+            "reset": 1777361825
+          },
+          "code_search": {
+            "limit": 10,
+            "used": 0,
+            "remaining": 10,
+            "reset": 1777358285
+          }
+        },
+        "rate": {
+          "limit": 5000,
+          "used": 77,
+          "remaining": 4923,
+          "reset": 1777359061
+        }
+      },
+      "timestamp": "2026-04-28T08:37:37.372371+00:00"
+    },
+    {
+      "label": "GitHub API metadata (IP ranges, capabilities)",
+      "method": "GET",
+      "path": "/meta",
+      "status_code": 200,
+      "response_items": 1,
+      "response_sample": {
+        "verifiable_password_authentication": false,
+        "ssh_key_fingerprints": {
+          "SHA256_ECDSA": "p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM",
+          "SHA256_ED25519": "+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU",
+          "SHA256_RSA": "uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s"
+        },
+        "ssh_keys": [
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+          "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=",
+          "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
+        ],
+        "hooks": [
+          "192.30.252.0/22",
+          "185.199.108.0/22",
+          "140.82.112.0/20",
+          "143.55.64.0/20",
+          "2a0a:a440::/29",
+          "2606:50c0::/32"
+        ],
+        "web": [
+          "192.30.252.0/22",
+          "185.199.108.0/22",
+          "140.82.112.0/20",
+          "143.55.64.0/20",
+          "2a0a:a440::/29",
+          "2606:50c0::/32",
+          "20.201.28.151/32",
+          "20.205.243.166/32",
+          "20.87.245.0/32",
+          "4.237.22.38/32",
+          "4.228.31.150/32",
+          "20.207.73.82/32",
+          "20.27.177.113/32",
+          "20.200.245.247/32",
+          "20.175.192.147/32",
+          "20.233.83.145/32",
+          "20.29.134.23/32",
+          "20.199.39.232/32",
+          "20.217.135.5/32",
+          "4.225.11.194/32",
+          "4.208.26.197/32",
+          "20.26.156.215/32"
+        ],
+        "api": [
+          "192.30.252.0/22",
+          "185.199.108.0/22",
+          "140.82.112.0/20",
+          "143.55.64.0/20",
+          "2a0a:a440::/29",
+          "2606:50c0::/32",
+          "20.201.28.148/32",
+          "20.205.243.168/32",
+          "20.87.245.6/32",
+          "4.237.22.34/32",
+          "4.228.31.149/32",
+          "20.207.73.85/32",
+          "20.27.177.116/32",
+          "20.200.245.245/32",
+          "20.175.192.149/32",
+          "20.233.83.146/32",
+          "20.29.134.17/32",
+          "20.199.39.228/32",
+          "20.217.135.0/32",
+          "4.225.11.201/32",
+          "4.208.26.200/32",
+          "20.26.156.210/32"
+        ],
+        "git": [
+          "192.30.252.0/22",
+          "185.199.108.0/22",
+          "140.82.112.0/20",
+          "143.55.64.0/20",
+          "2a0a:a440::/29",
+          "2606:50c0::/32",
+          "20.201.28.151/32",
+          "20.205.243.166/32",
+          "20.87.245.0/32",
+          "4.237.22.38/32",
+          "4.228.31.150/32",
+          "20.207.73.82/32",
+          "20.27.177.113/32",
+          "20.200.245.247/32",
+          "20.175.192.147/32",
+          "20.233.83.145/32",
+          "20.29.134.23/32",
+          "20.199.39.232/32",
+          "20.217.135.5/32",
+          "4.225.11.194/32",
+          "4.208.26.197/32",
+          "20.26.156.215/32",
+          "20.201.28.152/32",
+          "20.205.243.160/32",
+          "20.87.245.4/32",
+          "4.237.22.40/32",
+          "4.228.31.145/32",
+          "20.207.73.83/32",
+          "20.27.177.118/32",
+          "20.200.245.248/32",
+          "20.175.192.146/32",
+          "20.233.83.149/32",
+          "20.29.134.19/32",
+          "20.199.39.227/32",
+          "20.217.135.4/32",
+          "4.225.11.200/32",
+          "4.208.26.198/32",
+          "20.26.156.214/32"
+        ],
+        "github_enterprise_importer": [
+          "192.30.252.0/22",
+          "185.199.108.0/22",
+          "140.82.112.0/20",
+          "143.55.64.0/20",
+          "2a0a:a440::/29",
+          "2606:50c0::/32",
+          "20.99.172.64/28",
+          "135.234.59.224/28"
+        ],
+        "packages": [
+          "140.82.121.33/32",
+          "140.82.121.34/32",
+          "140.82.113.33/32",
+          "140.82.113.34/32",
+          "140.82.112.33/32",
+          "140.82.112.34/32",
+          "140.82.114.33/32",
+          "140.82.114.34/32",
+          "192.30.255.164/31",
+          "20.201.28.144/32",
+          "20.205.243.164/32",
+          "20.87.245.1/32",
+          "4.237.22.32/32",
+          "4.228.31.152/32",
+          "20.207.73.86/32",
+          "20.27.177.117/32",
+          "20.200.245.241/32",
+          "20.175.192.150/32",
+          "20.233.83.147/32",
+          "20.29.134.18/32",
+          "20.199.39.231/32",
+          "20.217.135.1/32",
+          "4.225.11.196/32",
+          "4.208.26.196/32",
+          "20.26.156.211/32"
+        ],
+        "pages": [
+          "192.30.252.153/32",
+          "192.30.252.154/32",
+          "185.199.108.153/32",
+          "185.199.109.153/32",
+          "185.199.110.153/32",
+          "185.199.111.153/32",
+          "2606:50c0:8000::153/128",
+          "2606:50c0:8001::153/128",
+          "2606:50c0:8002::153/128",
+          "2606:50c0:8003::153/128"
+        ]
+      },
+      "timestamp": "2026-04-28T08:37:38.738446+00:00"
+    },
+    {
+      "label": "Repo traffic views",
+      "method": "GET",
+      "path": "/repos/Byron2306/Metatron/traffic/views",
+      "status_code": 200,
+      "response_items": 1,
+      "response_sample": {
+        "count": 79,
+        "uniques": 2,
+        "views": [
+          {
+            "timestamp": "2026-04-13T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-14T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-15T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-16T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-17T00:00:00Z",
+            "count": 1,
+            "uniques": 1
+          },
+          {
+            "timestamp": "2026-04-18T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-19T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-20T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-21T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-22T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-23T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-24T00:00:00Z",
+            "count": 77,
+            "uniques": 1
+          },
+          {
+            "timestamp": "2026-04-25T00:00:00Z",
+            "count": 1,
+            "uniques": 1
+          },
+          {
+            "timestamp": "2026-04-26T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          }
+        ]
+      },
+      "timestamp": "2026-04-28T08:37:39.524533+00:00"
+    },
+    {
+      "label": "Repo clone traffic",
+      "method": "GET",
+      "path": "/repos/Byron2306/Metatron/traffic/clones",
+      "status_code": 200,
+      "response_items": 1,
+      "response_sample": {
+        "count": 2308,
+        "uniques": 202,
+        "clones": [
+          {
+            "timestamp": "2026-04-13T00:00:00Z",
+            "count": 0,
+            "uniques": 0
+          },
+          {
+            "timestamp": "2026-04-14T00:00:00Z",
+            "count": 84,
+            "uniques": 3
+          },
+          {
+            "timestamp": "2026-04-15T00:00:00Z",
+            "count": 40,
+            "uniques": 4
+          },
+          {
+            "timestamp": "2026-04-16T00:00:00Z",
+            "count": 90,
+            "uniques": 8
+          },
+          {
+            "timestamp": "2026-04-17T00:00:00Z",
+            "count": 81,
+            "uniques": 4
+          },
+          {
+            "timestamp": "2026-04-18T00:00:00Z",
+            "count": 96,
+            "uniques": 5
+          },
+          {
+            "timestamp": "2026-04-19T00:00:00Z",
+            "count": 202,
+            "uniques": 29
+          },
+          {
+            "timestamp": "2026-04-20T00:00:00Z",
+            "count": 361,
+            "uniques": 36
+          },
+          {
+            "timestamp": "2026-04-21T00:00:00Z",
+            "count": 129,
+            "uniques": 5
+          },
+          {
+            "timestamp": "2026-04-22T00:00:00Z",
+            "count": 233,
+            "uniques": 30
+          },
+          {
+            "timestamp": "2026-04-23T00:00:00Z",
+            "count": 127,
+            "uniques": 13
+          },
+          {
+            "timestamp": "2026-04-24T00:00:00Z",
+            "count": 362,
+            "uniques": 25
+          },
+          {
+            "timestamp": "2026-04-25T00:00:00Z",
+            "count": 191,
+            "uniques": 26
+          },
+          {
+            "timestamp": "2026-04-26T00:00:00Z",
+            "count": 312,
+            "uniques": 33
+          }
+        ]
+      },
+      "timestamp": "2026-04-28T08:37:40.239601+00:00"
+    },
+    {
+      "label": "Contributor stats",
+      "method": "GET",
+      "path": "/repos/Byron2306/Metatron/stats/contributors",
+      "status_code": 202,
+      "response_items": 1,
+      "response_sample": {},
+      "timestamp": "2026-04-28T08:37:40.968443+00:00"
+    }
+  ],
+  "summary": {
+    "total_calls": 5,
+    "successful_calls": 5,
+    "evidence_items": 5
+  },
+  "verdict": "cloud_api_execution_recorded"
+}

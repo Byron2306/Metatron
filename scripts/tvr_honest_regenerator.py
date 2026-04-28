@@ -119,6 +119,24 @@ def classify_evidence(tech_id: str, evidence_dir: Path) -> Dict[str, Any]:
                 "can_certify": False,
             })
 
+    # Check Cloud/SaaS L1 evidence
+    cloud_file = evidence_dir / "cloud_saas_evidence.json"
+    if cloud_file.exists():
+        with open(cloud_file) as f:
+            cloud = json.load(f)
+        if cloud.get("evidence_mode") == "L1" and cloud.get("evidence_strength") == "HARD_POSITIVE":
+            successful = cloud.get("summary", {}).get("successful_calls", 0)
+            if successful > 0:
+                evidence_modes.append({
+                    "mode": "L1",
+                    "description": "Lab API audit log — real GitHub API responses (HARD_POSITIVE)",
+                    "provider": cloud.get("provider", "GitHub REST API v3"),
+                    "actor": cloud.get("actor", ""),
+                    "successful_calls": successful,
+                    "can_certify": True,
+                })
+                hard_positives.append("L1")
+
     # Check Mobile/MDM
     mdm_file = evidence_dir / "mdm_mobile_evidence.json"
     if mdm_file.exists():
@@ -242,6 +260,14 @@ def main():
     )
     print(f"\nARKIME NETWORK EVIDENCE:")
     print(f"  A2 (real PCAP indexed):       {a2_count} techniques")
+
+    l1_count = sum(
+        1 for report in classification_report.values()
+        for ev in report["evidence"]["evidence_modes"]
+        if ev.get("mode") == "L1"
+    )
+    print(f"\nCLOUD/SaaS EVIDENCE:")
+    print(f"  L1 (real GitHub API audit):   {l1_count} techniques")
     print()
 
     # Save report
