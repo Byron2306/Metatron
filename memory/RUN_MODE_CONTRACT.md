@@ -1,114 +1,79 @@
-# Metatron Run-Mode Contract (Source of Truth)
+# Metatron / Seraph Run-Mode Contract
+
+## Current Code-Logic Snapshot (updated 2026-04-28)
+
+- Backend API: `backend/server.py`, FastAPI title `Anti-AI Defense System API`, version `3.0.0`, served on port `8001`.
+- Health: `GET /api/health`; older `:8000/health` references are stale.
+- Routing: 61 backend router modules plus `backend/routers/__init__.py`; most routers mount under `/api`, with selected native `/api/v1` families.
+- Services: 32 backend service modules plus `backend/services/__init__.py`.
+- Frontend: `frontend/src/App.js` uses `BrowserRouter`, `AuthProvider`, and `Layout`; authenticated index redirects to `/command`.
+- Pages: 68 JSX page files plus `frontend/src/pages/GraphWorld.tsx`; `App.js` contains 68 `<Route` occurrences including redirects.
+- Unified agent: `unified_agent/core/agent.py` declares `AGENT_VERSION = "2.0.0"`; backend control plane is under `/api/unified/...`.
+- Data/runtime: MongoDB defaults to database `seraph_ai_defense`; Redis/Celery and optional ELK/Ollama/WireGuard/security-tool services are compose-managed.
+- Tests: 63 backend `test_*.py` files plus unified-agent tests and GitHub contract/regression workflows.
+- Caveat: root `smoke_test.py` is CAS Shield sidecar code, not a Seraph full-stack smoke test.
+
 
 ## Goal
-Define what is **required** vs **optional** so operators can run the platform predictably and understand why some dashboard features may be unavailable.
 
-## 1) Required Core (must be up)
+Define the minimum services required for a healthy Seraph deployment and the behavior expected when optional integrations are unavailable.
+
+## Required Core
+
+The dashboard is healthy only when these services are available:
+
 - `mongodb`
+- `redis` when using compose/Celery-backed workflows
 - `backend`
 - `frontend`
 
-If any of these are down, the dashboard is not considered healthy.
+The backend listens on `8001` and exposes health at `/api/health`. The frontend listens on `3000` in local development and uses `/api` or `REACT_APP_BACKEND_URL` for API access.
 
-## 2) Default Optional Integrations (degraded mode if down)
+## Optional Integrations
+
+Optional services add capability but must not block baseline SOC operation:
+
 - `wireguard`
 - `elasticsearch`
 - `kibana`
 - `ollama`
-
-Behavior contract:
-- UI should remain usable when optional services are down.
-- Related pages/features may show degraded status, warnings, or partial data.
-
-## 3) Profile-Based Optional Integrations
-These are intentionally profile-gated and not required for baseline operation.
-
-### security profile
 - `trivy`
 - `falco`
 - `suricata`
+- `cuckoo` / `cuckoo-web`
 
-### sandbox profile
-- `cuckoo`
-- `cuckoo-web`
+Expected behavior when optional services are down:
 
-## 4) Runtime Launch Modes
-### Minimal reliable mode
-`docker compose up -d mongodb backend frontend`
+- Core login, command, threat, alert, investigation, and response pages remain usable.
+- Integration-specific pages show degraded state, empty data, or actionable configuration errors.
+- Backend responses distinguish unavailable dependencies from platform failure.
 
-### Recommended local full mode
-`docker compose up -d mongodb backend frontend wireguard elasticsearch kibana ollama`
+## Launch Modes
 
-### Extended security mode
-`docker compose --profile security up -d`
+```bash
+docker compose up -d mongodb redis backend frontend
+docker compose up -d mongodb redis backend frontend wireguard elasticsearch kibana ollama
+docker compose --profile security up -d
+docker compose --profile sandbox up -d
+```
 
-### Sandbox mode
-`docker compose --profile sandbox up -d`
+## API Routing Contract
 
-## 5) API Routing Contract
-- Frontend calls backend via `${REACT_APP_BACKEND_URL}/api/...`.
-- In production behind reverse proxy, same-origin `/api` routing should be preferred.
-- Backend routers are mounted under `/api` in `backend/server.py`.
+- Backend REST APIs are primarily under `/api/...`.
+- Selected router families expose `/api/v1/...` because their routers include the versioned prefix internally.
+- App-level WebSockets are `/ws/threats` and `/ws/agent/{agent_id}`.
+- Production deployments should prefer same-origin `/api` routing through the reverse proxy.
 
-## 6) Health Validation Sequence
-1. `docker compose ps`
-2. `curl -fsS http://localhost:8000/health`
-3. `curl -fsS http://localhost:3000` (or deployed frontend URL)
-4. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
+## Health Validation Sequence
 
-## 7) Known Wiring Risks (from latest static audit)
-- High-confidence API mismatch fixed:
-  - `SettingsPage` endpoint updated from `/api/elasticsearch/status` to `/api/settings/elasticsearch/status`.
-- Dashboard UX mismatch fixed:
-  - "View All" buttons on dashboard now navigate to `/threats` and `/alerts`.
-- Remaining UI gaps are primarily feature-completeness gaps (buttons rendered without action handlers), not fatal routing failures.
+```bash
+docker compose ps
+curl -fsS http://localhost:8001/api/health
+curl -fsS http://localhost:3000
+```
 
-## 8) Acceptance Criteria for "Working"
-- Core services up and healthy.
-- Login works and main dashboard loads without fatal errors.
-- At least one page each from: Threats, Alerts, Agents, Settings can load data successfully.
-- Optional integration pages degrade gracefully if their service is not enabled.
+Then validate at least one page from `/command`, `/investigation`, `/response-operations`, `/unified-agent`, `/email-security`, and `/endpoint-mobility`.
 
-## 9) Consolidated Reality Conditions (2026-03-04)
+## Definition of Working
 
-These conditions align run-mode expectations with the critical evaluation and feature reality artifacts.
-
-### 9.1 Must-pass operational contracts
-- Swarm group/tag/device assignment flows should be available end-to-end.
-- Threats/Alerts/Timeline/Zero-Trust pages should load and execute their core read paths.
-- Threat response routes should remain functional even when optional providers (Twilio/OpenClaw) are unavailable.
-
-### 9.2 Known degraded/conditional contracts
-- Unified deployment endpoint currently represents a queued/simulated flow unless backed by real deployment execution plumbing.
-- WinRM auto-deployment is conditional on:
-  - valid credentials (password-based auth),
-  - `pywinrm` installed,
-  - remote endpoint availability (port/protocol/security policy).
-- OpenClaw integration is optional and should never block core SOC operation.
-
-### 9.3 Contract integrity risks to monitor
-- Unified command schema mismatch risk between frontend and backend payload models.
-- Threat-response OpenClaw analyze payload mapping mismatch risk.
-- Mixed frontend API base strategy (`REACT_APP_BACKEND_URL` hard dependency in some pages vs `/api` fallback in others).
-- Script ecosystem endpoint drift (`/api/agent/*` legacy paths vs active `/api/swarm` and `/api/unified` contracts).
-- Script/default URL drift across `localhost:8001`, `localhost:8002`, and legacy cloud defaults.
-- Validation script mismatch risk (`/api/zero-trust/overview` probe not aligned to active router paths).
-
-### 9.4 Updated "Working" interpretation
-System is considered **working** when:
-1. Core required services are healthy.
-2. Core SOC workflows (threats, alerts, timeline, zero-trust read/evaluate) execute successfully.
-3. Optional integrations fail gracefully with explicit status and no cascading core failure.
-4. Deployment success states correspond to verified execution, not simulation-only completion.
-
-## 10) Acceptance Changelog (2026-03-04)
-
-- Added writable runtime data-path fallback behavior for backend services to prevent startup failure in restricted environments.
-- Aligned backend integration tests to current API contracts (response shapes, permissions, and agent-download artifact behavior).
-- Removed test warning sources from VPN/browser integration tests (no non-`None` test returns).
-- Final targeted acceptance subset result:
-  - `backend/tests/test_audit_timeline_openclaw.py`
-  - `backend/tests/test_unified_agent_hunting.py`
-  - `backend/tests/test_vpn_zerotrust_browser.py`
-  - `backend/tests/test_agent_download.py`
-  - outcome: **94 passed, 5 skipped, 0 failed**
+A deployment is considered working when required core services are healthy, `GET /api/health` succeeds, the React app reaches `/command`, core SOC read paths function, unified-agent control routes are reachable when agents are configured, and optional integrations degrade explicitly without cascading backend or UI failure.

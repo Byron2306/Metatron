@@ -1,122 +1,62 @@
-# Metatron Full Architecture Map (March 6, 2026)
+# Metatron / Seraph Architecture Map
 
-## 1) System Topology at a Glance
+## Current Code-Logic Snapshot (updated 2026-04-28)
 
-- Primary stack: `frontend` (React) + `backend` (FastAPI) + `mongodb`.
-- Security/ops stack: `elasticsearch`, `kibana`, `wireguard`, optional `ollama`, `trivy`, `falco`, `suricata`, `cuckoo`.
-- Entry channels:
-- Web UI routes from `frontend/src/App.js` (47 route entries, including redirects).
-- REST API under `/api/*` and `/api/v1/*`.
-- WebSockets under `/ws/*`.
-- Endpoint-agent control plane under `/api/unified/*` and `/api/swarm/*`.
+- Backend API: `backend/server.py`, FastAPI title `Anti-AI Defense System API`, version `3.0.0`, served on port `8001`.
+- Health: `GET /api/health`; older `:8000/health` references are stale.
+- Routing: 61 backend router modules plus `backend/routers/__init__.py`; most routers mount under `/api`, with selected native `/api/v1` families.
+- Services: 32 backend service modules plus `backend/services/__init__.py`.
+- Frontend: `frontend/src/App.js` uses `BrowserRouter`, `AuthProvider`, and `Layout`; authenticated index redirects to `/command`.
+- Pages: 68 JSX page files plus `frontend/src/pages/GraphWorld.tsx`; `App.js` contains 68 `<Route` occurrences including redirects.
+- Unified agent: `unified_agent/core/agent.py` declares `AGENT_VERSION = "2.0.0"`; backend control plane is under `/api/unified/...`.
+- Data/runtime: MongoDB defaults to database `seraph_ai_defense`; Redis/Celery and optional ELK/Ollama/WireGuard/security-tool services are compose-managed.
+- Tests: 63 backend `test_*.py` files plus unified-agent tests and GitHub contract/regression workflows.
+- Caveat: root `smoke_test.py` is CAS Shield sidecar code, not a Seraph full-stack smoke test.
 
-## 2) Frontend Architecture (Local and Remote Use)
 
-Core frontend shell:
-- Router and protected layout: `frontend/src/App.js`, `frontend/src/components/Layout`.
-- Auth/session context: `frontend/src/context/AuthContext.jsx`.
+## 1) System Topology
 
-Operational page groups:
-- SOC and incident ops: dashboard, threats, alerts, hunting, correlation, timeline, audit, reports.
-- Response and containment: quarantine, threat response, SOAR, ransomware, honey tokens, deception.
-- Endpoint and swarm ops: unified agent, command center, cli sessions, network topology.
-- Platform security: zero trust, cspm, attack paths, kernel sensors, secure boot, identity.
-- Advanced services: AI threats, advanced services, VNS alerts, browser extension, kibana.
+Seraph is organized as a central FastAPI control plane, a React SOC console, a MongoDB-backed data layer, and a separate unified endpoint-agent tree.
 
-Frontend implementation model:
-- Local: browser to `http://localhost:3000` with backend fallback or configured API base.
-- Remote: browser to reverse-proxied `https://<domain>` via Nginx with backend routed through `/api`.
+- **Frontend:** `frontend/`, a Create React App + Craco single-page app served locally on port `3000` or from the production Nginx image.
+- **Backend:** `backend/server.py`, a FastAPI application served on port `8001` by `uvicorn backend.server:app`.
+- **Database:** MongoDB at `seraph_ai_defense` by default; Redis is available for Celery broker/result workflows.
+- **Unified agent:** `unified_agent/core/agent.py` plus local dashboards, mobile/desktop shells, integration runners, and tests.
+- **Optional runtime services:** WireGuard, Elasticsearch, Kibana, Ollama, Trivy, Falco, Suricata, and Cuckoo.
 
-## 3) Backend Architecture (Current Router Mesh)
+## 2) Backend Composition
 
-FastAPI entrypoint:
-- `backend/server.py`.
-- Router registration uses `/api` plus selected routers with native `/api/v1` prefixes.
+`backend/server.py` is the composition root. It configures CORS, validates `INTEGRATION_API_KEY` in production, creates the FastAPI app, wires databases into domain modules, registers routers, and exposes health and WebSocket entry points.
 
-Major API domains:
-- Core platform: auth, users, dashboard, settings, websocket, reports.
-- Security analytics: threats, alerts, threat intel, hunting, correlation, timeline, audit.
-- Response plane: response, quarantine, SOAR, ransomware, honeypots, honey tokens, deception.
-- Endpoint plane: agents, agent commands, swarm, unified agent.
-- Enterprise plane: enterprise, zero trust, multi-tenant, extension.
-- Advanced plane: advanced, AI analysis, AI threats, ML prediction, sandbox, EDR, containers, VPN, CSPM.
-- Tier-1 security routers: attack paths, secure boot, kernel sensors, identity.
+Primary router families include core platform, threat operations, response and containment, endpoint/agent plane, enterprise posture, AI/governance/world model, and expansion domains such as email protection, email gateway, mobile security, MDM connectors, secure boot, kernel sensors, and attack paths.
 
-Real-time plane:
-- `/ws/threats` and `/ws/agent/{agent_id}`.
+Most routers are mounted with `prefix="/api"`; CSPM, identity, attack-path, secure-boot, and kernel-sensor routers carry `/api/v1` prefixes themselves.
 
-## 4) Security/Service Layer
+## 3) Frontend Composition
 
-Key service families:
-- Control and governance: `policy_engine`, `token_broker`, `tool_gateway`, `identity`.
-- AI/security reasoning: `aatl`, `aatr`, `cognition_engine`, `ai_reasoning`, `cce_worker`.
-- Threat data and memory: `mcp_server`, `vector_memory`, `vns`, `vns_alerts`, `telemetry_chain`.
-- Deployment and operations: `agent_deployment`, `network_discovery`, `siem`.
+`frontend/src/App.js` defines the current route contract. The authenticated landing page is `/command`, not a standalone `/dashboard` page. Older routes such as `/dashboard`, `/alerts`, `/threats`, `/agents`, `/swarm`, `/soar`, and `/email-gateway` redirect into consolidated workspaces where appropriate.
 
-Core engine modules:
-- `threat_response`, `threat_correlation`, `threat_timeline`, `threat_intel`.
-- `ransomware_protection`, `quarantine`, `container_security`, `browser_isolation`, `zero_trust`.
-- `identity_protection`, `ml_threat_prediction`, `sandbox_analysis`, `quantum_security`, `deception_engine`.
+Important active workspaces: `/command`, `/investigation`, `/response-operations`, `/detection-engineering`, `/email-security`, `/endpoint-mobility`, `/unified-agent`, `/ai-activity`, and `/world`.
 
-## 5) Endpoint and Agent Implementations
+## 4) Service Layer
 
-Unified agent stack:
-- Main endpoint agent: `unified_agent/core/agent.py`.
-- Local control and UI: `unified_agent/server_api.py`, `unified_agent/ui/web/app.py`, `unified_agent/ui/desktop/main.py`.
-- Deployment helpers and diagnostics: `unified_agent/auto_deployment.py`, tests/utilities in `unified_agent/`.
+The service layer contains governance/control modules (`governance_*`, `governed_dispatch`, `policy_engine`, `token_broker`, `tool_gateway`), cognitive/AI defense modules (`aatl`, `aatr`, `cognition_*`, `triune_orchestrator`), memory/telemetry modules (`vector_memory`, `telemetry_chain`, `world_*`, `mcp_server`), operations modules (`agent_deployment`, `network_discovery`, `siem`, `cuckoo_sandbox`), and security-domain modules (`identity`, `multi_tenant`, `quantum_security`, `vns`, `threat_hunting`, `boundary_control`).
 
-Agent install paths:
-- Backend-served installers/downloads via `backend/routers/unified_agent.py` and swarm routes.
-- Scripted local installers in `scripts/`.
+## 5) Unified Agent and Local Surfaces
 
-Implementation model:
-- Local: endpoint agent + local UI/service for host-level visibility and control.
-- Remote: endpoint heartbeat/events to backend control plane, command dispatch from backend to agents.
+The unified agent tree contains the endpoint core, backend control plane under `/api/unified/...`, a secondary helper FastAPI server, a local Flask dashboard on port `5000`, desktop/mobile shells, and local integration runners.
 
-## 6) Data and Storage Architecture
+## 6) Runtime Flows
 
-Primary data store:
-- MongoDB (`seraph_ai_defense`) for platform state, telemetry, commands, and control-plane records.
+Threat and SOC flow: sensors and integrations feed backend APIs, backend services enrich/correlate/persist, frontend workspaces render state, and analysts or governed automation trigger response actions with telemetry/audit follow-up.
 
-Observability and SIEM:
-- Elasticsearch + Kibana local stack.
-- Optional external SIEM forwarding via `services/siem.py`.
+Unified-agent flow: agents register and heartbeat, backend dispatches governed commands/config, agents return telemetry and command results, and WebSocket/REST views update operator state.
 
-EDM-specific data path:
-- Dataset metadata/versioning and rollout state persisted by unified-agent router.
-- Agent EDM hits ingested centrally for analytics and readiness evaluation.
+Integration flow: backend accepts direct or tool-mediated integration requests, agent-side scripts execute local tools where available, and results are normalized into threat, telemetry, or evidence workflows.
 
-## 7) Local vs Remote Implementation Split
+## 7) Current Architecture Risks
 
-Local/on-host implementations:
-- Endpoint monitors and remediation primitives in unified agent.
-- Desktop/local web control surfaces for agent utilities.
-- Dockerized local stack for full platform bring-up.
-
-Remote/distributed implementations:
-- Central API control plane and SOC UI.
-- Remote agent deployment over SSH/WinRM.
-- Optional external integrations (SIEM APIs, threat feeds, communication channels).
-- Reverse proxy/TLS ingress for internet-facing operation.
-
-## 8) End-to-End Runtime Flows
-
-Primary SOC flow:
-1. Agent/events/sensors feed backend APIs and websockets.
-2. Backend correlates and enriches alerts/threats.
-3. Frontend renders situational and investigative views.
-4. Analyst executes response/SOAR/deployment commands.
-5. Backend dispatches and tracks command/deployment outcomes.
-
-EDM flow:
-1. Dataset version published in backend source-of-truth.
-2. Staged rollout to target cohorts (5/25/100) with readiness checks.
-3. Agents perform EDM matching and emit hit telemetry.
-4. Backend evaluates anomaly thresholds and can auto-rollback.
-
-## 9) Current Architectural Risk Focus
-
-- Contract governance and schema invariants across fast-moving routes.
-- Hardening consistency across all legacy and secondary entry paths.
-- Durability guarantees for governance-critical state under restart/scale.
-- Assurance depth (security regression and denial-path coverage).
+- `backend/server.py` remains a large central composition point.
+- Docs, scripts, and tests must use port `8001` and `/api/health`.
+- Some frontend files are retained as legacy or redirected surfaces; route truth comes from `frontend/src/App.js`.
+- Optional integrations need explicit degraded-mode behavior.
