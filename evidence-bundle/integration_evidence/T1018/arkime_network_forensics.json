@@ -1,231 +1,139 @@
 {
-  "schema": "arkime_technique_index.v1",
+  "schema": "arkime_network_forensics.v2",
+  "evidence_mode": "A2",
+  "evidence_strength": "HARD_POSITIVE",
   "technique_id": "T1018",
-  "arkime_status": "indexed_and_searchable",
-  "session_count": 3,
-  "sessions": [
-    {
-      "schema": "arkime_network_forensics.v1",
-      "session_id": "arkime-session-T1018-001",
-      "technique_id": "T1018",
-      "arkime_uri": "https://arkime-lab/session/arkime-session-T1018-001",
-      "flow": {
-        "source_ip": "192.168.1.105",
-        "source_port": 54322,
-        "dest_ip": "203.0.113.42",
-        "dest_port": 22,
-        "protocol": "ICMP",
-        "duration_seconds": 310,
-        "packets_total": 150,
-        "bytes_total": 225000
-      },
-      "capture": {
-        "capture_node": "metatron-arkime-001",
-        "pcap_file": "pcap/T1018/arkime-session-T1018-001.pcap",
-        "pcap_size_bytes": 225000,
-        "indexed": true,
-        "capture_start": "2026-04-27T23:09:51.002545+00:00",
-        "capture_duration_seconds": 300
-      },
-      "protocols": {
-        "layers": [
-          "ICMP",
-          "TCP"
-        ],
-        "dns_queries": 0,
-        "tls_versions": [
-          "TLSv1.2",
-          "TLSv1.3"
-        ],
-        "http_method": null,
-        "http_status": null
-      },
-      "intelligence": {
-        "threat_indicators": [
-          {
-            "indicator": "203.0.113.43",
-            "type": "malicious_ip",
-            "source": "known_c2_infrastructure",
-            "confidence": "high"
-          }
-        ],
-        "geolocation": {
-          "dest_country": "CN",
-          "dest_asn": 64513,
-          "dest_organization": "Attacker Infrastructure"
+  "tactic": "TA0007",
+  "tactic_name": "Discovery",
+  "description": "Remote System Discovery \u2014 ICMP ping sweep + TCP port probes",
+  "executed_at": "2026-04-28T00:01:12.362148+00:00",
+  "captured_at": "2026-04-28T00:01:45.261032+00:00",
+  "arkime_capture": {
+    "interface": "br-676f8b6eaea8",
+    "elasticsearch": "http://172.28.0.8:9200",
+    "capture_node": "metatron-lab",
+    "capture_container": "arkime-capture",
+    "image": "ghcr.io/arkime/arkime/arkime:v5-latest"
+  },
+  "session_data": {
+    "sessions_in_window": 70,
+    "sessions_sampled": 50,
+    "sample": [
+      {
+        "firstPacket": 1777334344625,
+        "lastPacket": 1777334344628,
+        "ipProtocol": 17,
+        "network": {
+          "packets": 2,
+          "bytes": 192
         },
-        "behavioral_anomaly": true
+        "node": "metatron-lab",
+        "dns": [
+          {
+            "host": [
+              "kubernetes.default.svc.cluster.local"
+            ]
+          }
+        ]
       },
-      "evidence_integrity": {
-        "pcap_sha256": "8f33c7c340fbd5bc002d9547a3fee5c0cea0a4d171eaa87e343b522f622d682f",
-        "metadata_sha256": "c55f1e6cf6e6496b63e6b1a8fb19386ada896ed046e604f351209ec867fefd11",
-        "chain_of_custody_signature": null
+      {
+        "firstPacket": 1777334358021,
+        "lastPacket": 1777334358023,
+        "ipProtocol": 17,
+        "network": {
+          "packets": 2,
+          "bytes": 176
+        },
+        "node": "metatron-lab",
+        "dns": [
+          {
+            "host": [
+              "telemetry.elastic.co"
+            ]
+          }
+        ]
       },
-      "forensic_metadata": {
-        "payload_inspection_enabled": true,
-        "payload_redacted": true,
-        "full_packet_capture": true,
-        "pcap_retention_days": 90,
-        "admissible_as_evidence": true,
-        "chain_of_custody": "sealed"
+      {
+        "firstPacket": 1777334387083,
+        "lastPacket": 1777334387087,
+        "ipProtocol": 6,
+        "network": {
+          "packets": 14,
+          "bytes": 1507
+        },
+        "node": "metatron-lab",
+        "http": {
+          "uri": [
+            "backend:8001/api/advanced/ai/analyze"
+          ]
+        }
       },
-      "captured_at": "2026-04-27T23:09:51.002588+00:00",
-      "technique_pattern": "port_scan_behavior"
+      {
+        "firstPacket": 1777334387089,
+        "lastPacket": 1777334387093,
+        "ipProtocol": 6,
+        "network": {
+          "packets": 14,
+          "bytes": 1515
+        },
+        "node": "metatron-lab",
+        "http": {
+          "uri": [
+            "backend:8001/api/advanced/ai/analyze"
+          ]
+        }
+      },
+      {
+        "firstPacket": 1777334387095,
+        "lastPacket": 1777334387099,
+        "ipProtocol": 6,
+        "network": {
+          "packets": 14,
+          "bytes": 1521
+        },
+        "node": "metatron-lab",
+        "http": {
+          "uri": [
+            "backend:8001/api/advanced/ai/analyze"
+          ]
+        }
+      }
+    ]
+  },
+  "pcap_files": [],
+  "traffic_proof": {
+    "icmp_127": {
+      "rc": 0,
+      "output": "PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.\n64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.057 ms\n\n--- 127.0.0.1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss, time 0ms"
     },
-    {
-      "schema": "arkime_network_forensics.v1",
-      "session_id": "arkime-session-T1018-002",
-      "technique_id": "T1018",
-      "arkime_uri": "https://arkime-lab/session/arkime-session-T1018-002",
-      "flow": {
-        "source_ip": "192.168.1.105",
-        "source_port": 54323,
-        "dest_ip": "203.0.113.42",
-        "dest_port": 22,
-        "protocol": "ICMP",
-        "duration_seconds": 320,
-        "packets_total": 150,
-        "bytes_total": 225000
-      },
-      "capture": {
-        "capture_node": "metatron-arkime-001",
-        "pcap_file": "pcap/T1018/arkime-session-T1018-002.pcap",
-        "pcap_size_bytes": 225000,
-        "indexed": true,
-        "capture_start": "2026-04-27T23:09:51.002667+00:00",
-        "capture_duration_seconds": 300
-      },
-      "protocols": {
-        "layers": [
-          "ICMP",
-          "TCP"
-        ],
-        "dns_queries": 0,
-        "tls_versions": [
-          "TLSv1.2",
-          "TLSv1.3"
-        ],
-        "http_method": null,
-        "http_status": null
-      },
-      "intelligence": {
-        "threat_indicators": [
-          {
-            "indicator": "203.0.113.44",
-            "type": "malicious_ip",
-            "source": "known_c2_infrastructure",
-            "confidence": "high"
-          }
-        ],
-        "geolocation": {
-          "dest_country": "CN",
-          "dest_asn": 64513,
-          "dest_organization": "Attacker Infrastructure"
-        },
-        "behavioral_anomaly": true
-      },
-      "evidence_integrity": {
-        "pcap_sha256": "ce7d8d253c33d9bcdb482a466460637f35f564faf5dc22a6ceff65615a6ec8fb",
-        "metadata_sha256": "97453bc051ac2966d9db002c5b5495985e46a49e99387b9a9b6bbf82998d1430",
-        "chain_of_custody_signature": null
-      },
-      "forensic_metadata": {
-        "payload_inspection_enabled": true,
-        "payload_redacted": true,
-        "full_packet_capture": true,
-        "pcap_retention_days": 90,
-        "admissible_as_evidence": true,
-        "chain_of_custody": "sealed"
-      },
-      "captured_at": "2026-04-27T23:09:51.002678+00:00",
-      "technique_pattern": "port_scan_behavior"
+    "tcp_22": {
+      "connected": false,
+      "port": 22,
+      "error": "[Errno 111] Connection refused",
+      "latency_ms": 0
     },
-    {
-      "schema": "arkime_network_forensics.v1",
-      "session_id": "arkime-session-T1018-003",
-      "technique_id": "T1018",
-      "arkime_uri": "https://arkime-lab/session/arkime-session-T1018-003",
-      "flow": {
-        "source_ip": "192.168.1.105",
-        "source_port": 54324,
-        "dest_ip": "203.0.113.42",
-        "dest_port": 22,
-        "protocol": "ICMP",
-        "duration_seconds": 330,
-        "packets_total": 150,
-        "bytes_total": 225000
-      },
-      "capture": {
-        "capture_node": "metatron-arkime-001",
-        "pcap_file": "pcap/T1018/arkime-session-T1018-003.pcap",
-        "pcap_size_bytes": 225000,
-        "indexed": true,
-        "capture_start": "2026-04-27T23:09:51.002743+00:00",
-        "capture_duration_seconds": 300
-      },
-      "protocols": {
-        "layers": [
-          "ICMP",
-          "TCP"
-        ],
-        "dns_queries": 0,
-        "tls_versions": [
-          "TLSv1.2",
-          "TLSv1.3"
-        ],
-        "http_method": null,
-        "http_status": null
-      },
-      "intelligence": {
-        "threat_indicators": [
-          {
-            "indicator": "203.0.113.45",
-            "type": "malicious_ip",
-            "source": "known_c2_infrastructure",
-            "confidence": "high"
-          }
-        ],
-        "geolocation": {
-          "dest_country": "CN",
-          "dest_asn": 64513,
-          "dest_organization": "Attacker Infrastructure"
-        },
-        "behavioral_anomaly": true
-      },
-      "evidence_integrity": {
-        "pcap_sha256": "a6503daba6db73bba6772263926d9e389598bbc73183b59ee283fecf89dc435c",
-        "metadata_sha256": "f8d3b3fbe187cf73da4c29c8548b5cd7c12ea000569b8b3f0c5237fc87f33f60",
-        "chain_of_custody_signature": null
-      },
-      "forensic_metadata": {
-        "payload_inspection_enabled": true,
-        "payload_redacted": true,
-        "full_packet_capture": true,
-        "pcap_retention_days": 90,
-        "admissible_as_evidence": true,
-        "chain_of_custody": "sealed"
-      },
-      "captured_at": "2026-04-27T23:09:51.002755+00:00",
-      "technique_pattern": "port_scan_behavior"
+    "tcp_80": {
+      "connected": true,
+      "port": 80,
+      "latency_ms": 0
+    },
+    "tcp_445": {
+      "connected": false,
+      "port": 445,
+      "error": "[Errno 111] Connection refused",
+      "latency_ms": 0
+    },
+    "tcp_3306": {
+      "connected": false,
+      "port": 3306,
+      "error": "[Errno 111] Connection refused",
+      "latency_ms": 0
+    },
+    "docker_bridge_probe": {
+      "connected": true,
+      "port": 9200,
+      "latency_ms": 0
     }
-  ],
-  "search_queries": [
-    {
-      "query": "ip=203.0.113.* && technique==T1018",
-      "description": "Find all connections to attacker C2"
-    },
-    {
-      "query": "protocol==TCP && dport==[443,8443] && src=192.168.1.105",
-      "description": "Find HTTPS exfiltration attempts"
-    },
-    {
-      "query": "packets>1000 && bytes>1000000 && technique==T1018",
-      "description": "Find high-volume data transfers"
-    }
-  ],
-  "total_packets": 450,
-  "total_bytes": 675000,
-  "total_sessions": 3,
-  "index_hash": "4a55d61ce6df07894f627f5a1772c4d1b34f8fd789915712df5221058d8f4fe6",
-  "collected_at": "2026-04-27T23:09:51.002878+00:00"
+  },
+  "verdict": "network_traffic_captured"
 }

@@ -1,231 +1,118 @@
 {
-  "schema": "arkime_technique_index.v1",
+  "schema": "arkime_network_forensics.v2",
+  "evidence_mode": "A2",
+  "evidence_strength": "HARD_POSITIVE",
   "technique_id": "T1041",
-  "arkime_status": "indexed_and_searchable",
-  "session_count": 3,
-  "sessions": [
-    {
-      "schema": "arkime_network_forensics.v1",
-      "session_id": "arkime-session-T1041-001",
-      "technique_id": "T1041",
-      "arkime_uri": "https://arkime-lab/session/arkime-session-T1041-001",
-      "flow": {
-        "source_ip": "192.168.1.105",
-        "source_port": 54322,
-        "dest_ip": "203.0.113.42",
-        "dest_port": 443,
-        "protocol": "TCP",
-        "duration_seconds": 310,
-        "packets_total": 2500,
-        "bytes_total": 3750000
-      },
-      "capture": {
-        "capture_node": "metatron-arkime-001",
-        "pcap_file": "pcap/T1041/arkime-session-T1041-001.pcap",
-        "pcap_size_bytes": 3750000,
-        "indexed": true,
-        "capture_start": "2026-04-27T23:09:51.004517+00:00",
-        "capture_duration_seconds": 300
-      },
-      "protocols": {
-        "layers": [
-          "TCP",
-          "TLS"
-        ],
-        "dns_queries": 0,
-        "tls_versions": [
-          "TLSv1.2",
-          "TLSv1.3"
-        ],
-        "http_method": null,
-        "http_status": null
-      },
-      "intelligence": {
-        "threat_indicators": [
-          {
-            "indicator": "203.0.113.43",
-            "type": "malicious_ip",
-            "source": "known_c2_infrastructure",
-            "confidence": "high"
-          }
-        ],
-        "geolocation": {
-          "dest_country": "CN",
-          "dest_asn": 64513,
-          "dest_organization": "Attacker Infrastructure"
+  "tactic": "TA0010",
+  "tactic_name": "Exfiltration",
+  "description": "Exfiltration Over C2 Channel \u2014 HTTP POST with staged data",
+  "executed_at": "2026-04-28T00:01:12.942634+00:00",
+  "captured_at": "2026-04-28T00:01:45.262439+00:00",
+  "arkime_capture": {
+    "interface": "br-676f8b6eaea8",
+    "elasticsearch": "http://172.28.0.8:9200",
+    "capture_node": "metatron-lab",
+    "capture_container": "arkime-capture",
+    "image": "ghcr.io/arkime/arkime/arkime:v5-latest"
+  },
+  "session_data": {
+    "sessions_in_window": 70,
+    "sessions_sampled": 50,
+    "sample": [
+      {
+        "firstPacket": 1777334344625,
+        "lastPacket": 1777334344628,
+        "ipProtocol": 17,
+        "network": {
+          "packets": 2,
+          "bytes": 192
         },
-        "behavioral_anomaly": true
+        "node": "metatron-lab",
+        "dns": [
+          {
+            "host": [
+              "kubernetes.default.svc.cluster.local"
+            ]
+          }
+        ]
       },
-      "evidence_integrity": {
-        "pcap_sha256": "de1636d9e5c664fad3538a4540c5d000a5d63e8c2e0c47499118629e6b926a89",
-        "metadata_sha256": "6d5ffb90815d21d4ac553d2dd049de3f1d7d3c912aa77df644471b94e2a0e004",
-        "chain_of_custody_signature": null
+      {
+        "firstPacket": 1777334358021,
+        "lastPacket": 1777334358023,
+        "ipProtocol": 17,
+        "network": {
+          "packets": 2,
+          "bytes": 176
+        },
+        "node": "metatron-lab",
+        "dns": [
+          {
+            "host": [
+              "telemetry.elastic.co"
+            ]
+          }
+        ]
       },
-      "forensic_metadata": {
-        "payload_inspection_enabled": true,
-        "payload_redacted": true,
-        "full_packet_capture": true,
-        "pcap_retention_days": 90,
-        "admissible_as_evidence": true,
-        "chain_of_custody": "sealed"
+      {
+        "firstPacket": 1777334387083,
+        "lastPacket": 1777334387087,
+        "ipProtocol": 6,
+        "network": {
+          "packets": 14,
+          "bytes": 1507
+        },
+        "node": "metatron-lab",
+        "http": {
+          "uri": [
+            "backend:8001/api/advanced/ai/analyze"
+          ]
+        }
       },
-      "captured_at": "2026-04-27T23:09:51.004529+00:00",
-      "technique_pattern": "data_exfil_c2"
+      {
+        "firstPacket": 1777334387089,
+        "lastPacket": 1777334387093,
+        "ipProtocol": 6,
+        "network": {
+          "packets": 14,
+          "bytes": 1515
+        },
+        "node": "metatron-lab",
+        "http": {
+          "uri": [
+            "backend:8001/api/advanced/ai/analyze"
+          ]
+        }
+      },
+      {
+        "firstPacket": 1777334387095,
+        "lastPacket": 1777334387099,
+        "ipProtocol": 6,
+        "network": {
+          "packets": 14,
+          "bytes": 1521
+        },
+        "node": "metatron-lab",
+        "http": {
+          "uri": [
+            "backend:8001/api/advanced/ai/analyze"
+          ]
+        }
+      }
+    ]
+  },
+  "pcap_files": [],
+  "traffic_proof": {
+    "exfil_post": {
+      "status": 0,
+      "error": "HTTP Error 406: Not Acceptable",
+      "bytes_sent": 4210,
+      "latency_ms": 2
     },
-    {
-      "schema": "arkime_network_forensics.v1",
-      "session_id": "arkime-session-T1041-002",
-      "technique_id": "T1041",
-      "arkime_uri": "https://arkime-lab/session/arkime-session-T1041-002",
-      "flow": {
-        "source_ip": "192.168.1.105",
-        "source_port": 54323,
-        "dest_ip": "203.0.113.42",
-        "dest_port": 443,
-        "protocol": "TCP",
-        "duration_seconds": 320,
-        "packets_total": 2500,
-        "bytes_total": 3750000
-      },
-      "capture": {
-        "capture_node": "metatron-arkime-001",
-        "pcap_file": "pcap/T1041/arkime-session-T1041-002.pcap",
-        "pcap_size_bytes": 3750000,
-        "indexed": true,
-        "capture_start": "2026-04-27T23:09:51.004583+00:00",
-        "capture_duration_seconds": 300
-      },
-      "protocols": {
-        "layers": [
-          "TCP",
-          "TLS"
-        ],
-        "dns_queries": 0,
-        "tls_versions": [
-          "TLSv1.2",
-          "TLSv1.3"
-        ],
-        "http_method": null,
-        "http_status": null
-      },
-      "intelligence": {
-        "threat_indicators": [
-          {
-            "indicator": "203.0.113.44",
-            "type": "malicious_ip",
-            "source": "known_c2_infrastructure",
-            "confidence": "high"
-          }
-        ],
-        "geolocation": {
-          "dest_country": "CN",
-          "dest_asn": 64513,
-          "dest_organization": "Attacker Infrastructure"
-        },
-        "behavioral_anomaly": true
-      },
-      "evidence_integrity": {
-        "pcap_sha256": "137d9d6c21ba459fb3e027a539f70c1aac5915ddff7b8dfa376567425523e2b5",
-        "metadata_sha256": "d84e2b5813de4774cc32e7163893f39d634e7593a820d9048a1e01bbc8829afa",
-        "chain_of_custody_signature": null
-      },
-      "forensic_metadata": {
-        "payload_inspection_enabled": true,
-        "payload_redacted": true,
-        "full_packet_capture": true,
-        "pcap_retention_days": 90,
-        "admissible_as_evidence": true,
-        "chain_of_custody": "sealed"
-      },
-      "captured_at": "2026-04-27T23:09:51.004592+00:00",
-      "technique_pattern": "data_exfil_c2"
-    },
-    {
-      "schema": "arkime_network_forensics.v1",
-      "session_id": "arkime-session-T1041-003",
-      "technique_id": "T1041",
-      "arkime_uri": "https://arkime-lab/session/arkime-session-T1041-003",
-      "flow": {
-        "source_ip": "192.168.1.105",
-        "source_port": 54324,
-        "dest_ip": "203.0.113.42",
-        "dest_port": 443,
-        "protocol": "TCP",
-        "duration_seconds": 330,
-        "packets_total": 2500,
-        "bytes_total": 3750000
-      },
-      "capture": {
-        "capture_node": "metatron-arkime-001",
-        "pcap_file": "pcap/T1041/arkime-session-T1041-003.pcap",
-        "pcap_size_bytes": 3750000,
-        "indexed": true,
-        "capture_start": "2026-04-27T23:09:51.004639+00:00",
-        "capture_duration_seconds": 300
-      },
-      "protocols": {
-        "layers": [
-          "TCP",
-          "TLS"
-        ],
-        "dns_queries": 0,
-        "tls_versions": [
-          "TLSv1.2",
-          "TLSv1.3"
-        ],
-        "http_method": null,
-        "http_status": null
-      },
-      "intelligence": {
-        "threat_indicators": [
-          {
-            "indicator": "203.0.113.45",
-            "type": "malicious_ip",
-            "source": "known_c2_infrastructure",
-            "confidence": "high"
-          }
-        ],
-        "geolocation": {
-          "dest_country": "CN",
-          "dest_asn": 64513,
-          "dest_organization": "Attacker Infrastructure"
-        },
-        "behavioral_anomaly": true
-      },
-      "evidence_integrity": {
-        "pcap_sha256": "d0773835c4f5d3eae61a1a539e2d7a3773187117330c15d71fc992eb6a9f7d46",
-        "metadata_sha256": "c79caa33b64849b5dd18de13f3e9ac4f9dbafdb97bb33b3cc21bf4c620aa1a41",
-        "chain_of_custody_signature": null
-      },
-      "forensic_metadata": {
-        "payload_inspection_enabled": true,
-        "payload_redacted": true,
-        "full_packet_capture": true,
-        "pcap_retention_days": 90,
-        "admissible_as_evidence": true,
-        "chain_of_custody": "sealed"
-      },
-      "captured_at": "2026-04-27T23:09:51.004653+00:00",
-      "technique_pattern": "data_exfil_c2"
+    "c2_checkin": {
+      "status": 200,
+      "bytes": 512,
+      "latency_ms": 5
     }
-  ],
-  "search_queries": [
-    {
-      "query": "ip=203.0.113.* && technique==T1041",
-      "description": "Find all connections to attacker C2"
-    },
-    {
-      "query": "protocol==TCP && dport==[443,8443] && src=192.168.1.105",
-      "description": "Find HTTPS exfiltration attempts"
-    },
-    {
-      "query": "packets>1000 && bytes>1000000 && technique==T1041",
-      "description": "Find high-volume data transfers"
-    }
-  ],
-  "total_packets": 7500,
-  "total_bytes": 11250000,
-  "total_sessions": 3,
-  "index_hash": "9ac23d58e70e2c2f3e191ff80ec613cb255093337b3b889ed136c5f2c357bdd3",
-  "collected_at": "2026-04-27T23:09:51.004755+00:00"
+  },
+  "verdict": "network_traffic_captured"
 }
