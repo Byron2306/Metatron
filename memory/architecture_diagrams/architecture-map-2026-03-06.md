@@ -1,122 +1,148 @@
-# Metatron Full Architecture Map (March 6, 2026)
+# Metatron Full Architecture Map
 
-## 1) System Topology at a Glance
+Updated: 2026-04-28
+Source basis: direct repository review of `backend/server.py`, `backend/routers/`, `backend/services/`, `frontend/src/App.js`, `unified_agent/`, and `docker-compose.yml`.
 
-- Primary stack: `frontend` (React) + `backend` (FastAPI) + `mongodb`.
-- Security/ops stack: `elasticsearch`, `kibana`, `wireguard`, optional `ollama`, `trivy`, `falco`, `suricata`, `cuckoo`.
-- Entry channels:
-- Web UI routes from `frontend/src/App.js` (47 route entries, including redirects).
-- REST API under `/api/*` and `/api/v1/*`.
-- WebSockets under `/ws/*`.
-- Endpoint-agent control plane under `/api/unified/*` and `/api/swarm/*`.
+## 1. System topology
 
-## 2) Frontend Architecture (Local and Remote Use)
+Primary stack:
 
-Core frontend shell:
-- Router and protected layout: `frontend/src/App.js`, `frontend/src/components/Layout`.
-- Auth/session context: `frontend/src/context/AuthContext.jsx`.
+- `frontend`: CRA/Craco React operator UI on port 3000.
+- `backend`: FastAPI app `backend.server:app` on port 8001.
+- `mongodb`: primary platform data store.
+- `redis`: broker/result backend for Celery and async work.
+- Optional services: Elasticsearch, Kibana, Ollama, WireGuard, Celery worker/beat, and security/sandbox tooling.
 
-Operational page groups:
-- SOC and incident ops: dashboard, threats, alerts, hunting, correlation, timeline, audit, reports.
-- Response and containment: quarantine, threat response, SOAR, ransomware, honey tokens, deception.
-- Endpoint and swarm ops: unified agent, command center, cli sessions, network topology.
-- Platform security: zero trust, cspm, attack paths, kernel sensors, secure boot, identity.
-- Advanced services: AI threats, advanced services, VNS alerts, browser extension, kibana.
+Primary entry channels:
 
-Frontend implementation model:
-- Local: browser to `http://localhost:3000` with backend fallback or configured API base.
-- Remote: browser to reverse-proxied `https://<domain>` via Nginx with backend routed through `/api`.
+- Browser UI routes from `frontend/src/App.js`.
+- REST APIs under `/api/*` and selected native `/api/v1/*` routers.
+- Raw WebSockets under `/ws/threats` and `/ws/agent/{agent_id}`.
+- Unified-agent control plane under `/api/unified/*`.
+- Swarm/agent command control under `/api/swarm/*` and related agent-command routes.
 
-## 3) Backend Architecture (Current Router Mesh)
+## 2. Frontend architecture
 
-FastAPI entrypoint:
-- `backend/server.py`.
-- Router registration uses `/api` plus selected routers with native `/api/v1` prefixes.
+Core shell:
 
-Major API domains:
-- Core platform: auth, users, dashboard, settings, websocket, reports.
-- Security analytics: threats, alerts, threat intel, hunting, correlation, timeline, audit.
-- Response plane: response, quarantine, SOAR, ransomware, honeypots, honey tokens, deception.
-- Endpoint plane: agents, agent commands, swarm, unified agent.
-- Enterprise plane: enterprise, zero trust, multi-tenant, extension.
-- Advanced plane: advanced, AI analysis, AI threats, ML prediction, sandbox, EDR, containers, VPN, CSPM.
-- Tier-1 security routers: attack paths, secure boot, kernel sensors, identity.
+- `frontend/src/App.js`: route source of truth.
+- `frontend/src/components/Layout`: authenticated app layout.
+- `frontend/src/context/AuthContext.jsx`: session/auth context.
+- `frontend/src/lib/api.js`: API base resolution.
 
-Real-time plane:
-- `/ws/threats` and `/ws/agent/{agent_id}`.
+Workspace model:
 
-## 4) Security/Service Layer
+- `/command`: main command workspace; `/dashboard`, `/alerts`, `/threats`, and `/command-center` redirect into this workspace.
+- `/ai-activity`: AI detection, intelligence, and CLI session workspace.
+- `/response-operations`: response, quarantine, EDR, and SOAR workspace.
+- `/investigation`: threat intel, correlation, and attack-path investigation workspace.
+- `/detection-engineering`: Sigma, atomic validation, and MITRE-oriented workspace.
+- `/email-security`: email protection and gateway workspace.
+- `/endpoint-mobility`: mobile security and MDM workspace.
 
-Key service families:
-- Control and governance: `policy_engine`, `token_broker`, `tool_gateway`, `identity`.
-- AI/security reasoning: `aatl`, `aatr`, `cognition_engine`, `ai_reasoning`, `cce_worker`.
-- Threat data and memory: `mcp_server`, `vector_memory`, `vns`, `vns_alerts`, `telemetry_chain`.
-- Deployment and operations: `agent_deployment`, `network_discovery`, `siem`.
+Standalone page groups:
 
-Core engine modules:
-- `threat_response`, `threat_correlation`, `threat_timeline`, `threat_intel`.
-- `ransomware_protection`, `quarantine`, `container_security`, `browser_isolation`, `zero_trust`.
-- `identity_protection`, `ml_threat_prediction`, `sandbox_analysis`, `quantum_security`, `deception_engine`.
+- World view: `/world`.
+- Network and hunting: `/network`, `/hunting`, `/honeypots`.
+- Operations/reporting: `/reports`, `/timeline`, `/audit`, `/settings`.
+- Detection/integration: `/zeek`, `/osquery-fleet`, `/ml-prediction`, `/sandbox`, `/browser-isolation`, `/kibana`, `/advanced`, `/heatmap`, `/vns-alerts`.
+- Endpoint/control: `/unified-agent`, `/vpn`, `/ransomware`, `/containers`.
+- Enterprise/security: `/cspm`, `/deception`, `/kernel-sensors`, `/secure-boot`, `/identity`, `/zero-trust`, `/honey-tokens`, `/tenants`, `/browser-extension`, `/setup-guide`.
 
-## 5) Endpoint and Agent Implementations
+## 3. Backend architecture
 
-Unified agent stack:
-- Main endpoint agent: `unified_agent/core/agent.py`.
-- Local control and UI: `unified_agent/server_api.py`, `unified_agent/ui/web/app.py`, `unified_agent/ui/desktop/main.py`.
-- Deployment helpers and diagnostics: `unified_agent/auto_deployment.py`, tests/utilities in `unified_agent/`.
+`backend/server.py` performs:
 
-Agent install paths:
-- Backend-served installers/downloads via `backend/routers/unified_agent.py` and swarm routes.
-- Scripted local installers in `scripts/`.
+1. Environment loading.
+2. MongoDB/mongomock client setup.
+3. Router dependency DB injection.
+4. Engine DB injection for audit, timeline, threat intel, ransomware, containers, VPN, correlation, EDR, atomic validation, attack paths, zero trust, response, browser isolation, and CSPM.
+5. World model and Triune service creation.
+6. CORS configuration.
+7. Router registration.
+8. WebSocket registration.
+9. Startup of background workers/services.
+10. Graceful shutdown of workers and MongoDB client.
 
-Implementation model:
-- Local: endpoint agent + local UI/service for host-level visibility and control.
-- Remote: endpoint heartbeat/events to backend control plane, command dispatch from backend to agents.
+Router domains include:
 
-## 6) Data and Storage Architecture
+- Core SOC: auth, users, dashboard, threats, alerts, hunting, reports, audit, timeline, websocket, settings.
+- Endpoint/agents: agents, agent commands, swarm, unified agent, CLI events.
+- AI/Triune/world: AI analysis, AI threats, Metatron, Michael, Loki, world ingest, advanced.
+- Security operations: response, quarantine, SOAR, ransomware, deception, honey tokens, honeypots.
+- Infrastructure/detection: network, integrations, VPN, containers, EDR, browser isolation, sandbox, Kibana, Sigma, Zeek, osquery, atomic validation, MITRE ATT&CK.
+- Enterprise: governance, enterprise, multi-tenant, CSPM, identity, extension, attack paths, secure boot, kernel sensors, zero trust.
+- Email/mobile: email protection, email gateway, mobile security, MDM connectors.
 
-Primary data store:
-- MongoDB (`seraph_ai_defense`) for platform state, telemetry, commands, and control-plane records.
+## 4. Service layer
 
-Observability and SIEM:
-- Elasticsearch + Kibana local stack.
-- Optional external SIEM forwarding via `services/siem.py`.
+Service families under `backend/services`:
 
-EDM-specific data path:
-- Dataset metadata/versioning and rollout state persisted by unified-agent router.
-- Agent EDM hits ingested centrally for analytics and readiness evaluation.
+- Governance/control: `governance_authority`, `governance_context`, `governance_executor`, `governed_dispatch`, `outbound_gate`, `policy_engine`, `token_broker`, `tool_gateway`.
+- Cognition/AI: `aatl`, `aatr`, `cce_worker`, `cognition_engine`, `cognition_fabric`, `ai_reasoning`, `triune_orchestrator`.
+- World/memory/telemetry: `world_model`, `world_events`, `telemetry_chain`, `vector_memory`, `vns`, `vns_alerts`, `mcp_server`.
+- Operations: `agent_deployment`, `network_discovery`, `siem`, `multi_tenant`, `identity`, `cuckoo_sandbox`, `boundary_control`, `attack_metadata`, `quantum_security`.
 
-## 7) Local vs Remote Implementation Split
+## 5. Unified agent architecture
 
-Local/on-host implementations:
-- Endpoint monitors and remediation primitives in unified agent.
-- Desktop/local web control surfaces for agent utilities.
-- Dockerized local stack for full platform bring-up.
+Endpoint runtime:
 
-Remote/distributed implementations:
-- Central API control plane and SOC UI.
-- Remote agent deployment over SSH/WinRM.
-- Optional external integrations (SIEM APIs, threat feeds, communication channels).
-- Reverse proxy/TLS ingress for internet-facing operation.
+- `unified_agent/core/agent.py`: main endpoint agent and monitor orchestration.
+- Monitor families cover process, network, registry, process tree, LOLBins, code signing, DNS, memory, allowlisting, DLP, vulnerabilities, YARA, AMSI, ransomware, rootkit, kernel security, self-protection, identity, auto-throttle, firewall, WebView2, CLI telemetry, hidden files, alias/rename, privilege escalation, email protection, mobile security, scanners, VPN, VNS, MCP gate, execution broker, remediation, and local UI hooks.
 
-## 8) End-to-End Runtime Flows
+Local control surfaces:
 
-Primary SOC flow:
-1. Agent/events/sensors feed backend APIs and websockets.
-2. Backend correlates and enriches alerts/threats.
-3. Frontend renders situational and investigative views.
-4. Analyst executes response/SOAR/deployment commands.
-5. Backend dispatches and tracks command/deployment outcomes.
+- `unified_agent/ui/web/app.py`: Flask local dashboard, default local port 5000.
+- `unified_agent/ui/desktop/main.py`: Tkinter desktop shell.
+- `unified_agent/server_api.py`: separate local/portal FastAPI service; not the primary production backend.
 
-EDM flow:
-1. Dataset version published in backend source-of-truth.
-2. Staged rollout to target cohorts (5/25/100) with readiness checks.
-3. Agents perform EDM matching and emit hit telemetry.
-4. Backend evaluates anomaly thresholds and can auto-rollback.
+Backend control plane:
 
-## 9) Current Architectural Risk Focus
+- `/api/unified/agents/register`
+- `/api/unified/agents/{agent_id}/heartbeat`
+- `/api/unified/agents`
+- `/api/unified/agents/{agent_id}/command`
+- `/api/unified/agents/{agent_id}/commands/tooling/{tool_name}`
+- `/api/unified/agents/{agent_id}/remediation/propose`
+- monitor, deployment, EDM, stats, dashboard, installer, and download endpoints.
 
-- Contract governance and schema invariants across fast-moving routes.
-- Hardening consistency across all legacy and secondary entry paths.
-- Durability guarantees for governance-critical state under restart/scale.
-- Assurance depth (security regression and denial-path coverage).
+## 6. Data and storage
+
+- MongoDB database name defaults to `seraph_ai_defense`.
+- Redis supports Celery broker/result flows.
+- Elasticsearch/Kibana are optional observability/search/dashboard integrations.
+- File/log volumes support Falco, Suricata, Zeek, osquery, atomic validation, VPN, and integration workflows.
+- World entities/events and tamper-evident telemetry provide cross-domain state and audit signals.
+
+## 7. End-to-end flows
+
+### SOC flow
+
+1. Agents, sensors, integrations, or users create telemetry/events.
+2. Backend routes normalize and persist records.
+3. Threat intel, correlation, hunting, timeline, and AI/cognition services enrich state.
+4. Frontend workspaces display investigation and response context.
+5. Analyst or automation requests action.
+6. Governance gates high-impact work.
+7. Executor/tool/token path performs or queues execution.
+8. Audit and world events close the loop.
+
+### Unified-agent flow
+
+1. Agent registers and heartbeats to `/api/unified/*`.
+2. Monitor telemetry is summarized and projected into world entities.
+3. Commands or tooling requests are queued through governed dispatch when impactful.
+4. Agent polls/receives work and reports results.
+5. Backend records telemetry, status, audit, and world feedback.
+
+### Triune governance flow
+
+`Intent -> World Event -> Cognition Fabric -> Metatron -> Michael -> Loki -> Policy/Governance Decision -> Outbound Gate -> Approval -> Executor -> Token/Tool Enforcement -> Audit + World Feedback`
+
+## 8. Current architectural risk focus
+
+- Generated route/schema inventories for contract control.
+- Explicit preflight for optional integrations and run modes.
+- Universal governance enforcement for high-impact actions.
+- Distinguishing queued, simulated, degraded, failed, and verified-success states.
+- Documentation alignment around the primary backend and current frontend workspaces.
