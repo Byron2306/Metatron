@@ -1,7 +1,7 @@
 # Seraph AI Defender - Executive Board Brief
 
-**Rebaselined:** 2026-04-29  
-**Audience:** Board, CEO, CISO, CTO, VP Product, VP Engineering  
+**Rebaselined:** 2026-04-29
+**Audience:** Board, CEO, CISO, CTO, VP Product, VP Engineering
 **Source baseline:** Current repository code plus refreshed memory review documents.
 
 ## 1) Decision Context

@@ -1,6 +1,6 @@
 # Full Pages Wiring + Capability Audit
 
-**Rebaselined:** 2026-04-29  
+**Rebaselined:** 2026-04-29
 **Scope:** Static review of the current React route shell, workspace pages, and API wiring assumptions.
 
 ## Current Summary

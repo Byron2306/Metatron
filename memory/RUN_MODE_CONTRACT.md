@@ -1,6 +1,6 @@
 # Metatron Run-Mode Contract
 
-**Rebaselined:** 2026-04-29  
+**Rebaselined:** 2026-04-29
 **Purpose:** Define the minimum reliable stack, optional services, routing assumptions, and what "working" means for the current codebase.
 
 ## 1) Required Core

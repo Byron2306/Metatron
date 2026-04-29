@@ -1,6 +1,6 @@
 # Dashboard Static Wiring Audit
 
-**Rebaselined:** 2026-04-29  
+**Rebaselined:** 2026-04-29
 **Scope:** Dashboard and command-workspace wiring against the current React/FastAPI implementation.
 
 ## Current Summary

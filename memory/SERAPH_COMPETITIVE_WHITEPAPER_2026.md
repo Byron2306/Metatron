@@ -1,6 +1,6 @@
 # Seraph AI Defender Competitive Whitepaper
 
-**Rebaselined:** 2026-04-29  
+**Rebaselined:** 2026-04-29
 **Purpose:** Compare Seraph's current code-evidence posture with enterprise XDR expectations and define an advantage-led convergence blueprint.
 
 ## 1) Executive Summary

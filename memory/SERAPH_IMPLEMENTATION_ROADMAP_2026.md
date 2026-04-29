@@ -1,6 +1,6 @@
 # Seraph AI Defender - Technical Implementation Roadmap
 
-**Rebaselined:** 2026-04-29  
+**Rebaselined:** 2026-04-29
 **Goal:** Convert broad implemented capability into deterministic, governed, evidence-backed operation.
 
 ## 1) Program Charter

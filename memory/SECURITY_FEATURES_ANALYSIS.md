@@ -1,6 +1,6 @@
 # Metatron Security Features Analysis
 
-**Rebaselined:** 2026-04-29  
+**Rebaselined:** 2026-04-29
 **Classification:** Code-evidence inventory
 
 ## Overview
