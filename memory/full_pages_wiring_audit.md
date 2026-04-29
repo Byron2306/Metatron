@@ -1,22 +1,37 @@
-# Full Pages Wiring + Capability Audit (Resolved Vars)
+# Full Pages Wiring + Capability Audit
 
-- Pages scanned: 41
-- Pages with API calls: 39
-- Pages with zero API calls: 2
-- Total API call-sites: 209
-- Unmatched call-sites: 0
+**Rebaselined:** 2026-04-29  
+**Scope:** Static review of the current React route shell, workspace pages, and API wiring assumptions.
 
-## Pages with unmatched call-sites
-- None
+## Current Summary
 
-## Pages with zero API calls
-- frontend/src/pages/LoginPage.jsx
-- frontend/src/pages/SetupGuidePage.jsx
+The frontend has moved from many standalone pages toward consolidated workspace routes. `frontend/src/App.js` protects all application routes behind `AuthProvider` and `ProtectedRoute`, redirects `/` to `/command`, and preserves older URLs with redirects into workspace tabs. The active operator workspaces are:
 
-## Buttons without explicit action
-- frontend/src/pages/AgentsPage.jsx: 230
-- frontend/src/pages/HoneypotsPage.jsx: 276
-- frontend/src/pages/ThreatsPage.jsx: 272
-- frontend/src/pages/UnifiedAgentPage.jsx: 369, 373, 377, 381
+- `/command` for dashboard, command center, alerts, and threats.
+- `/world` for Metatron/world-model state and graph/event views.
+- `/ai-activity` for AI signal detection, intelligence, and CLI sessions.
+- `/investigation` for threat intel, correlation, and attack paths.
+- `/detection-engineering` for Sigma, MITRE coverage, and atomic validation.
+- `/response-operations` for response automation, EDR, SOAR, and quarantine.
+- `/email-security` for email protection and gateway views.
+- `/endpoint-mobility` for mobile security and MDM connectors.
 
-## Unmatched details
+Additional direct routes remain for network, hunting, honeypots, reports, timeline, audit, settings, Zeek, osquery, ransomware, containers, VPN, honey tokens, zero trust, ML prediction, sandbox, browser isolation, Kibana, advanced services, heatmap, VNS alerts, browser extension, setup guide, tenants, unified agent, CSPM, deception, kernel sensors, secure boot, and identity.
+
+## API Wiring Reality
+
+- API calls are still distributed across page components instead of a single client layer.
+- `frontend/src/lib/api.js` provides the preferred base URL behavior, but pages also use local `API` / `API_URL` constants with `axios` or `fetch`.
+- Most routes target `/api/...`; selected backend routers expose `/api/v1/...` natively for CSPM, identity, attack paths, secure boot, kernel sensors, and related domains.
+- Consolidated redirects mean older slugs such as `/alerts`, `/threats`, `/agents`, `/swarm`, `/agent-commands`, `/edr`, `/soar`, `/quarantine`, `/email-gateway`, and `/mdm` should be treated as compatibility URLs, not primary pages.
+
+## Current Risk Notes
+
+1. Static call-site counts should not be treated as stable because workspace consolidation changes page/component boundaries without necessarily changing functionality.
+2. Mixed API base construction remains the main frontend drift risk. Future cleanup should route page calls through `frontend/src/lib/api.js` or a typed service layer.
+3. Some imported legacy page components in `App.js` are no longer directly routed because `UnifiedAgentPage` and workspace shells replaced them. This is intentional for compatibility but should be cleaned up if imports become unused.
+4. Buttons and chart widgets should be audited functionally in-browser; static button scans overstate risk when actions are attached through custom components or parent tab controls.
+
+## Bottom Line
+
+The frontend route map is coherent and intentionally workspace-oriented. The most important documentation update is to describe active workspace routes and compatibility redirects instead of older raw page-count snapshots.
