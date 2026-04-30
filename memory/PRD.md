@@ -3,6 +3,17 @@
 ## Overview
 The Ultimate Agentic Anti-AI Agent Defense System ("Seraph AI") - a comprehensive cybersecurity platform designed to counter malicious AI agents and advanced malware. Features the "Seraphic Watch" futuristic divine observer aesthetic.
 
+
+## Current Code-Reality Addendum (2026-04-30)
+
+This PRD contains historical version notes. The current repository source of truth is:
+
+- Backend entry point: `backend/server.py`, port `8001`, health at `GET /api/health`.
+- Frontend routing: `frontend/src/App.js` with workspace redirects for command, investigation, response, email security, and endpoint mobility.
+- Unified agent: `unified_agent/core/agent.py` is the active endpoint runtime. Historical references to a standalone `scripts/seraph_defender_v7.py` are deprecated and are not present in the current workspace tree.
+- Email and MDM UI: standalone page components still exist, but active routes redirect into `/email-security?tab=...` and `/endpoint-mobility?tab=...`.
+- Production depth: SMTP gateway, MDM sync/actions, cloud posture, sandbox, SIEM, LLM, and sensor integrations require live external configuration.
+
 ## Version History
 - **v1.0.0**: Initial dashboard with simulated threats
 - **v2.0.0**: Real network scanning, local agent, notifications
@@ -397,7 +408,7 @@ All 14+ pages verified working:
 - Detections verified: mimikatz (T1003.001), encoded PowerShell (T1059.001), suspicious ports (T1095)
 
 ### Deprecation Note
-- `/app/scripts/seraph_defender_v7.py` is still functional but the new unified agent in `/app/unified_agent/` is the recommended agent going forward
+- Historical `/app/scripts/seraph_defender_v7.py` references are deprecated; the current workspace source of truth is `unified_agent/core/agent.py`.
 
 ## v6.1.0 Full Feature Completion (Mar 2026) - CURRENT
 
@@ -478,11 +489,9 @@ All 14+ pages verified working:
 - **Version history**
 
 #### 7. Unified Agent Updates
-- **File**: `/app/scripts/seraph_defender_v7.py`
-- **VNS flow sync**: Sends network flows to VNS for analysis
-- **AI analysis sync**: Sends high-severity threats to AI
-- **Advanced Services dashboard tab** in local UI
-- **All services integrated into monitoring loop**
+- **Current file**: `unified_agent/core/agent.py`
+- Historical standalone script paths in this section are deprecated.
+- Current agent logic includes control-plane registration, heartbeat/command handling, local monitors, SIEM/remediation helpers, and email/mobile monitor families.
 
 ## v6.0.0 Advanced Security Services (Mar 2026)
 
