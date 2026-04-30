@@ -1,298 +1,89 @@
 # Metatron Security Features Analysis
-**Generated:** March 9, 2026  
-**Classification:** Code-Evidence Rebaseline  
-**Version:** v6.7.0 - Email Gateway + MDM Connectors + Security Hardening
+
+**Updated:** 2026-04-30  
+**Classification:** Code-evidence rebaseline  
+**Scope:** Current security feature inventory and implementation reality.
+
+---
 
 ## Overview
 
-This analysis provides a comprehensive assessment of Metatron security features against current repository evidence, including the Email Gateway, MDM Connectors, and security hardening additions.
+Metatron / Seraph implements a wide security feature set across endpoint detection, SOC operations, AI-agent defense, governance, deception, identity, cloud posture, email, mobile, and operational tooling. This analysis distinguishes always-wired runtime paths from integration frameworks that require external configuration.
 
----
+## Implemented Security Feature Inventory
 
-## Part 1: Implemented Security Features (Current State)
-
-### 1) Endpoint Detection and Response (EDR)
-
-| Feature Area | Evidence | Status |
+| Security domain | Current evidence | Reality |
 |---|---|---|
-| Process, memory, registry, command, and behavior monitoring | `unified_agent/core/agent.py` | Implemented |
-| File integrity and audit telemetry | `backend/edr_service.py`, `backend/audit_logging.py` | Implemented |
-| Multi-monitor architecture with broad threat signal coverage | `unified_agent/core/agent.py` | Implemented |
+| Endpoint detection and response | `unified_agent/core/agent.py`, `backend/routers/unified_agent.py`, `backend/edr_service.py` | Broad local monitors plus backend registration, telemetry, and command/control surfaces. |
+| Process/network/DNS/registry monitoring | Agent monitor modules and `MONITOR_TELEMETRY_KEYS` in unified-agent router | Monitor summaries are accepted and projected into backend state. |
+| DLP / EDM | `unified_agent/core/agent.py`, `backend/routers/unified_agent.py`, `backend/enhanced_dlp.py` | Dataset, fingerprint, telemetry, and rollout/governance concepts are implemented. |
+| CLI cognition / AI-agent detection | `backend/services/cce_worker.py`, `backend/services/cognition_engine.py`, `backend/routers/cli_events.py` | Worker analyzes command sessions and can feed SOAR/world events. |
+| AATL/AATR | `backend/services/aatl.py`, `backend/services/aatr.py`, `backend/routers/ai_threats.py` | Startup-initialized services and router surfaces exist. |
+| Governance and approval | `backend/services/governed_dispatch.py`, `backend/services/outbound_gate.py`, `backend/routers/governance.py`, `backend/services/governance_executor.py` | High-impact automation can be gated, approved/denied, audited, and executed. |
+| Tamper-evident telemetry | `backend/services/telemetry_chain.py`, unified-agent/governance usage | Audit hooks are used around unified-agent and governance events where configured. |
+| Threat intel and correlation | `backend/threat_intel.py`, `backend/threat_correlation.py`, routers | Feed/enrichment/correlation code paths are present. |
+| Response/SOAR/quarantine | `backend/soar_engine.py`, `backend/quarantine.py`, `backend/threat_response.py`, routers | Response and state-transition flows exist and are included in contract/durability tests. |
+| Deception/honey tokens | `backend/deception_engine.py`, `backend/honey_tokens.py`, routers | Deception routes are mounted under `/api` and `/api/v1`; integration hooks are initialized in server startup. |
+| Network security/VPN | `backend/vpn_integration.py`, `backend/services/network_discovery.py`, routers | VPN and network discovery services exist; runtime depends on host/network setup. |
+| Container and cloud posture | `backend/container_security.py`, `backend/cspm_engine.py`, CSPM router | Frameworks exist; production findings depend on scanners/credentials. |
+| Identity and zero trust | `backend/identity_protection.py`, `backend/zero_trust.py`, `backend/services/identity.py`, routers | Identity/zero-trust control surfaces exist; enterprise integration depth is environment-dependent. |
+| Browser isolation | `backend/browser_isolation.py` | URL filtering/sanitization is present; full remote browser isolation remains partial. |
+| Email protection | `backend/email_protection.py`, router, frontend workspace routes | Authentication/phishing/DLP style logic exists; live value depends on DNS/config/feed setup. |
+| Email gateway | `backend/email_gateway.py`, router | Gateway/quarantine/policy framework exists; production SMTP deployment must be configured. |
+| Mobile security | `backend/mobile_security.py`, router | Device lifecycle/threat/compliance framework exists. |
+| MDM connectors | `backend/mdm_connectors.py`, router | Connector implementations exist for major MDM platforms; live sync requires credentials. |
+| Kernel/secure boot | `backend/secure_boot_verification.py`, kernel sensor services/routers | Host capability and privilege dependent. |
+| Multi-tenant and enterprise controls | `backend/services/multi_tenant.py`, `backend/routers/enterprise.py` | Tenant, policy, token, tool, telemetry control surfaces exist. |
 
-### 2) Network Security
+## Security Control Plane Details
 
-| Feature Area | Evidence | Status |
+### Governed Command Path
+
+- `GovernedDispatchService.queue_gated_agent_command()` writes commands with `gated_pending_approval`, `decision_id`, `queue_id`, state version, transition log, authority context, and gate metadata.
+- `/api/governance/decisions/pending` lists pending decisions.
+- `/api/governance/decisions/{decision_id}/approve` marks decisions approved and can run the executor immediately.
+- `/api/governance/decisions/{decision_id}/deny` marks decisions denied and rejects pending agent commands tied to the decision.
+- `GovernanceExecutorService` processes approved decisions into command queues or supported domain operations and records audit/world events.
+
+### Static Security Guardrails
+
+`backend/scripts/governance_guardrails.py` checks:
+
+1. Scoped mutating endpoints include write/admin/delete/manage-user or machine-token-style dependencies.
+2. Backend code avoids broad shell execution patterns outside explicit allowlists.
+3. Direct command queue writes do not bypass `backend/services/governed_dispatch.py`.
+
+### Runtime Boundary Controls
+
+- `backend/server.py` rejects wildcard CORS origins in production/strict mode.
+- Production requires `INTEGRATION_API_KEY` for internal ingestion/workers.
+- Agent WebSocket access verifies machine tokens with environment-backed token names.
+- Docker Compose defaults bind key service ports to localhost unless overridden.
+
+## Residual Security Gaps
+
+| Gap | Why it matters | Direction |
 |---|---|---|
-| Connection and DNS anomaly monitoring | `unified_agent/core/agent.py` | Implemented |
-| VPN integration and management paths | `backend/vpn_integration.py`, router endpoints | Implemented |
-| Discovery and topology paths | `backend/services/network_discovery.py` | Implemented |
-| Browser isolation controls | `backend/browser_isolation.py` | Implemented |
+| Uniform auth on every legacy/compatibility route | Large router surface increases drift risk. | Keep guardrails current and broaden route-scope checks. |
+| Governance HA/replay semantics | Approval/execution must remain safe across restart/scale. | Add stronger durability and exactly-once/replay-prevention tests. |
+| Integration degraded states | Operators need to know when a feature is framework-only vs live. | Add explicit health state schemas and UI indicators. |
+| Browser isolation depth | Current implementation should not imply full remote browsing. | Document as partial unless/until pixel-streamed isolation lands. |
+| Agent anti-tamper and kernel depth | Host-level controls vary by OS and privileges. | Tie claims to platform-specific evidence and tests. |
+| Documentation drift | Stale claims can overstate security posture. | Keep review docs path-based and date-stamped. |
 
-### 3) Threat Intelligence and Correlation
+## Summary Metrics
 
-| Feature Area | Evidence | Status |
-|---|---|---|
-| IOC and feed-driven enrichment | `backend/threat_intel.py` | Implemented |
-| Threat correlation and ATT&CK mapping | `backend/threat_correlation.py` | Implemented |
-| Hunting logic and hypothesis generation | `backend/threat_hunting.py` | Implemented |
+| Metric | Current code-evidence reading |
+|---|---|
+| Backend router files | 62 |
+| Active router registrations in `server.py` | 65 |
+| Router decorator endpoints, rough static count | 697 |
+| Frontend page components | 69 |
+| React route declarations | 66 |
+| Backend test files | 63 |
+| Unified-agent test files | 4 |
+| Docker Compose service keys, rough static count | 38 |
 
-### 4) Response and Remediation
+## Final Assessment
 
-| Feature Area | Evidence | Status |
-|---|---|---|
-| SOAR and action orchestration | `backend/soar_engine.py` | Implemented |
-| Quarantine and response workflows | `backend/quarantine.py`, `backend/threat_response.py` | Implemented |
-| Multi-channel notification paths | `backend/notifications.py` | Implemented |
-
-### 5) AI Agentic Defense and Deception
-
-| Feature Area | Evidence | Status |
-|---|---|---|
-| AI-defense services and orchestration | `backend/services/aatl.py`, `backend/services/aatr.py` | Implemented |
-| Deception engine | `backend/deception_engine.py` | Implemented |
-| MCP-backed security operations | `backend/services/mcp_server.py` | Implemented |
-
-### 6) Data Protection and EDM
-
-| Capability | Evidence | Status |
-|---|---|---|
-| EDM fingerprint engine and canonical matching | `unified_agent/core/agent.py` | Implemented |
-| Bloom filter precheck and candidate fidelity | `unified_agent/core/agent.py` | Implemented |
-| Agent EDM hit loop-back telemetry | `unified_agent/core/agent.py` | Implemented |
-| Dataset versioning, signing, publish/rollback | `backend/routers/unified_agent.py` | Implemented |
-| Progressive rollout controls | `backend/routers/unified_agent.py` | Implemented |
-| Enhanced DLP with OCR readiness | `backend/enhanced_dlp.py` | Implemented |
-
-### 7) Identity Protection
-
-| Capability | Evidence | Status |
-|---|---|---|
-| Identity threat detection engine | `backend/identity_protection.py` | Implemented |
-| Identity API surfaces | `backend/routers/identity.py` | Implemented |
-| Enterprise response depth | Current codebase | Partial |
-
-### 8) Cloud Security Posture Management (CSPM)
-
-| Capability | Evidence | Status |
-|---|---|---|
-| Multi-cloud engine and scanners | `backend/cspm_engine.py`, `*_scanner.py` | Implemented |
-| CSPM API and dashboard | `backend/routers/cspm.py` | Implemented |
-| **Authentication enforcement** | **backend/routers/cspm.py (get_current_user)** | **Implemented (v6.7.0)** |
-| Operational assurance at scale | Current codebase | Partial |
-
-### 9) Email Protection (Comprehensive)
-
-| Capability | Evidence | Status |
-|---|---|---|
-| **SPF Record Validation** | `backend/email_protection.py` (DNS resolver) | **Implemented** |
-| **DKIM Record Validation** | `backend/email_protection.py` (selector support) | **Implemented** |
-| **DMARC Record Validation** | `backend/email_protection.py` (policy extraction) | **Implemented** |
-| **Phishing Detection** | `backend/email_protection.py` (keywords, URLs, domains) | **Implemented** |
-| **URL Threat Analysis** | `backend/email_protection.py` (shorteners, IPs, TLDs) | **Implemented** |
-| **Attachment Scanning** | `backend/email_protection.py` (extensions, entropy, signatures) | **Implemented** |
-| **Impersonation Detection** | `backend/email_protection.py` (lookalike, display name) | **Implemented** |
-| **DLP Integration** | `backend/email_protection.py` (sensitive patterns) | **Implemented** |
-| **Auto-Quarantine** | `backend/email_protection.py` (risk-based) | **Implemented** |
-| **Protected User Management** | `backend/routers/email_protection.py` | **Implemented** |
-
-### 10) Email Gateway (NEW - v6.7.0)
-
-| Capability | Evidence | Status |
-|---|---|---|
-| **SMTP Relay Mode** | `backend/email_gateway.py` (SMTPGateway class) | **Implemented** |
-| **Inline Message Processing** | `backend/email_gateway.py` (process_message) | **Implemented** |
-| **Threat Analysis Engine** | `backend/email_gateway.py` (multi-layer scoring) | **Implemented** |
-| **Sender Blocklist** | `backend/routers/email_gateway.py` | **Implemented** |
-| **Sender Allowlist** | `backend/routers/email_gateway.py` | **Implemented** |
-| **Quarantine Management** | `backend/routers/email_gateway.py` | **Implemented** |
-| **Policy Engine** | `backend/routers/email_gateway.py` | **Implemented** |
-| **Statistics Dashboard** | `frontend/src/pages/EmailGatewayPage.jsx` | **Implemented** |
-| **Email Test Mode** | `backend/routers/email_gateway.py` (/process) | **Implemented** |
-
-### 11) Mobile Security (Comprehensive)
-
-| Capability | Evidence | Status |
-|---|---|---|
-| **Device Registration (iOS/Android)** | `backend/mobile_security.py` | **Implemented** |
-| **Device Lifecycle Management** | `backend/mobile_security.py` | **Implemented** |
-| **Jailbreak/Root Detection** | `backend/mobile_security.py` (platform indicators) | **Implemented** |
-| **App Security Analysis** | `backend/mobile_security.py` (OWASP Top 10) | **Implemented** |
-| **Dangerous Permission Detection** | `backend/mobile_security.py` | **Implemented** |
-| **Sideload Detection** | `backend/mobile_security.py` | **Implemented** |
-| **Compliance Monitoring** | `backend/mobile_security.py` (policy scoring) | **Implemented** |
-| **Network Security (WiFi)** | `backend/mobile_security.py` (rogue AP patterns) | **Implemented** |
-| **MITM Detection** | `backend/mobile_security.py` (certificate validation) | **Implemented** |
-| **USB Device Monitoring** | `backend/mobile_security.py` | **Implemented** |
-
-### 12) MDM Connectors (NEW - v6.7.0)
-
-| Capability | Evidence | Status |
-|---|---|---|
-| **Microsoft Intune** | `backend/mdm_connectors.py` (IntuneConnector) | **Implemented** |
-| **JAMF Pro** | `backend/mdm_connectors.py` (JAMFConnector) | **Implemented** |
-| **VMware Workspace ONE** | `backend/mdm_connectors.py` (WorkspaceOneConnector) | **Implemented** |
-| **Google Workspace** | `backend/mdm_connectors.py` (GoogleWorkspaceConnector) | **Implemented** |
-| **Multi-Platform Device Sync** | `backend/mdm_connectors.py` (sync_all_devices) | **Implemented** |
-| **Compliance Policy Sync** | `backend/mdm_connectors.py` (sync_all_policies) | **Implemented** |
-| **Remote Device Actions** | `backend/routers/mdm_connectors.py` (lock/wipe) | **Implemented** |
-| **Connector Management** | `backend/routers/mdm_connectors.py` | **Implemented** |
-| **Device Compliance Dashboard** | `frontend/src/pages/MDMConnectorsPage.jsx` | **Implemented** |
-
-### 13) Kernel Security (Enhanced)
-
-| Capability | Evidence | Status |
-|---|---|---|
-| **eBPF Syscall Monitoring** | `backend/ebpf_kernel_sensors.py` | **Implemented** |
-| **Rootkit Detection** | `backend/enhanced_kernel_security.py` | **Implemented** |
-| **Memory Protection** | `backend/enhanced_kernel_security.py` | **Implemented** |
-| **Kernel Integrity Verification** | `backend/enhanced_kernel_security.py` | **Implemented** |
-| **Secure Boot Validation** | `backend/secure_boot_verification.py` | **Implemented** |
-| **Driver/Module Verification** | `backend/enhanced_kernel_security.py` | **Implemented** |
-| **Anti-Tampering Mechanisms** | `backend/enhanced_kernel_security.py` | **Implemented** |
-
-### 14) Browser Isolation (Enhanced)
-
-| Capability | Evidence | Status |
-|---|---|---|
-| URL filtering and reputation | `backend/browser_isolation.py` | Implemented |
-| Threat sanitization | `backend/browser_isolation.py` | Implemented |
-| **URL analysis integration** | `backend/email_protection.py` | **Enhanced** |
-| Full remote browser isolation | Current codebase | Limited |
-
-### 15) Enterprise Control Plane
-
-| Capability | Evidence | Status |
-|---|---|---|
-| SIEM integration, policy engine, token broker | `backend/services/*.py` | Implemented |
-| Telemetry chain concepts | `backend/services/telemetry_chain.py` | Implemented |
-| Multi-tenant controls | `backend/services/multi_tenant.py` | Implemented |
-
----
-
-## Part 2: Gap Analysis (Updated)
-
-### Tier 1: Gaps Closed in v6.7.0
-
-| Previous Gap | Status | Resolution |
-|---|---|---|
-| ~~Email gateway and BEC protection~~ | **✅ CLOSED** | Email Gateway with SMTP relay mode |
-| ~~MDM platform connectors~~ | **✅ CLOSED** | Intune, JAMF, Workspace ONE, Google Workspace |
-| ~~CSPM public endpoint~~ | **✅ CLOSED** | Authentication dependency added |
-
-### Tier 2: Remaining Competitive Gaps
-
-| Gap | Impact | Current State |
-|---|---|---|
-| Kernel/agent anti-tamper depth | High | Improved but not hardened |
-| Contract governance and schema assurance | Medium | Improving |
-| Full remote browser isolation | Medium | Limited |
-| Real-time SMTP relay production | Medium | Framework ready, needs production server |
-| Live MDM credentials | Medium | Framework ready, needs production credentials |
-
-### Tier 3: Future Enhancement Opportunities
-
-| Gap | Why It Matters | Priority |
-|---|---|---|
-| Serverless and SaaS security | Modern cloud coverage | Medium |
-| Hardware attestation | Device trust chain | Medium |
-| Compliance evidence automation | Audit readiness | High |
-
----
-
-## Part 3: Platform Coverage Snapshot (Updated)
-
-| Platform | Status | Notes |
-|---|---|---|
-| Windows Desktop/Server | Strong | Broad monitoring and response |
-| Linux Server/Desktop | Strong | eBPF-integrated coverage |
-| macOS | Strong | Platform-specific monitors |
-| Docker | Strong | Image/runtime checks present |
-| Kubernetes | Partial | Admission/runtime maturing |
-| AWS/Azure/GCP | Strong | CSPM operational |
-| **Email (Post-delivery)** | **Strong** | **SPF/DKIM/DMARC, phishing, DLP** |
-| **Email (Gateway/Relay)** | **Strong** | **NEW: SMTP relay mode** |
-| **Mobile iOS** | **Strong** | **Device mgmt, compliance, threats** |
-| **Mobile Android** | **Strong** | **Device mgmt, compliance, threats** |
-| **MDM Intune** | **Strong** | **NEW: Full connector** |
-| **MDM JAMF** | **Strong** | **NEW: Full connector** |
-| **MDM Workspace ONE** | **Strong** | **NEW: Full connector** |
-| **MDM Google Workspace** | **Strong** | **NEW: Full connector** |
-| Serverless | Limited | Not materially implemented |
-| SaaS platforms | Limited | Not materially implemented |
-
----
-
-## Part 4: Security Domain Coverage Scores
-
-| Domain | Score (0-10) | Status |
-|---|---|---|
-| Endpoint Detection (EDR) | 9.5 | Mature |
-| Network Security | 9.0 | Strong |
-| Threat Intelligence | 9.0 | Strong |
-| Response/SOAR | 9.0 | Strong |
-| AI Agentic Defense | 9.0 | Strong |
-| Data Protection (DLP/EDM) | 9.0 | Strong |
-| Identity Protection | 8.5 | Strong |
-| Cloud Security (CSPM) | 9.0 | Strong |
-| **Email Protection** | **9.0** | **Strong** |
-| **Email Gateway** | **8.5** | **NEW - Strong** |
-| **Mobile Security** | **8.5** | **Strong** |
-| **MDM Connectors** | **8.5** | **NEW - Strong** |
-| Browser Isolation | 6.5 | Partial |
-| Kernel Security | 8.5 | Strong |
-| **Overall** | **8.6** | **Excellent** |
-
----
-
-## Part 5: Summary Metrics
-
-| Metric | Previous | Current | Change |
-|---|---|---|---|
-| Implemented security capability breadth | Very High | **Exceptional** | +1 tier |
-| Overall enterprise feature implementation | ~83-87% | **~90-94%** | +5-7% |
-| Security hardening maturity | Medium-High | **High** | +1 level |
-| Data protection maturity | High | **Very High** | +1 level |
-| Email protection maturity | 8/10 | **9/10** | +1 |
-| Email gateway maturity | Not implemented | **8.5/10** | NEW |
-| Mobile security maturity | 7/10 | **8.5/10** | +1.5 |
-| MDM connectors maturity | Not implemented | **8.5/10** | NEW |
-| Most important residual risk | Integration depth | Production credentials | Changed |
-
----
-
-## Part 6: Final Assessment
-
-Metatron has evolved into a **comprehensive enterprise security platform** with the addition of Email Gateway and MDM Connectors capabilities. The platform now provides:
-
-**Complete Coverage:**
-- Endpoint detection and response (EDR)
-- Network security and browser isolation
-- Threat intelligence and correlation
-- Response and remediation (SOAR)
-- AI-driven autonomous defense
-- Deception technology
-- Identity protection
-- Cloud security posture (CSPM)
-- **Email protection with authentication and DLP**
-- **Email gateway with SMTP relay mode**
-- **Mobile threat defense with compliance**
-- **Enterprise MDM integration (4 platforms)**
-- **Enhanced kernel security**
-
-**Key Strengths:**
-- Custom SPF/DKIM/DMARC implementation (no external dependencies)
-- Unified email + endpoint + mobile security
-- Enterprise MDM integration across all major platforms
-- Composable architecture enabling rapid feature development
-- Strong threat detection across all domains
-- Enhanced kernel security with rootkit detection
-
-**Remaining Work:**
-- Production SMTP server integration
-- Production MDM platform credentials
-- Full remote browser isolation
-- Cross-domain threat correlation
-
-**Overall Maturity: 8.6/10** (up from 8.2/10)
-
-The platform has achieved **exceptional enterprise readiness** with minimal remaining gaps, primarily around production integrations.
+The security feature set is broad and real at the framework/control-plane level. The strongest current differentiator is the combination of unified endpoint telemetry, world-state projection, AI/cognition services, and governance-gated automation. The most important remaining work is not adding more feature names; it is making each feature's live/degraded state explicit, strengthening policy and denial-path tests, and keeping all high-impact actions inside the governed dispatch path.
