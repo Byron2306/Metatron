@@ -2,24 +2,31 @@
 
 **Date:** 2026-03-04  
 **Derived from:** `memory/SERAPH_COMPETITIVE_WHITEPAPER_2026.md`  
-**Horizon:** 12 months (rolling)  
+**Horizon:** rolling technical convergence program  
 **Goal:** Converge to enterprise-grade operational confidence while preserving Seraph’s adaptive and composable strengths.
 
 ---
 
 ## 1) Program Charter
-
 ## North-star outcome
 Deliver a **Governed Adaptive Defense Fabric** with:
-- deterministic core operations,
-- policy-governed autonomy,
-- measurable detection quality,
-- enterprise-ready reliability and evidence.
+- deterministic core operations and truthful health/readiness signals,
+- policy-governed autonomy for high-risk actions,
+- measurable detection quality and regression evidence,
+- enterprise-ready reliability, auditability, and dependency transparency.
+
+## Current code baseline for this roadmap
+- FastAPI backend version `3.0.0` with 60 active router modules and ~700 source route decorators.
+- 33 service modules covering governance, AI reasoning, memory, VNS, integrations, workers, and orchestration.
+- React frontend organized around workspace routes with many legacy redirects.
+- Unified Agent v2.0 with 25 baseline monitor keys and Windows-only additions for AMSI/WebView2.
+- Docker Compose with 21 service definitions; several security, sandbox, and bootstrap services are profile-gated.
 
 ## Program constraints
 - No direct feature-cloning strategy.
 - No expansion of integration breadth without quality gates.
-- No “production-ready” claims on simulated critical paths.
+- No production-ready claims on paths that are simulation-only, credential-less, or dependency-unverified.
+- No stale static counts in public docs; counts should be generated or clearly marked as source snapshots.
 
 ---
 
@@ -45,138 +52,89 @@ Owns operator clarity (run modes, degraded states, health semantics, status tran
 
 ---
 
-## 3) Phase Plan
-
-## Phase 0 (Weeks 0–4): Stabilization and truth alignment
+## 3) Phase Plan## Stabilization Stage: Source truth and contract alignment
 
 ### Objectives
-- Remove known critical mismatches and obvious false signal paths.
+- Replace stale documentation and validation assumptions with source-derived route, service, frontend, and agent inventories.
+- Make critical API/client/agent contracts explicit and testable.
 
 ### Scope
-1. Fix high-impact contract breaks:
-   - unified command payload shape mismatch,
-   - OpenClaw analyze context mapping mismatch.
-2. Fix stale validation paths:
-   - update Zero Trust probe endpoints in deployment validation scripts.
-3. Introduce explicit simulation markers in API responses where simulation remains.
-4. Build canonical endpoint compatibility map for scripts/agents.
-
-### Deliverables
-- `compatibility/endpoints-v1.json` (source of truth)
-- `scripts/validate_deployment.sh` aligned with active routes
-- CI contract test pack for top 20 API routes
+1. Generate route inventory from `backend/server.py` and `backend/routers`.
+2. Snapshot frontend route/workspace mappings from `frontend/src/App.js`.
+3. Snapshot unified-agent monitor keys from `unified_agent/core/agent.py`.
+4. Mark optional/profile-gated integrations in docs, UI, and health/readiness responses.
 
 ### Exit criteria
-- No known P0 contract mismatches remain.
-- Validation script produces accurate pass/fail against live routes.
+- Documentation claims match generated source facts.
+- Core frontend/API/agent contracts are covered by CI checks.
 
 ---
 
-## Phase 1 (Weeks 5–12): Deterministic runtime behavior
+## Runtime Reliability Stage: Deterministic behavior and degraded-mode clarity
 
 ### Objectives
-- Ensure production-significant success states represent real execution.
+- Ensure production-significant success states represent real execution or clearly marked degraded/simulated operation.
 
 ### Scope
-1. Replace simulated deployment completion in unified flows with verified execution adapters.
-2. Enforce deployment state machine:
-   - queued → processing → installing → validating → completed/failed.
-3. Add host capability probes for WinRM/SSH prechecks before queue acceptance.
-4. Harden dependency lifecycle behavior:
-   - deterministic fallback contracts for optional integrations.
-
-### Deliverables
-- Unified deployment verifier service
-- Capability preflight API for deployment routes
-- Runtime dependency health contract and status schema
+1. Strengthen health/readiness beyond static `/api/health` status text.
+2. Enforce dependency taxonomy: required, default optional, profile-gated, credential-gated.
+3. Verify deployment state transitions with endpoint evidence rather than queue acceptance alone.
+4. Standardize frontend messaging when optional integrations are unavailable.
 
 ### Exit criteria
-- Deployment success includes machine-verifiable install evidence.
-- Optional dependency failures do not create ambiguous operational outcomes.
+- Operators can distinguish healthy, degraded, unavailable, and unconfigured states without reading logs.
+- Deployment completion includes verifiable endpoint evidence where real execution is claimed.
 
 ---
 
-## Phase 2 (Weeks 13–24): Governance and assurance maturity
+## Governance Assurance Stage: Durable, auditable high-risk actions
 
 ### Objectives
-- Move from conceptual governance to enterprise-trust execution.
+- Move from governance primitives to enterprise-trust execution.
 
 ### Scope
-1. Persist critical governance state with HA-safe semantics:
-   - identity attestations,
-   - policy decisions,
-   - token issuance/consumption,
-   - tool execution evidence chain.
-2. Add high-risk action guardrails:
-   - blast-radius caps,
-   - approval tiers,
-   - TTL, replay prevention, reason codes.
-3. Add formal audit evidence model and export contracts.
-4. Add policy denial-path and bypass-resistance regression tests.
-
-### Deliverables
-- Governance durability architecture doc
-- Audit evidence schema v1
-- Security regression suite for policy/token/tool path
+1. Persist policy decisions, approvals, tokens, gate decisions, and execution evidence with stable trace IDs.
+2. Add replay prevention, TTLs, reason codes, and approval tiers for high-risk commands.
+3. Expand denial-path, bypass-resistance, and restart/scale tests for governance services.
+4. Validate governed dispatch paths used by unified-agent commands.
 
 ### Exit criteria
-- Governance chain remains consistent across restart/scale scenarios.
-- High-risk action audit chain is complete and queryable.
+- Governance state remains consistent across restarts and scaled workers.
+- High-risk action audit chains are complete and queryable.
 
 ---
 
-## Phase 3 (Weeks 25–36): Detection quality and adaptive differentiation
+## Detection Quality Stage: Measurable security outcomes
 
 ### Objectives
-- Improve real-world trust in detections and guided automation.
+- Increase trust in detection and automation behavior with repeatable measurement.
 
 ### Scope
-1. Build detection evaluation harness:
-   - representative corpus,
-   - scenario replay,
-   - drift analysis,
-   - precision/recall tracking.
-2. Implement suppression governance:
-   - suppression lifecycle,
-   - expiration,
-   - reason metadata,
-   - risk checks.
-3. Introduce governed adaptive playbooks:
-   - recommendation + policy gate + action simulation + action execution.
-
-### Deliverables
-- Detection quality scorecard service
-- Suppression governance module
-- Governed adaptive playbook templates
+1. Build representative replay corpora for endpoint, email, mobile, identity, cloud, and AI-threat activity.
+2. Track precision, recall, suppression lifecycle, and false-positive rates by threat class.
+3. Connect AATL/AATR/CCE signals to operator-visible evidence and regression tests.
+4. Validate optional integrations with tiered certification.
 
 ### Exit criteria
-- Quantified quality improvement trend across target classes.
-- Autonomous recommendations have explainable evidence and policy context.
+- Detection quality trends are measurable and tied to release gates.
+- Suppressions, overrides, and automation recommendations carry explainable evidence.
 
 ---
 
-## Phase 4 (Weeks 37–52): Productization and enterprise readiness
+## Enterprise Readiness Stage: Supportable product operations
 
 ### Objectives
-- Convert technical maturity into repeatable enterprise adoption patterns.
+- Convert technical breadth into repeatable enterprise adoption patterns.
 
 ### Scope
-1. Integration quality tiers:
-   - Tier 1: enterprise-supported,
-   - Tier 2: best-effort,
-   - Tier 3: experimental.
-2. Release governance and supportability runbooks.
-3. Compliance reporting pack (control mapping + evidence extraction).
-4. Unified operator run-mode UX with explicit core/optional dependency states.
-
-### Deliverables
-- Integration certification process
-- Release readiness checklist and go/no-go gates
-- Compliance evidence bundle generator
+1. Maintain integration quality tiers: enterprise-supported, best-effort, experimental.
+2. Package compliance evidence from telemetry/audit/governance records.
+3. Publish run-mode guidance for minimal, recommended, security-profile, sandbox, and bootstrap modes.
+4. Keep root README and memory review docs aligned to generated inventories.
 
 ### Exit criteria
-- Predictable enterprise deployment outcomes and support workflows.
-- Maturity claims backed by measurable KPIs and artifacts.
+- Enterprise deployment expectations are explicit, testable, and supportable.
+- Maturity claims are backed by artifacts, not static marketing counts.
 
 ---
 

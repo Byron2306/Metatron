@@ -7,28 +7,26 @@
 ---
 
 ## 1) Decision Context
+Seraph remains at a strategic inflection point:
+- It has unusually broad implemented code coverage for an adaptive security platform.
+- It has clear upside in governed, AI-native, operator-controlled defense workflows.
+- It is not yet at incumbent-level assurance, detection-quality scale, operational readiness, or anti-tamper maturity.
 
-Seraph is at an inflection point:
-- It has unusually strong innovation and architecture flexibility.
-- It has clear competitive upside in adaptive, governed, AI-native defense workflows.
-- It is not yet at incumbent-level enterprise hardening and operational assurance.
+**Board-level question:** Should Seraph continue a feature-breadth race, or make hardening, evidence, and deterministic operations the primary operating discipline?
 
-**Board-level question:** Should Seraph pursue feature breadth race, or shift into a hardening-led convergence strategy to become a credible enterprise alternative?
-
-**Recommendation:** Shift to a **12-month hardening + convergence program** while preserving Seraph’s differentiation.
+**Recommendation:** Shift to a **hardening-led convergence program** while preserving Seraph's differentiated adaptive architecture.
 
 ---
 
 ## 2) Strategic Position
-
 ### Current posture
-- **Strengths:** composability, integrated SOC + response planes, rapid adaptation velocity, advanced governance concepts (identity/policy/token/tool controls).
-- **Constraints:** contract drift, simulated success paths, script/API inconsistencies, optional dependency fragility, uneven durability of critical state.
+- **Strengths:** composability, integrated SOC/response planes, large API/service surface, unified-agent EDM and telemetry, AI-threat services, email/mobile/MDM frameworks, governed outbound execution, and rapid adaptation velocity.
+- **Constraints:** route/schema drift risk, optional dependency ambiguity, production credential gaps for some integrations, health semantics that do not fully probe dependencies, and uneven durability/assurance for governance-critical state.
 
 ### Competitive reality
 Compared with CrowdStrike, SentinelOne, Microsoft MDE, Cortex XDR, and HP Wolf:
-- Seraph is **ahead in adaptability and architecture openness**.
-- Seraph is **behind in enterprise-scale reliability, assurance, anti-tamper depth, and ecosystem maturity**.
+- Seraph is **ahead in adaptability, openness, and custom workflow velocity**.
+- Seraph is **behind in scaled reliability, managed ecosystem, anti-tamper depth, detection-quality corpus, and compliance packaging**.
 
 ### Target positioning (non-copycat)
 Position Seraph as a **Governed Adaptive Defense Fabric**:
@@ -40,18 +38,18 @@ Position Seraph as a **Governed Adaptive Defense Fabric**:
 
 ## 3) What Must Change (Board Priorities)
 
-## Priority A — Truth and reliability first (0–90 days)
+## Priority A - Truth and reliability first
 1. Eliminate known contract mismatches in critical flows.
 2. Replace simulation-based success in deployment-critical paths.
 3. Align script/API contracts and validation tooling to active endpoints.
 4. Standardize API root behavior and environment handling.
 
-## Priority B — Enterprise trust fundamentals (90–180 days)
+## Priority B - Enterprise trust fundamentals
 1. Harden governance plane durability (identity/policy/token state guarantees).
 2. Implement strict API contract CI gates and regression controls.
 3. Add evidence-grade auditability for high-risk autonomous actions.
 
-## Priority C — Scaled differentiation (180–360 days)
+## Priority C - Scaled differentiation
 1. Expand governed autonomous playbooks.
 2. Establish detection quality loop (precision/recall, replay, suppression discipline).
 3. Build curated, high-quality integration framework instead of connector sprawl.
@@ -74,7 +72,7 @@ Position Seraph as a **Governed Adaptive Defense Fabric**:
 
 ## 5) KPI Dashboard (Board Level)
 
-Track these monthly:
+Track these on each release governance cycle:
 
 1. **Determinism Index:** % critical workflows without simulation/fallback ambiguity.
 2. **Contract Integrity Index:** # production contract breaks per release.

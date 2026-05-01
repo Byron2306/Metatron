@@ -2,13 +2,14 @@
 
 ## 1) System Topology at a Glance
 
-- Primary stack: `frontend` (React) + `backend` (FastAPI) + `mongodb`.
-- Security/ops stack: `elasticsearch`, `kibana`, `wireguard`, optional `ollama`, `trivy`, `falco`, `suricata`, `cuckoo`.
+- Primary stack: `frontend` (React) + `backend` (FastAPI 3.0.0) + `mongodb` + `redis`.
+- Async/runtime stack: Celery worker/beat, Elasticsearch/Kibana, Ollama, WireGuard, Nginx, and optional security/sandbox/bootstrap services.
+- Docker Compose defines 21 services; several are intentionally profile-gated (`security`, `sandbox`, `bootstrap`).
 - Entry channels:
-- Web UI routes from `frontend/src/App.js` (47 route entries, including redirects).
-- REST API under `/api/*` and `/api/v1/*`.
-- WebSockets under `/ws/*`.
-- Endpoint-agent control plane under `/api/unified/*` and `/api/swarm/*`.
+  - Web UI routes from `frontend/src/App.js`, with `/` redirecting to `/command` and many legacy routes redirecting into workspace hubs.
+  - REST API under `/api/*` and selected native `/api/v1/*` routers.
+  - WebSockets under `/ws/threats` and `/ws/agent/{agent_id}`.
+  - Endpoint-agent control plane under `/api/unified/*` and `/api/swarm/*`.
 
 ## 2) Frontend Architecture (Local and Remote Use)
 
@@ -31,19 +32,21 @@ Frontend implementation model:
 
 FastAPI entrypoint:
 - `backend/server.py`.
+- App title/version: `Anti-AI Defense System API` / `3.0.0`.
 - Router registration uses `/api` plus selected routers with native `/api/v1` prefixes.
+- Current static inventory: 60 active router modules (excluding helpers) and roughly 700 source-declared HTTP/WebSocket route decorators.
 
 Major API domains:
 - Core platform: auth, users, dashboard, settings, websocket, reports.
 - Security analytics: threats, alerts, threat intel, hunting, correlation, timeline, audit.
 - Response plane: response, quarantine, SOAR, ransomware, honeypots, honey tokens, deception.
 - Endpoint plane: agents, agent commands, swarm, unified agent.
-- Enterprise plane: enterprise, zero trust, multi-tenant, extension.
-- Advanced plane: advanced, AI analysis, AI threats, ML prediction, sandbox, EDR, containers, VPN, CSPM.
-- Tier-1 security routers: attack paths, secure boot, kernel sensors, identity.
+- Enterprise plane: enterprise, zero trust, multi-tenant, extension, identity, governance.
+- Advanced plane: advanced, AI analysis, AI threats, ML prediction, sandbox, EDR, containers, VPN, CSPM, MCP, vector memory, VNS, quantum, AI reasoning.
+- Expanded domains: email protection, email gateway, mobile security, MDM connectors, attack paths, secure boot, kernel sensors.
 
 Real-time plane:
-- `/ws/threats` and `/ws/agent/{agent_id}`.
+- `/ws/threats` and `/ws/agent/{agent_id}`; agent WebSocket uses machine-token verification.
 
 ## 4) Security/Service Layer
 

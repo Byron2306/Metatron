@@ -7,19 +7,22 @@
 
 ## 1) Executive Summary
 
-Metatron remains an unusually ambitious, feature-dense cyber defense platform with strong breadth across SOC workflows, autonomous response, AI-assisted analytics, SOAR, swarm/agent operations, and governance-oriented control planes.
+**Current code rebaseline:** 2026-05-01  
+**Evidence basis:** Static repository review of `backend/server.py`, router/service modules, `unified_agent/core/agent.py`, `frontend/src/App.js`, and `docker-compose.yml`.
 
-### Overall assessment (rebaselined)
+Metatron/Seraph remains a highly ambitious, feature-dense cyber defense platform. Current code evidence shows a FastAPI 3.0.0 backend with 60 active router modules under `backend/routers` (excluding helper modules), roughly 700 source-declared HTTP/WebSocket route decorators, 33 service modules in `backend/services`, a React dashboard with 68 page/workspace components and consolidated redirects, and a unified endpoint agent v2.0 with 25 baseline monitor keys plus Windows-only AMSI/WebView2 monitors when available.
+
+### Updated overall assessment
 
 - Innovation and capability breadth: **Very high**
-- Architecture depth: **High**
-- Operational maturity: **Medium to Medium-High**
-- Security hardening maturity: **Medium (improving, still uneven across legacy surfaces)**
-- Production readiness (enterprise-grade): **Partial but stronger than prior snapshot**
+- Architecture depth: **High**, with central startup/router wiring still carrying significant complexity
+- Operational maturity: **Medium-High**, strongest in code breadth and Dockerized local operation, weaker in deterministic health/degraded-state contracts
+- Security hardening maturity: **Medium-High**, improved through production JWT/CORS checks, M2M key requirements, and governed outbound dispatch patterns
+- Production readiness: **Partial enterprise readiness**; strongest for experienced operators who can configure dependencies and validate optional integrations
 
 ### Bottom line
 
-The platform is advanced and materially more production-aligned than earlier March assessments. Core constraints are now less about missing capability and more about consistency: contract stability, comprehensive hardening normalization, durable governance state, and test/assurance depth.
+The platform is not just a prototype: major endpoint, SOC, AI-threat, deception, email, mobile, CSPM, governance, and integration control-plane code paths exist. The current constraint is precision and assurance rather than feature absence: docs, tests, frontend contracts, run-mode semantics, optional integration behavior, and governance-state durability must stay aligned with the fast-moving codebase.
 
 ---
 
@@ -182,21 +185,21 @@ The platform is advanced and materially more production-aligned than earlier Mar
 
 ## 9) Prioritized Improvement Plan
 
-### Phase 0 (Immediate: 1-2 weeks)
+### Phase 0: Source-truth and hardening alignment
 
 - Add EDM publish-time schema validation and quality gates.
 - Enforce contract tests for top control-plane routes.
 - Normalize hardening across all active and legacy entry paths.
 - Add deployment/environment preflight validation command.
 
-### Phase 1 (Near-term: 2-6 weeks)
+### Phase 1: Durability, contract, and assurance expansion
 
 - Persist governance-critical state in durable storage.
 - Expand security regression and denial-path tests.
 - Consolidate compatibility shims into normalized contracts.
 - Formalize degraded-mode behaviors for optional integrations.
 
-### Phase 2 (Mid-term: 1-2 quarters)
+### Phase 2: Architecture separation and operational governance
 
 - Further bounded-context separation for threat ops vs control-plane services.
 - Introduce stronger async orchestration patterns for long-running jobs.

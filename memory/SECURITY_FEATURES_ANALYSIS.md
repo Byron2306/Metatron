@@ -1,12 +1,14 @@
 # Metatron Security Features Analysis
 **Generated:** March 9, 2026  
+**Rebaselined:** May 1, 2026  
 **Classification:** Code-Evidence Rebaseline  
-**Version:** v6.7.0 - Email Gateway + MDM Connectors + Security Hardening
+**Version:** Current repository architecture and security feature review
 
 ## Overview
 
-This analysis provides a comprehensive assessment of Metatron security features against current repository evidence, including the Email Gateway, MDM Connectors, and security hardening additions.
+This analysis summarizes implemented Metatron/Seraph security features against current repository evidence. The current source shows a broad FastAPI security platform with 60 active router modules, 33 service modules, React workspace dashboards, unified-agent v2.0 endpoint monitoring, email/mobile/MDM extensions, advanced AI/memory/VNS services, and profile-gated runtime integrations.
 
+The key correction from earlier summaries is that capability breadth is real, but maturity varies by domain. Some features are production-capable when configured; others are frameworks, optional integrations, or credential-dependent paths that require explicit deployment validation.
 ---
 
 ## Part 1: Implemented Security Features (Current State)
@@ -240,59 +242,47 @@ This analysis provides a comprehensive assessment of Metatron security features 
 | **MDM Connectors** | **8.5** | **NEW - Strong** |
 | Browser Isolation | 6.5 | Partial |
 | Kernel Security | 8.5 | Strong |
-| **Overall** | **8.6** | **Excellent** |
+| **Overall** | **8.0** | **Broad implementation, assurance-sensitive** |
 
 ---
 
 ## Part 5: Summary Metrics
 
-| Metric | Previous | Current | Change |
-|---|---|---|---|
-| Implemented security capability breadth | Very High | **Exceptional** | +1 tier |
-| Overall enterprise feature implementation | ~83-87% | **~90-94%** | +5-7% |
-| Security hardening maturity | Medium-High | **High** | +1 level |
-| Data protection maturity | High | **Very High** | +1 level |
-| Email protection maturity | 8/10 | **9/10** | +1 |
-| Email gateway maturity | Not implemented | **8.5/10** | NEW |
-| Mobile security maturity | 7/10 | **8.5/10** | +1.5 |
-| MDM connectors maturity | Not implemented | **8.5/10** | NEW |
-| Most important residual risk | Integration depth | Production credentials | Changed |
+| Metric | Current Assessment | Evidence / Caveat |
+|---|---|---|
+| Backend security surface | Very broad | 60 active router modules, ~700 source route decorators |
+| Security service depth | Broad | 33 `backend/services` modules plus core engines outside `services` |
+| Endpoint monitoring | Strong but platform-dependent | 25 baseline monitor keys; Windows can add AMSI/WebView2 |
+| Email and mobile domains | Implemented frameworks | Production depth depends on relay, DNS, MDM, and device credentials |
+| Governance maturity | Improving / partial | Policy, gate, token, executor, and governed dispatch exist; durability assurance remains critical |
+| Optional sensor coverage | Conditional | Trivy/Falco/Suricata/Zeek/Volatility/Cuckoo are profile/tool dependent |
+| Most important residual risk | Assurance consistency | Contract drift, degraded-mode clarity, and live dependency validation |
 
 ---
 
 ## Part 6: Final Assessment
 
-Metatron has evolved into a **comprehensive enterprise security platform** with the addition of Email Gateway and MDM Connectors capabilities. The platform now provides:
+Metatron/Seraph has evolved into a comprehensive security platform codebase with meaningful implementations across:
 
-**Complete Coverage:**
-- Endpoint detection and response (EDR)
-- Network security and browser isolation
-- Threat intelligence and correlation
-- Response and remediation (SOAR)
-- AI-driven autonomous defense
-- Deception technology
-- Identity protection
-- Cloud security posture (CSPM)
-- **Email protection with authentication and DLP**
-- **Email gateway with SMTP relay mode**
-- **Mobile threat defense with compliance**
-- **Enterprise MDM integration (4 platforms)**
-- **Enhanced kernel security**
+**Coverage present in code:**
+- Endpoint detection and response through the unified agent.
+- Network, DNS, VPN, VNS, Zeek/osquery-style visibility surfaces.
+- Threat intelligence, correlation, hunting, timeline, and reporting workflows.
+- Response/remediation through quarantine, SOAR, governed dispatch, and command routing.
+- AI-driven autonomous threat detection through AATL/AATR/CCE services.
+- Deception, honeypots, honey tokens, ransomware protections, and deception engine routing.
+- Identity, CSPM, email protection, email gateway, mobile security, MDM connectors, kernel/security sensors, and browser isolation.
 
-**Key Strengths:**
-- Custom SPF/DKIM/DMARC implementation (no external dependencies)
-- Unified email + endpoint + mobile security
-- Enterprise MDM integration across all major platforms
-- Composable architecture enabling rapid feature development
-- Strong threat detection across all domains
-- Enhanced kernel security with rootkit detection
+**Key strengths:**
+- Large integrated API and frontend surface in one repository.
+- Broad endpoint monitor set with central command/telemetry/EDM control.
+- Governed outbound action primitives and audit-oriented service design.
+- Rich optional integration ecosystem.
 
-**Remaining Work:**
-- Production SMTP server integration
-- Production MDM platform credentials
-- Full remote browser isolation
-- Cross-domain threat correlation
+**Remaining work:**
+- Replace static health claims with dependency-aware readiness checks.
+- Keep generated route/frontend/agent inventories in CI to prevent documentation and contract drift.
+- Harden governance state durability and denial-path testing.
+- Validate production SMTP, MDM, security sensor, sandbox, and LLM integrations in configured environments.
 
-**Overall Maturity: 8.6/10** (up from 8.2/10)
-
-The platform has achieved **exceptional enterprise readiness** with minimal remaining gaps, primarily around production integrations.
+**Overall maturity:** high implementation breadth with medium-high operational maturity; enterprise assurance depends on live configuration, tests, and durability controls.

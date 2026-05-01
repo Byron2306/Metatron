@@ -8,26 +8,25 @@
 
 ## Executive Summary
 
-This report updates the March 2026 system-wide evaluation to reflect the significant capability expansion with Email Gateway and MDM Connectors. The platform has materially closed all previously identified Tier 3 domain expansion gaps, establishing itself as a **comprehensive unified security fabric**.
+This rebaseline updates the March system-wide evaluation against the current repository rather than prior marketing counts. The platform now presents as a broad unified security fabric with substantial implemented code across endpoint monitoring, SOC workflows, deception, AI-threat detection, email security, mobile/MDM, cloud posture, advanced services, integrations, and governance.
 
-### Key Metrics (Updated)
+### Key Metrics (Current Code Evidence)
 
-| Metric | Prior Snapshot (Mar 9 AM) | Current (Mar 9 PM) | Delta |
-|--------|---------------------------|-------------------|-------|
-| Implemented Features | 97+ | 115+ | +18 |
-| Partial Features | 3 | 2 | -1 |
-| Domain Coverage | 10 domains | 12 domains | +2 |
-| Overall Implementation | ~83-87% | ~90-94% | +5-7% |
-| Email Protection Maturity | 8/10 | 9/10 | +1 |
-| Email Gateway Maturity | Not implemented | 8.5/10 | NEW |
-| Mobile Security Maturity | 7/10 | 8.5/10 | +1.5 |
-| MDM Connectors Maturity | Not implemented | 8.5/10 | NEW |
-| Security Hardening | Medium-High | High | +1 level |
-| Composite Maturity Score | 4.0/5 | 4.3/5 | +0.3 |
+| Metric | Current Evidence | Notes |
+|--------|------------------|-------|
+| Backend API version | `3.0.0` | Declared in `backend/server.py` |
+| Router modules | 60 active router files | Excludes `__init__.py` and dependency helpers |
+| Source-declared routes | ~700 HTTP/WebSocket decorators | Static source count; not unique OpenAPI paths |
+| Service modules | 33 under `backend/services` | Governance, AI, memory, VNS, orchestration, workers |
+| Frontend page/workspace components | 68 JSX page files | `frontend/src/pages`; routes consolidate many legacy paths |
+| Unified Agent monitors | 25 baseline, up to 27 with Windows-only monitors | `process`/`network` are config-dependent; AMSI/WebView2 are Windows-only |
+| Docker Compose services | 21 definitions | Several are profile-gated (`security`, `sandbox`, `bootstrap`) |
+| Core state store | MongoDB | Optional mongomock path exists for test/dev |
+| Queue/broker | Redis + Celery worker/beat | Used for async integration/world/triune jobs |
 
 ### Bottom Line
 
-Metatron is now a **comprehensive enterprise security fabric** with full coverage across endpoints, cloud, network, identity, email, and mobile devices. All major domain gaps have been closed, with remaining work focused on production integrations.
+Metatron/Seraph is best described as a comprehensive, code-backed security platform in an active hardening phase. Email Gateway and MDM connector frameworks are present, as are advanced AI/governance/memory services, but production confidence depends on explicit credentials, dependency availability, contract tests, and accurate degraded-mode reporting.
 
 ---
 
@@ -211,55 +210,49 @@ Metatron now has competitive or differentiated capabilities in:
 
 ## Part 5: Strategic Recommendations
 
-### 5.1 Immediate (0-7 days)
+### Source-truth and validation
+1. Keep generated backend route, frontend route, agent monitor, and Docker service inventories aligned with documentation.
+2. Add CI contract checks for the most active backend/frontend/agent payloads.
+3. Replace static health assumptions with dependency-aware readiness checks.
 
-1. **Production Integration:**
-   - Configure production SMTP relay for email gateway
-   - Add production MDM credentials (Intune, JAMF)
-   - Test end-to-end email and device flows
+### Production integration
+1. Configure and validate production SMTP relay paths for Email Gateway.
+2. Add and validate production MDM credentials for Intune, JAMF, Workspace ONE, and Google Workspace.
+3. Test end-to-end email, mobile, and device-action flows in configured environments.
 
-2. **Documentation:**
-   - Update deployment guides with new features
-   - Create MDM connector configuration guide
-   - Document email gateway policy configuration
+### Assurance and governance
+1. Persist governance-critical state and audit evidence with stable trace IDs.
+2. Expand denial-path and bypass-resistance tests for policy, token, outbound gate, and command execution paths.
+3. Formalize optional integration states as unconfigured, unavailable, degraded, or healthy.
 
-### 5.2 Short-Term (7-30 days)
-
-1. Implement email encryption enforcement policies
-2. Add mobile app reputation checking
-3. Build cross-domain threat correlation (email + endpoint + mobile)
-4. Add compliance evidence generation for email/mobile
-
-### 5.3 Medium-Term (30-90 days)
-
-1. Full remote browser isolation with pixel streaming
-2. Email advanced threat protection (sandbox integration)
-3. Mobile containerization for BYOD
-4. Unified threat dashboard with email/mobile context
+### Differentiation
+1. Build measurable detection-quality replay and scoring loops.
+2. Improve cross-domain correlation for email, endpoint, mobile, identity, cloud, and AI-threat events.
+3. Continue full remote browser isolation and compliance evidence automation as targeted capability investments.
 
 ---
 
 ## Part 6: Conclusion
 
-Metatron has transformed into a **comprehensive unified security fabric** covering:
-- Endpoints (Windows, macOS, Linux)
-- Cloud (AWS, Azure, GCP)
-- Network (DNS, VPN, Browser)
-- Identity (AD, SSO, MFA)
-- **Email (SPF/DKIM/DMARC, Phishing, DLP, Gateway)** - ENHANCED
-- **Mobile (iOS, Android, Compliance)** - ENHANCED
-- **MDM (Intune, JAMF, Workspace ONE, Google Workspace)** - NEW
+Metatron/Seraph is a comprehensive unified security fabric with current code coverage across:
+- Endpoints (Windows, macOS, Linux, with platform-dependent monitor behavior)
+- Cloud posture (AWS, Azure, GCP-oriented CSPM surfaces)
+- Network and browser security (DNS/VPN/VNS/browser-isolation paths)
+- Identity and enterprise control-plane services
+- Email protection and Email Gateway frameworks
+- Mobile security and MDM connector frameworks
+- Kernel/security sensors and optional runtime integrations
 
 **Current State:**
-- High innovation, enterprise-ready security platform
-- Strong trajectory with clear enhancement paths
-- All major domain gaps closed
-- Composite maturity: **4.3/5** (up from 4.0/5)
+- High innovation and broad implemented feature surface.
+- Strong trajectory with clear hardening and validation paths.
+- Major domain frameworks are present, while enterprise assurance remains conditional on credentials, dependencies, contract tests, and durability validation.
+- Composite maturity: **4.0/5 for implementation breadth**, lower for assurance where live integration and scale testing are incomplete.
 
-**Overall Rating: 8.6/10 - Excellent**
+**Overall Rating: 8.0/10 for implemented breadth; assurance-sensitive for production claims.**
 
 **Recommended Positioning:**
-- **Unified Adaptive Security Fabric** (comprehensive multi-domain coverage)
+- **Governed Adaptive Security Fabric** with explicit run modes, validated dependencies, and evidence-backed automation.
 
 ---
 

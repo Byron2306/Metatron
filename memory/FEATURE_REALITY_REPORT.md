@@ -1,18 +1,34 @@
 # Feature Reality Report
 
 Generated: 2026-03-09
-Version: v6.7.0
-Scope: Qualitative implementation narrative (feature depth, durability, contract assurance, operational realism)
-**Update:** Comprehensive assessment including Email Gateway, MDM Connectors, and Security Hardening
+Rebaselined: 2026-05-01
+Scope: Qualitative implementation narrative aligned to current code evidence
+**Update:** Current backend/frontend/agent/Docker logic rechecked for documentation accuracy
 
 ## Executive Verdict
-Metatron has achieved **enterprise-grade security platform** status with full Email Gateway and MDM Connectors capabilities. The platform now provides comprehensive protection across endpoints, cloud, network, identity, email (including gateway mode), and mobile devices (including MDM integration). All previously identified Tier 3 domain expansion gaps have been closed. Core domains are operational, DB-backed, and contract-assured.
+Metatron/Seraph has broad, real implementation coverage across endpoint security, SOC operations, AI-threat workflows, deception, response, email, mobile, cloud posture, integrations, and governance. The current codebase supports a FastAPI backend with 60 active router modules, 33 service modules, a React dashboard organized around workspaces and redirects, and a unified agent v2.0 with 25 baseline monitor keys plus Windows-specific extensions.
+
+The correct interpretation is **feature-rich and operationally meaningful, but still assurance-sensitive**. Core domains are implemented; production readiness depends on configured credentials, optional service availability, durable governance state, and contract tests that keep the frontend, agents, scripts, and APIs synchronized.
 
 ---
 
 ## Feature Maturity Table
-| Domain | Score (0-10) | Status | Key Recent Enhancements |
-|---|---|---|---|
+| Domain | Score (0-10) | Status | Current Code Logic Summary |
+|---|---:|---|---|
+| Unified Agent Control Plane | 9 | PASS | Registration, heartbeat, commands, EDM, deployments, dashboards, installers, and governed dispatch paths live under `/api/unified`. |
+| Endpoint Monitors | 8 | PASS/PARTIAL | 25 baseline monitor keys; process/network are config-dependent and AMSI/WebView2 are Windows-only. |
+| EDM Governance & Telemetry | 9 | PASS | Dataset versioning, signature validation, staged rollout, rollback/readiness logic, and agent hit loop-back are implemented. |
+| Email Protection | 8 | PASS/PARTIAL | SPF/DKIM/DMARC, phishing, attachment, impersonation, DLP, and quarantine logic exist; external reputation depth is environment-dependent. |
+| Email Gateway | 8 | PASS/PARTIAL | SMTP gateway framework, processing, policy, quarantine, block/allow lists, stats, and UI exist; production relay credentials/server tuning remain deployment work. |
+| Mobile Security | 8 | PASS/PARTIAL | Device, app, compliance, network, and threat lifecycle logic exists; live device depth depends on deployment and connector credentials. |
+| MDM Connectors | 8 | PASS/PARTIAL | Intune, JAMF, Workspace ONE, and Google Workspace connector frameworks exist; production sync requires valid platform credentials. |
+| CSPM | 8 | PASS/PARTIAL | Multi-cloud posture surfaces are authenticated and DB-backed; scale assurance and credential coverage remain environment-specific. |
+| Governance / Outbound Control | 7 | PARTIAL | Policy, token, outbound gate, governed dispatch, and executor services exist; HA durability and denial-path tests need continued emphasis. |
+| Integrations | 7 | PARTIAL | Amass/Arkime/BloodHound/SpiderFoot/Velociraptor/PurpleSharp/Sigma/Atomic/Falco/YARA/Suricata/Trivy/Cuckoo/osquery/Zeek are represented; many depend on optional tools or profiles. |
+| Browser Isolation | 6 | PARTIAL | URL analysis/filtering/sanitization exists; full remote browser isolation remains limited. |
+| Optional AI Augmentation | 6 | PARTIAL | Rule-based fallbacks exist; model quality requires live Ollama/LLM configuration. |
+
+---|---|---|---|
 | Unified Agent Control Plane | 10 | PASS | Full telemetry, Email/Mobile/Gateway monitor integration |
 | EDM Governance & Telemetry | 10 | PASS | Complete governance pipeline |
 | DLP & Exact Data Match | 10 | PASS | Enhanced with OCR-ready architecture |
@@ -174,7 +190,7 @@ Security improvements applied:
 
 
 ### Other Domains
-**Unified Agent:** Mature - Full telemetry with Email/Mobile/Gateway monitors
+**Unified Agent:** Mature - Full telemetry with email and mobile monitors; gateway is a backend/service surface rather than a distinct agent monitor
 **EDM Governance:** Mature - Complete pipeline with governance
 **Identity Protection:** Mature - DB-backed incident durability
 **CSPM:** Mature - Multi-cloud with authentication
@@ -269,29 +285,20 @@ Security improvements applied:
 
 ## Final Reality Statement
 
-Metatron has achieved **enterprise-grade unified security platform** status with the addition of Email Gateway and MDM Connectors. All previously identified Tier 3 domain expansion gaps have been closed. The platform now provides comprehensive protection across:
+Metatron/Seraph has achieved broad, code-backed security-platform coverage. The current source supports endpoint, cloud, network, identity, email, mobile, MDM, kernel, AI-threat, governance, deception, and response domains, but the accurate maturity claim is **implementation-rich and assurance-sensitive**, not universally enterprise-complete.
 
-- **Endpoints** (Windows, macOS, Linux)
-- **Cloud** (AWS, Azure, GCP with authenticated CSPM)
-- **Network** (DNS, VPN, Browser)
-- **Identity** (AD, SSO, MFA)
-- **Email** (Gateway + Protection with SPF/DKIM/DMARC)
-- **Mobile** (Device Management + MDM Integration)
-- **Kernel** (eBPF sensors, rootkit detection)
+**Current strengths:**
+- 60 active backend router modules and 33 service modules.
+- Unified Agent v2.0 with 25 baseline monitor keys and Windows-only AMSI/WebView2 additions.
+- Email Gateway and MDM connector frameworks with API/UI surfaces.
+- Authenticated CSPM paths, strict/production CORS handling, and governed dispatch primitives.
+- Broad optional integration ecosystem spanning SIEM, sensors, sandbox, and threat tooling.
 
-**Key Achievements (v6.7.0):**
-- Email Gateway: 8.5/10 maturity with SMTP relay mode
-- MDM Connectors: 8.5/10 maturity with 4 platform support
-- Email Protection: Enhanced to 9/10 with gateway integration
-- Mobile Security: Enhanced to 8.5/10 with MDM integration
-- Security Hardening: CSPM auth fix, enhanced CORS
-- Overall platform implementation: ~90-94%
+**Remaining work:**
+- Production SMTP relay configuration and validation.
+- Production MDM tenant credentials and live device sync/action validation.
+- Dependency-aware health/readiness checks beyond static `/api/health` text.
+- Contract assurance across backend, frontend, agents, and scripts.
+- Governance durability, denial-path testing, and full remote browser isolation.
 
-**Remaining Work:**
-- Production SMTP server integration
-- Production MDM platform credentials
-- Full remote browser isolation
-
-**Composite Maturity Score: 8.6/10** (up from 8.0/10)
-
-**Platform Status: ENTERPRISE READY**
+**Composite maturity:** 8.0/10 for implemented breadth; enterprise assurance remains conditional on live configuration, dependency validation, and regression coverage.

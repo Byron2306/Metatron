@@ -5,10 +5,11 @@ Define what is **required** vs **optional** so operators can run the platform pr
 
 ## 1) Required Core (must be up)
 - `mongodb`
+- `redis`
 - `backend`
 - `frontend`
 
-If any of these are down, the dashboard is not considered healthy.
+The Compose backend depends on MongoDB and Redis. If any of these are down, the dashboard/API stack is not considered healthy. Celery worker/beat are strongly recommended for async jobs and scheduled integration/world/triune work, but the API process can still start separately.
 
 ## 2) Default Optional Integrations (degraded mode if down)
 - `wireguard`
@@ -23,21 +24,32 @@ Behavior contract:
 ## 3) Profile-Based Optional Integrations
 These are intentionally profile-gated and not required for baseline operation.
 
+### bootstrap profile
+- `ollama-pull`
+- `admin-bootstrap`
+
 ### security profile
+- `volatility`
 - `trivy`
 - `falco`
 - `suricata`
+- `zeek`
 
 ### sandbox profile
 - `cuckoo`
 - `cuckoo-web`
 
+Note: `cuckoo-mongo` is defined as a support service for sandbox components in Compose, while the Cuckoo API/UI services themselves are profile-gated.
+
 ## 4) Runtime Launch Modes
 ### Minimal reliable mode
-`docker compose up -d mongodb backend frontend`
+`docker compose up -d mongodb redis backend frontend`
 
 ### Recommended local full mode
-`docker compose up -d mongodb backend frontend wireguard elasticsearch kibana ollama`
+`docker compose up -d mongodb redis backend celery-worker celery-beat elasticsearch kibana ollama frontend wireguard nginx`
+
+### Bootstrap helpers
+`docker compose --profile bootstrap up ollama-pull admin-bootstrap`
 
 ### Extended security mode
 `docker compose --profile security up -d`
@@ -52,16 +64,17 @@ These are intentionally profile-gated and not required for baseline operation.
 
 ## 6) Health Validation Sequence
 1. `docker compose ps`
-2. `curl -fsS http://localhost:8000/health`
+2. `curl -fsS http://localhost:8001/api/health`
 3. `curl -fsS http://localhost:3000` (or deployed frontend URL)
-4. If optional integrations are enabled, validate each dependent page from UI and API endpoints.
+4. Validate optional services only when their profile or credentials are enabled.
+5. Treat `/api/health` as API process health; it currently returns a static database field and should not be considered a live dependency probe by itself.
 
-## 7) Known Wiring Risks (from latest static audit)
-- High-confidence API mismatch fixed:
-  - `SettingsPage` endpoint updated from `/api/elasticsearch/status` to `/api/settings/elasticsearch/status`.
-- Dashboard UX mismatch fixed:
-  - "View All" buttons on dashboard now navigate to `/threats` and `/alerts`.
-- Remaining UI gaps are primarily feature-completeness gaps (buttons rendered without action handlers), not fatal routing failures.
+## 7) Known Wiring Risks (current static audit)
+- Backend route surface is large and centrally wired in `backend/server.py`; generated route inventories should be kept in CI.
+- Some Tier-1 routers are imported with fail-open warnings, so absence can be masked unless startup logs/readiness checks are reviewed.
+- Frontend routes intentionally redirect many legacy pages into workspace hubs; docs should describe current paths rather than old standalone pages.
+- Unified-agent monitor counts are platform/config dependent; do not document a universal 29-monitor invariant.
+- Optional integration behavior must distinguish unconfigured, unavailable, degraded, and healthy states.
 
 ## 8) Acceptance Criteria for "Working"
 - Core services up and healthy.
