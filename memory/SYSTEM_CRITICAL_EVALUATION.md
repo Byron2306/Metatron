@@ -1,13 +1,13 @@
 # Metatron / Seraph AI Defense System - Full Critical Evaluation
 
-**Date:** 2026-03-06  
+**Date:** 2026-03-06
 **Scope:** End-to-end platform review (architecture, security posture, operations, delivery maturity) using current repository evidence.
 
 ---
 
 ## 1) Executive Summary
 
-**Current code rebaseline:** 2026-05-01  
+**Current code rebaseline:** 2026-05-01
 **Evidence basis:** Static repository review of `backend/server.py`, router/service modules, `unified_agent/core/agent.py`, `frontend/src/App.js`, and `docker-compose.yml`.
 
 Metatron/Seraph remains a highly ambitious, feature-dense cyber defense platform. Current code evidence shows a FastAPI 3.0.0 backend with 60 active router modules under `backend/routers` (excluding helper modules), roughly 700 source-declared HTTP/WebSocket route decorators, 33 service modules in `backend/services`, a React dashboard with 68 page/workspace components and consolidated redirects, and a unified endpoint agent v2.0 with 25 baseline monitor keys plus Windows-only AMSI/WebView2 monitors when available.
@@ -49,33 +49,33 @@ The platform is not just a prototype: major endpoint, SOC, AI-threat, deception,
 
 ### 3.1 Strengths
 
-1. Modular API composition at scale  
+1. Modular API composition at scale
    Broad router/service decomposition is established and still improving.
 
-2. Defense surface breadth remains exceptional  
+2. Defense surface breadth remains exceptional
    Threat intel, hunting, response, deception, identity, cloud posture, timeline, and unified agent operations are all materially present.
 
-3. Control-plane maturity increased  
+3. Control-plane maturity increased
    EDM now has versioned source-of-truth datasets, trust checks, staged rollout, readiness checks, and rollback governance.
 
-4. Productization depth is strong  
+4. Productization depth is strong
    Multi-platform install paths, operational APIs, telemetry flows, and frontend compatibility improvements are present.
 
-5. Iteration velocity remains a differentiator  
+5. Iteration velocity remains a differentiator
    Feature and integration updates continue at high pace.
 
 ### 3.2 Structural debt and constraints
 
-1. `server.py` remains a dense central wiring point  
+1. `server.py` remains a dense central wiring point
    Startup coupling risk remains despite modular route files.
 
-2. Contract consistency risk remains high without stronger CI gates  
+2. Contract consistency risk remains high without stronger CI gates
    Velocity can still outpace schema and client contract discipline.
 
-3. Feature breadth still outpaces verification depth  
+3. Feature breadth still outpaces verification depth
    Assurance and hardening controls are improving but not uniformly enforced across all paths.
 
-4. Legacy compatibility shims increase maintenance burden  
+4. Legacy compatibility shims increase maintenance burden
    They improve runtime continuity but can hide deeper architecture cleanup needs.
 
 ---
@@ -94,16 +94,16 @@ The platform is not just a prototype: major endpoint, SOC, AI-threat, deception,
 
 ### 4.2 Updated concerns (not all resolved)
 
-1. JWT governance consistency across all paths  
+1. JWT governance consistency across all paths
    Primary paths improved, but residual legacy/default paths must be eliminated.
 
-2. CORS hardening consistency  
+2. CORS hardening consistency
    Primary server path improved; all alternate/legacy surfaces should be normalized.
 
-3. Policy assurance depth  
+3. Policy assurance depth
    Formal denial-path and bypass-resistance test coverage still needs expansion.
 
-4. Dependency footprint and supply chain overhead  
+4. Dependency footprint and supply chain overhead
    Breadth remains high and requires strong dependency governance cadence.
 
 ---
@@ -163,22 +163,22 @@ The platform is not just a prototype: major endpoint, SOC, AI-threat, deception,
 
 ### High priority
 
-1. Contract drift between backend, frontend, and docs  
-   - Impact: feature breakage despite healthy services  
+1. Contract drift between backend, frontend, and docs
+   - Impact: feature breakage despite healthy services
    - Action: CI contract tests and versioned schema invariants
 
-2. Test and assurance debt on fast-moving surfaces  
-   - Impact: regressions in security-critical paths  
+2. Test and assurance debt on fast-moving surfaces
+   - Impact: regressions in security-critical paths
    - Action: security regression suites, denial-path tests, rollout verification harness
 
-3. Governance state durability gaps  
-   - Impact: inconsistent behavior across restart/scaled modes  
+3. Governance state durability gaps
+   - Impact: inconsistent behavior across restart/scaled modes
    - Action: durable persistence for control-plane state
 
 ### Medium priority
 
-4. Residual hardening inconsistency across legacy surfaces  
-5. Optional dependency/degraded-mode behavior standardization  
+4. Residual hardening inconsistency across legacy surfaces
+5. Optional dependency/degraded-mode behavior standardization
 6. Startup coupling and fail-open/fail-closed semantics clarity
 
 ---
