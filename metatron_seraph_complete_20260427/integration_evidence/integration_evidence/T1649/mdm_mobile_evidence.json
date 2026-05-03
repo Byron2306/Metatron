@@ -1,0 +1,70 @@
+{
+  "schema": "mdm_mobile_evidence.v1",
+  "technique_id": "T1649",
+  "technique_name": "Steal application access token",
+  "captured_at": "2026-04-27T23:06:46.672376+00:00",
+  "platform": "iOS/Android",
+  "test_type": "MDM policy enforcement",
+  "mdm_providers": [
+    {
+      "provider": "Intune",
+      "events": 5,
+      "evidence_file": "intune_auditEvents.json"
+    },
+    {
+      "provider": "Jamf",
+      "events": 3,
+      "evidence_file": "jamf_device_logs.json"
+    },
+    {
+      "provider": "Google Endpoint Management",
+      "events": 2,
+      "evidence_file": "google_device_audit.json"
+    }
+  ],
+  "operations": {
+    "mdm_compliance_policy_lifecycle": {
+      "operations": [
+        "create_policy",
+        "assign_group",
+        "device_checkin",
+        "remove_assignment",
+        "delete_policy"
+      ],
+      "evidence_points": [
+        "policy_creation_timestamp",
+        "group_assignment_id",
+        "device_checkin_response",
+        "compliance_status_before",
+        "compliance_status_after",
+        "policy_deletion_timestamp"
+      ]
+    },
+    "mdm_device_operations": {
+      "operations": [
+        "sync_device",
+        "rename_device",
+        "lock_device",
+        "install_canary_app",
+        "remove_canary_app",
+        "query_app_inventory"
+      ],
+      "evidence_points": [
+        "sync_timestamp",
+        "device_rename_log",
+        "lock_command_id",
+        "app_install_hash",
+        "app_removal_log",
+        "inventory_json"
+      ]
+    }
+  },
+  "evidence_collected": {
+    "mdm_compliance_events": 10,
+    "device_operation_logs": 6,
+    "app_inventory": 47,
+    "policy_lifecycle_events": 5
+  },
+  "verdict": "detectable",
+  "detection_method": "MDM policy change + device compliance monitoring"
+}
