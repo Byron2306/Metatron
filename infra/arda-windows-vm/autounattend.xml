@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  autounattend.xml — Fully-unattended Windows 11 install for the ARDA-Windows VM.
+
+  Mount this file (packaged in unattend.iso via make-unattend-iso.sh) as a second
+  CD-ROM when booting the Windows installer.  Windows Setup automatically finds
+  autounattend.xml on any attached drive and applies it — no keyboard needed.
+
+  What happens end-to-end:
+    1.  windowsPE pass    — TPM/RAM bypasses, disk wipe + GPT layout, image selected
+    2.  specialize pass   — computer name set to ARDA-VM
+    3.  oobeSystem pass   — user Byron created, auto-login enabled, OOBE skipped,
+                            bootstrap.ps1 downloaded from GitHub and executed
+    4.  bootstrap.ps1     — enables RDP, installs Python + ARDA service, health-checks
+
+  Assumptions:
+    • VM has at least one disk (DiskID 0) — all data on it WILL BE WIPED.
+    • UEFI boot (q35 + OVMF) so GPT partitioning is used.
+    • swtpm provides TPM 2.0 (satisfies the TPM check, but LabConfig is also set
+      as a belt-and-suspenders guard against the RAM check with 6 GB).
+    • Internet access via QEMU user-mode NAT (needed to pull bootstrap.ps1).
+
+  To change the password, update BOTH the AutoLogon block and the LocalAccounts
+  block, then rebuild the ISO.
+
+  Edition name: edit <Value> under ImageInstall/OSImage/InstallFrom/MetaData if you
+  use a different SKU (run `dism /Get-WimInfo /WimFile:sources\install.wim` on the
+  ISO to list editions).
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       PASS 1 — windowsPE  (runs inside Windows PE before files are copied)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <settings pass="windowsPE">
+
+    <!-- Locale / keyboard -->
+    <component name="Microsoft-Windows-International-Core-WinPE"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <SetupUILanguage>
+        <UILanguage>en-US</UILanguage>
+      </SetupUILanguage>
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UILanguageFallback>en-US</UILanguageFallback>
+      <UserLocale>en-US</UserLocale>
+    </component>
+
+    <component name="Microsoft-Windows-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+
+      <!-- Belt-and-suspenders: bypass TPM/SecureBoot/RAM checks in WinPE.
+           swtpm + OVMF should satisfy the real checks, but 6 GB RAM is below
+           the 8 GB "requirement". -->
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>cmd.exe /c reg add HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass TPM check</Description>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Path>cmd.exe /c reg add HKLM\SYSTEM\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass SecureBoot check</Description>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Path>cmd.exe /c reg add HKLM\SYSTEM\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass RAM check (6 GB VM)</Description>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <Path>cmd.exe /c reg add HKLM\SYSTEM\Setup\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass storage check</Description>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>5</Order>
+          <Path>cmd.exe /c reg add HKLM\SYSTEM\Setup\LabConfig /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass CPU check</Description>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+
+      <!-- Accept the EULA automatically -->
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+      </UserData>
+
+      <!-- Disk layout: wipe disk 0, GPT, EFI + MSR + Windows partitions -->
+      <DiskConfiguration>
+        <Disk wcm:action="add">
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <!-- EFI System Partition -->
+            <CreatePartition wcm:action="add">
+              <Order>1</Order>
+              <Type>EFI</Type>
+              <Size>100</Size>
+            </CreatePartition>
+            <!-- Microsoft Reserved Partition -->
+            <CreatePartition wcm:action="add">
+              <Order>2</Order>
+              <Type>MSR</Type>
+              <Size>16</Size>
+            </CreatePartition>
+            <!-- Windows OS partition (rest of disk) -->
+            <CreatePartition wcm:action="add">
+              <Order>3</Order>
+              <Type>Primary</Type>
+              <Extend>true</Extend>
+            </CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add">
+              <Order>1</Order>
+              <PartitionID>1</PartitionID>
+              <Label>System</Label>
+              <Format>FAT32</Format>
+            </ModifyPartition>
+            <!-- MSR does not need a format entry -->
+            <ModifyPartition wcm:action="add">
+              <Order>2</Order>
+              <PartitionID>3</PartitionID>
+              <Label>Windows</Label>
+              <Format>NTFS</Format>
+              <Letter>C</Letter>
+            </ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+        <WillShowUI>OnError</WillShowUI>
+      </DiskConfiguration>
+
+      <!-- Select the edition to install.
+           Run  dism /Get-WimInfo /WimFile:D:\sources\install.wim
+           inside WinPE to list available names if this does not match. -->
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <Key>/IMAGE/NAME</Key>
+              <Value>Windows 11 Enterprise Evaluation</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo>
+            <DiskID>0</DiskID>
+            <PartitionID>3</PartitionID>
+          </InstallTo>
+          <WillShowUI>OnError</WillShowUI>
+          <InstallToAvailablePartition>false</InstallToAvailablePartition>
+        </OSImage>
+      </ImageInstall>
+
+    </component>
+  </settings>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       PASS 2 — specialize  (runs after first reboot, hardware detection done)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <ComputerName>ARDA-VM</ComputerName>
+      <!-- TimeZone: use UTC so log timestamps are unambiguous -->
+      <TimeZone>UTC</TimeZone>
+    </component>
+
+    <!-- Disable Windows Update during setup to speed up install -->
+    <component name="Microsoft-Windows-WindowsUpdate-AU"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <NoAutoUpdate>true</NoAutoUpdate>
+    </component>
+  </settings>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       PASS 3 — oobeSystem  (runs at first interactive logon / OOBE)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+
+      <!-- Skip all OOBE screens -->
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+        <NetworkLocation>Work</NetworkLocation>
+        <!-- 3 = do not set up protection (no automatic Defender enrollment) -->
+        <ProtectYourPC>3</ProtectYourPC>
+      </OOBE>
+
+      <!-- Create local admin user -->
+      <UserAccounts>
+        <LocalAccounts>
+          <LocalAccount wcm:action="add">
+            <Password>
+              <Value>Sephiroth23!</Value>
+              <PlainText>true</PlainText>
+            </Password>
+            <Group>Administrators</Group>
+            <Name>Byron</Name>
+            <DisplayName>Byron</DisplayName>
+            <Description>ARDA administrator</Description>
+          </LocalAccount>
+        </LocalAccounts>
+      </UserAccounts>
+
+      <!-- Auto-login so FirstLogonCommands run without keyboard interaction.
+           LogonCount 3 allows a few reboots (e.g. if bootstrap.ps1 restarts). -->
+      <AutoLogon>
+        <Password>
+          <Value>Sephiroth23!</Value>
+          <PlainText>true</PlainText>
+        </Password>
+        <Username>Byron</Username>
+        <LogonCount>3</LogonCount>
+        <Enabled>true</Enabled>
+      </AutoLogon>
+
+      <!-- FirstLogonCommands run as the logged-in user (Byron/Administrator).
+           All commands must be one-liners; use PowerShell -Command for complex
+           logic.  Order values must be unique integers. -->
+      <FirstLogonCommands>
+
+        <!-- Step 1: Set execution policy (required before running .ps1 files) -->
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <CommandLine>PowerShell -ExecutionPolicy Bypass -NoProfile -Command "Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned -Force"</CommandLine>
+          <Description>Set execution policy</Description>
+        </SynchronousCommand>
+
+        <!-- Step 2: Download bootstrap.ps1 from GitHub and run it.
+             If the repo becomes private, replace the URL with a raw token URL
+             or host bootstrap.ps1 on the HTTP server (10.0.2.2:8888).
+             TLS 1.2 must be forced because WinPE defaults can be TLS 1.0. -->
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <CommandLine>PowerShell -ExecutionPolicy Bypass -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $url='https://raw.githubusercontent.com/Byron2306/Metatron/main/infra/arda-windows-vm/bootstrap.ps1'; $dst='C:\arda-bootstrap.ps1'; iwr $url -UseBasicParsing -OutFile $dst; &amp; $dst 2&gt;&amp;1 | Tee-Object C:\arda-bootstrap.log"</CommandLine>
+          <Description>Download and run ARDA bootstrap</Description>
+        </SynchronousCommand>
+
+      </FirstLogonCommands>
+
+    </component>
+
+    <!-- Locale -->
+    <component name="Microsoft-Windows-International-Core"
+               processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+
+  </settings>
+
+</unattend>

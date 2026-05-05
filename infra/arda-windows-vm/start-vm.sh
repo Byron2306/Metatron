@@ -16,9 +16,12 @@ set -euo pipefail
 
 VM_DIR="${VM_DIR:-$HOME/vms/arda-windows}"
 WIN_ISO="${WIN_ISO:-}"
+UNATTEND_ISO="${UNATTEND_ISO:-$VM_DIR/unattend.iso}"
+VIRTIO_ISO="${VIRTIO_ISO:-$HOME/Downloads/virtio-win.iso}"
 RAM_MB="${RAM_MB:-6144}"
 VCPUS="${VCPUS:-4}"
 DISPLAY_MODE="${DISPLAY_MODE:-gtk}"    # gtk | sdl | vnc | none
+DISK_IF="${DISK_IF:-ide}"              # ide | virtio (virtio needs VirtIO ISO during install)
 
 OVMF_CODE="/usr/share/OVMF/OVMF_CODE_4M.secboot.fd"
 OVMF_VARS="$VM_DIR/OVMF_VARS.fd"
@@ -72,12 +75,15 @@ QEMU_ARGS=(
   -tpmdev "emulator,id=tpm0,chardev=chrtpm"
   -device "tpm-tis,tpmdev=tpm0"
 
-  # Primary disk (VirtIO for speed; Windows needs VirtIO driver from ISO)
-  -drive "file=$DISK,if=virtio,cache=writeback,aio=native,discard=unmap"
+  # Primary disk
+  # ide:    works out-of-the-box during unattended install (no driver ISO needed)
+  # virtio: faster for a running VM, but needs VirtIO ISO during initial install
+  -drive "file=$DISK,if=$DISK_IF,cache=writeback"
 
   # Network: user-mode NAT with host port forwards
-  -netdev "user,id=net0,hostfwd=tcp::5985-:5985,hostfwd=tcp::7331-:7331,hostfwd=tcp::3389-:3389"
-  -device "virtio-net-pci,netdev=net0"
+  # 10.0.2.2 inside the guest reaches the Linux host (for HTTP server, etc.)
+  -netdev "user,id=net0,hostfwd=tcp::5985-:5985,hostfwd=tcp::7331-:7331,hostfwd=tcp::3389-:3389,hostfwd=tcp::8888-:8888"
+  -device "e1000,netdev=net0"
 
   # Misc virtio devices
   -device virtio-balloon-pci
@@ -93,16 +99,47 @@ QEMU_ARGS=(
   -pidfile "$PID_FILE"
 )
 
-# Attach Windows ISO only if provided (skip after first boot)
+# ── CD-ROM slots ──────────────────────────────────────────────────────────
+# index=0  Windows installer ISO  (only during initial install)
+# index=1  VirtIO driver ISO      (only needed when DISK_IF=virtio)
+# index=2  Unattend ISO           (autounattend.xml + bootstrap.ps1)
+
+CD_INDEX=0
+
+# Windows installer ISO
 if [[ -n "$WIN_ISO" ]]; then
   if [[ ! -f "$WIN_ISO" ]]; then
     echo "ERROR: WIN_ISO not found: $WIN_ISO"; exit 1
   fi
-  QEMU_ARGS+=(-cdrom "$WIN_ISO" -boot "order=dc,once=d")
+  QEMU_ARGS+=(-drive "file=$WIN_ISO,if=ide,media=cdrom,index=$CD_INDEX,readonly=on")
+  QEMU_ARGS+=(-boot "order=dc,once=d")
   echo "==> Booting from ISO: $WIN_ISO"
+  CD_INDEX=$((CD_INDEX + 1))
 else
   QEMU_ARGS+=(-boot "order=c")
   echo "==> Booting from disk (no ISO)"
+fi
+
+# VirtIO driver ISO (only attach when using virtio disk; not needed for ide)
+if [[ "$DISK_IF" == "virtio" ]] && [[ -f "$VIRTIO_ISO" ]]; then
+  QEMU_ARGS+=(-drive "file=$VIRTIO_ISO,if=ide,media=cdrom,index=$CD_INDEX,readonly=on")
+  echo "==> VirtIO driver ISO attached: $VIRTIO_ISO"
+  CD_INDEX=$((CD_INDEX + 1))
+elif [[ "$DISK_IF" == "virtio" ]]; then
+  echo "    NOTE: VirtIO ISO not found — Windows may not see the disk during install"
+  echo "    Download: wget -O ~/Downloads/virtio-win.iso https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
+fi
+
+# Unattend ISO — Windows Setup finds autounattend.xml automatically
+# Build it first if it doesn't exist: ./make-unattend-iso.sh
+if [[ -f "$UNATTEND_ISO" ]]; then
+  QEMU_ARGS+=(-drive "file=$UNATTEND_ISO,if=ide,media=cdrom,index=$CD_INDEX,readonly=on")
+  echo "==> Unattend ISO attached: $UNATTEND_ISO (hands-free install)"
+  CD_INDEX=$((CD_INDEX + 1))
+else
+  echo "    NOTE: No unattend ISO found at $UNATTEND_ISO"
+  echo "    Build it with: VM_DIR=$VM_DIR ./make-unattend-iso.sh"
+  echo "    Without it, Windows Setup will require keyboard input."
 fi
 
 # Display backend

@@ -55,20 +55,43 @@ else
   echo "    swtpm state already initialised, skipping"
 fi
 
+# ── Unattend ISO (hands-free install) ─────────────────────────────────────
+UNATTEND_ISO="$VM_DIR/unattend.iso"
+if [[ ! -f "$UNATTEND_ISO" ]]; then
+  echo "==> Building unattend ISO (autounattend.xml + bootstrap.ps1)..."
+  if command -v genisoimage &>/dev/null; then
+    VM_DIR="$VM_DIR" OUT_ISO="$UNATTEND_ISO" bash "$SCRIPT_DIR/make-unattend-iso.sh"
+  else
+    echo "    WARNING: genisoimage not found — skipping unattend ISO."
+    echo "    Install it:  sudo apt-get install -y genisoimage"
+    echo "    Then build:  VM_DIR=$VM_DIR ./make-unattend-iso.sh"
+  fi
+else
+  echo "    unattend ISO already exists: $UNATTEND_ISO"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────
 cat <<EOF
 
 VM scaffold ready at: $VM_DIR
 
-Next steps:
-  1. Point WIN_ISO to your Windows 11 ISO:
-       export WIN_ISO=/path/to/Win11_24H2.iso
-  2. Start the VM:
+Fully automated install (recommended):
+  1. Build the unattend ISO if not already built:
+       VM_DIR=$VM_DIR ./make-unattend-iso.sh
+  2. Start the VM with the Windows ISO:
+       export WIN_ISO=/path/to/Win11_Enterprise_Eval.iso
        VM_DIR=$VM_DIR WIN_ISO=\$WIN_ISO ./start-vm.sh
-  3. Complete the Windows installer (RDP or GTK window on display :0)
-  4. Inside Windows, run as Administrator:
-       PowerShell -ExecutionPolicy Bypass -File install-arda.ps1
-  5. From this host, validate:
+     Windows installs itself, creates user Byron, installs ARDA, and starts
+     the collector automatically.  No keyboard input required.
+  3. From this host, validate (wait ~20 min for install + bootstrap):
+       curl http://127.0.0.1:7331/health
        python3 validate-providers.py
+
+Manual install (fallback if autounattend.xml doesn't match your ISO edition):
+  1. Start VM as above — it will open an interactive Windows Setup GUI.
+  2. Inside Windows, download bootstrap.ps1 and run as Administrator:
+       iwr http://10.0.2.2:8888/infra/arda-windows-vm/bootstrap.ps1 -UseBasicParsing | iex
+  3. Validate from host:
+       curl http://127.0.0.1:7331/health
 
 EOF
