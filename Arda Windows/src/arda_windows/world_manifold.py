@@ -254,6 +254,9 @@ class WorldManifold:
             "deep_signal_collection": c.deep_signal_collection,
             "notes": c.notes,
             "evidence_provider": evidence_type,
+            "attestation_provider": type(self.attestation).__name__,
+            "enforcement_provider": type(self.enforcement).__name__,
+            "sovereignty_provider": type(self.sovereignty).__name__,
             "arkime_integration_active": arkime_active,
         }
 

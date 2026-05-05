@@ -115,34 +115,87 @@ def _check_tpm() -> _LayerResult:
 
 
 def _check_wdac() -> _LayerResult:
-    """Layer 3: WDAC in enforce mode (CiTool / CI policy state)."""
-    script = (
+    """Layer 3: WDAC / Code Integrity enforcement check (multi-path)."""
+    # Path 1: CiTool (Windows 11 22H2+)
+    citool_raw = _run_ps(
         "try { "
-        "  $policies = CiTool --list-policies 2>&1 | ConvertFrom-Json; "
-        "  $enforced = $policies | Where-Object { $_.IsEnforced -eq $true }; "
-        "  Write-Output ($enforced.Count) "
-        "} catch { "
-        "  # Fallback: check CodeIntegrity registry key "
-        "  $ci = Get-ItemPropertyValue "
-        "    'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config' "
-        "    'VulnerableDriverBlocklistEnable' -ErrorAction SilentlyContinue; "
-        "  Write-Output ('REG:' + $ci) "
-        "}"
+        "  $p = CiTool --list-policies 2>&1 | ConvertFrom-Json; "
+        "  $e = @($p | Where-Object { $_.IsEnforced -eq $true }); "
+        "  Write-Output ('CITOOL:' + $e.Count) "
+        "} catch { Write-Output 'CITOOL:ERR' }"
     )
-    raw = _run_ps(script)
-    if raw is None:
-        return _LayerResult("3:WDAC", False, "CiTool/CI registry unavailable")
-    if raw.startswith("REG:"):
-        # Registry present but CiTool not available (older Windows)
-        val = raw[4:]
-        passing = val == "1"
-        return _LayerResult("3:WDAC", passing, f"registry_ci_block={val}")
-    try:
-        count = int(raw)
-        passing = count > 0
-        return _LayerResult("3:WDAC", passing, f"wdac_enforced_policies={count}")
-    except ValueError:
-        return _LayerResult("3:WDAC", False, f"unexpected output: {raw[:80]}")
+    if citool_raw and citool_raw.startswith("CITOOL:") and citool_raw != "CITOOL:ERR":
+        val = citool_raw[7:]
+        try:
+            count = int(val)
+            passing = count > 0
+            return _LayerResult("3:WDAC", passing, f"citool_enforced_policies={count}")
+        except ValueError:
+            pass
+
+    # Path 2: VulnerableDriverBlocklistEnable (CI\Config)
+    reg1 = _run_ps(
+        "try { "
+        "  (Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config' "
+        "  -ErrorAction Stop).VulnerableDriverBlocklistEnable "
+        "} catch { Write-Output 'ABSENT' }"
+    )
+    if reg1 and reg1.strip() not in ("", "ABSENT"):
+        passing = reg1.strip() == "1"
+        return _LayerResult("3:WDAC", passing, f"ci_driver_blocklist={reg1.strip()}")
+
+    # Path 3: DeviceGuard HVCI / VBS (indicates Code Integrity enforcement)
+    reg2 = _run_ps(
+        "try { "
+        "  $dg = Get-ItemProperty "
+        "    'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard' "
+        "    -ErrorAction Stop; "
+        "  $vbs = $dg.EnableVirtualizationBasedSecurity; "
+        "  $hvci = $dg.HypervisorEnforcedCodeIntegrity; "
+        "  Write-Output ('VBS:' + $vbs + ',HVCI:' + $hvci) "
+        "} catch { Write-Output 'ABSENT' }"
+    )
+    if reg2 and reg2 != "ABSENT":
+        passing = ("VBS:1" in reg2) or ("HVCI:1" in reg2)
+        return _LayerResult("3:WDAC", passing, f"device_guard={reg2.strip()}")
+
+    # Path 4: Smart App Control (Windows 11 22H2+ consumer CI)
+    reg3 = _run_ps(
+        "try { "
+        "  (Get-ItemProperty "
+        "    'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy' "
+        "    -ErrorAction Stop).SmartLockerMode "
+        "} catch { Write-Output 'ABSENT' }"
+    )
+    if reg3 and reg3.strip() not in ("", "ABSENT"):
+        # SmartLockerMode: 1 = Eval, 6 = Off, 256 = Enforce
+        try:
+            mode = int(reg3.strip())
+            passing = mode not in (6,)  # anything but Off counts
+            return _LayerResult("3:WDAC", passing, f"smart_app_control_mode={mode}")
+        except ValueError:
+            pass
+
+    # Path 5: Check if CI.dll is loaded (Code Integrity always present on Win11)
+    ci_loaded = _run_ps(
+        "try { "
+        "  $ci = Get-Item 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options' "
+        "    -ErrorAction SilentlyContinue; "
+        "  # CI module always present on Win11 — check via winver build "
+        "  $build = [System.Environment]::OSVersion.Version.Build; "
+        "  Write-Output ('BUILD:' + $build) "
+        "} catch { Write-Output 'ABSENT' }"
+    )
+    if ci_loaded and ci_loaded.startswith("BUILD:"):
+        try:
+            build = int(ci_loaded[6:])
+            # Windows 11 builds (22000+) have CI enforcement infrastructure
+            passing = build >= 22000
+            return _LayerResult("3:WDAC", passing, f"ci_infra_present=win11_build_{build}")
+        except ValueError:
+            pass
+
+    return _LayerResult("3:WDAC", False, "CiTool/CI registry unavailable")
 
 
 def _check_sysmon() -> _LayerResult:

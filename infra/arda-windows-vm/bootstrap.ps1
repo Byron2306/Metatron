@@ -160,6 +160,38 @@ if ($svc.Status -eq "Running") {
     Write-Warn ("Service status is {0}" -f $svc.Status)
 }
 
+# ---------------------------------------------------------------------------
+Write-Step "Install Sysmon64 (runtime telemetry layer)"
+$sysmonSvc = Get-Service -Name "Sysmon64" -ErrorAction SilentlyContinue
+if ($null -eq $sysmonSvc) {
+    $sysmonDir  = "C:\Tools\Sysmon"
+    $sysmonZip  = "$sysmonDir\Sysmon.zip"
+    $sysmonExe  = "$sysmonDir\Sysmon64.exe"
+    if (-not (Test-Path $sysmonDir)) { New-Item -ItemType Directory -Path $sysmonDir -Force | Out-Null }
+    try {
+        Invoke-WebRequest -Uri "https://download.sysinternals.com/files/Sysmon.zip" `
+            -OutFile $sysmonZip -UseBasicParsing -TimeoutSec 60
+        Expand-Archive -Path $sysmonZip -DestinationPath $sysmonDir -Force
+        if (Test-Path $sysmonExe) {
+            & $sysmonExe -accepteula -i 2>&1 | Out-Null
+            Start-Sleep -Seconds 3
+            $chk = Get-Service -Name "Sysmon64" -ErrorAction SilentlyContinue
+            if ($null -ne $chk -and $chk.Status -eq "Running") {
+                Write-OK "Sysmon64 installed and running"
+            } else {
+                Write-Warn "Sysmon64 installed but not yet running"
+            }
+        } else {
+            Write-Warn "Sysmon64.exe not found after extract"
+        }
+    } catch {
+        Write-Warn ("Sysmon install failed: {0}" -f $_)
+    }
+} else {
+    Write-OK ("Sysmon64 already installed: status={0}" -f $sysmonSvc.Status)
+}
+
+# ---------------------------------------------------------------------------
 Write-Step "Open firewall for ARDA API port 7331"
 $fwRule = Get-NetFirewallRule -DisplayName "ARDA Collector" -ErrorAction SilentlyContinue
 if ($null -eq $fwRule) {
