@@ -168,10 +168,10 @@ jobs:
           cache-dependency-path: "Arda Windows/pyproject.toml"
 
       - name: Upgrade pip and setuptools
-        run: pip install --upgrade pip setuptools>=68 wheel
+        run: python -m pip install --upgrade pip "setuptools>=68" wheel
 
       - name: Install arda-windows with dev extras
-        run: pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev]"
 
       - name: Run Phase 1 + Phase 2 provider tests
         run: |
@@ -184,6 +184,7 @@ jobs:
 
       - name: Run Windows-native provider smoke (PowerShell gate)
         # Quick sanity check that real Windows providers return confidence > 0
+        shell: bash
         run: |
           python - <<'PYEOF'
           import sys, json
@@ -217,6 +218,7 @@ jobs:
 
       - name: Collect Windows-native provider report
         if: always()
+        shell: bash
         run: |
           python - <<'PYEOF'
           import sys, json, datetime
