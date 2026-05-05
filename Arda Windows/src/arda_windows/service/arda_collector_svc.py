@@ -203,7 +203,7 @@ if _WIN32:
                 t.start()
 
                 # HTTP server
-                self._server = HTTPServer(("127.0.0.1", 7331), _Handler)
+                self._server = HTTPServer(("0.0.0.0", 7331), _Handler)
                 self._server.serve_forever()
 
             except Exception:
@@ -238,8 +238,8 @@ def _run_standalone():
     t = threading.Thread(target=_poll_loop, args=(60,), daemon=True)
     t.start()
 
-    print("[ARDA] HTTP API on http://127.0.0.1:7331")
-    server = HTTPServer(("127.0.0.1", 7331), _Handler)
+    print("[ARDA] HTTP API on http://0.0.0.0:7331")
+    server = HTTPServer(("0.0.0.0", 7331), _Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
