@@ -226,7 +226,7 @@ def _run_standalone():
     """Run the collector + HTTP server in the foreground (no pywin32 needed)."""
     global _MANIFOLD
     print("[ARDA] Standalone mode — loading WorldManifold...")
-    sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent.parent))
     from arda_windows.world_manifold import WorldManifold  # noqa: PLC0415
     _MANIFOLD = WorldManifold.build()
     print(f"[ARDA] Platform: {_MANIFOLD.platform_summary()['platform']}")
