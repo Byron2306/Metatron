@@ -1,0 +1,265 @@
+name: Arda Windows TPM and Secure Boot Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      extra_checks:
+        description: "Run extra system readiness checks (true/false)"
+        required: false
+        default: "true"
+
+jobs:
+  probe:
+    name: Windows platform readiness probe
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect OS identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE "arda_windows_probe"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          $os = [ordered]@{
+            computer_name = $env:COMPUTERNAME
+            user_name = $env:USERNAME
+            os_caption = (Get-CimInstance Win32_OperatingSystem | Select-Object -ExpandProperty Caption)
+            os_version = (Get-CimInstance Win32_OperatingSystem | Select-Object -ExpandProperty Version)
+            os_build = (Get-CimInstance Win32_OperatingSystem | Select-Object -ExpandProperty BuildNumber)
+            bios_serial = (Get-CimInstance Win32_BIOS | Select-Object -ExpandProperty SerialNumber)
+            bios_vendor = (Get-CimInstance Win32_BIOS | Select-Object -ExpandProperty Manufacturer)
+          }
+
+          $os | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $outDir "os_identity.json") -Encoding UTF8
+          $os
+
+      - name: Probe TPM status
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE "arda_windows_probe"
+
+          $result = [ordered]@{
+            tpm_present = $null
+            tpm_ready = $null
+            tpm_enabled = $null
+            tpm_activated = $null
+            tpm_manufacturer_id = $null
+            tpm_spec_version = $null
+            tpm_error = $null
+          }
+
+          try {
+            $tpm = Get-Tpm
+            $result.tpm_present = [bool]$tpm.TpmPresent
+            $result.tpm_ready = [bool]$tpm.TpmReady
+            $result.tpm_enabled = [bool]$tpm.TpmEnabled
+            $result.tpm_activated = [bool]$tpm.TpmActivated
+            $result.tpm_manufacturer_id = $tpm.ManufacturerIdTxt
+            $result.tpm_spec_version = $tpm.SpecVersion
+          } catch {
+            $result.tpm_error = $_.Exception.Message
+          }
+
+          $result | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $outDir "tpm_status.json") -Encoding UTF8
+          $result
+
+      - name: Probe Secure Boot status
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE "arda_windows_probe"
+
+          $result = [ordered]@{
+            secure_boot_supported = $null
+            secure_boot_enabled = $null
+            secure_boot_error = $null
+            firmware_type = $null
+          }
+
+          try {
+            $firmware = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' -Name PEFirmwareType -ErrorAction SilentlyContinue).PEFirmwareType
+            if ($firmware -eq 2) { $result.firmware_type = 'UEFI' }
+            elseif ($firmware -eq 1) { $result.firmware_type = 'BIOS' }
+            else { $result.firmware_type = "Unknown ($firmware)" }
+
+            $sb = Confirm-SecureBootUEFI
+            $result.secure_boot_supported = $true
+            $result.secure_boot_enabled = [bool]$sb
+          } catch {
+            $result.secure_boot_error = $_.Exception.Message
+            if ($_.Exception.Message -match 'Cmdlet not supported on this platform') {
+              $result.secure_boot_supported = $false
+            }
+          }
+
+          $result | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $outDir "secure_boot_status.json") -Encoding UTF8
+          $result
+
+      - name: Run extra system readiness checks
+        if: ${{ inputs.extra_checks == 'true' }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE "arda_windows_probe"
+
+          $checks = [ordered]@{
+            bios_mode = (systeminfo | Select-String -Pattern 'BIOS Mode' | ForEach-Object { $_.ToString().Trim() })
+            secure_boot_line = (systeminfo | Select-String -Pattern 'Secure Boot' | ForEach-Object { $_.ToString().Trim() })
+            tpm_registry = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\TPM' -ErrorAction SilentlyContinue | Select-Object * -ExcludeProperty PS* | ConvertTo-Json -Depth 4)
+            bitlocker_volume = (Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction SilentlyContinue | Select-Object MountPoint, VolumeStatus, ProtectionStatus, EncryptionPercentage, EncryptionMethod | ConvertTo-Json -Depth 4)
+          }
+
+          $checks | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $outDir "extra_checks.json") -Encoding UTF8
+          $checks
+
+      - name: Summarize probe results
+        shell: powershell
+        run: |
+          $outDir = Join-Path $env:GITHUB_WORKSPACE "arda_windows_probe"
+          $summary = [ordered]@{
+            timestamp_utc = (Get-Date).ToUniversalTime().ToString("o")
+            runner_os = $env:RUNNER_OS
+            runner_name = $env:RUNNER_NAME
+            tpm = (Get-Content (Join-Path $outDir "tpm_status.json") -Raw | ConvertFrom-Json)
+            secure_boot = (Get-Content (Join-Path $outDir "secure_boot_status.json") -Raw | ConvertFrom-Json)
+          }
+
+          $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $outDir "summary.json") -Encoding UTF8
+          $summary
+
+      - name: Upload probe artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arda-windows-tpm-secureboot-probe-${{ github.run_id }}
+          path: arda_windows_probe/
+          retention-days: 30
+
+  # --------------------------------------------------------------------------
+  # Job 2: Run the full arda_windows provider test suite on a real Windows runner
+  # This validates Windows providers produce real telemetry (not stubs) when
+  # native tools are available, and that all 84+ tests pass end-to-end.
+  # --------------------------------------------------------------------------
+  provider-tests:
+    name: Windows provider test suite
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: "Arda Windows"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: "Arda Windows/pyproject.toml"
+
+      - name: Install arda-windows with dev extras
+        run: pip install -e ".[dev]"
+
+      - name: Run Phase 1 + Phase 2 provider tests
+        run: |
+          New-Item -ItemType Directory -Force -Path ../test-results | Out-Null
+          python -m pytest tests/ -v --tb=short --color=yes `
+            --junitxml=../test-results/arda-windows-results.xml `
+            -p no:cacheprovider
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+
+      - name: Run Windows-native provider smoke (PowerShell gate)
+        # Quick sanity check that real Windows providers return confidence > 0
+        run: |
+          python - <<'PYEOF'
+          import sys, json
+          sys.path.insert(0, "src")
+          from arda_windows.world_manifold import WorldManifold
+
+          m = WorldManifold.build()
+          summary = m.platform_summary()
+          assert summary["platform"] == "windows", f"Expected windows, got {summary['platform']}"
+
+          # Attestation — TPM PCR should be real (not stub) on a Windows runner
+          pcrs = m.attestation.get_pcr_snapshot([0, 4, 7])
+          stub_count = sum(1 for p in pcrs if str(p.value).endswith("_stub"))
+          print(f"PCRs: {len(pcrs)} retrieved, {stub_count} stubs")
+
+          # Sovereignty — should be SOVEREIGN or CONSTRAINED (not SIMULATION) on real hardware
+          assessment = m.sovereignty.evaluate_sovereignty_state()
+          print(f"Sovereignty state: {assessment.state}")
+          print(f"Reasons: {assessment.reasons}")
+          assert assessment.state != "SIMULATION", "Sovereignty returned SIMULATION on a real Windows runner"
+
+          # Evidence — all 4 Ainur collectors should return non-stub packets
+          for ainur in ("varda", "ulmo", "manwe", "mandos"):
+              collector = getattr(m.evidence, f"collect_{ainur}_evidence")
+              pkt = collector({})
+              print(f"{ainur}: source={pkt.source} confidence={pkt.confidence:.2f} stub={pkt.evidence.get('stub', False)}")
+              assert not pkt.evidence.get("stub"), f"{ainur} returned stub data on Windows runner"
+
+          print("All Windows-native smoke checks passed.")
+          PYEOF
+
+      - name: Collect Windows-native provider report
+        if: always()
+        run: |
+          python - <<'PYEOF'
+          import sys, json, datetime
+          sys.path.insert(0, "src")
+          from arda_windows.world_manifold import WorldManifold
+
+          m = WorldManifold.build()
+          report = {
+              "timestamp_utc": datetime.datetime.utcnow().isoformat() + "Z",
+              "platform_summary": m.platform_summary(),
+              "sovereignty": None,
+              "secure_boot": None,
+              "pcrs": None,
+          }
+
+          try:
+              a = m.sovereignty.evaluate_sovereignty_state()
+              report["sovereignty"] = {"state": a.state, "reasons": a.reasons, "attributes": a.attributes}
+          except Exception as e:
+              report["sovereignty"] = {"error": str(e)}
+
+          try:
+              sb = m.attestation.get_secure_boot_state()
+              report["secure_boot"] = {"enabled": sb.enabled, "setup_mode": sb.setup_mode, "mode": sb.secure_boot_mode}
+          except Exception as e:
+              report["secure_boot"] = {"error": str(e)}
+
+          try:
+              pcrs = m.attestation.get_pcr_snapshot([0, 4, 7])
+              report["pcrs"] = [{"index": p.index, "value": p.value[:16] + "..."} for p in pcrs]
+          except Exception as e:
+              report["pcrs"] = {"error": str(e)}
+
+          import pathlib
+          out = pathlib.Path("../arda_windows_probe")
+          out.mkdir(exist_ok=True)
+          (out / "windows_provider_report.json").write_text(json.dumps(report, indent=2))
+          print(json.dumps(report, indent=2))
+          PYEOF
+
+      - name: Upload provider test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arda-windows-provider-tests-${{ github.run_id }}
+          path: |
+            test-results/
+            arda_windows_probe/windows_provider_report.json
+          retention-days: 30

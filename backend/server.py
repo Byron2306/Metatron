@@ -13,6 +13,8 @@ v3.0 Features:
 - VPN Integration (WireGuard)
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -65,6 +67,11 @@ app = FastAPI(
     description="Comprehensive agentic cybersecurity platform for detecting and responding to AI-powered threats",
     version="3.0.0"
 )
+
+FRONTEND_BUILD_DIR = ROOT_DIR.parent / "frontend" / "build"
+FRONTEND_INDEX = FRONTEND_BUILD_DIR / "index.html"
+if (FRONTEND_BUILD_DIR / "static").exists():
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_BUILD_DIR / "static")), name="frontend-static")
 
 def _resolve_cors_origins() -> List[str]:
     raw = os.environ.get(
@@ -175,6 +182,12 @@ try:
 except Exception as e:
     logger.warning(f"Kernel enforcement router disabled due to import error: {e}")
 
+platform_sovereignty_router = None
+try:
+    from routers.platform_sovereignty import router as platform_sovereignty_router
+except Exception as e:
+    logger.warning(f"Platform sovereignty router disabled due to import error: {e}")
+
 # Initialize ML service with database
 from ml_threat_prediction import ml_predictor
 ml_predictor.set_database(db)
@@ -240,6 +253,9 @@ if kernel_sensors_router is not None:
     app.include_router(kernel_sensors_router)  # Already has /api/v1 prefix
 if kernel_router is not None:
     app.include_router(kernel_router, prefix="/api")  # Enforcement endpoints
+
+if platform_sovereignty_router is not None:
+    app.include_router(platform_sovereignty_router, prefix="/api")  # WorldManifold
 
 # Import agent commands router
 from routers.agent_commands import router as agent_commands_router
@@ -334,6 +350,35 @@ async def websocket_agent(websocket: WebSocket, agent_id: str):
         await realtime_ws.disconnect(agent_id)
 
 # ============ ROOT ENDPOINT ============
+
+@app.get("/enroll")
+async def enrollment_redirect():
+    """Send backend-port enrollment visits to the React enrollment page."""
+    if FRONTEND_INDEX.exists():
+        return FileResponse(str(FRONTEND_INDEX))
+    configured = os.environ.get("SERAPH_ENROLLMENT_URL", "").strip()
+    if configured:
+        return RedirectResponse(configured)
+    public_url = os.environ.get("SERAPH_PUBLIC_URL", "").strip().rstrip("/")
+    if public_url:
+        return RedirectResponse(f"{public_url}/enroll")
+    return RedirectResponse("http://localhost:3000/enroll")
+
+
+@app.get("/unified-agent")
+async def unified_agent_dashboard_shell():
+    """Serve the React unified agent dashboard from the backend/ngrok domain."""
+    if FRONTEND_INDEX.exists():
+        return FileResponse(str(FRONTEND_INDEX))
+    return RedirectResponse("http://localhost:3000/unified-agent")
+
+
+@app.get("/command")
+async def command_workspace_shell():
+    """Serve the React command workspace from the backend/ngrok domain."""
+    if FRONTEND_INDEX.exists():
+        return FileResponse(str(FRONTEND_INDEX))
+    return RedirectResponse("http://localhost:3000/command")
 
 @app.get("/api/")
 async def root():
@@ -437,13 +482,25 @@ async def startup():
     except Exception as e:
         logger.error(f"Failed to start CCE Worker: {e}")
     
-    # Start Network Discovery Service
-    try:
-        from services.network_discovery import start_network_discovery
-        await start_network_discovery(db, scan_interval_s=300)
-        logger.info("Network Discovery Service started successfully")
-    except Exception as e:
-        logger.error(f"Failed to start Network Discovery Service: {e}")
+    # Start Network Discovery Service only when explicitly enabled. Manual scan
+    # endpoints can still start it on demand.
+    network_discovery_enabled = os.environ.get("NETWORK_DISCOVERY_ENABLED", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if network_discovery_enabled:
+        try:
+            from services.network_discovery import start_network_discovery
+
+            interval = int(os.environ.get("NETWORK_DISCOVERY_INTERVAL", "1800"))
+            await start_network_discovery(db, scan_interval_s=interval)
+            logger.info("Network Discovery Service started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start Network Discovery Service: {e}")
+    else:
+        logger.info("Network Discovery Service disabled on boot")
     
     # Start Agent Deployment Service
     try:
@@ -483,6 +540,10 @@ async def startup():
         await db.agent_commands.create_index([("created_at", -1)])
         await db.agent_commands.create_index([("agent_id", 1), ("created_at", -1)])
         await db.agent_commands.create_index([("status", 1), ("created_at", -1)])
+        await db.agent_commands.create_index([("id", 1)])
+        await db.agent_commands.create_index([("command_id", 1)])
+        await db.integrations_jobs.create_index([("id", 1)])
+        await db.integrations_jobs.create_index([("command_id", 1)])
         await db.alerts.create_index([("created_at", -1)])
         await db.threats.create_index([("created_at", -1)])
         await db.unified_agents.create_index([("last_heartbeat", -1)])
