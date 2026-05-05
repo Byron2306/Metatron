@@ -66,7 +66,7 @@ def _refresh(manifold) -> None:
 
     try:
         pcrs = manifold.attestation.get_pcr_snapshot([0, 1, 4, 7, 11, 14])
-        snap["pcrs"] = [{"index": p.index, "value": p.value, "bank": p.bank} for p in pcrs]
+        snap["pcrs"] = [{"index": p.index, "value": p.value} for p in pcrs]
     except Exception as exc:
         snap["errors"]["pcrs"] = str(exc)
 
@@ -76,7 +76,7 @@ def _refresh(manifold) -> None:
             "enabled": sb.enabled,
             "setup_mode": sb.setup_mode,
             "mode": sb.secure_boot_mode,
-            "pk_enrolled": sb.pk_enrolled,
+            "vendor_keys": sb.vendor_keys,
         }
     except Exception as exc:
         snap["errors"]["secure_boot"] = str(exc)
