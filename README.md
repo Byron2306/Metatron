@@ -1,7 +1,7 @@
 # Metatron / Seraph AI Defense Platform
 
 <p align="center">
-  <img src="https://customer-assets.emergentagent.com/job_securityshield-17/artifacts/4jbqdhyd_ChatGPT%20Image%20Feb%2010%2C%202026%2C%2009_07_51%20AM.png" alt="Seraph AI Logo" width="200"/>
+  <img src="Seraph.jpg" width="520" style="max-width: 92%; height: auto;">
 </p>
 
 <p align="center">
