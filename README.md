@@ -1,7 +1,7 @@
 # Metatron / Seraph AI Defense Platform
 
 <p align="center">
-  <img src="Seraph.jpg" width="720" style="max-width: 92%; height: auto;">
+  <img src="Seraph.jpg" width="920" style="max-width: 92%; height: auto;">
 </p>
 
 <p align="center">
