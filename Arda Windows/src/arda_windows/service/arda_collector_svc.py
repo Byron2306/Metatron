@@ -195,14 +195,15 @@ if _WIN32:
                 from arda_windows.world_manifold import WorldManifold  # noqa: PLC0415
                 _MANIFOLD = WorldManifold.build()
 
-                # Initial snapshot (blocking)
-                _refresh(_MANIFOLD)
-
-                # Background poller
+                # Background poller — first iteration also does the initial snapshot
+                # (non-blocking so the HTTP server starts immediately even if a
+                # WMI/evidence call is slow or hung)
                 t = threading.Thread(target=_poll_loop, args=(60,), daemon=True)
                 t.start()
 
-                # HTTP server
+                # HTTP server — starts before the first refresh completes so
+                # /health is always reachable; endpoints return {"error": "not ready"}
+                # until the first snapshot is cached.
                 self._server = HTTPServer(("0.0.0.0", 7331), _Handler)
                 self._server.serve_forever()
 

@@ -35,8 +35,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import socket
 import ssl
+import signal
 import subprocess
 import sys
 import time
@@ -48,7 +50,8 @@ from typing import Any
 
 NOW = lambda: datetime.now(timezone.utc).isoformat()
 REPO = Path(__file__).resolve().parent.parent
-ES_URL = "http://172.28.0.8:9200"
+ES_URL = os.environ.get("ARKIME_ES_URL", "http://127.0.0.1:9200")
+CAPTURE_INTERFACE = os.environ.get("ARKIME_CAPTURE_INTERFACE", "br-676f8b6eaea8")
 
 # ── Network traffic generators ─────────────────────────────────────────────
 
@@ -459,19 +462,78 @@ def get_pcap_files() -> list[dict[str, Any]]:
     """Enumerate PCAP files written by Arkime capture."""
     pcap_dir = REPO / "pcap/arkime"
     files = []
-    for f in pcap_dir.glob("*.pcap"):
-        try:
-            stat = f.stat()
-            sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
-            files.append({
-                "path": str(f.relative_to(REPO)),
-                "size_bytes": stat.st_size,
-                "sha256": sha256,
-                "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            })
-        except Exception:
-            pass
+    for pattern in ("*.pcap", "*.pcapng", "*.pcap.zst"):
+        candidates = list(pcap_dir.glob(pattern))
+        for f in candidates:
+            try:
+                stat = f.stat()
+                if stat.st_size <= 0:
+                    continue
+                sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
+                files.append({
+                    "path": str(f.relative_to(REPO)),
+                    "size_bytes": stat.st_size,
+                    "sha256": sha256,
+                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
     return files
+
+
+def sync_arkime_raw_pcaps(container: str = "seraph-arkime-capture") -> dict[str, Any]:
+    """Copy Arkime raw PCAP files from the capture container/volume into repo artifacts."""
+    pcap_dir = REPO / "pcap/arkime"
+    pcap_dir.mkdir(parents=True, exist_ok=True)
+    before = {p.name for p in pcap_dir.glob("*.pcap*")}
+    result = subprocess.run(
+        ["docker", "cp", f"{container}:/opt/arkime/raw/.", str(pcap_dir)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    after = {p.name for p in pcap_dir.glob("*.pcap*")}
+    return {
+        "container": container,
+        "destination": str(pcap_dir.relative_to(REPO)),
+        "returncode": result.returncode,
+        "stderr": result.stderr[-500:],
+        "files_before": len(before),
+        "files_after": len(after),
+        "files_added": sorted(after - before),
+    }
+
+
+def start_tcpdump_capture(interface: str, out_file: Path) -> subprocess.Popen | None:
+    """Start a bounded local PCAP witness capture when tcpdump is available."""
+    if os.environ.get("ARKIME_SKIP_TCPDUMP") == "1":
+        return None
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "sudo", "-n", "tcpdump",
+        "-i", interface,
+        "-s", "0",
+        "-G", "45",
+        "-W", "1",
+        "-w", str(out_file),
+    ]
+    try:
+        return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"[WARN] tcpdump PCAP export unavailable: {e}")
+        return None
+
+
+def stop_tcpdump_capture(proc: subprocess.Popen | None) -> None:
+    if not proc:
+        return
+    if proc.poll() is None:
+        proc.send_signal(signal.SIGINT)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            proc.wait(timeout=5)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -489,7 +551,7 @@ def main() -> int:
     print("ARKIME NETWORK EVIDENCE CAPTURE")
     print(f"  Techniques: {len(NETWORK_TECHNIQUES)}")
     print(f"  ES: {ES_URL}")
-    print(f"  Capture: br-676f8b6eaea8")
+    print(f"  Capture: {CAPTURE_INTERFACE}")
     print("=" * 72)
 
     # Check Arkime capture is running
@@ -500,43 +562,57 @@ def main() -> int:
     print(f"Elasticsearch OK ({ES_URL})")
 
     suite_start = NOW()
+    pcap_path = REPO / "pcap" / "arkime" / f"arkime_batch_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.pcap"
+    tcpdump_proc = start_tcpdump_capture(CAPTURE_INTERFACE, pcap_path)
     all_results: list[dict[str, Any]] = []
 
-    for i, tech in enumerate(NETWORK_TECHNIQUES):
-        tid = tech["technique_id"]
-        print(f"\n[{i+1:2d}/{len(NETWORK_TECHNIQUES)}] {tid} — {tech['description'][:60]}")
+    try:
+        for i, tech in enumerate(NETWORK_TECHNIQUES):
+            tid = tech["technique_id"]
+            print(f"\n[{i+1:2d}/{len(NETWORK_TECHNIQUES)}] {tid} — {tech['description'][:60]}")
 
-        t_start = NOW()
-        try:
-            traffic_result = tech["execute"]()
-        except Exception as e:
-            traffic_result = {"error": str(e)[:200]}
+            t_start = NOW()
+            try:
+                traffic_result = tech["execute"]()
+            except Exception as e:
+                traffic_result = {"error": str(e)[:200]}
 
-        # Brief wait for Arkime to index packets
-        time.sleep(0.5)
+            # Brief wait for Arkime to index packets
+            time.sleep(0.5)
 
-        # Query sessions from Arkime
-        sessions = query_arkime_sessions(tid, t_start)
-        print(f"         Traffic: {json.dumps({k: v.get('status') or v.get('connected') or v.get('rc') or 'ok' for k, v in (traffic_result.items() if isinstance(traffic_result, dict) else {})})[:80]}")
-        print(f"         Arkime sessions indexed: {sessions.get('session_count', 0)} (total in window: {sessions.get('total_in_window', 0)})")
+            # Query sessions from Arkime
+            sessions = query_arkime_sessions(tid, t_start)
+            print(f"         Traffic: {json.dumps({k: v.get('status') or v.get('connected') or v.get('rc') or 'ok' for k, v in (traffic_result.items() if isinstance(traffic_result, dict) else {})})[:80]}")
+            print(f"         Arkime sessions indexed: {sessions.get('session_count', 0)} (total in window: {sessions.get('total_in_window', 0)})")
 
-        result = {
-            "technique_id": tid,
-            "tactic": tech["tactic"],
-            "tactic_name": tech["tactic_name"],
-            "description": tech["description"],
-            "executed_at": t_start,
-            "traffic_result": traffic_result,
-            "arkime_sessions": sessions,
-        }
-        all_results.append(result)
+            result = {
+                "technique_id": tid,
+                "tactic": tech["tactic"],
+                "tactic_name": tech["tactic_name"],
+                "description": tech["description"],
+                "executed_at": t_start,
+                "traffic_result": traffic_result,
+                "arkime_sessions": sessions,
+            }
+            all_results.append(result)
+    finally:
+        stop_tcpdump_capture(tcpdump_proc)
 
     # Wait for final indexing
     print(f"\nWaiting {args.wait_after}s for Arkime to flush remaining sessions...")
     time.sleep(args.wait_after)
 
-    # Final session query + PCAP inventory
+    # Final session query + PCAP inventory.  Arkime writes raw capture files
+    # inside its Docker volume; sync them into the repo before packaging.
     total_sessions = query_arkime_sessions("all", suite_start)
+    sync_result = sync_arkime_raw_pcaps()
+    if sync_result["returncode"] != 0:
+        print(f"[WARN] Arkime raw PCAP sync failed: {sync_result['stderr']}")
+    else:
+        print(
+            f"Synced Arkime raw PCAPs: {sync_result['files_before']} -> "
+            f"{sync_result['files_after']} local files"
+        )
     pcap_files = get_pcap_files()
 
     print(f"\nTotal Arkime sessions in window: {total_sessions.get('total_in_window', 0)}")
@@ -565,10 +641,10 @@ def main() -> int:
             "executed_at": r["executed_at"],
             "captured_at": NOW(),
             "arkime_capture": {
-                "interface": "br-676f8b6eaea8",
+                "interface": CAPTURE_INTERFACE,
                 "elasticsearch": ES_URL,
                 "capture_node": "metatron-lab",
-                "capture_container": "arkime-capture",
+                "capture_container": "seraph-arkime-capture",
                 "image": "ghcr.io/arkime/arkime/arkime:v5-latest",
             },
             "session_data": {
@@ -578,7 +654,14 @@ def main() -> int:
             },
             "pcap_files": pcap_files,
             "traffic_proof": r["traffic_result"],
-            "verdict": "network_traffic_captured" if total_in_window > 0 else "traffic_generated_indexing_pending",
+            "pcap_export_status": "pcap_files_included" if pcap_files else "arkime_indexed_sessions_only",
+            "verdict": (
+                "network_traffic_captured_with_pcap"
+                if total_in_window > 0 and pcap_files
+                else "arkime_indexed_session_evidence"
+                if total_in_window > 0
+                else "traffic_generated_indexing_pending"
+            ),
         }
 
         out_path = tech_dir / "arkime_network_forensics.json"

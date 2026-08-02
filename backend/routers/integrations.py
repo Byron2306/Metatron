@@ -2,7 +2,11 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+import asyncio
 import os
+import shutil
+import time
+from pathlib import Path
 
 from .dependencies import (
     check_permission,
@@ -31,6 +35,197 @@ verify_integrations_machine_token = optional_machine_token(
 )
 
 router = APIRouter(prefix="/integrations", tags=["Integrations"])
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_COMPOSE_FILE = Path(
+    os.getenv("SERAPH_COMPOSE_FILE", str(_PROJECT_ROOT / "docker-compose.yml"))
+).resolve()
+_IDLE_TIMEOUT_SECONDS = max(60, int(os.getenv("INTEGRATIONS_WARM_IDLE_SECONDS", "1800") or "1800"))
+_IDLE_REAPER_POLL_SECONDS = max(15, int(os.getenv("INTEGRATIONS_WARM_REAPER_POLL_SECONDS", "60") or "60"))
+
+# Tool name -> compose profile/services to start/stop on demand.
+_INTEGRATION_WARM_TARGETS: Dict[str, Dict[str, Any]] = {
+    "amass": {"profile": "amass", "services": ["amass"]},
+    "spiderfoot": {"profile": "spiderfoot", "services": ["spiderfoot"]},
+    "bloodhound": {"profile": "bloodhound", "services": ["bloodhound", "neo4j"]},
+    "velociraptor": {"profile": "velociraptor", "services": ["velociraptor"]},
+    "purplesharp": {"profile": "purplesharp", "services": ["purplesharp"]},
+    "osquery": {"profile": "osquery", "services": ["fleet-mysql", "fleet-redis", "fleet", "osquery"]},
+    "atomic": {"profile": "atomic", "services": ["atomic"]},
+    "falco": {"profile": "falco", "services": ["falco"]},
+    "yara": {"profile": "yara", "services": ["yara"]},
+    "suricata": {"profile": "suricata", "services": ["suricata"]},
+    "trivy": {"profile": "trivy", "services": ["trivy"]},
+    "arkime": {"profile": "arkime", "services": ["arkime-capture", "elasticsearch"]},
+    "clamav": {"profile": "clamav", "services": ["clamav"]},
+    "cuckoo": {"profile": "sandbox", "services": ["cuckoo", "cuckoo-web"]},
+}
+
+_warm_lock = asyncio.Lock()
+_warm_state: Dict[str, Dict[str, Any]] = {}
+_idle_reaper_task: Optional[asyncio.Task] = None
+
+
+def _compose_base_command() -> List[str]:
+    if shutil.which("docker"):
+        return ["docker", "compose"]
+    if shutil.which("docker-compose"):
+        return ["docker-compose"]
+    raise RuntimeError("Neither docker compose nor docker-compose is available")
+
+
+async def _run_compose(profile: str, action: str, services: List[str]) -> Dict[str, Any]:
+    base = _compose_base_command()
+    cmd = [
+        *base,
+        "--project-directory",
+        str(_PROJECT_ROOT),
+        "-f",
+        str(_COMPOSE_FILE),
+        "--profile",
+        profile,
+        action,
+    ]
+    if action == "up":
+        cmd.append("-d")
+    cmd.extend(services)
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    return {
+        "command": " ".join(cmd),
+        "returncode": proc.returncode,
+        "stdout": (stdout or b"").decode("utf-8", errors="ignore"),
+        "stderr": (stderr or b"").decode("utf-8", errors="ignore"),
+    }
+
+
+async def _warm_target(name: str) -> Dict[str, Any]:
+    target = _INTEGRATION_WARM_TARGETS[name]
+    result = await _run_compose(target["profile"], "up", target["services"])
+    if result["returncode"] != 0:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Failed to warm integration services",
+                "integration": name,
+                "command": result["command"],
+                "stderr": result["stderr"][-2000:],
+            },
+        )
+
+    now = time.monotonic()
+    async with _warm_lock:
+        _warm_state[name] = {
+            "last_warm_monotonic": now,
+            "last_warm_epoch": time.time(),
+            "profile": target["profile"],
+            "services": list(target["services"]),
+        }
+
+    return {
+        "integration": name,
+        "profile": target["profile"],
+        "services": list(target["services"]),
+        "idle_timeout_seconds": _IDLE_TIMEOUT_SECONDS,
+        "compose": {
+            "command": result["command"],
+            "stdout": result["stdout"][-2000:],
+            "stderr": result["stderr"][-2000:],
+        },
+    }
+
+
+async def _stop_target(name: str, reason: str) -> None:
+    target = _INTEGRATION_WARM_TARGETS.get(name)
+    if not target:
+        return
+
+    result = await _run_compose(target["profile"], "stop", target["services"])
+    if result["returncode"] != 0:
+        return
+
+    async with _warm_lock:
+        _warm_state.pop(name, None)
+
+    await emit_world_event(
+        get_db(),
+        event_type="integration_runtime_cooled",
+        entity_refs=[name],
+        payload={
+            "integration": name,
+            "reason": reason,
+            "profile": target["profile"],
+            "services": list(target["services"]),
+        },
+        trigger_triune=False,
+    )
+
+
+async def _idle_reaper_loop() -> None:
+    while True:
+        await asyncio.sleep(_IDLE_REAPER_POLL_SECONDS)
+        now = time.monotonic()
+
+        async with _warm_lock:
+            due = [
+                name
+                for name, state in _warm_state.items()
+                if (now - float(state.get("last_warm_monotonic") or 0.0)) >= _IDLE_TIMEOUT_SECONDS
+            ]
+
+        for name in due:
+            try:
+                await _stop_target(name, reason="idle_timeout")
+            except Exception:
+                continue
+
+
+@router.on_event("startup")
+async def _start_idle_reaper() -> None:
+    global _idle_reaper_task
+    if _idle_reaper_task is None or _idle_reaper_task.done():
+        _idle_reaper_task = asyncio.create_task(_idle_reaper_loop())
+
+
+@router.on_event("shutdown")
+async def _stop_idle_reaper() -> None:
+    global _idle_reaper_task
+    if _idle_reaper_task is not None:
+        _idle_reaper_task.cancel()
+        _idle_reaper_task = None
+
+
+def _allow_any_authenticated_user_for_runtime() -> bool:
+    return str(os.getenv("INTEGRATIONS_ALLOW_ANY_AUTH_USER", "1")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _runtime_user_authorized(user: Optional[dict], permission: str) -> bool:
+    if user is None:
+        return False
+    if has_permission(user, permission):
+        return True
+    return _allow_any_authenticated_user_for_runtime()
+
+
+def _allow_public_runtime_reads() -> bool:
+    """Permit unauthenticated read-only runtime catalog access in local/non-strict mode."""
+    return str(os.getenv("INTEGRATIONS_ALLOW_PUBLIC_READ", "1")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 class AmassRequest(BaseModel):
     domain: str
@@ -130,9 +325,9 @@ async def get_jobs(
     user: Optional[dict] = Depends(get_optional_current_user),
 ):
     if machine_auth is None:
-        if user is None:
+        if user is None and not _allow_public_runtime_reads():
             raise HTTPException(status_code=401, detail="Authentication required")
-        if not has_permission(user, "read"):
+        if user is not None and not _runtime_user_authorized(user, "read"):
             raise HTTPException(status_code=403, detail="Permission denied. Required: read")
     return await list_jobs_async()
 
@@ -145,7 +340,7 @@ async def get_job_status(
     if machine_auth is None:
         if user is None:
             raise HTTPException(status_code=401, detail="Authentication required")
-        if not has_permission(user, "read"):
+        if not _runtime_user_authorized(user, "read"):
             raise HTTPException(status_code=403, detail="Permission denied. Required: read")
     job = await get_job_async(job_id)
     if not job:
@@ -168,7 +363,7 @@ async def direct_ingest(
     if not internal:
         if user is None:
             raise HTTPException(status_code=401, detail="Authentication required")
-        if not has_permission(user, "write"):
+        if not _runtime_user_authorized(user, "write"):
             raise HTTPException(status_code=403, detail="Permission denied. Required: write")
 
     items = [i.dict() for i in req.indicators]
@@ -368,9 +563,9 @@ async def runtime_supported_tools(
     user: Optional[dict] = Depends(get_optional_current_user),
 ):
     if machine_auth is None:
-        if user is None:
+        if user is None and not _allow_public_runtime_reads():
             raise HTTPException(status_code=401, detail="Authentication required")
-        if not has_permission(user, "read"):
+        if user is not None and not _runtime_user_authorized(user, "read"):
             raise HTTPException(status_code=403, detail="Permission denied. Required: read")
     return {"tools": sorted(SUPPORTED_RUNTIME_TOOLS)}
 
@@ -384,7 +579,7 @@ async def start_runtime_launch(
     if machine_auth is None:
         if user is None:
             raise HTTPException(status_code=401, detail="Authentication required")
-        if not has_permission(user, "write"):
+        if not _runtime_user_authorized(user, "write"):
             raise HTTPException(status_code=403, detail="Permission denied. Required: write")
         actor = user.get("email", user.get("id", "unknown"))
     else:
@@ -424,6 +619,38 @@ async def start_runtime_launch(
     return _runtime_job_response(job)
 
 
+@router.post("/{name}/warm")
+async def warm_integration_runtime(
+    name: str,
+    user: dict = Depends(check_permission("write")),
+):
+    integration = str(name or "").strip().lower()
+    if integration not in _INTEGRATION_WARM_TARGETS:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": f"Unknown integration '{name}'",
+                "supported": sorted(_INTEGRATION_WARM_TARGETS.keys()),
+            },
+        )
+
+    response = await _warm_target(integration)
+    await emit_world_event(
+        get_db(),
+        event_type="integration_runtime_warmed",
+        entity_refs=[integration],
+        payload={
+            "integration": integration,
+            "actor": user.get("email", user.get("id")),
+            "profile": response["profile"],
+            "services": response["services"],
+            "idle_timeout_seconds": response["idle_timeout_seconds"],
+        },
+        trigger_triune=False,
+    )
+    return response
+
+
 @router.post('/ingest/host')
 async def ingest_host(
     req: HostLogIngestRequest,
@@ -435,7 +662,7 @@ async def ingest_host(
     if not internal:
         if user is None:
             raise HTTPException(status_code=401, detail="Authentication required")
-        if not has_permission(user, "write"):
+        if not _runtime_user_authorized(user, "write"):
             raise HTTPException(status_code=403, detail="Permission denied. Required: write")
     job = await ingest_host_logs(req.source, req.raw)
     actor = "machine" if internal else user.get("id")

@@ -4,6 +4,7 @@ import hashlib
 import uuid
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+from backend.services.runtime_environment import is_production_like
 
 try:
     from cryptography.hazmat.primitives import hashes, serialization
@@ -13,14 +14,15 @@ try:
 except ImportError:
     HAS_CRYPTO = False
 
-try:
-    from schemas.phase4_models import NodeIdentity
-    from services.telemetry_chain import tamper_evident_telemetry
-except Exception:
-    from backend.schemas.phase4_models import NodeIdentity
-    from backend.services.telemetry_chain import tamper_evident_telemetry
+from backend.schemas.phase4_models import NodeIdentity
+from backend.services.telemetry_chain import tamper_evident_telemetry
 
 logger = logging.getLogger(__name__)
+
+
+class NodeIdentityUnavailable(RuntimeError):
+    """Raised when cryptographic node identity cannot be established."""
+
 
 class NodeIdentityService:
     """
@@ -36,8 +38,10 @@ class NodeIdentityService:
     def initialize(self):
         """Load or create the node's cryptographic keys."""
         if not HAS_CRYPTO:
-            logger.error("PHASE IV: 'cryptography' library missing! Falling back to degraded mode.")
-            return
+            logger.critical("PHASE IV: 'cryptography' library missing; node identity unavailable.")
+            raise NodeIdentityUnavailable(
+                "cryptographic node identity cannot fall back to an unkeyed digest"
+            )
 
         if os.path.exists(self.key_path):
             self._load_keys()
@@ -60,7 +64,9 @@ class NodeIdentityService:
     def sign_payload(self, payload: str) -> str:
         """Sign a string payload using the node's private key."""
         if not HAS_CRYPTO or not self._private_key:
-            return hashlib.sha256(payload.encode()).hexdigest() # Fallback
+            raise NodeIdentityUnavailable(
+                "node private key is unavailable; an unkeyed hash is not a signature"
+            )
 
         signature = self._private_key.sign(
             payload.encode(),
@@ -91,6 +97,7 @@ class NodeIdentityService:
                 format=serialization.PrivateFormat.PKCS8,
                 encryption_algorithm=serialization.NoEncryption()
             ))
+        os.chmod(self.key_path, 0o600)
 
     def _load_keys(self):
         """Load the private key from disk."""
@@ -100,6 +107,13 @@ class NodeIdentityService:
                 f.read(),
                 password=None
             )
+        try:
+            os.chmod(self.key_path, 0o600)
+        except OSError as exc:
+            if is_production_like():
+                raise NodeIdentityUnavailable(
+                    "cannot enforce private-key filesystem permissions"
+                ) from exc
 
     def _build_identity(self):
         """Derive the node's identity from its public key."""
@@ -114,11 +128,8 @@ class NodeIdentityService:
         node_id = f"node-{fingerprint[:16]}"
         
         # Bind to Herald if active (Late binding to prevent circular import)
-        try:
-            from services.manwe_herald import manwe_herald
-        except Exception:
-            from backend.services.manwe_herald import manwe_herald
-            
+        from backend.services.manwe_herald import manwe_herald
+
         herald_state = manwe_herald.get_state()
         metadata = {
             "herald_id": herald_state.herald_id if herald_state else "unbound",

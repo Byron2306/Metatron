@@ -2,6 +2,7 @@ import logging
 import json
 import hashlib
 import base64
+import os
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
@@ -19,7 +20,14 @@ class CloudAttestationService:
     
     def __init__(self, project_id: str = "arda-sovereign-logic"):
         self.project_id = project_id
-        self.is_mock = True # Target GCP Integrity Report is currently simulated
+        # Use env var to control mock mode; default to False (production mode)
+        # Set CLOUD_ATTESTATION_MOCK=1 to enable mock mode for testing
+        self.is_mock = os.environ.get("CLOUD_ATTESTATION_MOCK", "0").lower() in {"1", "true", "yes"}
+        
+        if self.is_mock:
+            logger.warning("[CLOUD_WITNESS] WARNING: Running in MOCK mode. Cloud attestation verification is simulated.")
+        else:
+            logger.info("[CLOUD_WITNESS] Running in PRODUCTION mode. Real vTPM verification enabled.")
         
     async def verify_integrity_report(self, report_payload: Dict[str, Any]) -> bool:
         """

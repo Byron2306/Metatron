@@ -1,0 +1,84 @@
+title: Fileless Storage - Executable Written to Linux Shared Memory Directory
+id: 65ee4e10-e8c1-4183-9bb3-456e90a67ef0
+status: experimental
+description: |
+    Detects files with executable permissions or binary content written to Linux
+    shared memory directories (/dev/shm, /run/shm, /var/run, /var/lock).
+    Adversaries using T1027.011 (Fileless Storage) write payloads to these
+    RAM-backed filesystems to avoid disk forensics — files in /dev/shm are never
+    written to the disk. Malware families including Frog4Shell, Muhstik, and several
+    cryptominers use this technique. Files in these paths that are then chmod +x
+    and executed are a high-fidelity indicator.
+references:
+    - https://attack.mitre.org/techniques/T1027/011/
+    - https://www.akamai.com/blog/security-research/2024-spring-wave-of-iot-campaigns
+    - https://www.aquasec.com/blog/muhstik-malware-2024/
+    - https://www.elastic.co/security-labs/elastic-identifies-new-espionage-campaign-using-binary-executed-from-shared-memory
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1027.011
+    - attack.execution
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection_shm_path:
+        TargetFilename|startswith:
+            - '/dev/shm/'
+            - '/run/shm/'
+            - '/var/run/'
+            - '/var/lock/'
+    filter_known_legit:
+        TargetFilename|contains:
+            - '/var/run/NetworkManager/'
+            - '/var/run/systemd/'
+            - '/var/run/dbus/'
+            - '/var/run/sshd'
+            - '/var/run/docker'
+            - '.pid'
+            - '.sock'
+            - '.lock'
+    condition: selection_shm_path and not filter_known_legit
+falsepositives:
+    - Some legitimate applications use /dev/shm for IPC (PostgreSQL, Redis)
+    - Container runtimes may write to /var/run
+level: medium
+---
+title: Fileless Storage - Process Executed Directly from Shared Memory
+id: ec0f2eb4-7939-48d0-a774-9fc749603c1f
+status: experimental
+description: |
+    Detects processes whose executable image path is within Linux shared memory
+    directories. This is the execution phase of T1027.011 — after writing a payload
+    to /dev/shm (no disk write), the adversary executes it directly from that path.
+    This is used in IoT/Linux server attacks including Frog4Shell, 8220 gang, and
+    Muhstik cryptominer campaigns.
+references:
+    - https://attack.mitre.org/techniques/T1027/011/
+    - https://www.elastic.co/security-labs/elastic-identifies-new-espionage-campaign-using-binary-executed-from-shared-memory
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.execution
+    - attack.t1027.011
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        Image|startswith:
+            - '/dev/shm/'
+            - '/run/shm/'
+            - '/var/run/'
+    filter_legit:
+        Image|contains:
+            - '/var/run/NetworkManager/'
+            - '/var/run/systemd/'
+            - '/var/run/containerd/'
+    condition: selection and not filter_legit
+falsepositives:
+    - None expected for /dev/shm execution
+level: critical

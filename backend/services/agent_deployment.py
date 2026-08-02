@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from backend.services.runtime_environment import current_environment, is_lab_like
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,6 +75,7 @@ class AgentDeploymentService:
         self.running = False
         self.task = None
         self.concurrent_deployments = 5
+        self.environment = current_environment()
         
         # Agent script path
         self.agent_script_path = Path("/app/scripts/seraph_defender.py")
@@ -91,6 +94,13 @@ class AgentDeploymentService:
         }
         
         logger.info("Agent Deployment Service initialized")
+
+    @staticmethod
+    def _simulation_requested() -> bool:
+        return str(os.environ.get("ALLOW_SIMULATED_DEPLOYMENTS", "false")).lower() in {"1", "true", "yes", "on"}
+
+    def _simulation_allowed(self) -> bool:
+        return self._simulation_requested() and is_lab_like()
 
     @staticmethod
     def _now_iso() -> str:
@@ -425,14 +435,17 @@ class AgentDeploymentService:
         )
         
         try:
-            # Check if we're in simulation mode (no real credentials provided)
+            # Simulation is explicit and lab-only; missing credentials alone must not imply demo mode.
             creds = task.credentials or self.default_credentials.get(task.method.value.lower(), {})
             is_simulation = not creds.get('password') and not creds.get('key_path')
-            allow_simulation = str(os.environ.get("ALLOW_SIMULATED_DEPLOYMENTS", "false")).lower() in {"1", "true", "yes", "on"}
+            allow_simulation = self._simulation_allowed()
             
             if is_simulation and allow_simulation:
-                # Simulate deployment for demo purposes
-                logger.info(f"Simulating deployment to {task.device_ip} (no credentials)")
+                logger.info(
+                    "Simulating deployment to %s in %s environment (explicit lab-mode override)",
+                    task.device_ip,
+                    self.environment,
+                )
                 await asyncio.sleep(2)  # Simulate deployment time
                 success = True
                 task.error_message = None
@@ -440,7 +453,7 @@ class AgentDeploymentService:
                 success = False
                 task.error_message = (
                     "Deployment credentials required. "
-                    "Set ALLOW_SIMULATED_DEPLOYMENTS=true only for non-production demo mode."
+                    "Simulated deployment is allowed only when ALLOW_SIMULATED_DEPLOYMENTS=true in an explicit lab/demo/testing environment."
                 )
             elif task.method == DeploymentMethod.SSH:
                 success = await self._deploy_via_ssh(task)

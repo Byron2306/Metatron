@@ -6,6 +6,7 @@ import {
   User, Zap, Eye, Network, GitBranch, FileSearch, Link2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -130,6 +131,10 @@ const TimelinePage = () => {
 
   useEffect(() => {
     fetchTimelines();
+    // Was 15s — too aggressive: the timeline scroll position kept resetting
+    // while the analyst was reading. 60s gives breathing room.
+    const id = setInterval(fetchTimelines, 60000);
+    return () => clearInterval(id);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchRelatedIncidents = async () => {
@@ -352,26 +357,24 @@ const TimelinePage = () => {
   ];
 
   return (
-    <div className="space-y-6" data-testid="timeline-page">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded bg-cyan-500/20">
-            <Clock className="w-6 h-6 text-cyan-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-mono font-bold">Threat Timeline</h1>
-            <p className="text-slate-400 text-sm">Reconstruct and analyze threat incidents</p>
-          </div>
-        </div>
-        <button
-          onClick={fetchTimelines}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="timeline-page">
+      <SeraphPageHeader
+        eyebrow="seraph · timeline · incident reconstruction"
+        title="Threat Timeline"
+        tagline="> reconstruct · correlate · analyze threat incidents over time"
+        accent="cyan"
+        status={loading ? 'REFRESHING' : 'LIVE'}
+        actions={
+          <button
+            onClick={fetchTimelines}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Timeline List */}

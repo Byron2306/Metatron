@@ -6,11 +6,26 @@ import {
   Check, X, Filter, ChevronDown
 } from 'lucide-react';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? ''
   : envBackendUrl.replace(/\/+$/, '');
+
+const QUARANTINE_ACCENTS = {
+  gold: { border: 'rgba(255,209,102,0.3)', glow: 'rgba(255,209,102,0.1)' },
+  green: { border: 'rgba(124,226,163,0.28)', glow: 'rgba(124,226,163,0.1)' },
+  magenta: { border: 'rgba(255,138,217,0.34)', glow: 'rgba(255,138,217,0.12)' },
+  violet: { border: 'rgba(197,162,235,0.32)', glow: 'rgba(197,162,235,0.12)' },
+};
+
+const quarantinePanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
 
 const QuarantinePage = () => {
   const [loading, setLoading] = useState(true);
@@ -120,6 +135,7 @@ const QuarantinePage = () => {
 
   useEffect(() => {
     fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   const handleRestore = async (entryId) => {
@@ -213,34 +229,36 @@ const QuarantinePage = () => {
   };
 
   return (
-    <div className="space-y-6" data-testid="quarantine-page">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded bg-amber-500/20">
-            <Shield className="w-6 h-6 text-amber-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-mono font-bold">Quarantine</h1>
-            <p className="text-slate-400 text-sm">Manage isolated malware and infected files</p>
-          </div>
-        </div>
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded transition-colors"
-          data-testid="refresh-quarantine-btn"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-        <button
-          onClick={() => setShowDemo((v) => !v)}
-          className="ml-2 px-3 py-2 text-xs rounded border border-slate-700 text-slate-300 hover:bg-slate-800/60"
-          title="Toggle demo data when quarantine is empty"
-        >
-          Demo: {showDemo ? 'On' : 'Off'}
-        </button>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="quarantine-page">
+      <SeraphPageHeader
+        eyebrow="seraph · containment · isolation vault"
+        title="Quarantine"
+        tagline="> isolated malware · infected files · forensic preservation"
+        accent="gold"
+        status="ARMED"
+        actions={
+          <>
+            <button
+              onClick={fetchData}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 rounded transition-colors"
+              style={{ background: 'rgba(8,20,38,0.82)', border: '1px solid rgba(255,209,102,0.28)' }}
+              data-testid="refresh-quarantine-btn"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button
+              onClick={() => setShowDemo((v) => !v)}
+              className="ml-2 px-3 py-2 text-xs rounded text-slate-300 hover:bg-slate-800/60"
+              style={{ border: '1px solid rgba(197,162,235,0.2)' }}
+              title="Toggle demo data when quarantine is empty"
+            >
+              Demo: {showDemo ? 'On' : 'Off'}
+            </button>
+          </>
+        }
+      />
 
       {/* Summary Cards */}
       {summary && (
@@ -248,7 +266,7 @@ const QuarantinePage = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+            className="p-4" style={quarantinePanelStyle(QUARANTINE_ACCENTS.magenta)}
           >
             <div className="flex items-center gap-2 text-slate-400 mb-1">
               <FileWarning className="w-4 h-4" />
@@ -261,7 +279,7 @@ const QuarantinePage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.05 }}
-            className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+            className="p-4" style={quarantinePanelStyle(QUARANTINE_ACCENTS.gold)}
           >
             <div className="flex items-center gap-2 text-amber-400 mb-1">
               <Shield className="w-4 h-4" />
@@ -274,7 +292,7 @@ const QuarantinePage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+            className="p-4" style={quarantinePanelStyle(QUARANTINE_ACCENTS.green)}
           >
             <div className="flex items-center gap-2 text-green-400 mb-1">
               <RotateCcw className="w-4 h-4" />
@@ -287,7 +305,7 @@ const QuarantinePage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.15 }}
-            className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+            className="p-4" style={quarantinePanelStyle(QUARANTINE_ACCENTS.violet)}
           >
             <div className="flex items-center gap-2 text-red-400 mb-1">
               <Trash2 className="w-4 h-4" />
@@ -326,7 +344,8 @@ const QuarantinePage = () => {
         <select
           value={filter.status}
           onChange={(e) => setFilter({...filter, status: e.target.value})}
-          className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm focus:border-cyan-500 outline-none"
+          className="px-3 py-1.5 rounded text-sm outline-none"
+          style={{ background: 'rgba(8,20,38,0.82)', border: '1px solid rgba(255,209,102,0.22)' }}
         >
           <option value="">All Status</option>
           <option value="quarantined">Quarantined</option>
@@ -337,7 +356,8 @@ const QuarantinePage = () => {
         <select
           value={filter.threat_type}
           onChange={(e) => setFilter({...filter, threat_type: e.target.value})}
-          className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm focus:border-cyan-500 outline-none"
+          className="px-3 py-1.5 rounded text-sm outline-none"
+          style={{ background: 'rgba(8,20,38,0.82)', border: '1px solid rgba(197,162,235,0.2)' }}
         >
           <option value="">All Threats</option>
           <option value="malware">Malware</option>
@@ -352,11 +372,11 @@ const QuarantinePage = () => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-slate-800/50 border border-slate-700 rounded-lg overflow-hidden"
+        className="overflow-hidden" style={quarantinePanelStyle(QUARANTINE_ACCENTS.gold)}
       >
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
+            <RefreshCw className="w-8 h-8 animate-spin" style={{ color: '#ffd166' }} />
           </div>
         ) : entries.length === 0 ? (
           <div className="text-center py-12">
@@ -470,7 +490,8 @@ const QuarantinePage = () => {
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-800 border border-slate-700 rounded-lg w-full max-w-2xl max-h-[80vh] overflow-y-auto"
+            className="w-full max-w-2xl max-h-[80vh] overflow-y-auto"
+            style={quarantinePanelStyle(QUARANTINE_ACCENTS.magenta)}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-6 border-b border-slate-700">

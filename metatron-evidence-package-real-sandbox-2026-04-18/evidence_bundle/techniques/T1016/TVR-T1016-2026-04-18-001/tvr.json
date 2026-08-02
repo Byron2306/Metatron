@@ -1,0 +1,575 @@
+{
+  "record_type": "technique_validation_record",
+  "schema_version": "1.0.0",
+  "validation_id": "TVR-T1016-2026-04-18-001",
+  "technique": {
+    "attack_id": "T1016",
+    "name": "T1016",
+    "tactics": [],
+    "platforms": [
+      "Linux"
+    ]
+  },
+  "procedure": {
+    "source": "atomic_red_team",
+    "procedure_id": "ART-T1016-1",
+    "name": "Atomic Red Team validation for T1016",
+    "description": "Automated emulation procedure for T1016 executed via Invoke-AtomicRedTeam inside the Metatron lab environment.",
+    "test_ref": "atomics/T1016/T1016.yaml#test-1"
+  },
+  "environment": {
+    "lab_id": "metatron-lab-a",
+    "hostname": "debian-node-01",
+    "asset_id": "asset-001",
+    "os": {
+      "family": "linux",
+      "name": "Debian",
+      "version": "12"
+    },
+    "kernel_version": "6.12.74+deb12-amd64",
+    "sensor_stack": [
+      {
+        "name": "sigma-engine",
+        "version": "2026.04.18",
+        "rules_loaded": 439
+      },
+      {
+        "name": "osquery",
+        "version": "5.15.0"
+      },
+      {
+        "name": "atomic_red_team",
+        "version": "2025.01"
+      }
+    ]
+  },
+  "execution": {
+    "started_at": "2026-04-18T13:20:58.675844+00:00",
+    "ended_at": "2026-04-18T13:20:58.675844+00:00",
+    "executor": "atomic_red_team",
+    "operator": "metatron-system",
+    "status": "completed",
+    "exit_code": 0,
+    "real_execution": true,
+    "sandbox_required": true,
+    "sandbox_verified": true,
+    "expected_outcome": "detect",
+    "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-b0745a96f19c', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--security-opt', 'no-new-privileges:false', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', 'seraph-sandbox-tools:latest', 'pwsh', '-NonInteractive', '-NoProfile', '-Command', \"Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1016 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'\"]",
+    "run_count": 1,
+    "run_ids": [
+      "b0745a96f19c47c1aeb2c477afa22fbb"
+    ],
+    "job_ids": [
+      "sandbox-real-sweep"
+    ],
+    "runs": [
+      {
+        "run_id": "b0745a96f19c47c1aeb2c477afa22fbb",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T13:20:58.675844+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-b0745a96f19c",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1016 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1016-3 System Network Configuration Discovery\narp is missing from the machine. skipping...\nifconfig is missing from the machine. skipping...\n1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host proto kernel_lo \n       valid_lft forever preferred_lft forever\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\nnetstat is missing from the machine. skipping...\nExit code: 0\nDone executing test: T1016-3 System Network Configuration Discovery\n",
+        "stdout_sha256": "c6d95f8fbaaea7a93e851671c5c2924f3041e04bd6d8df5f3dd152030a074c57",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      }
+    ]
+  },
+  "telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "47a10c3093abf60f5b7b01a03638bf690de1a062ceef8ed68aed3f385271fb80"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "c6d95f8fbaaea7a93e851671c5c2924f3041e04bd6d8df5f3dd152030a074c57"
+      }
+    ],
+    "key_events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1776166996-pack_seraph_listenin",
+        "timestamp": "Tue Apr 14 06:43:16 AM CDT 2026",
+        "query_name": "pack_seraph_listening_ports",
+        "action": "added",
+        "columns": {
+          "pid": "1",
+          "address": "0.0.0.0",
+          "port": "8001",
+          "protocol": "6",
+          "family": "2"
+        },
+        "host_identifier": "seraph-backend"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776166996-pack_seraph_listenin",
+        "timestamp": "Tue Apr 14 06:43:16 AM CDT 2026",
+        "query_name": "pack_seraph_listening_ports",
+        "action": "added",
+        "columns": {
+          "pid": "1",
+          "address": "0.0.0.0",
+          "port": "8001",
+          "protocol": "6",
+          "family": "2"
+        },
+        "host_identifier": "seraph-backend"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776166996-pack_seraph_processe",
+        "timestamp": "Tue Apr 14 06:43:16 AM CDT 2026",
+        "query_name": "pack_seraph_processes",
+        "action": "added",
+        "columns": {
+          "pid": "1",
+          "name": "uvicorn",
+          "cmdline": "uvicorn server:app --host 0.0.0.0 --port 8001",
+          "cwd": "/app",
+          "root": "/"
+        },
+        "host_identifier": "seraph-backend"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776166996-pack_seraph_users",
+        "timestamp": "Tue Apr 14 06:43:16 AM CDT 2026",
+        "query_name": "pack_seraph_users",
+        "action": "added",
+        "columns": {
+          "uid": "0",
+          "username": "root",
+          "description": "root",
+          "directory": "/root",
+          "shell": "/bin/bash"
+        },
+        "host_identifier": "seraph-backend"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242650-open_files",
+        "timestamp": "Wed Apr 15 08:44:10 2026 UTC",
+        "query_name": "open_files",
+        "action": "added",
+        "columns": {
+          "path": "/dev/null",
+          "pid": "1"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242650-open_files",
+        "timestamp": "Wed Apr 15 08:44:10 2026 UTC",
+        "query_name": "open_files",
+        "action": "added",
+        "columns": {
+          "path": "/dev/null",
+          "pid": "8"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242650-open_files",
+        "timestamp": "Wed Apr 15 08:44:10 2026 UTC",
+        "query_name": "open_files",
+        "action": "added",
+        "columns": {
+          "path": "/var/tmp/etilqs_da0f83e064311197 (deleted)",
+          "pid": "8"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242650-open_files",
+        "timestamp": "Wed Apr 15 08:44:10 2026 UTC",
+        "query_name": "open_files",
+        "action": "added",
+        "columns": {
+          "path": "/var/log/osquery/osqueryd.INFO.20260415-084354.8",
+          "pid": "8"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242650-open_files",
+        "timestamp": "Wed Apr 15 08:44:10 2026 UTC",
+        "query_name": "open_files",
+        "action": "added",
+        "columns": {
+          "path": "/var/log/osquery/osqueryd.WARNING.20260415-084354.8",
+          "pid": "8"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242650-open_files",
+        "timestamp": "Wed Apr 15 08:44:10 2026 UTC",
+        "query_name": "open_files",
+        "action": "added",
+        "columns": {
+          "path": "/var/osquery/osquery.db",
+          "pid": "8"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242650-open_files",
+        "timestamp": "Wed Apr 15 08:44:10 2026 UTC",
+        "query_name": "open_files",
+        "action": "added",
+        "columns": {
+          "path": "/var/osquery/osquery.db/LOCK",
+          "pid": "8"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242650-open_files",
+        "timestamp": "Wed Apr 15 08:44:10 2026 UTC",
+        "query_name": "open_files",
+        "action": "added",
+        "columns": {
+          "path": "/var/osquery/osquery.db/000003.log",
+          "pid": "8"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242650-open_files",
+        "timestamp": "Wed Apr 15 08:44:10 2026 UTC",
+        "query_name": "open_files",
+        "action": "added",
+        "columns": {
+          "path": "/var/osquery/osquery.db/MANIFEST-000004",
+          "pid": "8"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242655-kernel_modules",
+        "timestamp": "Wed Apr 15 08:44:15 2026 UTC",
+        "query_name": "kernel_modules",
+        "action": "added",
+        "columns": {
+          "name": "tcp_diag",
+          "size": "12288",
+          "used_by": "-"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242655-kernel_modules",
+        "timestamp": "Wed Apr 15 08:44:15 2026 UTC",
+        "query_name": "kernel_modules",
+        "action": "added",
+        "columns": {
+          "name": "inet_diag",
+          "size": "28672",
+          "used_by": "tcp_diag"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242655-kernel_modules",
+        "timestamp": "Wed Apr 15 08:44:15 2026 UTC",
+        "query_name": "kernel_modules",
+        "action": "added",
+        "columns": {
+          "name": "vboxnetadp",
+          "size": "28672",
+          "used_by": "-"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242655-kernel_modules",
+        "timestamp": "Wed Apr 15 08:44:15 2026 UTC",
+        "query_name": "kernel_modules",
+        "action": "added",
+        "columns": {
+          "name": "vboxnetflt",
+          "size": "40960",
+          "used_by": "-"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242655-kernel_modules",
+        "timestamp": "Wed Apr 15 08:44:15 2026 UTC",
+        "query_name": "kernel_modules",
+        "action": "added",
+        "columns": {
+          "name": "vboxdrv",
+          "size": "684032",
+          "used_by": "vboxnetadp,vboxnetflt"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242655-kernel_modules",
+        "timestamp": "Wed Apr 15 08:44:15 2026 UTC",
+        "query_name": "kernel_modules",
+        "action": "added",
+        "columns": {
+          "name": "wireguard",
+          "size": "118784",
+          "used_by": "-"
+        },
+        "host_identifier": "3211535cb528"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776242655-kernel_modules",
+        "timestamp": "Wed Apr 15 08:44:15 2026 UTC",
+        "query_name": "kernel_modules",
+        "action": "added",
+        "columns": {
+          "name": "libchacha20poly1305",
+          "size": "16384",
+          "used_by": "wireguard"
+        },
+        "host_identifier": "3211535cb528"
+      }
+    ]
+  },
+  "analytic_evidence": {
+    "sigma": [
+      {
+        "analytic_id": "SIG-1455a490-5d0d-594d-aa65-",
+        "title": "Generated T1016 Process Execution Indicator",
+        "rule_file": "t1016_generated.yml",
+        "rule_sha256": "30a6b078588eee1f40477006cb7b6073110ebb61da997f258253bafddbaa66c1",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1776166996-pack_seraph_listenin",
+          "osq-1776166996-pack_seraph_listenin",
+          "osq-1776166996-pack_seraph_processe",
+          "osq-1776166996-pack_seraph_users",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules"
+        ]
+      },
+      {
+        "analytic_id": "SIG-7f4c4de2-6630-55ef-b105-",
+        "title": "Generated T1016 Filesystem Staging Indicator",
+        "rule_file": "t1016_generated.yml",
+        "rule_sha256": "30a6b078588eee1f40477006cb7b6073110ebb61da997f258253bafddbaa66c1",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1776166996-pack_seraph_listenin",
+          "osq-1776166996-pack_seraph_listenin",
+          "osq-1776166996-pack_seraph_processe",
+          "osq-1776166996-pack_seraph_users",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules"
+        ]
+      },
+      {
+        "analytic_id": "SIG-1aa0ff6e-c52f-5cb7-bd2e-",
+        "title": "Generated T1016 Outbound Network Indicator",
+        "rule_file": "t1016_generated.yml",
+        "rule_sha256": "30a6b078588eee1f40477006cb7b6073110ebb61da997f258253bafddbaa66c1",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1776166996-pack_seraph_listenin",
+          "osq-1776166996-pack_seraph_listenin",
+          "osq-1776166996-pack_seraph_processe",
+          "osq-1776166996-pack_seraph_users",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules"
+        ]
+      },
+      {
+        "analytic_id": "SIG-74d8a876-b95e-5318-8520-",
+        "title": "Generated T1016 Defense Evasion Indicator",
+        "rule_file": "t1016_generated.yml",
+        "rule_sha256": "30a6b078588eee1f40477006cb7b6073110ebb61da997f258253bafddbaa66c1",
+        "matched": true,
+        "match_count": 20,
+        "supporting_event_ids": [
+          "osq-1776166996-pack_seraph_listenin",
+          "osq-1776166996-pack_seraph_listenin",
+          "osq-1776166996-pack_seraph_processe",
+          "osq-1776166996-pack_seraph_users",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242650-open_files",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules",
+          "osq-1776242655-kernel_modules"
+        ]
+      }
+    ],
+    "osquery": [
+      {
+        "query_id": "OSQ-T1016_PROCESSES",
+        "name": "t1016_processes",
+        "query_text": "SELECT pid, parent, name, path, cmdline, cwd, on_disk FROM processes LIMIT 200;",
+        "matched": true,
+        "result_count": 1,
+        "supporting_event_ids": [
+          "osq-1776166996-pack_seraph_processe"
+        ]
+      },
+      {
+        "query_id": "OSQ-T1016_FILESYSTEM",
+        "name": "t1016_filesystem",
+        "query_text": "SELECT path, filename, directory, size, uid, gid, mode, mtime FROM file WHERE path LIKE '/tmp/%' OR path LIKE '/var/tmp/%' OR path LIKE '/dev/shm/%' LIMIT 200;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": []
+      },
+      {
+        "query_id": "OSQ-T1016_NETWORK",
+        "name": "t1016_network",
+        "query_text": "SELECT pid, fd, socket, family, protocol, local_address, remote_address, local_port, remote_port, state FROM process_open_sockets LIMIT 200;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": []
+      }
+    ],
+    "custom": []
+  },
+  "correlation": {
+    "direct_detection": true,
+    "correlated_detection": true,
+    "evidence_chain": [
+      "execution.command_line",
+      "telemetry_evidence.key_events[0]",
+      "analytic_evidence.sigma[0]",
+      "analytic_evidence.osquery[0]"
+    ]
+  },
+  "quality": {
+    "repeated_runs": 1,
+    "successful_detections": 1,
+    "baseline_window_minutes": 60,
+    "baseline_false_positives": 0,
+    "analyst_reviewed": true,
+    "reviewer": "metatron-system",
+    "reviewed_at": "2026-04-18T14:21:02.152214+00:00"
+  },
+  "promotion": {
+    "score": 4,
+    "tier": "S4",
+    "tier_name": "gold",
+    "status": "hardened",
+    "reason": "S4 Gold \u2014 direct detection confirmed: 1 real sandbox run(s) with exit_code=0, 4 Sigma rules matched, raw telemetry and event linkage present. Not yet hardened: requires \u22653 reproducible runs for S5."
+  },
+  "integrity": {
+    "record_sha256": "4cb1e34421c614af65bfa41c3de032a89083edbea761c0f6b1657c2c837b1d14",
+    "created_at": "2026-04-18T14:21:02.152214+00:00"
+  }
+}

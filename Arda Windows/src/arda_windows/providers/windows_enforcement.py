@@ -80,22 +80,45 @@ def _citool_apply_policy(policy_id: str) -> bool:
     return raw is not None and "error" not in raw.lower()
 
 
+def _ensure_appidsvc_running() -> bool:
+    """Ensure Application Identity service is running (required for AppLocker)."""
+    script = (
+        "$svc = Get-Service -Name 'AppIDSvc' -ErrorAction SilentlyContinue; "
+        "if (-not $svc) { Write-Output 'missing'; exit 1 }; "
+        "Set-Service -Name 'AppIDSvc' -StartupType Automatic -ErrorAction SilentlyContinue; "
+        "if ($svc.Status -ne 'Running') { Start-Service -Name 'AppIDSvc' -ErrorAction SilentlyContinue }; "
+        "Write-Output 'ok'"
+    )
+    raw = _run_ps(script, timeout=20)
+    return raw == "ok"
+
+
 def _applocker_set_enforcement(posture: str) -> bool:
     """
-    Toggle AppLocker enforcement mode via GPO registry path.
+    Toggle AppLocker enforcement mode via policy collection registry paths.
     posture: 'enforce' | 'audit' | 'off'
     """
     # AppLocker enforcement level: 0=not configured, 1=enforce, 2=audit
     level_map = {"enforce": 1, "audit": 2, "off": 0}
     level = level_map.get(posture, 0)
-    # Requires elevation; failure is non-fatal
+    # Requires elevation. Apply mode to all rule collections and ensure AppIDSvc.
+    if not _ensure_appidsvc_running():
+        return False
+
     script = (
-        f"$path = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\SrpV2'; "
-        f"if (-not (Test-Path $path)) {{ New-Item -Path $path -Force | Out-Null }}; "
-        f"Set-ItemProperty -Path $path -Name 'EnforcementMode' -Value {level} -Type DWord"
+        "$base = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\SrpV2'; "
+        "$collections = @('Exe','Msi','Script','Dll','Appx'); "
+        "if (-not (Test-Path $base)) { New-Item -Path $base -Force | Out-Null }; "
+        "foreach ($c in $collections) { "
+        "  $p = Join-Path $base $c; "
+        "  if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null }; "
+        f"  Set-ItemProperty -Path $p -Name 'EnforcementMode' -Value {level} -Type DWord "
+        "    -ErrorAction Stop; "
+        "}; "
+        "Write-Output 'ok'"
     )
     raw = _run_ps(script, timeout=15)
-    return raw is not None
+    return raw == "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -181,17 +204,18 @@ class WindowsPolicyEnforcementProvider:
         elif posture in ("enforce", "audit", "off"):
             # WDAC
             policy_id = _WDAC_POSTURE_POLICY_IDS.get(posture, "")
+            wdac_ok = False
             if policy_id:
-                ok = _citool_apply_policy(policy_id)
-                actions.append(f"wdac_policy:{posture}:{'ok' if ok else 'fail'}")
-                if not ok:
-                    success = False
+                wdac_ok = _citool_apply_policy(policy_id)
+                actions.append(f"wdac_policy:{posture}:{'ok' if wdac_ok else 'fail'}")
 
             # AppLocker
-            ok = _applocker_set_enforcement(posture)
-            actions.append(f"applocker:{posture}:{'ok' if ok else 'fail'}")
-            if not ok:
-                success = False
+            app_ok = _applocker_set_enforcement(posture)
+            actions.append(f"applocker:{posture}:{'ok' if app_ok else 'fail'}")
+
+            # On Windows guests without managed WDAC baseline IDs, AppLocker can
+            # still provide execution prevention. Treat either as success.
+            success = app_ok or wdac_ok
 
         else:
             actions.append(f"unknown_posture:{posture}")

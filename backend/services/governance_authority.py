@@ -1,28 +1,11 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
-
-try:
-    from services.governance_epoch import get_governance_epoch_service
-except Exception:
-    from backend.services.governance_epoch import get_governance_epoch_service
-
-try:
-    from services.notation_token import get_notation_token_service
-except Exception:
-    from backend.services.notation_token import get_notation_token_service
-
-try:
-    from services.chorus_engine import get_chorus_engine
-except Exception:
-    from backend.services.chorus_engine import get_chorus_engine
-
-try:
-    from services.world_events import emit_world_event
-except Exception:
-    try:
-        from backend.services.world_events import emit_world_event
-    except Exception:
-        emit_world_event = None
+from backend.services.harmonic_policy import get_harmonic_policy_service
+from backend.services.governance_epoch import get_governance_epoch_service
+from backend.services.notation_token import get_notation_token_service
+from backend.services.chorus_engine import get_chorus_engine
+from backend.services.world_events import emit_world_event
+from backend.services.harmonic_explainability import build_harmonic_explanation
 
 
 def _iso_now() -> str:
@@ -47,55 +30,60 @@ class GovernanceDecisionAuthority:
         self.epoch_service = get_governance_epoch_service(db)
         self.notation_tokens = get_notation_token_service(db)
         self.chorus = get_chorus_engine(db)
+        self.harmonic_policy = get_harmonic_policy_service()
 
     @staticmethod
     def interpret_harmonic_band(harmonic_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        state = harmonic_state or {}
-        resonance = float(state.get("resonance_score") or 0.0)
-        discord = float(state.get("discord_score") or 0.0)
-        confidence = float(state.get("confidence") or 0.0)
-        obligations = []
-        band = "normal"
-        release_delay_ms = 0
-        if confidence < 0.4:
-            band = "low_confidence_review"
-            obligations.append("manual_review_low_confidence")
-        elif discord >= 0.8:
-            band = "severe_discord"
-            obligations.extend(["tighten_scrutiny", "sandbox_recommended", "triune_recheck_before_release"])
-            release_delay_ms = 3000
-        elif discord >= 0.6 or resonance <= 0.4:
-            band = "moderate_discord"
-            obligations.extend(["tighten_scrutiny", "monitor_execution_timing"])
-            release_delay_ms = 1500
-        elif discord >= 0.4:
-            band = "mild_strain"
-            obligations.append("monitor_execution_timing")
-        return {
-            "band": band,
-            "obligations": obligations,
-            "release_delay_ms": release_delay_ms,
-            "confidence": confidence,
-            "discord_score": discord,
-            "resonance_score": resonance,
-        }
+        return get_harmonic_policy_service().interpret_harmonic_band(harmonic_state)
 
     def apply_harmonic_obligations(
         self,
         *,
         harmonic_state: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        guidance = self.interpret_harmonic_band(harmonic_state)
-        release_delay_ms = int(guidance.get("release_delay_ms") or 0)
-        return {
-            "harmonic_guidance": guidance,
-            "harmonic_obligations": list(guidance.get("obligations") or []),
-            "release_not_before": (
-                (datetime.now(timezone.utc) + timedelta(milliseconds=release_delay_ms)).isoformat()
-                if release_delay_ms > 0
-                else None
-            ),
-        }
+        return self.harmonic_policy.apply_harmonic_obligations(harmonic_state=harmonic_state)
+
+    @staticmethod
+    def _updated_deception_provenance(
+        *,
+        provenance: Optional[Dict[str, Any]],
+        decision_status: str,
+        queue_status: str,
+        notation_valid: bool,
+        world_state_hash_match: bool,
+        actor: str,
+        reason: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not isinstance(provenance, dict) or not provenance:
+            return None
+
+        updated = dict(provenance)
+        revocation_conditions = list(dict.fromkeys(updated.get("revocation_conditions") or []))
+        revocation_triggers = list(updated.get("revocation_triggers") or [])
+        revocation_reason = reason
+
+        corroboration = updated.get("independent_corroboration")
+        if not isinstance(corroboration, dict):
+            corroboration = {}
+        corroboration_satisfied = bool(corroboration.get("satisfied", True))
+
+        if not world_state_hash_match and "world_state_hash_drift" in revocation_conditions:
+            revocation_triggers.append("world_state_hash_drift")
+            revocation_reason = revocation_reason or "world_state_hash_drift"
+        if not notation_valid and "notation_token_revoked" in revocation_conditions:
+            revocation_triggers.append("notation_token_revoked")
+            revocation_reason = revocation_reason or "notation_validation_failed"
+        if not corroboration_satisfied and "corroboration_degraded" in revocation_conditions:
+            revocation_triggers.append("corroboration_degraded")
+            revocation_reason = revocation_reason or "corroboration_degraded"
+
+        updated["triune_decision_status"] = decision_status
+        updated["outbound_queue_status"] = queue_status
+        updated["governance_actor"] = actor
+        updated["revocation_triggers"] = list(dict.fromkeys(revocation_triggers))
+        updated["revocation_triggered"] = len(updated["revocation_triggers"]) > 0
+        updated["revocation_reason"] = revocation_reason
+        return updated
 
     async def _validate_notation_for_approval(self, decision: Dict[str, Any]) -> Dict[str, Any]:
         related_queue_id = decision.get("related_queue_id")
@@ -218,7 +206,29 @@ class GovernanceDecisionAuthority:
         harmonic_modulation = self.apply_harmonic_obligations(harmonic_state=harmonic_state)
         harmonic_guidance = harmonic_modulation.get("harmonic_guidance") or {}
         harmonic_obligations = harmonic_modulation.get("harmonic_obligations") or []
+        harmonic_enforcement = harmonic_modulation.get("harmonic_enforcement") or {}
         release_not_before = harmonic_modulation.get("release_not_before")
+        harmonic_explanation = build_harmonic_explanation(
+            scope_key=str(((queue_polyphonic.get("baseline_ref") or {}) if isinstance(queue_polyphonic, dict) else {}).get("baseline_id") or ""),
+            stage="governance_authority",
+            timing_features=(queue_polyphonic.get("timing_features") if isinstance(queue_polyphonic, dict) else None),
+            harmonic_state=harmonic_state,
+            baseline_ref=(queue_polyphonic.get("baseline_ref") if isinstance(queue_polyphonic, dict) else None),
+            harmonic_guidance=harmonic_guidance,
+            harmonic_obligations=harmonic_obligations,
+            release_not_before=release_not_before,
+        )
+        deception_provenance = self._updated_deception_provenance(
+            provenance=queue_doc.get("deception_provenance") or queue_polyphonic.get("deception_provenance"),
+            decision_status="denied" if related_queue_id and not notation_valid else "approved",
+            queue_status="denied" if related_queue_id and not notation_valid else "approved",
+            notation_valid=notation_valid,
+            world_state_hash_match=bool(notation_checks.get("world_state_hash_match", notation_valid)),
+            actor=actor,
+            reason=notation_reason,
+        )
+        if deception_provenance:
+            queue_polyphonic["deception_provenance"] = deception_provenance
         if related_queue_id and not notation_valid:
             polyphonic_ctx = queue_doc.get("polyphonic_context") or (queue_doc.get("payload") or {}).get("polyphonic_context") or {}
             notation_token_id = (
@@ -244,6 +254,9 @@ class GovernanceDecisionAuthority:
                         "harmonic_state": harmonic_state,
                         "harmonic_band": harmonic_guidance.get("band"),
                         "harmonic_obligations": harmonic_obligations,
+                        "harmonic_enforcement": harmonic_enforcement,
+                        "harmonic_explanation": harmonic_explanation,
+                        "deception_provenance": deception_provenance,
                         "polyphonic_context": queue_polyphonic or None,
                     }
                 },
@@ -265,6 +278,9 @@ class GovernanceDecisionAuthority:
                         "harmonic_state": harmonic_state,
                         "harmonic_band": harmonic_guidance.get("band"),
                         "harmonic_obligations": harmonic_obligations,
+                        "harmonic_enforcement": harmonic_enforcement,
+                        "harmonic_explanation": harmonic_explanation,
+                        "deception_provenance": deception_provenance,
                         "polyphonic_context": queue_polyphonic or None,
                     }
                 },
@@ -291,6 +307,8 @@ class GovernanceDecisionAuthority:
                             "score_match": bool(notation_checks.get("score_match", False)),
                             "harmonic_band": harmonic_guidance.get("band"),
                             "harmonic_obligations": harmonic_obligations,
+                            "harmonic_explanation": harmonic_explanation,
+                            "deception_provenance": deception_provenance,
                         },
                         trigger_triune=False,
                         source=source,
@@ -326,7 +344,10 @@ class GovernanceDecisionAuthority:
                     "harmonic_state": harmonic_state,
                     "harmonic_band": harmonic_guidance.get("band"),
                     "harmonic_obligations": harmonic_obligations,
+                    "harmonic_enforcement": harmonic_enforcement,
                     "harmonic_release_not_before": release_not_before,
+                    "harmonic_explanation": harmonic_explanation,
+                    "deception_provenance": deception_provenance,
                     "polyphonic_context": queue_polyphonic or None,
                 }
             },
@@ -350,7 +371,10 @@ class GovernanceDecisionAuthority:
                         "harmonic_state": harmonic_state,
                         "harmonic_band": harmonic_guidance.get("band"),
                         "harmonic_obligations": harmonic_obligations,
+                        "harmonic_enforcement": harmonic_enforcement,
                         "harmonic_release_not_before": release_not_before,
+                        "harmonic_explanation": harmonic_explanation,
+                        "deception_provenance": deception_provenance,
                         "polyphonic_context": queue_polyphonic or None,
                     }
                 },
@@ -387,7 +411,10 @@ class GovernanceDecisionAuthority:
                         "score_match": bool(notation_checks.get("score_match", True)),
                         "harmonic_band": harmonic_guidance.get("band"),
                         "harmonic_obligations": harmonic_obligations,
+                        "harmonic_enforcement": harmonic_enforcement,
                         "harmonic_release_not_before": release_not_before,
+                        "harmonic_explanation": harmonic_explanation,
+                        "deception_provenance": deception_provenance,
                     },
                     trigger_triune=False,
                     source=source,
@@ -417,7 +444,9 @@ class GovernanceDecisionAuthority:
             "execution_status": resolved_execution_status,
             "harmonic_band": harmonic_guidance.get("band"),
             "harmonic_obligations": harmonic_obligations,
+            "harmonic_enforcement": harmonic_enforcement,
             "harmonic_release_not_before": release_not_before,
+            "harmonic_explanation": harmonic_explanation,
         }
 
     async def deny_decision(
@@ -437,6 +466,24 @@ class GovernanceDecisionAuthority:
         queue_doc = None
         if related_queue_id:
             queue_doc = await self.db.triune_outbound_queue.find_one({"queue_id": related_queue_id}, {"_id": 0})
+        queue_polyphonic = (
+            (queue_doc or {}).get("polyphonic_context")
+            or (((queue_doc or {}).get("payload") or {}).get("polyphonic_context"))
+            or {}
+        )
+        if not isinstance(queue_polyphonic, dict):
+            queue_polyphonic = {}
+        deception_provenance = self._updated_deception_provenance(
+            provenance=(queue_doc or {}).get("deception_provenance") or queue_polyphonic.get("deception_provenance"),
+            decision_status="denied",
+            queue_status="denied" if related_queue_id else "policy_only",
+            notation_valid=False,
+            world_state_hash_match=False if "world_state_hash" in str(reason or "").lower() else True,
+            actor=actor,
+            reason=reason,
+        )
+        if deception_provenance:
+            queue_polyphonic["deception_provenance"] = deception_provenance
         await self.db.triune_decisions.update_one(
             {"decision_id": decision_id},
             {
@@ -447,6 +494,7 @@ class GovernanceDecisionAuthority:
                     "updated_at": now,
                     "execution_status": "skipped",
                     "denial_reason": reason,
+                    "deception_provenance": deception_provenance,
                 }
             },
         )
@@ -460,6 +508,8 @@ class GovernanceDecisionAuthority:
                         "denied_at": now,
                         "updated_at": now,
                         "execution_status": "skipped",
+                        "deception_provenance": deception_provenance,
+                        "polyphonic_context": queue_polyphonic or None,
                     }
                 },
             )
@@ -495,7 +545,12 @@ class GovernanceDecisionAuthority:
                     self.db,
                     event_type="governance_decision_denied",
                     entity_refs=[decision_id, related_queue_id],
-                    payload={"actor": actor, "reason": reason, "source": source},
+                    payload={
+                        "actor": actor,
+                        "reason": reason,
+                        "source": source,
+                        "deception_provenance": deception_provenance,
+                    },
                     trigger_triune=False,
                     source=source,
                 )

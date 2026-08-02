@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from routers.dependencies import get_db, require_machine_token
-from services.world_model import WorldEntity, WorldEdge, WorldModelService
-from services.world_events import emit_world_event
+from backend.services.world_model import WorldEntity, WorldEdge, WorldModelService
+from backend.services.world_events import emit_world_event
 from typing import Dict, Any
 
 router = APIRouter(prefix="/ingest", tags=["World Ingest"])

@@ -1065,7 +1065,70 @@ class SOAREngine:
         )
 
         # =====================================================================
-        # SYSTEM EVASION & CREDENTIAL RESPONSE
+        # DISINFORMATION PERSISTENCE RESPONSE
+        # Fired when a campaign has been served disinfo >= threshold times,
+        # indicating an adversary who is probing through the poisoned data layer
+        # and likely correlating/ignoring it.  Escalate to TRAP_SINK territory.
+        # =====================================================================
+        self.playbooks["ai_disinfo_persist_01"] = Playbook(
+            id="ai_disinfo_persist_01",
+            name="Disinformation Persistence — Escalate to Trap",
+            description=(
+                "Campaign has been probing through the disinformation layer "
+                "beyond the persistence threshold. Adversary is likely "
+                "detecting/ignoring poisoned responses. Escalate friction, "
+                "deploy a high-value decoy, and alert a threat hunter."
+            ),
+            trigger=PlaybookTrigger.DECEPTION_TOKEN_ACCESS,
+            trigger_conditions={"route": ["disinformation"]},
+            steps=[
+                PlaybookStep(
+                    action=PlaybookAction.TAG_SESSION,
+                    params={"tags": ["disinfo_persistent", "escalate_to_trap", "ai_suspected"]},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.INJECT_LATENCY,
+                    params={"delay_ms": 2000, "jitter_ms": 800, "progressive": True},
+                    timeout=10
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.DEPLOY_DECOY,
+                    params={
+                        "type": "high_value",
+                        "decoys": ["admin_credentials", "internal_api_key", "database_dsn"],
+                        "realistic": True,
+                        "attractive": True,
+                    },
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.CAPTURE_TRIAGE_BUNDLE,
+                    params={"window_s": 300, "include": ["network", "processes", "memory"]},
+                    timeout=360,
+                    continue_on_failure=True
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.INVOKE_ML_ANALYSIS,
+                    params={"model": "ai_behavior_classifier", "urgent": True,
+                            "track_evolution": True},
+                    timeout=30
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.ESCALATE_TO_HUMAN,
+                    params={"reason": "disinfo_persistence_detected",
+                            "expertise_required": "threat_hunting"},
+                    timeout=5
+                ),
+                PlaybookStep(
+                    action=PlaybookAction.SEND_ALERT,
+                    params={"channels": ["slack", "email"], "priority": "high",
+                            "template": "disinfo_persistence"},
+                    timeout=30
+                ),
+            ],
+            tags=["ai_defense", "disinformation", "persistence", "escalation"]
+        )
         # =====================================================================
         self.playbooks["ai_sys_evasion_response"] = Playbook(
             id="ai_sys_evasion_response",
@@ -1342,7 +1405,7 @@ class SOAREngine:
         
         return True
     
-    async def execute_playbook(self, playbook_id: str, event: Dict) -> PlaybookExecution:
+    async def execute_playbook(self, playbook_id: str, event: Dict, db=None) -> PlaybookExecution:
         """Execute a playbook"""
         playbook = self.playbooks.get(playbook_id)
         if not playbook:
@@ -1392,7 +1455,7 @@ class SOAREngine:
                     except Exception:
                         span_id = None
 
-                result = await self._execute_action(step, enriched_event, execution_id=execution.id)
+                result = await self._execute_action(step, enriched_event, execution_id=execution.id, db=db)
                 step_result["status"] = "completed"
                 step_result["result"] = result
                 step_result["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -1511,7 +1574,7 @@ class SOAREngine:
         
         return execution
     
-    async def _execute_action(self, step: PlaybookStep, event: Dict, execution_id: Optional[str] = None) -> Dict:
+    async def _execute_action(self, step: PlaybookStep, event: Dict, execution_id: Optional[str] = None, db=None) -> Dict:
         """
         Execute a single playbook action with full pipeline integration.
         
@@ -1522,6 +1585,109 @@ class SOAREngine:
         params = step.params
         host_id = event.get("host_id") or event.get("agent_id")
         session_id = event.get("session_id")
+        
+        # =================================================================
+        # OUTBOUND GATE CHECK FOR HIGH-IMPACT ACTIONS
+        # =================================================================
+        # Certain actions require governance approval before execution.
+        # This prevents SOAR from self-authorizing destructive operations.
+        high_impact_actions = {
+            PlaybookAction.BLOCK_IP: "response_block_ip",
+            PlaybookAction.KILL_PROCESS: "response_execution", 
+            PlaybookAction.ISOLATE_ENDPOINT: "quarantine_agent",
+            PlaybookAction.DISABLE_USER: "response_execution",
+            PlaybookAction.UPDATE_FIREWALL: "cross_sector_hardening",
+        }
+        
+        if action in high_impact_actions:
+            gate_result = await self._check_outbound_gate(
+                action_type=high_impact_actions[action],
+                actor="system:soar-engine",
+                payload={
+                    "action": action.value,
+                    "params": params,
+                    "host_id": host_id,
+                    "session_id": session_id,
+                    "execution_id": execution_id,
+                    "event_type": event.get("event_type"),
+                    "campaign_id": event.get("campaign_id"),
+                    "source_ip": event.get("source_ip"),
+                },
+                impact_level="high",
+                subject_id=host_id,
+                entity_refs=[host_id, session_id, execution_id],
+                db=db,
+                requires_triune=True,
+            )
+            
+            if gate_result.get("status") == "denied":
+                logger.warning(
+                    f"SOAR action {action.value} denied by outbound gate: {gate_result.get('message')}"
+                )
+                return {
+                    "action": action.value,
+                    "status": "denied",
+                    "gate_status": gate_result.get("status"),
+                    "gate_message": gate_result.get("message"),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+            elif gate_result.get("status") == "queued":
+                logger.info(
+                    f"SOAR action {action.value} queued for approval: {gate_result.get('action_id')}"
+                )
+                return {
+                    "action": action.value,
+                    "status": "queued",
+                    "gate_status": gate_result.get("status"),
+                    "action_id": gate_result.get("action_id"),
+                    "queue_id": gate_result.get("queue_id"),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+        
+        # =================================================================
+        # MCP ROUTING FOR DECEPTION TOOLS
+        # =================================================================
+        # Deception-specific actions should route through MCP for proper audit
+        # and governance trail, even if they don't require outbound gate approval.
+        deception_actions = {
+            PlaybookAction.DEPLOY_DECOY: "mcp.defense.deploy_decoy",
+            PlaybookAction.FEED_DISINFORMATION: "mcp.defense.feed_disinformation",
+        }
+        
+        if action in deception_actions:
+            mcp_result = await self._execute_via_mcp(
+                tool_id=deception_actions[action],
+                params={
+                    "session_id": session_id,
+                    "host_id": host_id,
+                    "campaign_id": event.get("campaign_id"),
+                    "source_ip": event.get("source_ip"),
+                    "execution_id": execution_id,
+                    **params,  # Include action-specific params
+                },
+                event=event,
+            )
+            
+            if mcp_result.get("status") == "denied":
+                logger.warning(
+                    f"SOAR deception action {action.value} denied by MCP: {mcp_result.get('message')}"
+                )
+                return {
+                    "action": action.value,
+                    "status": "denied",
+                    "mcp_status": mcp_result.get("status"),
+                    "mcp_message": mcp_result.get("message"),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+            
+            # MCP execution succeeded - return the result
+            return {
+                "action": action.value,
+                "status": "completed",
+                "mcp_tool_id": deception_actions[action],
+                "mcp_result": mcp_result,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
         
         result = {
             "action": action.value,
@@ -1824,11 +1990,28 @@ class SOAREngine:
             delay_reveal = params.get("delay_reveal", False)
             goal_misdirection = params.get("goal_misdirection", False)
             logger.info(f"SOAR AI: Feeding disinformation ({disinfo_type})")
+            # Gap D: delegate to DisinformationEngine so SOAR-triggered disinfo is
+            # tracked, seeded per-campaign, and visible in history/stats endpoints.
+            disinfo_payload = None
+            try:
+                from services.disinformation_engine import get_disinfo_engine as _get_de
+                _disinfo_svc = _get_de()
+                disinfo_payload = _disinfo_svc.generate(
+                    path=event.get("path", "/api/data"),
+                    session_id=session_id or event.get("source_ip") or "soar",
+                    campaign_id=event.get("campaign_id"),
+                    risk_score=int(event.get("risk_score") or 80),
+                    reasons=["soar_playbook", f"disinfo_type:{disinfo_type}"],
+                    behavior_flags={"goal_misdirection": goal_misdirection},
+                )
+            except Exception as _de_err:
+                logger.debug(f"SOAR: DisinformationEngine unavailable: {_de_err}")
             result.update({
                 "type": disinfo_type,
                 "delay_reveal": delay_reveal,
                 "goal_misdirection": goal_misdirection,
-                "status": "feeding"
+                "disinfo_payload": disinfo_payload,
+                "status": "feeding",
             })
         
         elif action == PlaybookAction.ENABLE_ENHANCED_LOGGING:
@@ -1963,6 +2146,111 @@ class SOAREngine:
         
         return result
     
+    async def _check_outbound_gate(
+        self,
+        action_type: str,
+        actor: str,
+        payload: Dict,
+        impact_level: str,
+        subject_id: str,
+        entity_refs: List[str],
+        db=None,
+        requires_triune: bool = True,
+    ) -> Dict:
+        """
+        Check action against outbound gate for governance approval.
+        
+        Returns gate result dict with status: "approved", "denied", or "queued".
+        """
+        if db is None:
+            logger.warning(
+                f"SOAR outbound gate check skipped for {action_type} - no db provided"
+            )
+            return {
+                "status": "approved",
+                "skipped": True,
+                "reason": "no_db_provided",
+                "action_type": action_type,
+            }
+        
+        try:
+            from services.outbound_gate import OutboundGateService
+            gate = OutboundGateService(db)
+            return await gate.gate_action(
+                action_type=action_type,
+                actor=actor,
+                payload=payload,
+                impact_level=impact_level,
+                subject_id=subject_id,
+                entity_refs=entity_refs,
+                requires_triune=requires_triune,
+            )
+        except ImportError as e:
+            logger.warning(f"SOAR outbound gate import failed: {e}")
+            return {
+                "status": "approved", 
+                "skipped": True,
+                "reason": "import_error",
+                "error": str(e),
+            }
+        except Exception as e:
+            logger.warning(f"SOAR outbound gate check failed for {action_type}: {e}")
+            return {
+                "status": "approved",
+                "skipped": True,
+                "reason": str(e),
+            }
+    
+    async def _execute_via_mcp(
+        self,
+        tool_id: str,
+        params: Dict,
+        event: Dict,
+    ) -> Dict:
+        """
+        Execute a tool via MCP for proper audit trail and governance.
+        
+        Returns MCP execution result dict.
+        """
+        try:
+            # Import MCP server singleton
+            import sys
+            import os
+            # Add root directory to path so we can import mcp_server
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if root_dir not in sys.path:
+                sys.path.insert(0, root_dir)
+            
+            import mcp_server
+            mcp_instance = mcp_server.mcp_server
+            
+            # Execute via MCP tool bus
+            result = await mcp_instance.execute_tool(
+                tool_id=tool_id,
+                parameters=params,
+                context={
+                    "source": "soar_engine",
+                    "event_type": event.get("event_type"),
+                    "execution_id": event.get("execution_id"),
+                    "session_id": event.get("session_id"),
+                    "host_id": event.get("host_id"),
+                }
+            )
+            
+            return {
+                "status": "completed",
+                "mcp_tool_id": tool_id,
+                "result": result,
+            }
+            
+        except Exception as e:
+            logger.error(f"MCP execution failed for {tool_id}: {e}")
+            return {
+                "status": "failed",
+                "mcp_tool_id": tool_id,
+                "error": str(e),
+            }
+    
     def _update_escalation_state(
         self,
         host_id: str,
@@ -2050,7 +2338,7 @@ class SOAREngine:
         for playbook in self.playbooks.values():
             if self.matches_trigger(playbook, event):
                 try:
-                    execution = await self.execute_playbook(playbook.id, event)
+                    execution = await self.execute_playbook(playbook.id, event, db)
                     executions.append(execution)
                 except Exception as e:
                     logger.error(f"Failed to execute playbook {playbook.id}: {e}")
@@ -2480,7 +2768,9 @@ class SOAREngine:
             results = await self._evaluate_session_summary(event, db)
         elif event_type == "deception.hit":
             results = await self._evaluate_deception_hit(event, db)
-        
+        elif event_type == "deception.disinfo":
+            results = await self._evaluate_disinfo_persistence(event, db)
+
         return results
     
     async def _evaluate_session_summary(self, event: Dict, db=None) -> List[Dict]:
@@ -2566,18 +2856,61 @@ class SOAREngine:
         
         return results
     
+    async def _evaluate_disinfo_persistence(self, event: Dict, db=None) -> List[Dict]:
+        """
+        Evaluate a disinformation persistence alert.
+        Fired when a campaign has been served disinfo >= DISINFO_PERSIST_THRESHOLD times.
+        Executes ai_disinfo_persist_01: escalate friction, deploy high-value decoy, alert hunter.
+        """
+        results = []
+        disinfo_events = event.get("disinfo_events", 0)
+        campaign_id = event.get("campaign_id")
+        try:
+            execution = await self.execute_playbook("ai_disinfo_persist_01", event, db)
+            results.append({
+                "playbook_id": "ai_disinfo_persist_01",
+                "execution_id": execution.id,
+                "status": execution.status.value,
+            })
+            logger.warning(
+                f"SOAR Disinfo Persistence: ai_disinfo_persist_01 for campaign={campaign_id} "
+                f"disinfo_events={disinfo_events}"
+            )
+        except Exception as e:
+            logger.error(f"SOAR ai_disinfo_persist_01 failed: {e}")
+            results.append({"playbook_id": "ai_disinfo_persist_01", "status": "failed", "error": str(e)})
+        return results
+
     async def _evaluate_deception_hit(self, event: Dict, db=None) -> List[Dict]:
         """Evaluate a deception/honey token hit"""
         results = []
         severity = event.get("severity", "medium")
-        
+
+        # Always execute the registered ai_decoy_hit_01 playbook.
+        # This chain: TAG → LOGGING → ML → TRIAGE → FEED_DISINFORMATION → BLOCK → ALERT
+        # The FEED_DISINFORMATION step now calls DisinformationEngine.generate() (Gap D).
+        try:
+            execution = await self.execute_playbook("ai_decoy_hit_01", event, db)
+            results.append({
+                "playbook_id": "ai_decoy_hit_01",
+                "execution_id": execution.id,
+                "status": execution.status.value,
+            })
+            logger.critical(
+                f"SOAR Deception Hit: ai_decoy_hit_01 executed for "
+                f"{event.get('host_id')} severity={severity}"
+            )
+        except Exception as e:
+            logger.error(f"SOAR ai_decoy_hit_01 failed: {e}")
+            results.append({"playbook_id": "ai_decoy_hit_01", "status": "failed", "error": str(e)})
+
+        # For high/critical severity also run the AI exec containment chain.
         if severity in ["high", "critical"]:
             pb = {
                 "playbook_id": "AI-DECOY-HIT-CONTAIN-01",
                 "name": "Decoy/Honey Token Hit — Immediate Containment",
                 "reason": f"Severity:{severity} Token:{event.get('token_id')}"
             }
-            
             try:
                 execution_result = await self._execute_ai_playbook(pb, event, db)
                 results.append(execution_result)
@@ -2591,7 +2924,7 @@ class SOAREngine:
                     "status": "failed",
                     "error": str(e)
                 })
-        
+
         return results
     
     async def _execute_ai_playbook(self, playbook_info: Dict, event: Dict, db=None) -> Dict:

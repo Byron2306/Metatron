@@ -12,7 +12,33 @@ from .dependencies import (
     get_db, check_permission, ROLES
 )
 
+# Optional auth security services
+try:
+    from backend.services.boundary_control import BoundaryControl
+except ImportError:
+    BoundaryControl = None
+
+try:
+    from backend.services.replay_guard import ReplayGuard
+except ImportError:
+    ReplayGuard = None
+
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.get("/bootstrap-status")
+async def bootstrap_status():
+    """Return public first-run authentication state for the login UI."""
+    db = get_db()
+    user_count = await db.users.count_documents({})
+    admin_count = await db.users.count_documents({"role": "admin"})
+    required_token = os.environ.get("SETUP_TOKEN", "").strip()
+    return {
+        "user_count": user_count,
+        "admin_count": admin_count,
+        "setup_required": admin_count == 0,
+        "setup_token_required": bool(required_token),
+    }
 
 @router.post("/register", response_model=TokenResponse)
 async def register(user_data: UserCreate):
@@ -167,3 +193,49 @@ async def list_users(current_user: dict = Depends(check_permission("manage_users
     db = get_db()
     users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(100)
     return users
+
+
+@router.post("/boundary/enforce")
+async def enforce_access_boundary(
+    principal_id: str,
+    resource_type: str,
+    action: str,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Enforce access boundary for a principal."""
+    if not BoundaryControl:
+        raise HTTPException(status_code=501, detail="Boundary control not available")
+    
+    try:
+        bc = BoundaryControl()
+        decision = await bc.enforce_boundary(principal_id, resource_type, action)
+        return {
+            "success": True,
+            "principal_id": principal_id,
+            "allowed": decision.get("allowed", False),
+            "reason": decision.get("reason"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Boundary enforcement failed: {str(e)}")
+
+
+@router.post("/replay/guard")
+async def guard_against_replay(
+    request_hash: str,
+    timestamp: int,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Guard against replay attacks."""
+    if not ReplayGuard:
+        raise HTTPException(status_code=501, detail="Replay guard not available")
+    
+    try:
+        guard = ReplayGuard()
+        is_replay = await guard.is_replay(request_hash, timestamp)
+        return {
+            "success": True,
+            "is_replay": is_replay,
+            "request_hash": request_hash,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Replay guard check failed: {str(e)}")

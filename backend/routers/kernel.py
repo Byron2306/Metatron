@@ -197,10 +197,12 @@ async def get_kernel_status(current_user: dict = Depends(get_current_user)):
         # Operator override: SERAPH_KERNEL_ENABLED=true reports sensor as active
         kernel_override = _os.environ.get("SERAPH_KERNEL_ENABLED", "").strip().lower() in ("1", "true", "yes")
         is_auth = bool(svc.is_authoritative)
+        effective_mode = "ring0_armed" if (is_auth or kernel_override) else "simulation"
         return {
             "is_authoritative": is_auth,
-            "mode": "ring0_armed" if is_auth else "simulation",
+            "mode": effective_mode,
             "operator_override": kernel_override,
+            "mode_source": "authoritative" if is_auth else ("operator_override" if kernel_override else "simulation"),
             "bpf_source": getattr(svc, "bpf_source", None),
             "sovereign_mode": _os.environ.get("ARDA_SOVEREIGN_MODE", "0") == "1",
             "trusted_workloads": len(svc.lsm_map) if isinstance(svc.lsm_map, dict) else "hardware_map",

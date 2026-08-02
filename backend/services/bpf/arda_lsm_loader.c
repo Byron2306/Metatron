@@ -23,6 +23,9 @@ static struct bpf_link  *bpf_lnk = NULL;
 static struct bpf_link  *net_lnk = NULL;
 static int state_map_fd = -1;
 static int harmony_map_fd = -1;
+static int verity_harmony_map_fd = -1;
+static int verity_generation_map_fd = -1;
+static int active_generation_map_fd = -1;
 static int deny_count_map_fd = -1;
 static int network_deny_map_fd = -1;
 static int seeded_total = 0;
@@ -31,6 +34,26 @@ struct arda_identity {
     unsigned long inode;
     unsigned int dev;
 };
+
+#define ARDA_MAX_VERITY_DIGEST_SIZE 64
+#define ARDA_MODE_AUDIT 0
+#define ARDA_MODE_LEGACY_INODE 1
+#define ARDA_MODE_FSVERITY_STRICT 2
+
+struct arda_verity_identity {
+    __u16 digest_algorithm;
+    __u16 digest_size;
+    __u8 digest[ARDA_MAX_VERITY_DIGEST_SIZE];
+};
+
+struct arda_verity_generation_identity {
+    __u64 cgroup_id;
+    __u64 generation;
+    struct arda_verity_identity identity;
+};
+
+static __u64 verity_cgroup_id = 0;
+static __u64 verity_generation = 1;
 
 void cleanup(int sig) {
     (void)sig;
@@ -42,6 +65,50 @@ static void set_enforcement(int enabled) {
     __u32 key = 0;
     __u32 val = enabled ? 1 : 0;
     (void)bpf_map_update_elem(state_map_fd, &key, &val, BPF_ANY);
+}
+
+static void set_enforcement_mode(__u32 mode) {
+    if (state_map_fd < 0) return;
+    __u32 key = 0;
+    (void)bpf_map_update_elem(state_map_fd, &key, &mode, BPF_ANY);
+}
+
+static int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* Format: <fs-verity-algorithm-id>:<hex-digest>, e.g. 1:abcd... */
+static int seed_verity_digest(const char *spec) {
+    if (verity_generation_map_fd < 0 || !spec || verity_cgroup_id == 0 || verity_generation == 0) return 0;
+    char *end = NULL;
+    unsigned long algorithm = strtoul(spec, &end, 10);
+    if (!end || *end != ':' || algorithm > 0xffff) return 0;
+    const char *hex = end + 1;
+    size_t hex_len = strlen(hex);
+    if (hex_len == 0 || (hex_len & 1) != 0 ||
+        hex_len / 2 > ARDA_MAX_VERITY_DIGEST_SIZE) return 0;
+
+    struct arda_verity_generation_identity key = {0};
+    key.cgroup_id = verity_cgroup_id;
+    key.generation = verity_generation;
+    key.identity.digest_algorithm = (__u16)algorithm;
+    key.identity.digest_size = (__u16)(hex_len / 2);
+    for (size_t i = 0; i < key.identity.digest_size; i++) {
+        int high = hex_nibble(hex[i * 2]);
+        int low = hex_nibble(hex[i * 2 + 1]);
+        if (high < 0 || low < 0) return 0;
+        key.identity.digest[i] = (__u8)((high << 4) | low);
+    }
+    __u32 value = 1;
+    if (bpf_map_update_elem(verity_generation_map_fd, &key, &value, BPF_NOEXIST) != 0) {
+        if (errno == EEXIST) return 1;
+        fprintf(stderr, "VERITY_SEED: map update failed: %s\n", strerror(errno));
+        return 0;
+    }
+    return 1;
 }
 
 static void set_network_deny_pid(int pid, int deny) {
@@ -171,7 +238,9 @@ int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <bpf_object.o> [--permanent] [--audit | --enforce] "
                 "[--failsafe-seconds N] [--delay-seconds N] [--enforce-seconds N] "
-                "[--seed-path PATH]... [--seed-exec-dir DIR]... "
+                "[--seed-path PATH]... [--seed-verity-digest ALG:HEX]... [--verity-enforce] "
+                "[--verity-cgroup-id ID] [--verity-generation N] "
+                "[--seed-exec-dir DIR]... "
                 "[--seed-exec-dir-recursive DIR]... [--seed-running-procs] "
                 "[--max-seed N] [--min-seed N] [--confirm-permanent] [--no-failsafe] "
                 "[--deny-pid PID] [--allow-pid PID] "
@@ -181,10 +250,12 @@ int main(int argc, char **argv) {
 
     const char *obj_path = argv[1];
     const char *pin_path = NULL;
+    const char *pin_root = NULL;
     int delay_seconds = 0;
     int enforce_seconds = 0;
     int force_enforce = 0;
     int force_audit = 0;
+    int force_verity_enforce = 0;
     int force_permanent = 0;
     int confirm_permanent = 0;
     int no_failsafe = 0;
@@ -194,6 +265,8 @@ int main(int argc, char **argv) {
     int min_seed_for_enforce = 1;
     const char *seed_paths[256];
     int seed_count = 0;
+    const char *verity_digests[1024];
+    int verity_digest_count = 0;
     const char *seed_dirs[128];
     int seed_dir_count = 0;
     const char *seed_dirs_recursive[128];
@@ -208,6 +281,7 @@ int main(int argc, char **argv) {
 
         if (strcmp(arg, "--audit") == 0) { force_audit = 1; continue; }
         if (strcmp(arg, "--enforce") == 0) { force_enforce = 1; continue; }
+        if (strcmp(arg, "--verity-enforce") == 0) { force_verity_enforce = 1; continue; }
         if (strcmp(arg, "--confirm-permanent") == 0) { confirm_permanent = 1; continue; }
         if (strcmp(arg, "--no-failsafe") == 0) { no_failsafe = 1; continue; }
         if (strcmp(arg, "--seed-running-procs") == 0) { seed_running = 1; continue; }
@@ -226,13 +300,20 @@ int main(int argc, char **argv) {
         if (!next) break;
 
         if (strcmp(arg, "--pin") == 0) { pin_path = next; i++; continue; }
+        if (strcmp(arg, "--pin-root") == 0) { pin_root = next; i++; continue; }
         if (strcmp(arg, "--max-seed") == 0) { max_seed = atoi(next); i++; continue; }
         if (strcmp(arg, "--min-seed") == 0) { min_seed_for_enforce = atoi(next); i++; continue; }
         if (strcmp(arg, "--delay-seconds") == 0) { delay_seconds = atoi(next); i++; continue; }
         if (strcmp(arg, "--enforce-seconds") == 0) { enforce_seconds = atoi(next); i++; continue; }
         if (strcmp(arg, "--failsafe-seconds") == 0) { failsafe_seconds = atoi(next); i++; continue; }
+        if (strcmp(arg, "--verity-cgroup-id") == 0) { verity_cgroup_id = strtoull(next, NULL, 10); i++; continue; }
+        if (strcmp(arg, "--verity-generation") == 0) { verity_generation = strtoull(next, NULL, 10); i++; continue; }
         if (strcmp(arg, "--seed-path") == 0) {
             if (seed_count < 256) seed_paths[seed_count++] = next;
+            i++; continue;
+        }
+        if (strcmp(arg, "--seed-verity-digest") == 0) {
+            if (verity_digest_count < 1024) verity_digests[verity_digest_count++] = next;
             i++; continue;
         }
         if (strcmp(arg, "--seed-exec-dir") == 0) {
@@ -268,6 +349,19 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ERROR: Failed to load BPF object: %s\n", strerror(errno));
         bpf_object__close(obj);
         return 1;
+    }
+    if (pin_root) {
+        if (mkdir(pin_root, 0700) != 0 && errno != EEXIST) {
+            fprintf(stderr, "ERROR: cannot create BPF map pin root %s: %s\n", pin_root, strerror(errno));
+            bpf_object__close(obj);
+            return 1;
+        }
+        if (bpf_object__pin_maps(obj, pin_root) != 0) {
+            fprintf(stderr, "ERROR: cannot pin BPF maps under %s: %s\n", pin_root, strerror(errno));
+            bpf_object__close(obj);
+            return 1;
+        }
+        printf("MAP_PIN_ROOT=%s\n", pin_root);
     }
     printf("BPF object loaded successfully.\n");
 
@@ -324,6 +418,30 @@ int main(int argc, char **argv) {
         }
     }
 
+    struct bpf_map *verity_map = bpf_object__find_map_by_name(obj, "arda_verity_harmony_map");
+    if (verity_map) {
+        verity_harmony_map_fd = bpf_map__fd(verity_map);
+        printf("Verity harmony map FD: %d\n", verity_harmony_map_fd);
+    }
+
+    struct bpf_map *verity_generation_map = bpf_object__find_map_by_name(obj, "arda_verity_generation_map");
+    if (verity_generation_map) {
+        verity_generation_map_fd = bpf_map__fd(verity_generation_map);
+        printf("VERITY_GENERATION_MAP_ID=");
+        struct bpf_map_info info = {};
+        __u32 len = sizeof(info);
+        if (bpf_map_get_info_by_fd(verity_generation_map_fd, &info, &len) == 0) printf("%u\n", info.id);
+        else printf("0\n");
+    }
+    struct bpf_map *active_generation_map = bpf_object__find_map_by_name(obj, "arda_active_generation_map");
+    if (active_generation_map) {
+        active_generation_map_fd = bpf_map__fd(active_generation_map);
+        struct bpf_map_info info = {};
+        __u32 len = sizeof(info);
+        if (bpf_map_get_info_by_fd(active_generation_map_fd, &info, &len) == 0)
+            printf("ACTIVE_GENERATION_MAP_ID=%u\n", info.id);
+    }
+
     /* State map controls enforcement: index 0 -> 0 audit/passthrough, 1 enforce */
     struct bpf_map *state_map = bpf_object__find_map_by_name(obj, "arda_state_map");
     if (state_map) {
@@ -377,6 +495,13 @@ int main(int argc, char **argv) {
             if (seed_harmony_path(seed_paths[i])) seeded++;
         }
     }
+    int verity_seeded = 0;
+    if (verity_digest_count > 0) {
+        printf("SEED_VERITY_DIGESTS: %d\n", verity_digest_count);
+        for (int i = 0; i < verity_digest_count; i++) {
+            if (seed_verity_digest(verity_digests[i])) verity_seeded++;
+        }
+    }
     if (seed_dir_count > 0) {
         printf("SEED_DIRS: %d\n", seed_dir_count);
         for (int i = 0; i < seed_dir_count && seeded < max_seed; i++) {
@@ -391,6 +516,7 @@ int main(int argc, char **argv) {
     }
     seeded_total = seeded;
     printf("SEED_TOTAL: %d (max=%d min_enforce=%d)\n", seeded_total, max_seed, min_seed_for_enforce);
+    printf("VERITY_SEED_TOTAL: %d\n", verity_seeded);
     fflush(stdout);
 
     /* Apply initial network deny/allow entries from CLI args */
@@ -405,6 +531,14 @@ int main(int argc, char **argv) {
         set_enforcement(0);
         printf("ENFORCEMENT_SET: AUDIT\n");
         fflush(stdout);
+    }
+
+
+    if (force_verity_enforce && (verity_seeded == 0 || verity_cgroup_id == 0)) {
+        set_enforcement_mode(ARDA_MODE_AUDIT);
+        printf("ENFORCEMENT_REFUSED: strict fs-verity mode has no appraised digest entries.\n");
+        fflush(stdout);
+        force_verity_enforce = 0;
     }
 
     if (force_permanent && !confirm_permanent) {
@@ -425,7 +559,25 @@ int main(int argc, char **argv) {
         enforce_seconds = 0;
     }
 
-    if (force_permanent && state_map_fd >= 0) {
+    if (force_verity_enforce && state_map_fd >= 0) {
+        __u64 active = verity_generation;
+        if (bpf_map_update_elem(active_generation_map_fd, &verity_cgroup_id, &active, BPF_ANY) != 0) {
+            set_enforcement_mode(ARDA_MODE_AUDIT);
+            fprintf(stderr, "ENFORCEMENT_REFUSED: active generation update failed: %s\n", strerror(errno));
+            force_verity_enforce = 0;
+        }
+    }
+    if (force_verity_enforce && state_map_fd >= 0) {
+        set_enforcement_mode(ARDA_MODE_FSVERITY_STRICT);
+        printf("ENFORCEMENT_SET: FSVERITY_STRICT\n");
+        fflush(stdout);
+        if (failsafe_seconds > 0) {
+            sleep(failsafe_seconds);
+            set_enforcement_mode(ARDA_MODE_AUDIT);
+            printf("ENFORCEMENT_FAILSAFE: strict fs-verity enforcement disabled.\n");
+            fflush(stdout);
+        }
+    } else if (force_permanent && state_map_fd >= 0) {
         set_enforcement(1);
         printf("ENFORCEMENT_SET: PERMANENT\n");
         if (!no_failsafe && failsafe_seconds > 0) {

@@ -196,6 +196,9 @@ class OsEnforcementService:
         max_seed = int(os.environ.get("ARDA_MAX_SEED", "12000"))
         min_seed = int(os.environ.get("ARDA_MIN_SEED", "64"))
         args: List[str] = ["--max-seed", str(max_seed), "--min-seed", str(min_seed), "--seed-running-procs"]
+        pin_root = os.environ.get("ARDA_BPF_PIN_ROOT", "").strip()
+        if pin_root:
+            args.extend(["--pin-root", pin_root])
 
         for path in (
             "/bin/sh",

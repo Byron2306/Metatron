@@ -269,7 +269,8 @@ class AinurChoir:
             print(f"DIAG: Ainur {v.ainur} -> state={v.state}, score={v.score:.2f}, reasons={v.reasons}")
         
         # Level 0 Veto (Substrate)
-        heralding_allowed = aule_verdict.state == "heralded" and not handoff_inhibited
+        # Aule may emit either legacy "heralded" or canonical "harmonic".
+        heralding_allowed = aule_verdict.state in ("heralded", "harmonic") and not handoff_inhibited
         
         passed_verdicts = [v for v in all_verdicts if v.state not in ("unknown", "fractured", "false", "vetoed", "fallen", "inhibited")]
         confidence = sum(v.score for v in passed_verdicts) / len(all_verdicts) if all_verdicts else 0.0

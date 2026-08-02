@@ -2,12 +2,9 @@
 from typing import Any, Dict
 
 try:
-    from services.world_events import emit_world_event
+    from backend.services.world_events import emit_world_event
 except Exception:
-    try:
-        from backend.services.world_events import emit_world_event
-    except Exception:
-        emit_world_event = None
+    emit_world_event = None
 
 class FeatureStore:
     def __init__(self, db: Any = None):

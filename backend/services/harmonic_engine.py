@@ -11,6 +11,18 @@ try:
     from schemas.polyphonic_models import BaselineRef, HarmonicState, TimingFeatures
 except Exception:
     from backend.schemas.polyphonic_models import BaselineRef, HarmonicState, TimingFeatures
+try:
+    from services.harmonic_inference import get_harmonic_inference_service
+except Exception:
+    from backend.services.harmonic_inference import get_harmonic_inference_service
+try:
+    from services.harmonic_baselines import HarmonicBaselineCatalog
+except Exception:
+    from backend.services.harmonic_baselines import HarmonicBaselineCatalog
+try:
+    from services.harmonic_signal_context import build_harmonic_signal_context
+except Exception:
+    from backend.services.harmonic_signal_context import build_harmonic_signal_context
 
 
 def _utc_now_ms() -> float:
@@ -53,6 +65,7 @@ class HarmonicEngine:
     def __init__(self, db: Any = None, *, window_size: int = 64):
         self.db = db
         self.window_size = max(16, int(window_size))
+        self.inference = get_harmonic_inference_service()
         self._events_by_scope: Dict[str, Deque[Dict[str, Any]]] = defaultdict(
             lambda: deque(maxlen=self.window_size)
         )
@@ -291,34 +304,43 @@ class HarmonicEngine:
         tool_name: Optional[str],
         target_domain: Optional[str],
         env: Optional[str],
+        operation: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
     ) -> BaselineRef:
         for key, scope_type in self._candidate_scopes(actor_id, tool_name, target_domain, env):
             events = list(self._events_by_scope.get(key) or [])
             intervals = self.compute_intervals([float(evt.get("timestamp_ms")) for evt in events if evt.get("timestamp_ms") is not None])
             if len(intervals) >= 4:
                 band = self._build_baseline_band(events)
-                return BaselineRef(
+                return HarmonicBaselineCatalog.build_ref(
                     baseline_id=f"baseline::{key}",
                     scope_type=scope_type,
                     actor_id=actor_id,
                     tool_name=tool_name,
                     target_domain=target_domain,
                     environment=env,
-                    version="v1",
                     source="harmonic_engine.online",
                     baseline_band=band,
+                    coverage_status="explicit",
+                    derived_from_audited_behavior=True,
+                    review_status="reviewed",
+                    operation=operation,
+                    context=context,
                 )
-        # cold-start fallback
-        return BaselineRef(
+        return HarmonicBaselineCatalog.build_ref(
             baseline_id=f"baseline::{self._scope_key('global', 'fallback')}",
             scope_type="global_fallback",
             actor_id=actor_id,
             tool_name=tool_name,
             target_domain=target_domain,
             environment=env,
-            version="v1",
             source="harmonic_engine.default",
             baseline_band=dict(self._default_band),
+            coverage_status="insufficient",
+            derived_from_audited_behavior=False,
+            review_status="fallback_only",
+            operation=operation,
+            context=context,
         )
 
     def compute_resonance_score(self, features: TimingFeatures, baseline_ref: BaselineRef) -> float:
@@ -374,22 +396,17 @@ class HarmonicEngine:
         confidence = (0.65 * sample_factor) + (0.35 * baseline_quality) - degradation_penalty
         return round(_clamp(confidence), 6)
 
-    def _mode_recommendation(self, resonance: float, discord: float, confidence: float) -> Tuple[str, List[str]]:
-        rationale: List[str] = []
-        if confidence < 0.4:
-            rationale.append("low confidence due to limited cadence evidence")
-            return "observe_and_review", rationale
-        if discord >= 0.85:
-            rationale.append("extreme discord score")
-            return "sandbox_or_contain", rationale
-        if discord >= 0.65:
-            rationale.append("high discord score")
-            return "tighten_scrutiny", rationale
-        if discord >= 0.45 or resonance <= 0.45:
-            rationale.append("moderate timing strain")
-            return "monitor_with_obligations", rationale
-        rationale.append("timing resonance within expected bounds")
-        return "normal_flow", rationale
+    @staticmethod
+    def _contextual_modulation(signal_context: Dict[str, Any]) -> Dict[str, float]:
+        world_pressure = float(signal_context.get("world_graph_pressure", 0.0) or 0.0)
+        aatl_pressure = float(signal_context.get("aatl_pressure", 0.0) or 0.0)
+        vns_pressure = float(signal_context.get("vns_pressure", 0.0) or 0.0)
+        composite = float(signal_context.get("composite_context_pressure", 0.0) or 0.0)
+        return {
+            "discord_boost": round(_clamp((0.35 * world_pressure) + (0.40 * aatl_pressure) + (0.25 * vns_pressure), 0.0, 0.45), 6),
+            "resonance_penalty": round(_clamp((0.25 * composite), 0.0, 0.25), 6),
+            "confidence_penalty": round(_clamp((0.20 * composite), 0.0, 0.2), 6),
+        }
 
     def _record_event(self, scope_key: str, event: Dict[str, Any]) -> None:
         self._events_by_scope[scope_key].append(event)
@@ -429,6 +446,15 @@ class HarmonicEngine:
             "context": context or {},
         }
         resolved_context = context or {}
+        signal_context = build_harmonic_signal_context(
+            db=self.db,
+            actor_id=actor_id,
+            tool_name=tool_name,
+            target_domain=target_domain,
+            environment=environment,
+            operation=operation,
+            context=resolved_context,
+        )
         threat_state = str(resolved_context.get("threat_state") or "").strip().lower()
         learn_baseline = bool(resolved_context.get("learn_baseline", True))
         if threat_state in {"active", "elevated", "incident", "siege"}:
@@ -451,7 +477,14 @@ class HarmonicEngine:
         primary_events = list(self._events_by_scope.get(primary_scope_key) or [])
         if not learn_baseline:
             primary_events = primary_events + [event]
-        baseline_ref = self.select_baseline_scope(actor_id, tool_name, target_domain, environment)
+        baseline_ref = self.select_baseline_scope(
+            actor_id,
+            tool_name,
+            target_domain,
+            environment,
+            operation=operation,
+            context=resolved_context,
+        )
         features = self.extract_timing_features(
             primary_events,
             baseline=baseline_ref.baseline_band or self._default_band,
@@ -479,50 +512,40 @@ class HarmonicEngine:
             
         # Discord is boosted by choral dissonance
         discord_score = _clamp(raw_discord + (1.0 - micro_fact) * 0.5 + (1.0 - meso_fact) * 0.3)
+        modulation = self._contextual_modulation(signal_context)
+        resonance_score = _clamp(resonance_score - modulation["resonance_penalty"])
+        discord_score = _clamp(discord_score + modulation["discord_boost"])
 
         confidence = self.compute_confidence(
             features,
             sample_size=features.sample_size,
             env_conditions={
-                "baseline_quality": (0.85 if baseline_ref.scope_type != "global_fallback" else 0.45) * micro_fact,
+                "baseline_quality": float(baseline_ref.baseline_quality or 0.0) * micro_fact,
                 "environment_state": "degraded"
-                if str(environment or "").lower() in {"incident", "degraded"} or micro_fact < 0.5
+                if str(environment or "").lower() in {"incident", "degraded"} or micro_fact < 0.5 or modulation["confidence_penalty"] >= 0.08
                 else "normal",
             },
         )
-        mode_recommendation, rationale = self._mode_recommendation(resonance_score, discord_score, confidence)
-        
-        # Add spectral rationale
-        if micro_fact < 0.8:
-            rationale.append(f"Infrasound (Micro) dissonance: {micro_fact}")
-        if meso_fact < 0.8:
-            rationale.append(f"Mid-range (Meso) rhythm drift: {meso_fact}")
-        # enrich rationale with top contributors
-        if float(features.burstiness or 0.0) > 0.35:
-            rationale.append("burstiness above expected range")
-        if float(features.drift_norm or 0.0) > 0.35:
-            rationale.append("cadence drift from baseline pulse")
-        if float(features.jitter_norm or 0.0) > 0.5:
-            rationale.append("jitter instability exceeds baseline band")
-        
-        harmonic_state = HarmonicState(
+        confidence = _clamp(confidence - modulation["confidence_penalty"])
+        harmonic_state = self.inference.infer_state(
+            features=features,
+            baseline_ref=baseline_ref,
             resonance_score=resonance_score,
             discord_score=discord_score,
             confidence=confidence,
-            baseline_ref=baseline_ref,
-            mode_recommendation=mode_recommendation,
-            drift_norm=features.drift_norm,
-            jitter_norm=features.jitter_norm,
-            burstiness=features.burstiness,
-            entropy_signature=features.entropy_signature,
-            rationale=rationale,
-            baseline_ref_id=baseline_ref.baseline_id
+            spectral_factors={
+                "micro": micro_fact,
+                "meso": meso_fact,
+                "macro": macro_fact,
+            },
+            signal_context=signal_context,
         )
         return {
             "event": event,
             "timing_features": _model_dump(features),
             "baseline_ref": _model_dump(baseline_ref),
             "harmonic_state": _model_dump(harmonic_state),
+            "signal_context": signal_context,
         }
 
 

@@ -42,6 +42,7 @@ import BrowserExtensionPage from "./pages/BrowserExtensionPage";
 import SetupGuidePage from "./pages/SetupGuidePage";
 import TenantsPage from "./pages/TenantsPage";
 import UnifiedAgentPage from "./pages/UnifiedAgentPage";
+import EnrollmentPage from "./pages/EnrollmentPage";
 import CSPMPage from "./pages/CSPMPage";
 import AttackPathsPage from "./pages/AttackPathsPage";
 import DeceptionPage from "./pages/DeceptionPage";
@@ -53,9 +54,11 @@ import MobileSecurityPage from "./pages/MobileSecurityPage";
 import EmailGatewayPage from "./pages/EmailGatewayPage";
 import MDMConnectorsPage from "./pages/MDMConnectorsPage";
 import DetectionEngineeringWorkspacePage from "./pages/DetectionEngineeringWorkspacePage";
+import AtomicValidationPage from "./pages/AtomicValidationPage";
 import SophiaDashboardPage from "./pages/SophiaDashboardPage";
 import WorldViewPage from "./pages/WorldViewPage";
 import InvestigationWorkspacePage from "./pages/InvestigationWorkspacePage";
+import IntegrationDiagnosticsPage from "./pages/IntegrationDiagnosticsPage";
 import AIActivityWorkspacePage from "./pages/AIActivityWorkspacePage";
 import CommandWorkspacePage from "./pages/CommandWorkspacePage";
 import ResponseOperationsPage from "./pages/ResponseOperationsPage";
@@ -63,8 +66,10 @@ import EmailSecurityWorkspacePage from "./pages/EmailSecurityWorkspacePage";
 import EndpointMobilityWorkspacePage from "./pages/EndpointMobilityWorkspacePage";
 import ZeekPage from "./pages/ZeekPage";
 import OsqueryFleetPage from "./pages/OsqueryFleetPage";
+import MitreAttackCoveragePage from "./pages/MitreAttackCoveragePage";
 import Layout from "./components/Layout";
 import "@/App.css";
+import "@/godlike-reset.css";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -89,10 +94,11 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   return (
     <AuthProvider>
-      <div className="App noise-bg">
+      <div className="App noise-bg seraph-theme-lock godlike-reset" data-sophia="true">
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+              <Route path="/enroll" element={<EnrollmentPage />} />
             <Route
               path="/"
               element={
@@ -148,6 +154,7 @@ function App() {
               <Route path="kernel-sensors" element={<KernelSensorsPage />} />
               <Route path="secure-boot" element={<SecureBootPage />} />
               <Route path="detection-engineering" element={<DetectionEngineeringWorkspacePage />} />
+              <Route path="atomic-validation" element={<AtomicValidationPage />} />
               <Route path="identity" element={<IdentityProtectionPage />} />
               <Route path="email-protection" element={<EmailProtectionPage />} />
               <Route path="mobile-security" element={<MobileSecurityPage />} />
@@ -156,6 +163,7 @@ function App() {
               <Route path="sophia" element={<SophiaDashboardPage />} />
               <Route path="world" element={<WorldViewPage />} />
               <Route path="investigation" element={<InvestigationWorkspacePage />} />
+                            <Route path="integrations" element={<IntegrationDiagnosticsPage title="Integration Runtime" description="Run and monitor all integration tools. Trigger on-demand scans, inspect job history, and validate tool health." />} />
               <Route path="ai-activity" element={<AIActivityWorkspacePage />} />
               <Route path="command" element={<CommandWorkspacePage />} />
               <Route path="response-operations" element={<ResponseOperationsPage />} />
@@ -163,6 +171,8 @@ function App() {
               <Route path="endpoint-mobility" element={<EndpointMobilityWorkspacePage />} />
               <Route path="zeek" element={<ZeekPage />} />
               <Route path="osquery-fleet" element={<OsqueryFleetPage />} />
+              <Route path="mitre" element={<MitreAttackCoveragePage />} />
+              <Route path="mitre-attack" element={<Navigate to="/mitre" replace />} />
             </Route>
           </Routes>
         </BrowserRouter>

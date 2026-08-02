@@ -3,7 +3,7 @@
 Seraph AI Unified Agent Server API
 REST API for agent management, deployment, and monitoring.
 Also serves as the basic end-user interface that proxies key data
-from the main backend (server_old.py on port 8001).
+from the main backend API on port 8001.
 """
 
 import uvicorn
@@ -33,7 +33,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Backend URL (server_old.py)
+# Backend URL (main backend API)
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8001")
 
 app = FastAPI(

@@ -27,9 +27,20 @@ logger = logging.getLogger("ARDA_ATTEST")
 
 DSSE_TYPE_URI = "application/vnd.arda.attestation.v1+json"
 
-_ATTEST_SECRET = os.getenv(
-    "ARDA_ATTESTATION_SECRET", "ARDA-ATTEST-SECRET-REPLACE-IN-PRODUCTION"
-).encode()
+_DEVELOPMENT_ATTEST_SECRET = "ARDA-ATTEST-SECRET-REPLACE-IN-PRODUCTION"
+
+
+def _attestation_secret() -> bytes:
+    """Return the local HMAC key, refusing development defaults in production."""
+    configured = os.getenv("ARDA_ATTESTATION_SECRET")
+    environment = str(os.getenv("ARDA_ENV") or os.getenv("ENVIRONMENT") or "development").lower()
+    if environment in {"production", "prod"} and (
+        not configured or configured == _DEVELOPMENT_ATTEST_SECRET
+    ):
+        raise RuntimeError(
+            "ARDA_ATTESTATION_SECRET must be explicitly provisioned for production"
+        )
+    return (configured or _DEVELOPMENT_ATTEST_SECRET).encode()
 
 
 def _pae(type_uri: str, body: bytes) -> bytes:
@@ -58,7 +69,7 @@ def _get_boot_context() -> dict:
 
 def _hmac_sign(pae_bytes: bytes) -> dict:
     """HMAC-SHA3-256 signing (fallback). Honestly labelled."""
-    sig = hmac_mod.new(_ATTEST_SECRET, pae_bytes, hashlib.sha3_256).hexdigest()
+    sig = hmac_mod.new(_attestation_secret(), pae_bytes, hashlib.sha3_256).hexdigest()
     return {
         "signature": sig,
         "signing_algorithm": "HMAC-SHA3-256",
@@ -185,7 +196,7 @@ def verify_envelope(envelope: Dict[str, Any]) -> bool:
             statement = envelope["payload"]
             body = _canonical_body(statement)
             pae_bytes = _pae(envelope["payload_type"], body)
-            expected = hmac_mod.new(_ATTEST_SECRET, pae_bytes, hashlib.sha3_256).hexdigest()
+            expected = hmac_mod.new(_attestation_secret(), pae_bytes, hashlib.sha3_256).hexdigest()
             valid = hmac_mod.compare_digest(envelope["signature"], expected)
             if valid:
                 logger.info("[ATTEST] HMAC envelope signature VALID.")
@@ -196,8 +207,14 @@ def verify_envelope(envelope: Dict[str, Any]) -> bool:
             logger.error(f"[ATTEST] Verification error: {e}")
             return False
     elif "sigstore" in algo:
-        logger.info("[ATTEST] Sigstore envelope — verify via `sigstore verify` CLI or API.")
-        return True  # Sigstore bundles are self-verifying via public infrastructure
+        # A bundle label is not verification. This legacy API fails closed until
+        # an identity- and transparency-policy-aware Sigstore verifier is
+        # supplied by the strict ARDA verifier boundary.
+        logger.error(
+            "[ATTEST] Sigstore envelope rejected: cryptographic bundle verification "
+            "is required at the strict ARDA verifier boundary."
+        )
+        return False
     else:
         logger.error(f"[ATTEST] Unknown algorithm: {algo}")
         return False

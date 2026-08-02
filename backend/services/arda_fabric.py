@@ -123,7 +123,8 @@ class ArdaFabricEngine:
     async def broadcast_sovereign_summons(self, truth_payload: Dict[str, Any]):
         logger.info("Fabric: Igniting Sovereign Summons across the Mesh.")
         current_packet = self.forge.get_current_packet()
-        truth_payload["sig_voice"] = current_packet.voice_id
+        if current_packet is not None:
+            truth_payload["sig_voice"] = current_packet.voice_id
         self.transport.transmit(truth_payload)
 
     def get_influence_budget(self, node_id: str) -> Optional[DissonantStateModel]:

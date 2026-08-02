@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 import { 
   Shield, 
   RefreshCw, 
@@ -40,6 +41,49 @@ const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
+
+const SECURE_BOOT_TONES = {
+  cyan: { border: 'rgba(0,240,255,0.34)', glow: 'rgba(0,240,255,0.16)', text: '#aef7ff' },
+  green: { border: 'rgba(57,255,20,0.34)', glow: 'rgba(57,255,20,0.16)', text: '#b8ffca' },
+  orange: { border: 'rgba(255,176,32,0.34)', glow: 'rgba(255,176,32,0.16)', text: '#ffd78a' },
+  magenta: { border: 'rgba(255,43,214,0.34)', glow: 'rgba(255,43,214,0.16)', text: '#ffb8e9' },
+  red: { border: 'rgba(255,91,91,0.34)', glow: 'rgba(255,91,91,0.14)', text: '#ffd4d4' },
+};
+
+const secureBootPanel = (tone = 'cyan') => {
+  const config = SECURE_BOOT_TONES[tone] || SECURE_BOOT_TONES.cyan;
+  return {
+    backgroundImage: `linear-gradient(160deg, ${config.border.replace('0.34', '0.16')}, rgba(10,18,34,0.96))`,
+    border: `2px solid ${config.border.replace('0.34', '0.62')}`,
+    boxShadow: `0 0 8px ${config.glow}, 0 0 18px ${config.glow}, inset 0 0 14px ${config.glow}`,
+  };
+};
+
+const secureBootButton = (tone = 'cyan') => {
+  const config = SECURE_BOOT_TONES[tone] || SECURE_BOOT_TONES.cyan;
+  return {
+    backgroundImage: `linear-gradient(135deg, ${config.border.replace('0.34', '0.24')}, ${config.border.replace('0.34', '0.1')})`,
+    border: `2px solid ${config.border.replace('0.34', '0.68')}`,
+    color: config.text,
+    boxShadow: `0 0 8px ${config.glow}, inset 0 0 11px ${config.glow}`,
+  };
+};
+
+const secureBootBadge = (tone = 'cyan') => {
+  const config = SECURE_BOOT_TONES[tone] || SECURE_BOOT_TONES.cyan;
+  return {
+    backgroundImage: `linear-gradient(135deg, ${config.border.replace('0.34', '0.22')}, ${config.border.replace('0.34', '0.1')})`,
+    border: `2px solid ${config.border.replace('0.34', '0.68')}`,
+    color: config.text,
+    boxShadow: `0 0 8px ${config.glow}, inset 0 0 10px ${config.glow}`,
+  };
+};
+
+const secureBootRow = (index) => ({
+  background: index % 2 === 0
+    ? 'linear-gradient(90deg, rgba(0,240,255,0.06), rgba(255,43,214,0.03))'
+    : 'linear-gradient(90deg, rgba(255,176,32,0.04), rgba(57,255,20,0.03))',
+});
 
 const SecureBootPage = () => {
   const { getAuthHeaders } = useAuth();
@@ -222,16 +266,17 @@ const SecureBootPage = () => {
   // Get risk level badge
   const getRiskBadge = (level) => {
     const config = {
-      low: { color: 'bg-green-500/20 text-green-400', icon: ShieldCheck },
-      medium: { color: 'bg-yellow-500/20 text-yellow-400', icon: ShieldAlert },
-      high: { color: 'bg-orange-500/20 text-orange-400', icon: ShieldAlert },
-      critical: { color: 'bg-red-500/20 text-red-400', icon: ShieldX },
-      unknown: { color: 'bg-slate-500/20 text-slate-300', icon: AlertTriangle }
+      low:      { variant: 'success',     icon: ShieldCheck },
+      medium:   { variant: 'warning',     icon: ShieldAlert },
+      high:     { variant: 'warning',     icon: ShieldAlert },
+      critical: { variant: 'destructive', icon: ShieldX },
+      unknown:  { variant: 'outline',     icon: AlertTriangle }
     };
     const cfg = config[level] || config.low;
     const Icon = cfg.icon;
+    const tone = level === 'critical' ? 'red' : level === 'high' ? 'magenta' : level === 'medium' ? 'orange' : 'green';
     return (
-      <Badge className={cfg.color}>
+      <Badge variant={cfg.variant} style={secureBootBadge(tone)} className="border-0 uppercase tracking-[0.22em] text-[10px]">
         <Icon className="h-3 w-3 mr-1" />
         {level}
       </Badge>
@@ -252,38 +297,37 @@ const SecureBootPage = () => {
   }, [fetchData]);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-gray-100 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-cyan-500/20 rounded-lg">
-            <ShieldCheck className="h-6 w-6 text-cyan-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Secure Boot Verification</h1>
-            <p className="text-gray-400 text-sm">UEFI • TPM • Firmware Integrity</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            onClick={fetchData}
-            disabled={loading}
-            className="border-gray-700"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          <Button 
-            onClick={runScan}
-            disabled={scanning}
-            className="bg-cyan-600 hover:bg-cyan-700"
-          >
-            <Play className={`h-4 w-4 mr-2 ${scanning ? 'animate-pulse' : ''}`} />
-            {scanning ? 'Scanning...' : 'Run Scan'}
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="secure-boot-page">
+      <SeraphPageHeader
+        eyebrow="seraph · secure boot · firmware trust"
+        title="Secure Boot Verification"
+        tagline="> uefi · tpm · firmware integrity · measured boot chain"
+        accent="gold"
+        status={loading ? 'REFRESHING' : scanning ? 'SCANNING' : 'VERIFIED'}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={fetchData}
+              disabled={loading}
+              className="border-0"
+              style={secureBootButton('cyan')}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button
+              onClick={runScan}
+              disabled={scanning}
+              className="border-0"
+              style={secureBootButton('magenta')}
+            >
+              <Play className={`h-4 w-4 mr-2 ${scanning ? 'animate-pulse' : ''}`} />
+              {scanning ? 'Scanning...' : 'Run Scan'}
+            </Button>
+          </>
+        }
+      />
 
       {(demoMode || status?.measurement_available === false) && (
         <div
@@ -320,27 +364,29 @@ const SecureBootPage = () => {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-gray-900/50 border border-gray-800 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={secureBootPanel('cyan')}
         >
           <div className="flex items-center gap-2 mb-2">
             <Server className="h-4 w-4 text-blue-400" />
-            <span className="text-gray-400 text-sm">Total Endpoints</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#aef7ff' }}>Total Endpoints</span>
           </div>
-          <p className="text-2xl font-bold">{fleetStats.total_endpoints}</p>
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold">{fleetStats.total_endpoints}</p>
         </motion.div>
         
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-gray-900/50 border border-green-900/50 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={secureBootPanel('green')}
         >
           <div className="flex items-center gap-2 mb-2">
             <Lock className="h-4 w-4 text-green-400" />
-            <span className="text-gray-400 text-sm">Secure Boot Enabled</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#b8ffca' }}>Secure Boot Enabled</span>
           </div>
-          <p className="text-2xl font-bold text-green-400">{fleetStats.secure_boot_enabled}</p>
-          <p className="text-xs text-gray-500">
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold text-green-400">{fleetStats.secure_boot_enabled}</p>
+          <p className="sophia-terminal-meta text-xs" style={{ color: '#d7ffd4', opacity: 0.96 }}>
             {fleetStats.total_endpoints > 0
               ? `${Math.round((fleetStats.secure_boot_enabled / fleetStats.total_endpoints) * 100)}% coverage`
               : 'N/A'}
@@ -351,14 +397,15 @@ const SecureBootPage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-gray-900/50 border border-cyan-900/50 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={secureBootPanel('cyan')}
         >
           <div className="flex items-center gap-2 mb-2">
             <Fingerprint className="h-4 w-4 text-cyan-400" />
-            <span className="text-gray-400 text-sm">TPM Present</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#aef7ff' }}>TPM Present</span>
           </div>
-          <p className="text-2xl font-bold text-cyan-400">{fleetStats.tpm_present}</p>
-          <p className="text-xs text-gray-500">
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold text-cyan-400">{fleetStats.tpm_present}</p>
+          <p className="sophia-terminal-meta text-xs" style={{ color: '#d7fbff', opacity: 0.96 }}>
             {fleetStats.total_endpoints > 0
               ? `${Math.round((fleetStats.tpm_present / fleetStats.total_endpoints) * 100)}% equipped`
               : 'N/A'}
@@ -369,26 +416,28 @@ const SecureBootPage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="bg-gray-900/50 border border-red-900/50 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={secureBootPanel('red')}
         >
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="h-4 w-4 text-red-400" />
-            <span className="text-gray-400 text-sm">Threats Detected</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#ffd4d4' }}>Threats Detected</span>
           </div>
-          <p className="text-2xl font-bold text-red-400">{fleetStats.threats_detected}</p>
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold text-red-400">{fleetStats.threats_detected}</p>
         </motion.div>
         
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="bg-gray-900/50 border border-orange-900/50 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={secureBootPanel('orange')}
         >
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="h-4 w-4 text-orange-400" />
-            <span className="text-gray-400 text-sm">Pending Updates</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#ffd78a' }}>Pending Updates</span>
           </div>
-          <p className="text-2xl font-bold text-orange-400">{fleetStats.pending_updates}</p>
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold text-orange-400">{fleetStats.pending_updates}</p>
         </motion.div>
       </div>
 
@@ -404,7 +453,9 @@ const SecureBootPage = () => {
             key={tab.id}
             variant={viewMode === tab.id ? 'default' : 'outline'}
             onClick={() => setViewMode(tab.id)}
-            className={viewMode === tab.id ? 'bg-cyan-600' : 'border-gray-700'}
+            className={`secure-boot-tab secure-boot-tab--${tab.id} border-0`}
+            data-tone={tab.id}
+            style={viewMode === tab.id ? secureBootButton(tab.id === 'alerts' ? 'magenta' : tab.id === 'firmware' ? 'orange' : tab.id === 'chain' ? 'green' : 'cyan') : secureBootPanel(tab.id === 'alerts' ? 'magenta' : tab.id === 'firmware' ? 'orange' : tab.id === 'chain' ? 'green' : 'cyan')}
           >
             <tab.icon className="h-4 w-4 mr-2" />
             {tab.label}
@@ -421,7 +472,8 @@ const SecureBootPage = () => {
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-gray-900/50 border border-gray-800 rounded-xl p-6"
+                className="rounded-xl p-6"
+                style={secureBootPanel('cyan')}
               >
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -434,30 +486,30 @@ const SecureBootPage = () => {
                 <div className="grid grid-cols-3 gap-6">
                   {/* UEFI Status */}
                   <div className="space-y-3">
-                    <h4 className="text-sm text-gray-400 font-medium">UEFI Configuration</h4>
+                    <h4 className="sophia-scan sophia-terminal-label text-sm font-medium" style={{ color: '#aef7ff' }}>UEFI Configuration</h4>
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">UEFI Mode</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('cyan')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">UEFI Mode</span>
                         {status.measurement_available === false ? (
-                          <Badge className="bg-slate-500/20 text-slate-300 border border-slate-500/30">Unavailable</Badge>
+                          <Badge variant="outline">Unavailable</Badge>
                         ) : (
                           getStatusIndicator(status.uefi_mode)
                         )}
                       </div>
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">Secure Boot</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('cyan')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">Secure Boot</span>
                         {status.measurement_available === false ? (
-                          <Badge className="bg-slate-500/20 text-slate-300 border border-slate-500/30">Unavailable</Badge>
+                          <Badge variant="outline">Unavailable</Badge>
                         ) : (
                           getStatusIndicator(status.secure_boot_enabled)
                         )}
                       </div>
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">Enforced</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('green')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">Enforced</span>
                         {getStatusIndicator(status.secure_boot_enforced)}
                       </div>
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">Setup Mode</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('orange')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">Setup Mode</span>
                         {getStatusIndicator(!status.setup_mode)}
                       </div>
                     </div>
@@ -465,22 +517,22 @@ const SecureBootPage = () => {
                   
                   {/* Key Enrollment */}
                   <div className="space-y-3">
-                    <h4 className="text-sm text-gray-400 font-medium">Key Enrollment</h4>
+                    <h4 className="sophia-scan sophia-terminal-label text-sm font-medium" style={{ color: '#ffb8e9' }}>Key Enrollment</h4>
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">Platform Key (PK)</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('magenta')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">Platform Key (PK)</span>
                         {getStatusIndicator(status.pk_enrolled)}
                       </div>
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">Key Exchange (KEK)</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('magenta')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">Key Exchange (KEK)</span>
                         {getStatusIndicator(status.kek_enrolled)}
                       </div>
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">Signature DB</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('green')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">Signature DB</span>
                         {getStatusIndicator(status.db_enrolled)}
                       </div>
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">Revocation DB (dbx)</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('orange')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">Revocation DB (dbx)</span>
                         {getStatusIndicator(status.dbx_enrolled)}
                       </div>
                     </div>
@@ -488,22 +540,22 @@ const SecureBootPage = () => {
                   
                   {/* TPM & VBS */}
                   <div className="space-y-3">
-                    <h4 className="text-sm text-gray-400 font-medium">Hardware Security</h4>
+                    <h4 className="sophia-scan sophia-terminal-label text-sm font-medium" style={{ color: '#ffd78a' }}>Hardware Security</h4>
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">TPM Present</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('green')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">TPM Present</span>
                         {getStatusIndicator(status.tpm_present)}
                       </div>
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">TPM Version</span>
-                        <span className="text-sm font-mono">{status.tpm_version || 'N/A'}</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('cyan')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">TPM Version</span>
+                        <span className="sophia-flicker sophia-terminal-value text-sm">{status.tpm_version || 'N/A'}</span>
                       </div>
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">Measured Boot</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('orange')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">Measured Boot</span>
                         {getStatusIndicator(status.measured_boot_supported)}
                       </div>
-                      <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                        <span className="text-sm">VBS Enabled</span>
+                      <div className="sophia-terminal-row sophia-row-glow flex items-center justify-between p-2 rounded-lg" style={secureBootPanel('magenta')}>
+                        <span className="sophia-scan sophia-terminal-label text-sm">VBS Enabled</span>
                         {getStatusIndicator(status.virtualization_based_security)}
                       </div>
                     </div>
@@ -511,7 +563,7 @@ const SecureBootPage = () => {
                 </div>
                 
                 <div className="mt-4 pt-4 border-t border-gray-800">
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs" style={{ color: '#d7fbff', opacity: 0.82 }}>
                     Last verified: {new Date(status.last_check).toLocaleString()} • Platform: {status.platform}
                   </p>
                 </div>
@@ -521,13 +573,13 @@ const SecureBootPage = () => {
 
           {/* Boot Chain View */}
           {viewMode === 'chain' && bootChain && (
-            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+            <div className="rounded-xl p-6" style={secureBootPanel('green')}>
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <Link2 className="h-5 w-5 text-cyan-400" />
                   Boot Chain Verification
                 </h3>
-                <Badge className={bootChain.chain_intact ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>
+                <Badge variant={bootChain.chain_intact ? 'success' : 'destructive'}>
                   {bootChain.chain_intact ? 'Chain Intact' : 'Chain Broken'}
                 </Badge>
               </div>
@@ -542,21 +594,21 @@ const SecureBootPage = () => {
                     transition={{ delay: idx * 0.1 }}
                     className="flex items-center gap-4"
                   >
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-800 text-sm font-mono">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full text-sm font-mono" style={secureBootPanel('orange')}>
                       {idx + 1}
                     </div>
-                    <div className="flex-1 p-3 bg-gray-800/50 rounded-lg flex items-center justify-between">
+                    <div className="flex-1 p-3 rounded-lg flex items-center justify-between" style={secureBootPanel(idx % 2 === 0 ? 'cyan' : 'magenta')}>
                       <div>
-                        <p className="font-medium">{comp.name}</p>
-                        <p className="text-xs text-gray-400 font-mono">{comp.hash}</p>
+                        <p className="sophia-scan sophia-terminal-label font-medium" style={{ color: '#ecfeff' }}>{comp.name}</p>
+                        <p className="sophia-flicker sophia-terminal-meta text-xs" style={{ color: '#d7fbff', opacity: 0.96 }}>{comp.hash}</p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-sm text-gray-400">{comp.signer}</span>
+                        <span className="sophia-flicker sophia-terminal-value text-sm" style={{ color: '#ffd78a' }}>{comp.signer}</span>
                         {getStatusIndicator(comp.verified)}
                       </div>
                     </div>
                     {idx < bootChain.components.length - 1 && (
-                      <ChevronRight className="h-4 w-4 text-gray-600" />
+                      <ChevronRight className="h-4 w-4 text-cyan-400" />
                     )}
                   </motion.div>
                 ))}
@@ -564,14 +616,14 @@ const SecureBootPage = () => {
               
               {/* Chain of Trust */}
               <div className="border-t border-gray-800 pt-4">
-                <h4 className="text-sm text-gray-400 font-medium mb-3">Chain of Trust</h4>
+                <h4 className="sophia-scan sophia-terminal-label text-sm font-medium mb-3" style={{ color: '#aef7ff' }}>Chain of Trust</h4>
                 <div className="space-y-2">
                   {bootChain.chain_of_trust?.map((link, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-2 bg-gray-800/30 rounded-lg">
-                      <span className="text-sm">{link.from}</span>
+                    <div key={idx} className="flex items-center gap-3 p-2 rounded-lg" style={secureBootPanel(idx % 2 === 0 ? 'cyan' : 'green')}>
+                      <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#ecfeff' }}>{link.from}</span>
                       <ChevronRight className="h-4 w-4 text-cyan-400" />
-                      <span className="text-sm">{link.to}</span>
-                      <Badge className="ml-auto bg-green-500/20 text-green-400 text-xs">
+                      <span className="sophia-flicker sophia-terminal-value text-sm" style={{ color: '#b8ffca' }}>{link.to}</span>
+                      <Badge variant="success" className="ml-auto text-xs">
                         {link.status}
                       </Badge>
                     </div>
@@ -582,7 +634,7 @@ const SecureBootPage = () => {
               {bootChain.issues?.length > 0 && (
                 <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
                   <h4 className="text-sm font-medium text-red-400 mb-2">Issues Detected</h4>
-                  <ul className="list-disc list-inside text-sm text-gray-400">
+                  <ul className="list-disc list-inside text-sm" style={{ color: '#ffd4d4' }}>
                     {bootChain.issues.map((issue, idx) => (
                       <li key={idx}>{issue}</li>
                     ))}
@@ -594,7 +646,7 @@ const SecureBootPage = () => {
 
           {/* Firmware View */}
           {viewMode === 'firmware' && (
-            <div className="bg-gray-900/50 border border-gray-800 rounded-xl overflow-hidden">
+            <div className="rounded-xl overflow-hidden" style={secureBootPanel('orange')}>
               <div className="p-4 border-b border-gray-800">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <Cpu className="h-5 w-5 text-cyan-400" />
@@ -602,13 +654,13 @@ const SecureBootPage = () => {
                 </h3>
               </div>
               <table className="w-full">
-                <thead className="bg-gray-800/50">
+                <thead style={{ background: 'linear-gradient(90deg, rgba(255,176,32,0.1), rgba(255,43,214,0.08))' }}>
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Component</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Vendor</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Version</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Update</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#ffd78a' }}>Component</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#ffb8e9' }}>Vendor</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#aef7ff' }}>Version</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#b8ffca' }}>Status</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#ffd78a' }}>Update</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -618,27 +670,28 @@ const SecureBootPage = () => {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: idx * 0.05 }}
-                      className="border-t border-gray-800 hover:bg-gray-800/30 cursor-pointer"
+                      className="border-t border-gray-800 cursor-pointer"
+                      style={secureBootRow(idx)}
                       onClick={() => setSelectedComponent(fw)}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <HardDrive className="h-4 w-4 text-gray-400" />
-                          <span className="font-medium">{fw.name}</span>
+                          <HardDrive className="h-4 w-4 text-cyan-300" />
+                          <span className="sophia-scan sophia-terminal-label font-medium" style={{ color: '#ecfeff' }}>{fw.name}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-400">{fw.vendor}</td>
-                      <td className="px-4 py-3 text-sm font-mono">{fw.version}</td>
+                      <td className="sophia-flicker sophia-terminal-meta px-4 py-3 text-sm" style={{ color: '#ffd78a' }}>{fw.vendor}</td>
+                      <td className="sophia-flicker sophia-terminal-value px-4 py-3 text-sm font-mono" style={{ color: '#ecfeff' }}>{fw.version}</td>
                       <td className="px-4 py-3">
-                        <Badge className={fw.secure ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>
+                        <Badge variant={fw.secure ? 'success' : 'destructive'}>
                           {fw.secure ? 'Secure' : 'Vulnerable'}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
                         {fw.update_available ? (
-                          <Badge className="bg-orange-500/20 text-orange-400">Available</Badge>
+                          <Badge variant="warning">Available</Badge>
                         ) : (
-                          <span className="text-sm text-gray-500">Up to date</span>
+                          <span className="text-sm" style={{ color: '#d7fbff', opacity: 0.82 }}>Up to date</span>
                         )}
                       </td>
                     </motion.tr>
@@ -650,7 +703,7 @@ const SecureBootPage = () => {
 
           {/* Alerts View */}
           {viewMode === 'alerts' && (
-            <div className="bg-gray-900/50 border border-gray-800 rounded-xl overflow-hidden">
+            <div className="rounded-xl overflow-hidden" style={secureBootPanel('magenta')}>
               <div className="p-4 border-b border-gray-800">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <AlertOctagon className="h-5 w-5 text-orange-400" />
@@ -664,21 +717,22 @@ const SecureBootPage = () => {
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.05 }}
-                    className="p-4 hover:bg-gray-800/30"
+                    className="p-4"
+                    style={secureBootRow(idx)}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <Badge className={
-                          alert.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
-                          alert.severity === 'warning' ? 'bg-orange-500/20 text-orange-400' :
-                          alert.severity === 'info' ? 'bg-blue-500/20 text-blue-400' :
-                          'bg-gray-500/20 text-gray-400'
+                        <Badge variant={
+                          alert.severity === 'critical' ? 'destructive' :
+                          alert.severity === 'warning' ? 'warning' :
+                          alert.severity === 'info' ? 'default' :
+                          'outline'
                         }>
                           {alert.severity}
                         </Badge>
-                        <span className="text-sm font-mono text-gray-400">{alert.endpoint}</span>
+                        <span className="sophia-flicker sophia-terminal-value text-sm font-mono" style={{ color: '#ffd78a' }}>{alert.endpoint}</span>
                       </div>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs" style={{ color: '#d7fbff', opacity: 0.82 }}>
                         {new Date(alert.timestamp).toLocaleString()}
                       </span>
                     </div>
@@ -686,7 +740,7 @@ const SecureBootPage = () => {
                   </motion.div>
                 ))}
                 {alerts.length === 0 && (
-                  <div className="p-8 text-center text-gray-500">
+                  <div className="p-8 text-center" style={{ color: '#d7fbff', opacity: 0.82 }}>
                     No boot security alerts
                   </div>
                 )}
@@ -704,28 +758,29 @@ const SecureBootPage = () => {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
-                className="bg-gray-900/50 border border-cyan-900/50 rounded-xl p-4"
+                className="rounded-xl p-4"
+                style={secureBootPanel('cyan')}
               >
                 <h3 className="font-semibold mb-3 flex items-center gap-2">
                   <Activity className="h-4 w-4 text-cyan-400" />
                   Last Scan Result
                 </h3>
                 <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-                    <p className="text-xl font-bold text-green-400">{scanResult.verified_components}</p>
-                    <p className="text-xs text-gray-400">Verified</p>
+                  <div className="rounded-lg p-3 text-center" style={secureBootPanel('green')}>
+                    <p className="sophia-flicker sophia-terminal-value text-xl font-bold text-green-400">{scanResult.verified_components}</p>
+                    <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#d7ffd4', opacity: 0.92 }}>Verified</p>
                   </div>
-                  <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-                    <p className="text-xl font-bold text-orange-400">{scanResult.suspicious_components}</p>
-                    <p className="text-xs text-gray-400">Suspicious</p>
+                  <div className="rounded-lg p-3 text-center" style={secureBootPanel('orange')}>
+                    <p className="sophia-flicker sophia-terminal-value text-xl font-bold text-orange-400">{scanResult.suspicious_components}</p>
+                    <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#fff0ca', opacity: 0.92 }}>Suspicious</p>
                   </div>
                 </div>
                 {scanResult.recommendations?.length > 0 && (
                   <div>
-                    <p className="text-sm text-gray-400 mb-2">Recommendations:</p>
+                    <p className="sophia-scan sophia-terminal-label text-sm mb-2" style={{ color: '#aef7ff' }}>Recommendations:</p>
                     <ul className="space-y-1">
                       {scanResult.recommendations.map((rec, idx) => (
-                        <li key={idx} className="text-xs text-gray-300 flex items-start gap-2">
+                        <li key={idx} className="text-xs flex items-start gap-2" style={{ color: '#ecfeff' }}>
                           <ChevronRight className="h-3 w-3 mt-0.5 text-cyan-400 flex-shrink-0" />
                           {rec}
                         </li>
@@ -744,7 +799,8 @@ const SecureBootPage = () => {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
-                className="bg-gray-900/50 border border-gray-800 rounded-xl p-4"
+                className="rounded-xl p-4"
+                style={secureBootPanel('orange')}
               >
                 <h3 className="font-semibold mb-3 flex items-center gap-2">
                   <Cpu className="h-4 w-4 text-cyan-400" />
@@ -752,24 +808,24 @@ const SecureBootPage = () => {
                 </h3>
                 <div className="space-y-2">
                   <div>
-                    <p className="text-xs text-gray-400">Name</p>
-                    <p className="font-medium">{selectedComponent.name}</p>
+                    <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#aef7ff' }}>Name</p>
+                    <p className="sophia-flicker sophia-terminal-value font-medium" style={{ color: '#ecfeff' }}>{selectedComponent.name}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400">Vendor</p>
-                    <p>{selectedComponent.vendor}</p>
+                    <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#ffd78a' }}>Vendor</p>
+                    <p className="sophia-flicker sophia-terminal-meta" style={{ color: '#fff0ca' }}>{selectedComponent.vendor}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400">Version</p>
-                    <p className="font-mono">{selectedComponent.version}</p>
+                    <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#ffb8e9' }}>Version</p>
+                    <p className="sophia-flicker sophia-terminal-value font-mono" style={{ color: '#fff0fb' }}>{selectedComponent.version}</p>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <Button size="sm" variant="outline" className="flex-1 border-gray-700">
+                    <Button size="sm" variant="outline" className="flex-1 border-0" style={secureBootButton('cyan')}>
                       <Eye className="h-3 w-3 mr-1" />
                       Verify
                     </Button>
                     {selectedComponent.update_available && (
-                      <Button size="sm" className="flex-1 bg-orange-600 hover:bg-orange-700">
+                      <Button size="sm" className="flex-1 border-0" style={secureBootButton('orange')}>
                         <TrendingUp className="h-3 w-3 mr-1" />
                         Update
                       </Button>
@@ -781,7 +837,7 @@ const SecureBootPage = () => {
           </AnimatePresence>
 
           {/* MITRE Techniques */}
-          <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4">
+          <div className="rounded-xl p-4" style={secureBootPanel('magenta')}>
             <h3 className="font-semibold mb-3">Monitored Techniques</h3>
             <div className="space-y-2">
               {[
@@ -790,9 +846,9 @@ const SecureBootPage = () => {
                 { id: 'T1495', name: 'Firmware Corruption' },
                 { id: 'T1014', name: 'Rootkit' }
               ].map(tech => (
-                <div key={tech.id} className="flex items-center justify-between p-2 bg-gray-800/30 rounded-lg">
-                  <span className="text-sm">{tech.name}</span>
-                  <Badge variant="outline" className="border-gray-600 text-xs font-mono">
+                <div key={tech.id} className="flex items-center justify-between p-2 rounded-lg" style={secureBootPanel(tech.id === 'T1495' ? 'red' : tech.id === 'T1014' ? 'magenta' : 'cyan')}>
+                  <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#ecfeff' }}>{tech.name}</span>
+                  <Badge variant="outline" className="text-xs font-mono border-0" style={secureBootBadge('orange')}>
                     {tech.id}
                   </Badge>
                 </div>
@@ -801,18 +857,18 @@ const SecureBootPage = () => {
           </div>
 
           {/* Quick Actions */}
-          <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4">
+          <div className="rounded-xl p-4" style={secureBootPanel('cyan')}>
             <h3 className="font-semibold mb-3">Quick Actions</h3>
             <div className="space-y-2">
-              <Button variant="outline" className="w-full justify-start border-gray-700">
+              <Button variant="outline" className="w-full justify-start border-0" style={secureBootButton('cyan')}>
                 <Fingerprint className="h-4 w-4 mr-2" />
                 TPM Attestation
               </Button>
-              <Button variant="outline" className="w-full justify-start border-gray-700">
+              <Button variant="outline" className="w-full justify-start border-0" style={secureBootButton('magenta')}>
                 <Key className="h-4 w-4 mr-2" />
                 View Keys
               </Button>
-              <Button variant="outline" className="w-full justify-start border-gray-700">
+              <Button variant="outline" className="w-full justify-start border-0" style={secureBootButton('orange')}>
                 <BarChart3 className="h-4 w-4 mr-2" />
                 Export Report
               </Button>

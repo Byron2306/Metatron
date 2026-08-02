@@ -6,6 +6,7 @@ Provides flow logs, DNS telemetry, TLS fingerprints, and east-west visibility.
 """
 
 import os
+import asyncio
 import json
 import hashlib
 import logging
@@ -214,8 +215,52 @@ class VirtualNetworkSensor:
         self.canary_ips: set = set()
         self.canary_domains: set = set()
         self.canary_ports: set = set()
+        self.db = None
         
         logger.info("Virtual Network Sensor initialized")
+
+    def set_db(self, db: Any) -> None:
+        self.db = db
+
+    def _persist_artifact(self, collection_name: str, doc: Dict[str, Any]) -> None:
+        if self.db is None or not hasattr(self.db, collection_name):
+            return
+        collection = getattr(self.db, collection_name)
+        try:
+            insert_one = getattr(collection, "insert_one", None)
+            if insert_one is not None:
+                result = insert_one(dict(doc))
+                if hasattr(result, "__await__"):
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(result)
+                    except RuntimeError:
+                        logger.debug(
+                            "VNS persistence skipped async insert for %s outside async context",
+                            collection_name,
+                        )
+        except Exception:
+            logger.debug("VNS persistence failed for %s", collection_name, exc_info=True)
+
+    def _persist_reconciliation_state(self) -> None:
+        if self.db is None or not hasattr(self.db, "vns_runtime_state"):
+            return
+        snapshot = {
+            "snapshot_id": f"vns-snapshot-{uuid.uuid4().hex[:12]}",
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "flows_buffered": len(self.flows),
+            "dns_buffered": len(self.dns_queries),
+            "beacons_buffered": len(self.beacon_detections),
+            "tls_fingerprints": len(self.tls_fingerprints),
+            "flow_ring_hash": hashlib.sha256(
+                json.dumps([f.flow_id for f in list(self.flows)[-100:]], sort_keys=True).encode()
+            ).hexdigest(),
+            "dns_ring_hash": hashlib.sha256(
+                json.dumps([q.query_id for q in list(self.dns_queries)[-100:]], sort_keys=True).encode()
+            ).hexdigest(),
+            "provenance": "vns_runtime_reconciliation",
+        }
+        self._persist_artifact("vns_runtime_state", snapshot)
     
     def _get_zone(self, ip: str) -> str:
         """Determine network zone for IP"""
@@ -391,6 +436,17 @@ class VirtualNetworkSensor:
         self.flows.append(flow)
         self.flows_by_ip[src_ip].append(flow_id)
         self.flows_by_ip[dst_ip].append(flow_id)
+        self._persist_artifact(
+            "vns_flows",
+            {
+                **asdict(flow),
+                "direction": flow.direction.value,
+                "status": flow.status.value,
+                "provenance": "vns_record_flow",
+                "reconciliation_scope": "flow",
+            },
+        )
+        self._persist_reconciliation_state()
         
         # Check for beacon patterns
         src_flows = [f for f in self.flows if f.src_ip == src_ip and f.dst_ip == dst_ip][-10:]
@@ -478,6 +534,15 @@ class VirtualNetworkSensor:
         
         self.dns_queries.append(query)
         self.dns_by_domain[query_name].append(query_id)
+        self._persist_artifact(
+            "vns_dns_queries",
+            {
+                **asdict(query),
+                "provenance": "vns_record_dns_query",
+                "reconciliation_scope": "dns",
+            },
+        )
+        self._persist_reconciliation_state()
         
         if is_suspicious:
             logger.warning(f"VNS: Suspicious DNS query from {src_ip}: {query_name}")

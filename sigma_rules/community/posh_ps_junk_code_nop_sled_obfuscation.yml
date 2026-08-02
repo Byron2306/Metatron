@@ -1,0 +1,35 @@
+title: Junk Code Insertion - PowerShell NOP Sled or Dead Code Obfuscation Pattern
+id: 47714361-db35-4f32-aa43-762ea65e7788
+status: experimental
+description: |
+    Detects PowerShell scripts using junk code insertion patterns (T1027.016) to
+    evade static analysis. Techniques include repetitive no-op variable assignments,
+    excessive whitespace/newline padding, meaningless arithmetic loops, and randomly
+    named functions that return constants. These patterns inflate script size and
+    add noise to confuse signature-based detection. Often combined with software
+    packing (T1027.002) or compression (T1027.015).
+references:
+    - https://attack.mitre.org/techniques/T1027/016/
+    - https://www.reasonlabs.com/blog/junk-code
+    - https://unit42.paloaltonetworks.com/powershell-obfuscation/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1027.016
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging (Event ID 4104)'
+detection:
+    selection_nop_patterns:
+        ScriptBlockText|re: "\\(\\$[A-Za-z0-9_]{1,4}\\s*=\\s*[\"'][A-Za-z0-9+/]{0,4}[\"'];\\s*\\){15,}"
+    selection_dead_arithmetic:
+        ScriptBlockText|re: "\\$[A-Za-z0-9_]+\\s*[+\\-*]\\s*[0-9]+\\s*[+\\-*]\\s*[0-9]+.*\\s*\\|\\s*Out-Null"
+    selection_random_func_return:
+        ScriptBlockText|re: "function\\s+[A-Za-z]{8,}\\s*\\{\\s*return\\s+[0-9]+\\s*\\}"
+    condition: 1 of selection_*
+falsepositives:
+    - Obfuscated but legitimate software protection schemes
+    - Some PowerShell DSC resources with generated code
+level: medium

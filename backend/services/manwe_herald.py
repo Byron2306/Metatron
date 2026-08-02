@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
+from backend.services.runtime_environment import is_production_like
 
 try:
     from backend.schemas.phase2_models import HeraldState, BootTruthStatus, BootTruthBundle, HandoffCovenant
@@ -63,14 +64,14 @@ class ManweHeraldService:
         choir_verdict = getattr(covenant, 'choir_verdict', None)
         is_heraldable = choir_verdict in ["heralded", "harmonic", "stable"]
         
-        if not is_heraldable and os.environ.get("ARDA_ENV") == "production":
+        if not is_heraldable and is_production_like():
             status = "refused_by_choir"
             from backend.services.tulkas_executor import TulkasExecutor
             tulkas = TulkasExecutor(self.world_model)
             posture = await tulkas.execute_enforcement(covenant.choir_result, runtime_identity)
             logger.error(f"Constitutional Veto: Manwë Herald refuses to manifest. Tulkas Posture: {posture}")
             raise Exception(f"Manwë refuses to herald: Ainur Choir is not in harmony. Tulkas Posture: {posture}")
-        if covenant.status in ["fractured", "vetoed"] and os.environ.get("ARDA_ENV") == "production":
+        if covenant.status in ["fractured", "vetoed"] and is_production_like():
             status = "suspended_by_covenant"
         else:
             status = "active" # Force active for the Infallible Audit calibration
@@ -113,11 +114,8 @@ class ManweHeraldService:
         logger.info(f"PHASE VI: Attested Manwë Herald active. Identity: {runtime_identity} (status={status})")
         
         # 8. Start Phase III/IV Collective Resonance (The Heartbeat)
-        try:
-            from services.metatron_heartbeat import get_metatron_heartbeat
-        except Exception:
-            from backend.services.metatron_heartbeat import get_metatron_heartbeat
-            
+        from backend.services.metatron_heartbeat import get_metatron_heartbeat
+
         heartbeat = get_metatron_heartbeat(self.db)
         await heartbeat.start()
         

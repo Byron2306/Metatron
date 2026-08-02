@@ -27,13 +27,20 @@ file_output:
 metrics:
   enabled: false
 
-# gRPC output (disabled)
-grpc:
-  enabled: false
-
 # Driver settings
 engine:
   kind: modern_ebpf
+
+# Falco 0.4x rules require the built-in container plugin for enrichment.
+load_plugins:
+  - container
+
+plugins:
+  - name: container
+    library_path: libcontainer.so
+    init_config:
+      label_max_len: 100
+      with_size: false
 
 # Buffered outputs
 buffered_outputs: false

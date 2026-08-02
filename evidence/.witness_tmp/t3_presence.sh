@@ -1,0 +1,10 @@
+#!/bin/bash
+echo '══════════════════════════════════════'
+echo '  PRESENCE SERVER — THE BRIDGE'
+echo '══════════════════════════════════════'
+echo ''
+cd '/home/byron/Integritas-Mechanicus-clean/Integritas-Mechanicus'
+export ELEVENLABS_API_KEY='sk_5585153b73328552f9d59a21f56b305cb0fce00d38fa6315'
+python3 '/home/byron/Integritas-Mechanicus-clean/Integritas-Mechanicus/arda_os/backend/services/presence_server.py'
+echo ''
+read -p '  Press Enter to close...'

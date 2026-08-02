@@ -10,6 +10,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -45,6 +46,7 @@ const AgentCommandsPage = () => {
     fetchData();
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchData = async () => {
@@ -216,19 +218,15 @@ const AgentCommandsPage = () => {
   }
 
   return (
-    <div className="space-y-6" data-testid="agent-commands-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Terminal className="w-6 h-6 text-purple-400" />
-            Agent Command Center
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Send commands to agents and monitor responses
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+    <div className="space-y-6 p-6 lg:p-8" data-testid="agent-commands-page">
+      <SeraphPageHeader
+        eyebrow="seraph · command · agent dispatch"
+        title="Agent Command Center"
+        tagline="> governed command queue · connected agents · response telemetry"
+        accent="magenta"
+        status={`${connectedAgents.length} CONNECTED`}
+        actions={
+          <div className="flex items-center gap-3 flex-wrap justify-end">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 border border-green-500/30 rounded">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
             <span className="text-green-400 text-sm font-medium">
@@ -239,8 +237,9 @@ const AgentCommandsPage = () => {
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

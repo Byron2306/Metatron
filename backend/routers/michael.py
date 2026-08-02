@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Any, List, Optional
 from routers.dependencies import get_db
-from services.world_model import WorldModelService
+from backend.services.world_model import WorldModelService
 try:
     from triune import MichaelService
 except ImportError:

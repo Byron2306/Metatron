@@ -6,6 +6,7 @@ import { Switch } from "../components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
+import SeraphPageHeader from '../components/SeraphPageHeader';
 import {
   Search,
   Shield,
@@ -42,6 +43,9 @@ export default function ThreatHuntingPage() {
 
   useEffect(() => {
     fetchAll();
+    const id = setInterval(fetchAll, 20000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchAll = async () => {
@@ -191,28 +195,30 @@ export default function ThreatHuntingPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Crosshair className="w-6 h-6 text-red-500" />
-            MITRE ATT&CK Threat Hunting
-          </h1>
-          <p className="text-slate-400">Automated threat detection based on MITRE ATT&CK framework</p>
-        </div>
-        <Button onClick={fetchAll} variant="outline" size="sm">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
-        <Button onClick={generateHypotheses} variant="outline" size="sm" disabled={generatingHypotheses}>
-          <Brain className={`w-4 h-4 mr-2 ${generatingHypotheses ? 'animate-pulse' : ''}`} />
-          {generatingHypotheses ? 'Generating...' : 'Generate Hypotheses'}
-        </Button>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="threat-hunting-page" data-accent="gold">
+      <SeraphPageHeader
+        eyebrow="seraph · threat hunting · att&ck driven"
+        title="MITRE ATT&CK Threat Hunting"
+        tagline="> hypothesis-driven detection · sigma rules · live correlation"
+        accent="gold"
+        status={generatingHypotheses ? 'GENERATING' : 'HUNTING'}
+        actions={
+          <>
+            <Button onClick={fetchAll} variant="outline" size="sm">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh
+            </Button>
+            <Button onClick={generateHypotheses} size="sm" className="seraph-btn-primary" disabled={generatingHypotheses}>
+              <Brain className={`w-4 h-4 mr-2 ${generatingHypotheses ? 'animate-pulse' : ''}`} />
+              {generatingHypotheses ? 'Generating...' : 'Generate Hypotheses'}
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card className="bg-slate-900/50 border-slate-800" data-testid="stat-rules">
+      <div className="seraph-stat-grid grid grid-cols-1 md:grid-cols-5 gap-4">
+        <Card className="seraph-stat-tile bg-slate-900/50 border-slate-800" data-testid="stat-rules">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -224,7 +230,7 @@ export default function ThreatHuntingPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900/50 border-slate-800" data-testid="stat-hunts">
+        <Card className="seraph-stat-tile bg-slate-900/50 border-slate-800" data-testid="stat-hunts">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -236,7 +242,7 @@ export default function ThreatHuntingPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900/50 border-red-900/50" data-testid="stat-matches">
+        <Card className="seraph-stat-tile bg-slate-900/50 border-red-900/50" data-testid="stat-matches">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -248,7 +254,7 @@ export default function ThreatHuntingPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900/50 border-slate-800" data-testid="stat-tactics">
+        <Card className="seraph-stat-tile bg-slate-900/50 border-slate-800" data-testid="stat-tactics">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -260,7 +266,7 @@ export default function ThreatHuntingPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900/50 border-slate-800" data-testid="stat-techniques">
+        <Card className="seraph-stat-tile bg-slate-900/50 border-slate-800" data-testid="stat-techniques">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -274,7 +280,7 @@ export default function ThreatHuntingPage() {
       </div>
 
       {hypotheses.length > 0 && (
-        <Card className="bg-slate-900/50 border-slate-800" data-testid="hunting-hypotheses-card">
+        <Card className="seraph-content-panel bg-slate-900/50 border-slate-800" data-testid="hunting-hypotheses-card">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Brain className="w-5 h-5 text-purple-400" />
@@ -320,7 +326,7 @@ export default function ThreatHuntingPage() {
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card className="bg-slate-900/50 border-slate-800">
+            <Card className="seraph-content-panel bg-slate-900/50 border-slate-800">
               <CardHeader>
                 <CardTitle className="text-white">Recent Critical Matches</CardTitle>
               </CardHeader>
@@ -345,7 +351,7 @@ export default function ThreatHuntingPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-900/50 border-slate-800">
+            <Card className="seraph-content-panel bg-slate-900/50 border-slate-800">
               <CardHeader>
                 <CardTitle className="text-white">Tactics Coverage</CardTitle>
               </CardHeader>
@@ -371,7 +377,7 @@ export default function ThreatHuntingPage() {
 
         {/* Rules Tab */}
         <TabsContent value="rules" className="space-y-4">
-          <Card className="bg-slate-900/50 border-slate-800">
+          <Card className="seraph-content-panel bg-slate-900/50 border-slate-800">
             <CardHeader>
               <CardTitle className="text-white">Hunting Rules ({rules.length})</CardTitle>
               <CardDescription>Click to expand rule details</CardDescription>
@@ -442,7 +448,7 @@ export default function ThreatHuntingPage() {
 
         {/* Matches Tab */}
         <TabsContent value="matches" className="space-y-4">
-          <Card className="bg-slate-900/50 border-slate-800">
+          <Card className="seraph-content-panel bg-slate-900/50 border-slate-800">
             <CardHeader>
               <CardTitle className="text-white">High Severity Matches ({matches.length})</CardTitle>
             </CardHeader>

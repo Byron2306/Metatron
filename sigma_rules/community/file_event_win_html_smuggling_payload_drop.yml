@@ -1,0 +1,55 @@
+title: HTML Smuggling - Suspicious Payload Dropped by Browser or Script Host
+id: 294e5fd1-82d0-4426-a3d4-65e2e8381b68
+status: experimental
+description: |
+    Detects creation of executable or container file types (ISO, IMG, ZIP, EXE, DLL)
+    directly by a browser process or script host (mshta, wscript). This is a strong
+    indicator of HTML smuggling, where JavaScript Blob API assembles a payload in
+    memory and writes it to disk without a traditional HTTP download event.
+    ISO and IMG files are particularly notable as they are used to bypass Mark-of-the-Web.
+references:
+    - https://attack.mitre.org/techniques/T1027/006/
+    - https://outflank.nl/blog/2018/08/14/html-smuggling-explained/
+    - https://www.microsoft.com/en-us/security/blog/2022/06/30/using-process-monitor-to-investigate-html-smuggling/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1027.006
+    - attack.initial_access
+    - attack.t1566.001
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_process:
+        Image|endswith:
+            - '\msedge.exe'
+            - '\chrome.exe'
+            - '\firefox.exe'
+            - '\iexplore.exe'
+            - '\mshta.exe'
+            - '\wscript.exe'
+            - '\cscript.exe'
+    selection_payload_ext:
+        TargetFilename|endswith:
+            - '.iso'
+            - '.img'
+            - '.vhd'
+            - '.vhdx'
+            - '.exe'
+            - '.dll'
+            - '.ps1'
+            - '.hta'
+            - '.lnk'
+    selection_user_path:
+        TargetFilename|contains:
+            - '\Downloads\'
+            - '\AppData\Local\Temp\'
+            - '\AppData\Roaming\'
+            - '\Desktop\'
+    condition: selection_process and selection_payload_ext and selection_user_path
+falsepositives:
+    - Browser extensions that package executables
+    - Legitimate software downloaded via browser helper objects
+level: high

@@ -12,11 +12,26 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
+
+const ZERO_TRUST_ACCENTS = {
+  magenta: { border: 'rgba(255,43,214,0.42)', glow: 'rgba(255,43,214,0.16)' },
+  green: { border: 'rgba(57,255,20,0.34)', glow: 'rgba(57,255,20,0.12)' },
+  gold: { border: 'rgba(251,191,36,0.36)', glow: 'rgba(251,191,36,0.12)' },
+  violet: { border: 'rgba(188,19,254,0.38)', glow: 'rgba(188,19,254,0.14)' },
+};
+
+const zeroTrustPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
 
 const ZeroTrustPage = () => {
   const { token } = useAuth();
@@ -44,6 +59,7 @@ const ZeroTrustPage = () => {
 
   useEffect(() => {
     fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchData = async () => {
@@ -156,7 +172,7 @@ const ZeroTrustPage = () => {
   const getTrustColor = (level) => {
     switch(level) {
       case 'trusted': return 'text-green-400 bg-green-500/10 border-green-500/30';
-      case 'high': return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30';
+      case 'high': return 'text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/30';
       case 'medium': return 'text-amber-400 bg-amber-500/10 border-amber-500/30';
       case 'low': return 'text-orange-400 bg-orange-500/10 border-orange-500/30';
       case 'untrusted': return 'text-red-400 bg-red-500/10 border-red-500/30';
@@ -176,27 +192,27 @@ const ZeroTrustPage = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
+        <RefreshCw className="w-8 h-8 animate-spin" style={{ color: '#ffd8f4' }} />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6" data-testid="zero-trust-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <ShieldCheck className="w-6 h-6 text-cyan-400" />
-            Zero Trust Security
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Never trust, always verify - continuous access evaluation</p>
-        </div>
+    <div className="p-6 space-y-6" data-testid="zero-trust-page" data-accent="green">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <SeraphPageHeader
+          eyebrow="seraph · zero-trust · continuous verification"
+          title="Zero Trust Security"
+          tagline="> never trust, always verify - continuous access evaluation"
+          accent="green"
+          status="MONITORED"
+        />
         <div className="flex gap-2">
-          <Button onClick={fetchData} variant="outline" className="border-cyan-500/50 text-cyan-400">
+          <Button className="sophia-btn sophia-btn-refresh" onClick={fetchData} variant="outline" style={{ borderColor: 'rgba(255,43,214,0.54)', color: '#ffb5f4' }}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
-          <Button onClick={() => setShowRegisterDevice(true)} className="bg-cyan-600 hover:bg-cyan-500">
+          <Button className="sophia-btn arm-button" onClick={() => setShowRegisterDevice(true)} style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,43,214,0.95), rgba(251,191,36,0.9))', color: '#041018', border: '1px solid rgba(255,43,214,0.35)' }}>
             <Plus className="w-4 h-4 mr-2" />
             Register Device
           </Button>
@@ -206,66 +222,66 @@ const ZeroTrustPage = () => {
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={zeroTrustPanelStyle(ZERO_TRUST_ACCENTS.violet)}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-              <Monitor className="w-5 h-5 text-cyan-400" />
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(188,19,254,0.14)' }}>
+              <Monitor className="w-5 h-5" style={{ color: '#bc13fe' }} />
             </div>
             <div>
-              <p className="text-slate-400 text-sm">Devices</p>
-              <p className="text-2xl font-bold text-white">{stats?.devices?.total || 0}</p>
+              <p className="sophia-terminal-label text-sm">Devices</p>
+              <p className="sophia-terminal-value text-2xl font-bold text-white">{stats?.devices?.total || 0}</p>
             </div>
           </div>
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={zeroTrustPanelStyle(ZERO_TRUST_ACCENTS.green)}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
               <CheckCircle className="w-5 h-5 text-green-400" />
             </div>
             <div>
-              <p className="text-slate-400 text-sm">Compliant</p>
-              <p className="text-2xl font-bold text-green-400">{stats?.devices?.compliant || 0}</p>
+              <p className="sophia-terminal-label text-sm">Compliant</p>
+              <p className="sophia-terminal-value text-2xl font-bold text-green-400">{stats?.devices?.compliant || 0}</p>
             </div>
           </div>
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={zeroTrustPanelStyle(ZERO_TRUST_ACCENTS.magenta)}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <Activity className="w-5 h-5 text-blue-400" />
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(255,43,214,0.14)' }}>
+              <Activity className="w-5 h-5" style={{ color: '#ff2bd6' }} />
             </div>
             <div>
-              <p className="text-slate-400 text-sm">Avg Trust Score</p>
-              <p className="text-2xl font-bold text-white">{stats?.average_trust_score || 0}</p>
+              <p className="sophia-terminal-label text-sm">Avg Trust Score</p>
+              <p className="sophia-terminal-value text-2xl font-bold text-white">{stats?.average_trust_score || 0}</p>
             </div>
           </div>
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={zeroTrustPanelStyle(ZERO_TRUST_ACCENTS.green)}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
               <Unlock className="w-5 h-5 text-green-400" />
             </div>
             <div>
-              <p className="text-slate-400 text-sm">Allow Rate</p>
-              <p className="text-2xl font-bold text-green-400">{stats?.access_decisions?.allow_rate || 0}%</p>
+              <p className="sophia-terminal-label text-sm">Allow Rate</p>
+              <p className="sophia-terminal-value text-2xl font-bold text-green-400">{stats?.access_decisions?.allow_rate || 0}%</p>
             </div>
           </div>
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={zeroTrustPanelStyle(ZERO_TRUST_ACCENTS.gold)}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
               <Lock className="w-5 h-5 text-red-400" />
             </div>
             <div>
-              <p className="text-slate-400 text-sm">Denied</p>
-              <p className="text-2xl font-bold text-red-400">{stats?.access_decisions?.denied || 0}</p>
+              <p className="sophia-terminal-label text-sm">Denied</p>
+              <p className="sophia-terminal-value text-2xl font-bold text-red-400">{stats?.access_decisions?.denied || 0}</p>
             </div>
           </div>
         </motion.div>

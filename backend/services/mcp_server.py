@@ -21,18 +21,13 @@ from enum import Enum
 import uuid
 from collections import deque
 
+from backend.services.runtime_environment import current_environment, is_lab_like, is_production_like
+
 logger = logging.getLogger(__name__)
 
 
 def _is_production_security_mode() -> bool:
-    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
-    strict_flag = os.environ.get("SERAPH_STRICT_SECURITY", "false").strip().lower()
-    mcp_strict_flag = os.environ.get("MCP_STRICT_SECURITY", "false").strip().lower()
-    return (
-        environment in {"prod", "production"}
-        or strict_flag in {"1", "true", "yes", "on"}
-        or mcp_strict_flag in {"1", "true", "yes", "on"}
-    )
+    return is_production_like()
 
 
 def _resolve_mcp_signing_key() -> str:
@@ -1008,7 +1003,7 @@ class MCPServer:
             }
 
         from runtime_paths import ensure_data_dir
-        from services.tool_gateway import tool_gateway
+        from backend.services.tool_gateway import tool_gateway
 
         output_dir = str(params.get("output_path") or ensure_data_dir("forensics", "memory_dumps"))
         token_id = f"mcp-{uuid.uuid4().hex[:10]}"
@@ -1039,7 +1034,7 @@ class MCPServer:
         honeypot_id = f"hp_{uuid.uuid4().hex[:12]}"
 
         if honeypot_type == "network":
-            from services.vns import vns
+            from backend.services.vns import vns
 
             ip = config.get("ip")
             domain = config.get("domain")
@@ -1173,6 +1168,12 @@ class MCPServer:
             "is_ai_threat": assessment.machine_likelihood >= 0.5,
             "ai_confidence": assessment.machine_likelihood,
             "confidence_level": assessment.confidence_level,
+            "agenticity_score": assessment.agenticity_score,
+            "agenticity_classification": assessment.agenticity_classification,
+            "agenticity_feature_vector": assessment.agenticity_feature_vector,
+            "cbr": assessment.cbr,
+            "tbcr": assessment.tbcr,
+            "cdi": assessment.cdi,
             "threat_indicators": assessment.dominant_intents,
             "recommended_action": assessment.recommended_escalation.value,
             "assessed_at": datetime.now(timezone.utc).isoformat()
@@ -1673,15 +1674,23 @@ class MCPServer:
                 execution.error = str(e)
         else:
             allow_simulation = str(os.environ.get("MCP_ALLOW_SIMULATED_EXECUTION", "false")).lower() in {"1", "true", "yes", "on"}
-            if allow_simulation:
+            runtime_env = current_environment()
+            lab_mode = is_lab_like()
+            if allow_simulation and lab_mode:
                 execution.status = "success"
-                execution.output = {"simulated": True, "tool_id": tool_id}
+                execution.output = {"simulated": True, "tool_id": tool_id, "environment": runtime_env}
             else:
                 execution.status = "failed"
-                execution.error = (
-                    f"No handler registered for tool '{tool_id}'. "
-                    "Set MCP_ALLOW_SIMULATED_EXECUTION=true only for demo/testing mode."
-                )
+                if allow_simulation and not lab_mode:
+                    execution.error = (
+                        f"Simulated MCP execution was requested in non-lab environment '{runtime_env}'. "
+                        "Explicit lab/demo/testing runtime required."
+                    )
+                else:
+                    execution.error = (
+                        f"No handler registered for tool '{tool_id}'. "
+                        "Simulated MCP execution is allowed only in explicit lab/demo/testing environments."
+                    )
         
         execution.completed_at = datetime.now(timezone.utc).isoformat()
         
@@ -1708,7 +1717,7 @@ class MCPServer:
     async def _handle_policy_check(self, message: MCPMessage) -> MCPMessage:
         """Handle a policy check request"""
         # Delegate to policy engine
-        from services.policy_engine import policy_engine
+        from backend.services.policy_engine import policy_engine
         
         payload = message.payload
         decision = policy_engine.evaluate(
@@ -1739,7 +1748,7 @@ class MCPServer:
     
     async def _handle_telemetry(self, message: MCPMessage) -> MCPMessage:
         """Handle telemetry ingestion"""
-        from services.telemetry_chain import tamper_evident_telemetry
+        from backend.services.telemetry_chain import tamper_evident_telemetry
         
         payload = message.payload
         event = tamper_evident_telemetry.ingest_event(

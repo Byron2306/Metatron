@@ -43,6 +43,9 @@ const MLPredictionPage = () => {
 
   useEffect(() => {
     fetchData();
+    const id = setInterval(fetchData, 20000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchData = async () => {

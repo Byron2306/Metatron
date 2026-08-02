@@ -1,0 +1,26 @@
+[
+  {
+    "query_id": "OSQ-T1556_008_SHADOW_READ",
+    "name": "t1556_008_shadow_read",
+    "query_text": "SELECT target_path, action, uid, time FROM file_events WHERE (target_path LIKE '%shadow%' OR target_path LIKE '%passwd%' OR target_path LIKE '%.ssh/%' OR target_path LIKE '%credential%') LIMIT 100;",
+    "matched": false,
+    "result_count": 0,
+    "supporting_event_ids": []
+  },
+  {
+    "query_id": "OSQ-T1556_008_PROC_CRED",
+    "name": "t1556_008_proc_cred",
+    "query_text": "SELECT pid, name, path, cmdline FROM processes WHERE cmdline LIKE '%shadow%' OR cmdline LIKE '%passwd%' OR cmdline LIKE '%mimikatz%' OR cmdline LIKE '%credential%' OR cmdline LIKE '%hashdump%' LIMIT 100;",
+    "matched": false,
+    "result_count": 0,
+    "supporting_event_ids": []
+  },
+  {
+    "query_id": "OSQ-T1556_008_PROC_HIDDEN",
+    "name": "t1556_008_proc_hidden",
+    "query_text": "SELECT pid, name, path, cmdline, on_disk, cwd FROM processes WHERE on_disk = 0 OR path = '' ORDER BY start_time DESC LIMIT 100;",
+    "matched": false,
+    "result_count": 0,
+    "supporting_event_ids": []
+  }
+]

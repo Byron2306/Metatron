@@ -64,6 +64,16 @@ class ThreatAnalysis:
     confidence: float
 
 
+@dataclass
+class ReasoningContext:
+    """Snapshot context used by cognition fabric reasoning bindings."""
+    entities: List[Dict[str, Any]]
+    relationships: Dict[str, Any]
+    evidence_set: List[Dict[str, Any]]
+    trust_state: Dict[str, Any]
+    timeline_window: List[Dict[str, Any]]
+
+
 class LocalAIReasoningEngine:
     """
     Local AI reasoning engine for security analysis.
@@ -601,7 +611,93 @@ class LocalAIReasoningEngine:
         self.reasoning_history.append(result)
         
         return result
-    
+
+    # =========================================================================
+    # SNAPSHOT REASONING BINDINGS
+    # =========================================================================
+
+    def analyze_snapshot(self, context: ReasoningContext) -> Dict[str, Any]:
+        """Analyze a multi-entity security snapshot for the cognition fabric."""
+        evidence = context.evidence_set or []
+        entities = context.entities or []
+        relationships = context.relationships or {}
+        edges = relationships.get("edges") if isinstance(relationships, dict) else []
+        edges = edges if isinstance(edges, list) else []
+
+        predictions = self.predict_next_step(context)
+        lateral_paths = self.predict_lateral_path(context)
+        candidate_actions = self.explain_candidates(context)
+
+        severity_weight = {
+            "credential_dump": 0.3,
+            "credential_theft": 0.3,
+            "c2_beacon": 0.25,
+            "lateral_movement": 0.2,
+            "privilege_escalation": 0.18,
+            "defense_evasion": 0.15,
+        }
+        evidence_score = sum(
+            severity_weight.get(str(item.get("type") or "").lower(), 0.08)
+            for item in evidence
+            if isinstance(item, dict)
+        )
+        graph_score = min(0.2, len(edges) * 0.04)
+        entity_score = min(0.15, len(entities) * 0.03)
+        risk_score = round(min(1.0, evidence_score + graph_score + entity_score), 6)
+
+        return {
+            "predictions": predictions,
+            "lateral_paths": lateral_paths,
+            "candidate_actions": candidate_actions,
+            "suggested_actions": [item["action"] for item in candidate_actions],
+            "risk_score": risk_score,
+            "confidence": 0.65 if evidence else 0.35,
+            "mean_uncertainty": 0.35 if evidence else 0.65,
+            "model_used": self.model_name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def predict_next_step(self, context: ReasoningContext) -> List[Dict[str, Any]]:
+        evidence_types = {
+            str(item.get("type") or "").lower()
+            for item in (context.evidence_set or [])
+            if isinstance(item, dict)
+        }
+        predictions: List[Dict[str, Any]] = []
+        if {"credential_dump", "credential_theft"} & evidence_types:
+            predictions.append({"step": "lateral_movement", "confidence": 0.74})
+        if "c2_beacon" in evidence_types:
+            predictions.append({"step": "command_and_control_expansion", "confidence": 0.68})
+        if not predictions:
+            predictions.append({"step": "investigation", "confidence": 0.42})
+        return predictions
+
+    def predict_lateral_path(self, context: ReasoningContext) -> List[Dict[str, Any]]:
+        relationships = context.relationships or {}
+        edges = relationships.get("edges") if isinstance(relationships, dict) else []
+        paths = []
+        for edge in edges if isinstance(edges, list) else []:
+            if not isinstance(edge, dict):
+                continue
+            source = edge.get("source")
+            target = edge.get("target")
+            if source and target:
+                paths.append({"source": source, "target": target, "likelihood": 0.5})
+        return paths
+
+    def explain_candidates(self, context: ReasoningContext) -> List[Dict[str, Any]]:
+        evidence_types = {
+            str(item.get("type") or "").lower()
+            for item in (context.evidence_set or [])
+            if isinstance(item, dict)
+        }
+        candidates = [{"action": "investigate", "reason": "preserve evidence and confirm scope"}]
+        if "c2_beacon" in evidence_types:
+            candidates.append({"action": "block_outbound", "reason": "C2 beacon evidence is present"})
+        if {"credential_dump", "credential_theft"} & evidence_types:
+            candidates.append({"action": "rotate_credentials", "reason": "credential access evidence is present"})
+        return candidates
+
     # =========================================================================
     # OLLAMA INTEGRATION
     # =========================================================================

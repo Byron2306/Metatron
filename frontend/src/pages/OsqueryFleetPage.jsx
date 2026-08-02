@@ -9,6 +9,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card'
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const OsqueryFleetPage = () => {
   const { token } = useAuth();
@@ -83,26 +84,20 @@ const OsqueryFleetPage = () => {
   };
 
   return (
-    <div className="space-y-6" data-testid="osquery-fleet-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Terminal className="w-6 h-6 text-emerald-400" />
-            osquery / Fleet Integration
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Endpoint telemetry ingestion and Fleet live query orchestration
-          </p>
-        </div>
-        <Button
-          onClick={loadOverview}
-          variant="outline"
-          className="border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10"
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="osquery-fleet-page">
+      <SeraphPageHeader
+        eyebrow="seraph · osquery · fleet orchestration"
+        title="osquery / Fleet Integration"
+        tagline="> endpoint telemetry · live queries · technique-targeted SQL"
+        accent="green"
+        status="LIVE"
+        actions={
+          <Button onClick={loadOverview} variant="outline" className="border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">

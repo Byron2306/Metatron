@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 VPN_CONFIG_DIR = ensure_data_dir("vpn")
 
 WIREGUARD_DIR = Path("/etc/wireguard")
+WIREGUARD_READABLE_DIR = Path(os.environ.get("SERAPH_WIREGUARD_READABLE_DIR", str(VPN_CONFIG_DIR / "wireguard-configs")))
 
 class VPNConfig:
     def __init__(self):
@@ -273,11 +274,25 @@ AllowedIPs = {peer.allowed_ips}
         
         # Set permissions
         os.chmod(config_path, 0o600)
+        try:
+            WIREGUARD_READABLE_DIR.mkdir(parents=True, exist_ok=True)
+            readable_path = WIREGUARD_READABLE_DIR / f"{self.interface}.conf"
+            with open(readable_path, "w") as f:
+                f.write(config_content)
+            os.chmod(readable_path, 0o640)
+            logger.info(f"WireGuard readable config written to {readable_path}")
+        except Exception as e:
+            logger.warning(f"Failed to write readable WireGuard config copy: {e}")
         
         logger.info(f"WireGuard config written to {config_path}")
     
     async def add_peer(self, name: str, peer_id: Optional[str] = None, allowed_ips: str = None) -> WireGuardPeer:
         """Add a new peer/client"""
+        # Ensure peer configs are generated with a real server public key.
+        # Without this, first-time auto-config clients may receive placeholders.
+        if not self.server_config:
+            await self.initialize_server()
+
         # Generate keys for peer
         private_key, public_key = await WireGuardKeyManager.generate_keypair()
         preshared_key = await WireGuardKeyManager.generate_preshared_key()
@@ -469,6 +484,8 @@ PersistentKeepalive = 25
                 "interface": self.interface,
                 "peers_count": len(self.peers),
                 "server_configured": self.server_config is not None,
+                "config_dir": str(VPN_CONFIG_DIR),
+                "readable_config_dir": str(WIREGUARD_READABLE_DIR),
                 "message": "WireGuard lifecycle is handled by external service/container."
             }
 
@@ -486,7 +503,9 @@ PersistentKeepalive = 25
                     "interface": self.interface,
                     "peers_count": len(self.peers),
                     "details": stdout.decode(),
-                    "server_configured": self.server_config is not None
+                    "server_configured": self.server_config is not None,
+                    "config_dir": str(VPN_CONFIG_DIR),
+                    "readable_config_dir": str(WIREGUARD_READABLE_DIR),
                 }
             else:
                 # Interface not up but may be configured
@@ -495,6 +514,8 @@ PersistentKeepalive = 25
                     "interface": self.interface,
                     "peers_count": len(self.peers),
                     "server_configured": self.server_config is not None,
+                    "config_dir": str(VPN_CONFIG_DIR),
+                    "readable_config_dir": str(WIREGUARD_READABLE_DIR),
                     "message": "Server is configured but interface is not active. Click 'Start Server' to activate."
                 }
                 
@@ -542,6 +563,8 @@ class VPNKillSwitch:
                 # Allow LAN (optional - for split tunneling)
                 ["iptables", "-A", "OUTPUT", "-d", "192.168.0.0/16", "-j", "ACCEPT"],
                 ["iptables", "-A", "OUTPUT", "-d", "10.0.0.0/8", "-j", "ACCEPT"],
+                # Allow Docker internal networks (required for inter-container communication)
+                ["iptables", "-A", "OUTPUT", "-d", "172.16.0.0/12", "-j", "ACCEPT"],
                 # Block everything else
                 ["iptables", "-A", "OUTPUT", "-j", "DROP"],
             ]
@@ -683,7 +706,53 @@ class VPNManager:
             },
             "peers": [asdict(p) for p in self.server.peers.values()]
         }
-    
+
+    def get_config(self) -> Dict[str, Any]:
+        return {
+            "enabled": config.vpn_enabled,
+            "type": config.vpn_type,
+            "managed_externally": config.vpn_managed_externally,
+            "server_address": config.vpn_server_address,
+            "port": config.vpn_port,
+            "dns_servers": list(config.dns_servers),
+            "kill_switch_enabled": config.kill_switch_enabled,
+            "split_tunnel_enabled": config.split_tunnel_enabled,
+            "server_endpoint": config.vpn_server_endpoint,
+        }
+
+    async def update_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if "enabled" in payload:
+            config.vpn_enabled = bool(payload.get("enabled"))
+        if payload.get("type"):
+            config.vpn_type = str(payload.get("type")).strip()
+        if "server_address" in payload and str(payload.get("server_address") or "").strip():
+            config.vpn_server_address = str(payload.get("server_address")).strip()
+        if "port" in payload and payload.get("port") is not None:
+            config.vpn_port = int(payload.get("port"))
+        if "dns_servers" in payload:
+            dns_servers = payload.get("dns_servers") or []
+            if isinstance(dns_servers, str):
+                dns_servers = [p.strip() for p in dns_servers.split(",") if p.strip()]
+            config.dns_servers = [str(item).strip() for item in dns_servers if str(item).strip()]
+        if "kill_switch_enabled" in payload:
+            config.kill_switch_enabled = bool(payload.get("kill_switch_enabled"))
+        if "split_tunnel_enabled" in payload:
+            config.split_tunnel_enabled = bool(payload.get("split_tunnel_enabled"))
+        if "server_endpoint" in payload and str(payload.get("server_endpoint") or "").strip():
+            config.vpn_server_endpoint = str(payload.get("server_endpoint")).strip()
+
+        if self.server.server_config:
+            self.server.server_config.address = config.vpn_server_address
+            self.server.server_config.listen_port = config.vpn_port
+            self.server.server_config.dns = list(config.dns_servers)
+            await self.server._write_server_config()
+            self.server._save_config()
+
+        return {
+            "status": "updated",
+            "config": self.get_config(),
+        }
+
     def get_peers(self) -> List[Dict]:
         """Get all peers"""
         return [asdict(p) for p in self.server.peers.values()]

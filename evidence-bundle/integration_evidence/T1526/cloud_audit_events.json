@@ -1,0 +1,137 @@
+{
+  "schema": "cloud_audit_events.v2",
+  "evidence_mode": "L1",
+  "evidence_strength": "HARD_POSITIVE",
+  "technique": "T1526",
+  "source": "cloudtrail",
+  "provider": "AWS CloudTrail",
+  "collected_at": "2026-05-03T16:18:48.962811+00:00",
+  "actor": "arn:aws:iam::509463546091:user/Seraph-Metatron",
+  "account_id": "509463546091",
+  "trail": {
+    "name": "metatron-lab-trail",
+    "region": "us-east-1",
+    "describe": {
+      "trailList": [
+        {
+          "Name": "metatron-lab-trail",
+          "S3BucketName": "metatron-cloudtrail-509463546091",
+          "IncludeGlobalServiceEvents": true,
+          "IsMultiRegionTrail": true,
+          "HomeRegion": "us-east-1",
+          "TrailARN": "arn:aws:cloudtrail:us-east-1:509463546091:trail/metatron-lab-trail",
+          "LogFileValidationEnabled": true,
+          "HasCustomEventSelectors": true,
+          "HasInsightSelectors": false,
+          "IsOrganizationTrail": false
+        }
+      ]
+    },
+    "status": {
+      "IsLogging": true,
+      "LatestDeliveryTime": 1777824935.137,
+      "StartLoggingTime": 1777824280.137,
+      "LatestDeliveryAttemptTime": "2026-05-03T16:15:35Z",
+      "LatestNotificationAttemptTime": "",
+      "LatestNotificationAttemptSucceeded": "",
+      "LatestDeliveryAttemptSucceeded": "2026-05-03T16:15:35Z",
+      "TimeLoggingStarted": "2026-05-03T16:04:40Z",
+      "TimeLoggingStopped": ""
+    }
+  },
+  "summary": {
+    "matched_events": 1,
+    "event_names": [
+      "DescribeTrails"
+    ],
+    "successful_calls": 1,
+    "evidence_items": 1
+  },
+  "executed_actions": [
+    {
+      "technique_id": "T1526",
+      "command": [
+        "aws",
+        "sts",
+        "get-caller-identity",
+        "--output",
+        "json"
+      ],
+      "status": "ok",
+      "executed_at": "2026-05-03T16:18:28.726631+00:00",
+      "response_excerpt": "{\"UserId\": \"AIDAXNHTEZDVVPLY7ZV3Y\", \"Account\": \"509463546091\", \"Arn\": \"arn:aws:iam::509463546091:user/Seraph-Metatron\"}"
+    },
+    {
+      "technique_id": "T1526",
+      "command": [
+        "aws",
+        "cloudtrail",
+        "describe-trails",
+        "--region",
+        "us-east-1",
+        "--output",
+        "json"
+      ],
+      "status": "ok",
+      "executed_at": "2026-05-03T16:18:30.259834+00:00",
+      "response_excerpt": "{\"trailList\": [{\"Name\": \"metatron-lab-trail\", \"S3BucketName\": \"metatron-cloudtrail-509463546091\", \"IncludeGlobalServiceEvents\": true, \"IsMultiRegionTrail\": true, \"HomeRegion\": \"us-east-1\", \"TrailARN\": \"arn:aws:cloudtrail:us-east-1:509463546091:trail/metatron-lab-trail\", \"LogFileValidationEnabled\": true, \"HasCustomEventSelectors\": true, \"HasInsightSelectors\": false, \"IsOrganizationTrail\": false}]}"
+    }
+  ],
+  "data": [
+    {
+      "technique_id": "T1526",
+      "source": "cloudtrail",
+      "actor": "arn:aws:iam::509463546091:user/Seraph-Metatron",
+      "target_resource": "cloudtrail.amazonaws.com",
+      "evidence_strength": "HARD_POSITIVE",
+      "category": "cloud_discovery",
+      "sigma_rule_id": "aws-cloud-discovery-real-001",
+      "captured_at": "2026-05-03T16:18:48.962760+00:00",
+      "evidence_hash": "de2cc6c1ecd536e596e076e1695b5fe937a4371fedf8f4e9c977542b4c1cd2c8",
+      "audit_event": {
+        "event_id": "7c43292f-eeb4-4466-949d-2878d9328af7",
+        "event_type": "DescribeTrails",
+        "source": "cloudtrail.amazonaws.com",
+        "timestamp": "2026-05-03T16:10:37Z",
+        "request_id": "5131ac6f-a3a2-4bd2-8d9a-0253a16ad86e",
+        "aws_region": "us-east-1",
+        "source_ip": "41.193.87.251",
+        "user_agent": "aws-cli/1.45.2 md/Botocore#1.43.2 ua/2.1 os/linux#6.12.74+deb12-amd64 md/arch#x86_64 lang/python#3.14.4 md/pyimpl#CPython m/n,D,b,Z cfg/retry-mode#legacy botocore/1.43.2",
+        "recipient_account_id": "509463546091",
+        "read_only": true,
+        "raw_event": {
+          "eventVersion": "1.11",
+          "userIdentity": {
+            "type": "IAMUser",
+            "principalId": "AIDAXNHTEZDVVPLY7ZV3Y",
+            "arn": "arn:aws:iam::509463546091:user/Seraph-Metatron",
+            "accountId": "509463546091",
+            "accessKeyId": "AKIAXNHTEZDVWJPCDC73",
+            "userName": "Seraph-Metatron"
+          },
+          "eventTime": "2026-05-03T16:10:37Z",
+          "eventSource": "cloudtrail.amazonaws.com",
+          "eventName": "DescribeTrails",
+          "awsRegion": "us-east-1",
+          "sourceIPAddress": "41.193.87.251",
+          "userAgent": "aws-cli/1.45.2 md/Botocore#1.43.2 ua/2.1 os/linux#6.12.74+deb12-amd64 md/arch#x86_64 lang/python#3.14.4 md/pyimpl#CPython m/n,D,b,Z cfg/retry-mode#legacy botocore/1.43.2",
+          "requestParameters": null,
+          "responseElements": null,
+          "requestID": "5131ac6f-a3a2-4bd2-8d9a-0253a16ad86e",
+          "eventID": "7c43292f-eeb4-4466-949d-2878d9328af7",
+          "readOnly": true,
+          "eventType": "AwsApiCall",
+          "managementEvent": true,
+          "recipientAccountId": "509463546091",
+          "eventCategory": "Management",
+          "tlsDetails": {
+            "tlsVersion": "TLSv1.3",
+            "cipherSuite": "TLS_AES_128_GCM_SHA256",
+            "clientProvidedHostHeader": "cloudtrail.us-east-1.amazonaws.com"
+          }
+        }
+      }
+    }
+  ],
+  "verdict": "real_cloudtrail_events_recorded"
+}

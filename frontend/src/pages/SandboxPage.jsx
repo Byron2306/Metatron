@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
-  Box, 
   Activity, 
   Play, 
   FileText, 
@@ -19,6 +18,7 @@ import {
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -154,6 +154,7 @@ const SandboxPage = () => {
 
   useEffect(() => {
     fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchData = async () => {
@@ -266,25 +267,20 @@ const SandboxPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 p-6" data-testid="sandbox-page">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg bg-orange-500/20 flex items-center justify-center">
-              <Box className="w-6 h-6 text-orange-400" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">Sandbox Analysis</h1>
-              <p className="text-slate-400">Dynamic malware analysis in isolated environment</p>
-            </div>
-          </div>
+    <div className="min-h-screen bg-slate-950 p-6 lg:p-8 space-y-6" data-testid="sandbox-page" data-accent="yellow">
+      <SeraphPageHeader
+        eyebrow="seraph · sandbox · detonation chamber"
+        title="Sandbox Analysis"
+        tagline="> dynamic malware analysis · isolated execution · verdict extraction"
+        accent="yellow"
+        status={effectiveStats?.running ? `${effectiveStats.running} RUNNING` : 'READY'}
+        actions={
           <Button onClick={fetchData} variant="outline" className="border-slate-700">
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">

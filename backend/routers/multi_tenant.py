@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from dataclasses import asdict
 
-from services.multi_tenant import (
+from backend.services.multi_tenant import (
     multi_tenant_service, 
     Tenant, 
     TenantTier, 

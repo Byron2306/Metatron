@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Input } from "../components/ui/input";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
+import SeraphPageHeader from '../components/SeraphPageHeader';
 import {
   Cpu,
   Shield,
@@ -84,6 +85,7 @@ export default function UnifiedAgentPage() {
   // Monitor stats state
   const [monitorStats, setMonitorStats] = useState(null);
   const [monitorAlerts, setMonitorAlerts] = useState([]);
+  const [enrollmentEvents, setEnrollmentEvents] = useState([]);
   
   // UI state
   const [loading, setLoading] = useState(true);
@@ -98,13 +100,14 @@ export default function UnifiedAgentPage() {
   // Fetch all data
   const fetchData = useCallback(async () => {
     try {
-      const [agentsRes, statsRes, devicesRes, deployStatusRes, monitorStatsRes, monitorAlertsRes] = await Promise.all([
+      const [agentsRes, statsRes, devicesRes, deployStatusRes, monitorStatsRes, monitorAlertsRes, enrollmentEventsRes] = await Promise.all([
         fetch(`${API_ROOT}/unified/agents`, { headers }),
         fetch(`${API_ROOT}/unified/stats`, { headers }),
         fetch(`${API_ROOT}/swarm/devices`, { headers }),
         fetch(`${API_ROOT}/swarm/unified/deployment-status`, { headers }),
         fetch(`${API_ROOT}/unified/stats/monitors`, { headers }),
-        fetch(`${API_ROOT}/unified/monitors/alerts?limit=20`, { headers })
+        fetch(`${API_ROOT}/unified/monitors/alerts?limit=20`, { headers }),
+        fetch(`${API_ROOT}/unified/enrollment/events?limit=12`, { headers })
       ]);
       
       if (agentsRes.ok) {
@@ -137,11 +140,16 @@ export default function UnifiedAgentPage() {
         const alertsData = await monitorAlertsRes.json();
         setMonitorAlerts(alertsData.alerts || []);
       }
+      if (enrollmentEventsRes.ok) {
+        const enrollmentData = await enrollmentEventsRes.json();
+        setEnrollmentEvents(enrollmentData.events || []);
+      }
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
       setLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   useEffect(() => {
@@ -273,10 +281,11 @@ export default function UnifiedAgentPage() {
   // Helper functions
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
-      case "online": case "deployed": return "text-green-400 bg-green-500/20 border-green-500/30";
-      case "offline": case "failed": return "text-red-400 bg-red-500/20 border-red-500/30";
-      case "warning": case "deploying": case "queued": return "text-yellow-400 bg-yellow-500/20 border-yellow-500/30";
-      default: return "text-slate-400 bg-slate-500/20 border-slate-500/30";
+      case "online": case "deployed": return "text-green-300 bg-[#02050d] border-green-500/80";
+      case "offline": case "failed": return "text-red-300 bg-[#02050d] border-red-500/80";
+      case "warning": case "deploying": case "queued": return "text-yellow-300 bg-[#02050d] border-yellow-500/80";
+      case "discovered": return "text-cyan-300 bg-[#02050d] border-cyan-500/80";
+      default: return "text-cyan-300 bg-[#02050d] border-cyan-500/70";
     }
   };
 
@@ -309,38 +318,39 @@ export default function UnifiedAgentPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-cyan-400 animate-pulse">Loading Unified Agent Dashboard...</div>
+      <div className="flex items-center justify-center min-h-[60vh] px-4">
+        <div className="seraph-hud-frame sophia-border-cyan rounded-xl px-6 py-5">
+          <div className="sophia-scan text-cyan-200 text-sm tracking-wide animate-pulse">Loading Unified Agent Dashboard...</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Cpu className="w-6 h-6 text-cyan-500" />
-            Unified Agent Dashboard
-          </h1>
-          <p className="text-slate-400">Network discovery, agent deployment, and endpoint security - all in one place</p>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={fetchData} variant="outline" size="sm">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
-          <Button 
-            className="bg-cyan-600 hover:bg-cyan-700"
-            onClick={triggerScanAndDeploy}
-            disabled={scanning}
-          >
-            {scanning ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
-            Scan & Deploy
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="unified-agent-page">
+      <SeraphPageHeader
+        eyebrow="seraph · unified agent · fleet command"
+        title="Unified Agent Dashboard"
+        tagline="> network discovery · agent deployment · endpoint security in one surface"
+        accent="green"
+        status={scanning ? 'SCANNING' : 'ARMED'}
+        actions={
+          <>
+            <Button onClick={fetchData} variant="outline" size="sm">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh
+            </Button>
+            <Button
+              className="bg-cyan-600 hover:bg-cyan-700"
+              onClick={triggerScanAndDeploy}
+              disabled={scanning}
+            >
+              {scanning ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
+              Scan & Deploy
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats Overview */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
@@ -372,7 +382,7 @@ export default function UnifiedAgentPage() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-slate-400">Discovered</p>
+                <p className="text-xs text-cyan-300">Discovered</p>
                 <p className="text-xl font-bold text-blue-400">{deviceStats?.total || devices.length}</p>
               </div>
               <Globe className="w-6 h-6 text-blue-500" />
@@ -498,7 +508,7 @@ export default function UnifiedAgentPage() {
                     Scan your network and deploy agents, or install manually
                   </p>
                   <div className="flex gap-2 justify-center">
-                    <Button className="bg-cyan-600" onClick={triggerScanAndDeploy}>
+                    <Button className="seraph-btn-primary" onClick={triggerScanAndDeploy}>
                       <Search className="w-4 h-4 mr-2" /> Scan Network
                     </Button>
                     <Button variant="outline" onClick={() => setActiveTab("install")}>
@@ -746,6 +756,15 @@ export default function UnifiedAgentPage() {
                 <CardDescription>Click to download or copy install command</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="flex flex-wrap gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3">
+                  <Button className="bg-cyan-600 hover:bg-cyan-500" onClick={() => window.open("/enroll", "_blank")}>
+                    <AppWindow className="w-4 h-4 mr-2" /> Open Enrollment Page
+                  </Button>
+                  <Button variant="outline" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/enroll`)}>
+                    <Copy className="w-4 h-4 mr-2" /> Copy Enrollment URL
+                  </Button>
+                  <span className="text-xs text-slate-400 self-center">Use port 3000 for browser enrollment; installers call the backend API.</span>
+                </div>
                 {[
                   { 
                     name: "Linux", 
@@ -871,6 +890,28 @@ pip install -r requirements.txt
 python core/agent.py --server ${API_URL || window.location.origin}`}
                     </pre>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-slate-900/50 border-slate-800 lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-white">Enrollment Registration Log</CardTitle>
+                <CardDescription>Pre-enrollments and agent registrations from the backend control plane</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {enrollmentEvents.length === 0 ? (
+                    <p className="text-sm text-slate-500">No enrollment events yet.</p>
+                  ) : enrollmentEvents.map((event) => (
+                    <div key={event.event_id || `${event.timestamp}-${event.message}`} className="flex items-start justify-between gap-3 rounded border border-slate-800 bg-slate-950/50 p-3">
+                      <div>
+                        <p className="text-sm text-slate-200">{event.message || event.event_type}</p>
+                        <p className="text-xs text-slate-500">{event.platform || "unknown"} {event.agent_id ? `• ${event.agent_id}` : ""}</p>
+                      </div>
+                      <span className="text-xs text-slate-500 whitespace-nowrap">{event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : ""}</span>
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>

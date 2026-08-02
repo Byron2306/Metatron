@@ -11,11 +11,34 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
+
+const INTEGRATION_RUNTIME_DEFAULT_ACTIONS = {
+  trivy: 'scan_all',
+  falco: 'alerts',
+  suricata: 'alerts',
+};
+
+const CONTAINER_ACCENTS = {
+  gold: { border: 'rgba(251,191,36,0.36)', glow: 'rgba(251,191,36,0.12)' },
+  magenta: { border: 'rgba(255,43,214,0.42)', glow: 'rgba(255,43,214,0.16)' },
+  green: { border: 'rgba(57,255,20,0.34)', glow: 'rgba(57,255,20,0.12)' },
+  violet: { border: 'rgba(188,19,254,0.38)', glow: 'rgba(188,19,254,0.14)' },
+};
+
+const containerPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
+
+const INTEGRATION_RUNTIME_TOOLS = Object.keys(INTEGRATION_RUNTIME_DEFAULT_ACTIONS);
 
 const ContainerSecurityPage = () => {
   const { token } = useAuth();
@@ -26,6 +49,8 @@ const ContainerSecurityPage = () => {
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState(null);
+  const [integrationStatus, setIntegrationStatus] = useState({});
+  const [integrationBusy, setIntegrationBusy] = useState(false);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -34,6 +59,8 @@ const ContainerSecurityPage = () => {
     fetchContainers();
     fetchScanHistory();
     fetchRuntimeStatus();
+    fetchIntegrationStatus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchStats = async () => {
@@ -69,6 +96,63 @@ const ContainerSecurityPage = () => {
       setRuntimeStatus(res.data);
     } catch (err) {
       console.error('Failed to fetch runtime status');
+    }
+  };
+
+  const fetchIntegrationStatus = async () => {
+    setIntegrationBusy(true);
+    try {
+      const requests = INTEGRATION_RUNTIME_TOOLS.map(async (tool) => {
+        const res = await axios.post(
+          `${API}/integrations/runtime/run`,
+          {
+            tool,
+            runtime_target: 'server',
+            params: { action: 'status' },
+          },
+          { headers },
+        );
+        return [tool, res.data || {}];
+      });
+
+      const entries = await Promise.allSettled(requests);
+      const next = {};
+      for (const row of entries) {
+        if (row.status === 'fulfilled') {
+          const [tool, payload] = row.value;
+          next[tool] = payload;
+        }
+      }
+      setIntegrationStatus(next);
+    } catch (err) {
+      toast.error('Failed to refresh integration runtime status');
+    } finally {
+      setIntegrationBusy(false);
+    }
+  };
+
+  const handleRunIntegration = async (tool) => {
+    const action = INTEGRATION_RUNTIME_DEFAULT_ACTIONS[tool] || 'status';
+    const params = { action };
+
+    setIntegrationBusy(true);
+    try {
+      await axios.post(
+        `${API}/integrations/runtime/run`,
+        {
+          tool,
+          runtime_target: 'server',
+          params,
+        },
+        { headers },
+      );
+      toast.success(`Launched ${tool} (${action})`);
+      await fetchIntegrationStatus();
+      await fetchContainers();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || `Failed to launch ${tool}`);
+    } finally {
+      setIntegrationBusy(false);
     }
   };
 
@@ -131,15 +215,15 @@ const ContainerSecurityPage = () => {
 
   return (
     <div className="space-y-6" data-testid="container-security-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Container className="w-6 h-6 text-cyan-400" />
-            Container Security
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Trivy vulnerability scanning & runtime monitoring</p>
-        </div>
-        <Button onClick={handleScanAll} disabled={loading} variant="outline" className="border-cyan-500/50 text-cyan-400">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <SeraphPageHeader
+          eyebrow="seraph · containers · runtime defense"
+          title="Container Security"
+          tagline="> Trivy vulnerability scanning and runtime monitoring"
+          accent="gold"
+          status="MONITORED"
+        />
+        <Button className="sophia-btn sophia-btn-refresh" onClick={handleScanAll} disabled={loading} variant="outline" style={{ borderColor: 'rgba(251,191,36,0.5)', color: '#fde68a' }}>
           <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           Scan All Images
         </Button>
@@ -148,7 +232,7 @@ const ContainerSecurityPage = () => {
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={containerPanelStyle(CONTAINER_ACCENTS.green)}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
               {stats?.trivy_enabled ? 
@@ -157,8 +241,8 @@ const ContainerSecurityPage = () => {
               }
             </div>
             <div>
-              <p className="text-slate-400 text-sm">Trivy Scanner</p>
-              <p className={`font-bold ${stats?.trivy_enabled ? 'text-green-400' : 'text-red-400'}`}>
+              <p className="sophia-terminal-label text-sm">Trivy Scanner</p>
+              <p className={`sophia-terminal-value font-bold ${stats?.trivy_enabled ? 'text-green-400' : 'text-red-400'}`}>
                 {stats?.trivy_enabled ? 'Installed' : 'Not Installed'}
               </p>
             </div>
@@ -166,40 +250,40 @@ const ContainerSecurityPage = () => {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={containerPanelStyle(CONTAINER_ACCENTS.violet)}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <Box className="w-5 h-5 text-blue-400" />
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(188,19,254,0.14)' }}>
+              <Box className="w-5 h-5" style={{ color: '#bc13fe' }} />
             </div>
             <div>
-              <p className="text-slate-400 text-sm">Running Containers</p>
-              <p className="text-2xl font-bold text-white">{containers.length}</p>
+              <p className="sophia-terminal-label text-sm">Running Containers</p>
+              <p className="sophia-terminal-value text-2xl font-bold text-white">{containers.length}</p>
             </div>
           </div>
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={containerPanelStyle(CONTAINER_ACCENTS.magenta)}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
-              <Search className="w-5 h-5 text-purple-400" />
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(255,43,214,0.14)' }}>
+              <Search className="w-5 h-5" style={{ color: '#ff2bd6' }} />
             </div>
             <div>
-              <p className="text-slate-400 text-sm">Cached Scans</p>
-              <p className="text-2xl font-bold text-white">{stats?.cached_scans || 0}</p>
+              <p className="sophia-terminal-label text-sm">Cached Scans</p>
+              <p className="sophia-terminal-value text-2xl font-bold text-white">{stats?.cached_scans || 0}</p>
             </div>
           </div>
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={containerPanelStyle(CONTAINER_ACCENTS.gold)}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
               <Activity className="w-5 h-5 text-amber-400" />
             </div>
             <div>
-              <p className="text-slate-400 text-sm">Runtime Events</p>
-              <p className="text-2xl font-bold text-white">{stats?.runtime_events || 0}</p>
+              <p className="sophia-terminal-label text-sm">Runtime Events</p>
+              <p className="sophia-terminal-value text-2xl font-bold text-white">{stats?.runtime_events || 0}</p>
             </div>
           </div>
         </motion.div>
@@ -278,6 +362,75 @@ const ContainerSecurityPage = () => {
                 Refresh
               </Button>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* On-Demand Integration Runtime */}
+      <Card className="bg-slate-900/50 border-slate-800">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <Activity className="w-5 h-5 text-cyan-400" />
+            On-Demand Integrations
+          </CardTitle>
+          <p className="text-xs text-slate-400">
+            Integrations stay idle until you run them. Use Run to start only the tool you need.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="flex justify-end mb-3">
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+              onClick={fetchIntegrationStatus}
+              disabled={integrationBusy}
+            >
+              <RefreshCw className={`w-3 h-3 mr-1 ${integrationBusy ? 'animate-spin' : ''}`} />
+              Refresh Integrations
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {INTEGRATION_RUNTIME_TOOLS.map((tool) => {
+              const row = integrationStatus[tool] || {};
+              const state = String(row.status || 'unknown').toLowerCase();
+              const ok = state === 'completed' || state === 'success';
+              return (
+                <div key={tool} className="p-3 rounded-lg border border-slate-700 bg-slate-800/40">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-cyan-300 font-medium">{tool}</span>
+                    <Badge
+                      variant="outline"
+                      className={ok ? 'text-green-400 border-green-500/30' : 'text-slate-300 border-slate-600/40'}
+                    >
+                      {row.status || 'unknown'}
+                    </Badge>
+                  </div>
+                  <div className="text-[11px] text-slate-400 mb-3">
+                    default action: {INTEGRATION_RUNTIME_DEFAULT_ACTIONS[tool]}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-slate-600 text-slate-200"
+                      onClick={fetchIntegrationStatus}
+                      disabled={integrationBusy}
+                    >
+                      Status
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white"
+                      onClick={() => handleRunIntegration(tool)}
+                      disabled={integrationBusy}
+                    >
+                      Run
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

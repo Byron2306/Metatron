@@ -10,6 +10,17 @@ from .dependencies import (
     AlertCreate, AlertResponse, get_current_user, get_db
 )
 
+# Optional analysis services
+try:
+    from services.diagnostic_classifier import DiagnosticClassifier
+except ImportError:
+    DiagnosticClassifier = None
+
+try:
+    from services.assessment_ecology import AssessmentEcologyService
+except ImportError:
+    AssessmentEcologyService = None
+
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 @router.post("", response_model=AlertResponse)
@@ -64,3 +75,46 @@ async def update_alert_status(alert_id: str, status: str, current_user: dict = D
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="Alert not found")
     return {"message": "Alert status updated", "status": status}
+
+
+@router.post("/classify")
+async def classify_alert(
+    alert_data: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """Classify an alert using diagnostic classification."""
+    if not DiagnosticClassifier:
+        raise HTTPException(status_code=501, detail="Diagnostic classifier not available")
+    
+    try:
+        classifier = DiagnosticClassifier()
+        classification = await classifier.classify(alert_data)
+        return {
+            "success": True,
+            "classification": classification,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Classification failed: {str(e)}")
+
+
+@router.get("/assessment")
+async def get_assessment_ecology(
+    alert_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get assessment ecology for alerts or a specific alert."""
+    if not AssessmentEcologyService:
+        raise HTTPException(status_code=501, detail="Assessment ecology service not available")
+    
+    try:
+        service = AssessmentEcologyService()
+        if alert_id:
+            assessment = await service.assess_alert(alert_id)
+        else:
+            assessment = await service.get_ecology()
+        return {
+            "success": True,
+            "assessment": assessment,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Assessment failed: {str(e)}")

@@ -1,0 +1,62 @@
+title: OSINT and Reconnaissance Tool Output Detection
+id: b5d9e2a3-f7c1-4e8b-9d6a-2g7h4i5j3k8l
+status: stable
+description: Detects OSINT and reconnaissance tool execution via output signature patterns — whois lookups, DNS queries, org enumeration, account discovery.
+references:
+    - https://attack.mitre.org/techniques/T1591/
+    - https://attack.mitre.org/techniques/T1592/
+    - https://attack.mitre.org/techniques/T1593/
+author: Seraph Security
+date: 2026-04-27
+tags:
+    - attack.reconnaissance
+    - attack.t1591
+    - attack.t1591.001
+    - attack.t1591.002
+    - attack.t1591.003
+    - attack.t1592
+    - attack.t1592.001
+    - attack.t1592.002
+    - attack.t1593
+    - attack.t1593.001
+    - attack.t1593.002
+    - attack.t1594
+    - attack.t1597
+    - attack.t1597.001
+    - attack.t1597.002
+    - attack.t1650
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_whois:
+        CommandLine|contains:
+            - 'inetnum'
+            - 'netname'
+            - 'NetRange'
+            - 'WHOIS'
+            - 'OrgName'
+            - 'RIPE Database'
+    selection_dns:
+        CommandLine|contains:
+            - 'ANSWER SECTION'
+            - 'QUESTION SECTION'
+            - ';; flags'
+    selection_http_recon:
+        CommandLine|contains:
+            - 'HTTP/1'
+            - 'HTTP/2'
+            - 'content-type:'
+            - 'server:'
+            - 'x-powered-by:'
+    selection_sys_info:
+        CommandLine|contains:
+            - 'Linux version'
+            - 'x86_64'
+            - 'MemTotal'
+            - 'cpu MHz'
+            - 'model name'
+    condition: selection_whois or selection_dns or selection_http_recon or selection_sys_info
+level: low
+falsepositives:
+    - Normal IT administration activities

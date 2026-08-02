@@ -11,6 +11,7 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -31,6 +32,7 @@ const RansomwarePage = () => {
     fetchStatus();
     fetchCanaries();
     fetchProtectedFolders();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchStatus = async () => {
@@ -129,17 +131,15 @@ const RansomwarePage = () => {
   };
 
   return (
-    <div className="space-y-6" data-testid="ransomware-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <ShieldAlert className="w-6 h-6 text-red-400" />
-            Ransomware Protection
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Canary files, behavioral detection & folder protection</p>
-        </div>
-        <div className="flex gap-2">
-          {status?.protection_active ? (
+    <div className="space-y-6 p-6 lg:p-8" data-testid="ransomware-page">
+      <SeraphPageHeader
+        eyebrow="seraph · ransomware · behavioural shield"
+        title="Ransomware Protection"
+        tagline="> canary files · behavioural detection · folder isolation"
+        accent={status?.protection_active ? 'green' : 'pink'}
+        status={status?.protection_active ? 'PROTECTED' : 'OFFLINE'}
+        actions={
+          status?.protection_active ? (
             <Button onClick={handleStopProtection} variant="destructive" disabled={loading}>
               <Square className="w-4 h-4 mr-2" />
               Stop Protection
@@ -149,9 +149,9 @@ const RansomwarePage = () => {
               <Play className="w-4 h-4 mr-2" />
               Start Protection
             </Button>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
       {/* Status */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

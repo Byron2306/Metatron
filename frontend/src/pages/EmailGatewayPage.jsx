@@ -22,11 +22,26 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? ''
   : envBackendUrl.replace(/\/+$/, '');
+
+const EMAIL_GATEWAY_ACCENTS = {
+  gold: { border: 'rgba(255,209,102,0.3)', glow: 'rgba(255,209,102,0.1)' },
+  magenta: { border: 'rgba(255,138,217,0.34)', glow: 'rgba(255,138,217,0.12)' },
+  green: { border: 'rgba(124,226,163,0.28)', glow: 'rgba(124,226,163,0.1)' },
+  violet: { border: 'rgba(197,162,235,0.32)', glow: 'rgba(197,162,235,0.12)' },
+};
+
+const emailGatewayPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
 
 const EmailGatewayPage = () => {
   const { token } = useAuth();
@@ -52,6 +67,7 @@ const EmailGatewayPage = () => {
 
   useEffect(() => {
     fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchData = async () => {
@@ -244,15 +260,15 @@ const EmailGatewayPage = () => {
 
   return (
     <div className="p-6 space-y-6" data-testid="email-gateway-page">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Server className="w-8 h-8 text-cyan-400" />
-            Email Gateway
-          </h1>
-          <p className="text-slate-400 mt-1">SMTP relay and real-time email interception</p>
-        </div>
-        <Button onClick={fetchData} variant="outline" className="border-cyan-500/30 text-cyan-400">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <SeraphPageHeader
+          eyebrow="seraph · email-gateway · relay pipeline"
+          title="Email Gateway"
+          tagline="> SMTP relay and real-time email interception"
+          accent="gold"
+          status={activeTab.toUpperCase()}
+        />
+        <Button onClick={fetchData} variant="outline" style={{ borderColor: 'rgba(255,209,102,0.32)', color: '#fff0c9' }}>
           <RefreshCw className="w-4 h-4 mr-2" />
           Refresh
         </Button>
@@ -265,7 +281,8 @@ const EmailGatewayPage = () => {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             variant={activeTab === tab.id ? 'default' : 'ghost'}
-            className={activeTab === tab.id ? 'bg-cyan-600' : 'text-slate-400'}
+            className={activeTab === tab.id ? '' : 'text-slate-400'}
+            style={activeTab === tab.id ? { background: 'linear-gradient(135deg, #ffd166, #ff8ad9)', color: '#071018' } : { border: '1px solid rgba(115,163,185,0.12)' }}
             data-testid={`tab-${tab.id}`}
           >
             <tab.icon className="w-4 h-4 mr-2" />
@@ -278,19 +295,19 @@ const EmailGatewayPage = () => {
       {activeTab === 'overview' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={emailGatewayPanelStyle(EMAIL_GATEWAY_ACCENTS.gold)}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-slate-400 text-sm">Total Processed</p>
                     <p className="text-3xl font-bold text-white">{stats?.total_processed || 0}</p>
                   </div>
-                  <Mail className="w-10 h-10 text-cyan-400" />
+                  <Mail className="w-10 h-10" style={{ color: '#ffd166' }} />
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={emailGatewayPanelStyle(EMAIL_GATEWAY_ACCENTS.green)}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -302,7 +319,7 @@ const EmailGatewayPage = () => {
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={emailGatewayPanelStyle(EMAIL_GATEWAY_ACCENTS.magenta)}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -314,7 +331,7 @@ const EmailGatewayPage = () => {
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={emailGatewayPanelStyle(EMAIL_GATEWAY_ACCENTS.gold)}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -328,7 +345,7 @@ const EmailGatewayPage = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={emailGatewayPanelStyle(EMAIL_GATEWAY_ACCENTS.violet)}>
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <Shield className="w-5 h-5 text-cyan-400" />

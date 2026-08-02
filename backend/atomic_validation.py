@@ -56,7 +56,7 @@ ARCHIVED_SOAR_EXECUTION_PATH = Path(
 class AtomicValidationManager:
     def __init__(self):
         self.enabled = os.environ.get("ATOMIC_VALIDATION_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
-        self.atomic_root = Path(os.environ.get("ATOMIC_RED_TEAM_PATH", "/opt/atomic-red-team"))
+        self.atomic_root = Path(os.environ.get("ATOMIC_RED_TEAM_PATH", "/opt/atomic-red-team/atomics"))
         self.atomic_powershell_config = Path(
             os.environ.get("ATOMIC_POWERSHELL_CONFIG", "config/atomic_powershell.yml")
         )
@@ -530,6 +530,23 @@ class AtomicValidationManager:
     def _atomic_available(self) -> bool:
         return self.atomic_root.exists()
 
+    def _resolve_atomic_root(self) -> Path:
+        """Resolve the actual Atomic Red Team root visible inside the backend container."""
+        candidates = [self.atomic_root]
+        if self.atomic_root.name != "atomics":
+            candidates.append(self.atomic_root / "atomics")
+        candidates.extend([
+            Path("/opt/atomic-red-team/atomics"),
+            Path("/opt/atomic-red-team"),
+        ])
+        for candidate in candidates:
+            try:
+                if candidate.exists():
+                    return candidate
+            except Exception:
+                continue
+        return self.atomic_root
+
     def _technique_has_atomic(self, technique: str, atomic_root: str) -> bool:
         normalized = str(technique or "").strip().upper()
         if not normalized:
@@ -968,11 +985,12 @@ class AtomicValidationManager:
 
     def get_status(self) -> Dict:
         resolved_runner = self._resolve_runner()
+        atomic_root = self._resolve_atomic_root()
         return {
             "enabled": self.enabled,
             "checked_at": datetime.now(timezone.utc).isoformat(),
-            "atomic_root": str(self.atomic_root),
-            "atomic_root_exists": self._atomic_available(),
+            "atomic_root": str(atomic_root),
+            "atomic_root_exists": atomic_root.exists(),
             "atomic_powershell_config": str(self.atomic_powershell_config),
             "atomic_powershell_config_exists": self.atomic_powershell_config.exists(),
             "runner": self.runner,
@@ -1042,6 +1060,8 @@ class AtomicValidationManager:
                 with open(path, "r", encoding="utf-8") as handle:
                     row = json.load(handle)
             except Exception:
+                continue
+            if not isinstance(row, dict):
                 continue
             total_count += 1
             if row.get("status") == "success":

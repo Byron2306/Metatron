@@ -1,0 +1,41 @@
+title: Account Enumeration and Credential Store Reconnaissance
+id: c7f1a4b6-e3d8-5g9c-0h7i-3j8k6l2m1n5o
+status: stable
+description: Detects account and identity enumeration via getent, passwd, group output signatures.
+references:
+    - https://attack.mitre.org/techniques/T1585/
+    - https://attack.mitre.org/techniques/T1650/
+    - https://attack.mitre.org/techniques/T1069/
+author: Seraph Security
+date: 2026-04-27
+tags:
+    - attack.reconnaissance
+    - attack.resource-development
+    - attack.discovery
+    - attack.t1585
+    - attack.t1585.001
+    - attack.t1585.002
+    - attack.t1585.003
+    - attack.t1650
+    - attack.t1069
+    - attack.t1087
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_account:
+        CommandLine|contains:
+            - 'root:x:0'
+            - 'nobody:x'
+            - '/bin/bash'
+            - '/bin/sh'
+            - '/usr/sbin/nologin'
+    selection_group:
+        CommandLine|contains:
+            - 'docker:x:'
+            - 'sudo:x:'
+            - 'adm:x:'
+    condition: selection_account or selection_group
+level: low
+falsepositives:
+    - Normal user management activities

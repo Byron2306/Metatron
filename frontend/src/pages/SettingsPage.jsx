@@ -6,6 +6,7 @@ import {
   Shield, Key, Server, Send
 } from 'lucide-react';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -164,27 +165,25 @@ const SettingsPage = () => {
   }
 
   return (
-    <div className="space-y-6" data-testid="settings-page">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded bg-purple-500/20">
-            <Settings className="w-6 h-6 text-purple-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-mono font-bold">Settings</h1>
-            <p className="text-slate-400 text-sm">Configure notifications and integrations</p>
-          </div>
-        </div>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded font-semibold transition-colors disabled:opacity-50"
-          data-testid="save-settings-btn"
-        >
-          <Save className="w-4 h-4" />
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="settings-page">
+      <SeraphPageHeader
+        eyebrow="seraph · settings · system config"
+        title="Settings"
+        tagline="> notifications · integrations · platform configuration"
+        accent="yellow"
+        status={saving ? 'SAVING' : 'CONFIGURED'}
+        actions={
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded font-semibold transition-colors disabled:opacity-50"
+            data-testid="save-settings-btn"
+          >
+            <Save className="w-4 h-4" />
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Slack Configuration */}

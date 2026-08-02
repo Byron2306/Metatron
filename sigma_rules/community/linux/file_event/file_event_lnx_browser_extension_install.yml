@@ -1,0 +1,49 @@
+title: Browser Extension Installed via Filesystem on Linux
+id: b5c6d7e8-f901-2345-bcde-f01234567890
+status: experimental
+description: |
+    Detects files being written into browser extension directories on Linux.
+    Adversaries install malicious browser extensions for credential theft, traffic
+    interception, or persistent access. Covers Chrome, Chromium, Edge, and Firefox.
+    Maps to T1176 (Browser Extensions) and T1176.002 (Browser Extensions -> ChromeLoader-style).
+references:
+    - https://attack.mitre.org/techniques/T1176/
+    - https://attack.mitre.org/techniques/T1176/002/
+author: Seraph AI Defense Platform
+date: 2026/04/27
+tags:
+    - attack.persistence
+    - attack.t1176
+    - attack.t1176.002
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection_chrome:
+        TargetFilename|contains:
+            - '/.config/google-chrome/Default/Extensions/'
+            - '/.config/google-chrome-beta/Default/Extensions/'
+            - '/.config/chromium/Default/Extensions/'
+            - '/.config/microsoft-edge/Default/Extensions/'
+            - '/.config/brave-browser/Default/Extensions/'
+    selection_firefox:
+        TargetFilename|contains:
+            - '/.mozilla/firefox/'
+        TargetFilename|endswith:
+            - '/extensions/'
+            - '.xpi'
+    filter_browser_update:
+        Image|endswith:
+            - '/google-chrome'
+            - '/google-chrome-stable'
+            - '/chromium'
+            - '/chromium-browser'
+            - '/msedge'
+            - '/brave-browser'
+            - '/firefox'
+            - '/firefox-esr'
+    condition: (1 of selection_*) and not filter_browser_update
+falsepositives:
+    - Browser itself writing extension updates during normal operation
+    - Package manager installing browser extensions system-wide
+level: medium

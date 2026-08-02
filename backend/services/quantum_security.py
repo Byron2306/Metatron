@@ -14,6 +14,7 @@ import os
 import hashlib
 import secrets
 import logging
+import json
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
@@ -98,7 +99,10 @@ class QuantumSecurityService:
         self.signatures: Dict[str, QuantumSignature] = {}
         
         # Determine mode
-        if LIBOQS_AVAILABLE:
+        forced_mode = os.environ.get("SERAPH_QUANTUM_MODE", "").strip().lower()
+        if forced_mode == "simulation":
+            self.mode = "simulation"
+        elif LIBOQS_AVAILABLE:
             self.mode = "liboqs"
             self._init_liboqs()
         elif PQCRYPTO_AVAILABLE:
@@ -292,22 +296,49 @@ class QuantumSecurityService:
         if not key_id:
             key_id = f"dilithium-{uuid.uuid4().hex[:12]}"
         
-        # Simulated key generation
-        key_size = {2: 1312, 3: 1952, 5: 2592}[security_level]
-        private_key = self.get_quantum_random(key_size)
-        public_key = hashlib.sha3_512(private_key).digest()
-        
         now = datetime.now(timezone.utc)
         expires = now + timedelta(days=365)
-        
-        keypair = QuantumKeyPair(
-            key_id=key_id,
-            algorithm=f"DILITHIUM-{security_level}",
-            public_key=base64.b64encode(public_key).decode(),
-            private_key=base64.b64encode(private_key).decode(),
-            created_at=now.isoformat(),
-            expires_at=expires.isoformat()
-        )
+        alg_name = f"DILITHIUM-{security_level}"
+
+        if self.mode == "liboqs":
+            try:
+                import oqs
+                ml_dsa_map = {2: "ML-DSA-44", 3: "ML-DSA-65", 5: "ML-DSA-87"}
+                oqs_alg = ml_dsa_map.get(security_level, "ML-DSA-65")
+                with oqs.Signature(oqs_alg) as signer:
+                    public_key_bytes = signer.generate_keypair()
+                    private_key_bytes = signer.export_secret_key()
+                keypair = QuantumKeyPair(
+                    key_id=key_id,
+                    algorithm=alg_name,
+                    public_key=base64.b64encode(public_key_bytes).decode(),
+                    private_key=base64.b64encode(private_key_bytes).decode(),
+                    created_at=now.isoformat(),
+                    expires_at=expires.isoformat()
+                )
+            except Exception as exc:
+                logger.warning("liboqs dilithium keygen failed, falling back to simulation: %s", exc)
+                key_size = {2: 1312, 3: 1952, 5: 2592}[security_level]
+                raw_priv = self.get_quantum_random(key_size)
+                keypair = QuantumKeyPair(
+                    key_id=key_id,
+                    algorithm=alg_name,
+                    public_key=base64.b64encode(hashlib.sha3_512(raw_priv).digest()).decode(),
+                    private_key=base64.b64encode(raw_priv).decode(),
+                    created_at=now.isoformat(),
+                    expires_at=expires.isoformat()
+                )
+        else:
+            key_size = {2: 1312, 3: 1952, 5: 2592}[security_level]
+            raw_priv = self.get_quantum_random(key_size)
+            keypair = QuantumKeyPair(
+                key_id=key_id,
+                algorithm=alg_name,
+                public_key=base64.b64encode(hashlib.sha3_512(raw_priv).digest()).decode(),
+                private_key=base64.b64encode(raw_priv).decode(),
+                created_at=now.isoformat(),
+                expires_at=expires.isoformat()
+            )
         
         self.key_pairs[key_id] = keypair
         
@@ -328,9 +359,20 @@ class QuantumSecurityService:
         private_key = base64.b64decode(keypair.private_key)
         data_hash = hashlib.sha3_256(data).hexdigest()
         
-        # Simulated signature
-        # In production, use Signature.sign(private_key, data)
-        signature = hashlib.sha3_512(private_key + data).digest()
+        if self.mode == "liboqs":
+            try:
+                import oqs
+                level = int(keypair.algorithm.split("-")[1])
+                ml_dsa_map = {2: "ML-DSA-44", 3: "ML-DSA-65", 5: "ML-DSA-87"}
+                oqs_alg = ml_dsa_map.get(level, "ML-DSA-65")
+                with oqs.Signature(oqs_alg, private_key) as signer:
+                    sig_bytes = signer.sign(data)
+                signature = sig_bytes
+            except Exception as exc:
+                logger.warning("liboqs dilithium_sign failed, falling back to simulation: %s", exc)
+                signature = hashlib.sha3_512(private_key + data).digest()
+        else:
+            signature = hashlib.sha3_512(private_key + data).digest()
         
         sig = QuantumSignature(
             signature_id=f"sig-{uuid.uuid4().hex[:12]}",
@@ -354,20 +396,57 @@ class QuantumSecurityService:
             pk = base64.b64decode(public_key)
             sig = base64.b64decode(signature)
             
-            # Simulated verification
-            # In production, use Signature.verify(public_key, data, signature)
-            # For simulation, we do a simplified check
+            if self.mode == "liboqs":
+                try:
+                    import oqs
+                    # Try each ML-DSA level; use the one whose key length matches
+                    for oqs_alg in ("ML-DSA-44", "ML-DSA-65", "ML-DSA-87"):
+                        try:
+                            with oqs.Signature(oqs_alg) as verifier:
+                                return verifier.verify(data, sig, pk)
+                        except Exception:
+                            continue
+                    return False
+                except Exception as exc:
+                    logger.warning("liboqs dilithium_verify failed: %s", exc)
+                    return False
+            # Simulation: sign(priv, data) = sha3_512(priv||data); we don't have
+            # the private key here so fall back to length-match heuristic only
             expected = hashlib.sha3_512(pk[:len(pk)//2] + data).digest()
-            
-            # In real PQ crypto, verification is different
-            # This is just a simulation
             return len(sig) == len(expected)
         except:
             return False
     
+    def verify_stored_signature(self, signature_id: str, data: bytes) -> bool:
+        """Verify a previously stored signature by its ID against the supplied data."""
+        sig = self.signatures.get(signature_id)
+        if not sig:
+            return False
+        # Find the keypair that produced this signature
+        keypair = self.key_pairs.get(sig.signer_key_id)
+        if keypair is None:
+            return False
+        return self.dilithium_verify(keypair.public_key, data, sig.signature)
+
+    def get_signatures(self, signer_key_id: str = None, limit: int = None) -> list:
+        """Return stored signatures, optionally filtered by signer and capped by limit."""
+        results = [
+            {
+                "signature_id": s.signature_id,
+                "algorithm": s.algorithm,
+                "data_hash": s.data_hash,
+                "signer_key_id": s.signer_key_id,
+                "timestamp": s.timestamp,
+            }
+            for s in self.signatures.values()
+            if signer_key_id is None or s.signer_key_id == signer_key_id
+        ]
+        if limit is not None:
+            results = results[:limit]
+        return results
+
     # =========================================================================
     # HYBRID ENCRYPTION
-    # =========================================================================
     
     def hybrid_encrypt(self, plaintext: bytes, recipient_public_key: str) -> Dict[str, str]:
         """
@@ -442,6 +521,104 @@ class QuantumSecurityService:
         Quantum-safe HMAC using SHA3-256.
         """
         return hmac.new(key, data, hashlib.sha3_256).hexdigest()
+
+    @staticmethod
+    def _canonical_json_bytes(payload: Dict[str, Any]) -> bytes:
+        return json.dumps(payload or {}, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+
+    @staticmethod
+    def _sig_ref(prefix: str, mac: bytes) -> str:
+        return f"{prefix}_{hashlib.sha3_256(mac).hexdigest()[:20]}"
+
+    def bind_world_state_hash(self, world_state_snapshot: Dict[str, Any]) -> str:
+        body = self._canonical_json_bytes(world_state_snapshot or {})
+        return hashlib.sha3_256(body).hexdigest()
+
+    def sign_notation_token(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        body = self._canonical_json_bytes(payload or {})
+        secret = (os.environ.get("NOTATION_TOKEN_SIGNING_SECRET") or "dev-notation-token-secret").encode("utf-8")
+        mac = hmac.new(secret, body, hashlib.sha3_256).digest()
+        sig_b64 = base64.b64encode(mac).decode("utf-8")
+        sig_ref = self._sig_ref("ntsig", mac)
+
+        self.signatures[sig_ref] = QuantumSignature(
+            signature_id=sig_ref,
+            algorithm="HMAC-SHA3-256",
+            data_hash=hashlib.sha3_256(body).hexdigest(),
+            signature=sig_b64,
+            signer_key_id="notation_token_hmac",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+        return {
+            "signature_ref": sig_ref,
+            "algorithm": "HMAC-SHA3-256",
+            "data_hash": hashlib.sha3_256(body).hexdigest(),
+            "signature": sig_b64,
+            "mode": self.mode,
+            "note": "Deterministic notation token integrity binding.",
+        }
+
+    def verify_notation_token_signature(self, payload: Dict[str, Any], signature_ref: Optional[str]) -> bool:
+        if not signature_ref:
+            return False
+        body = self._canonical_json_bytes(payload or {})
+        secret = (os.environ.get("NOTATION_TOKEN_SIGNING_SECRET") or "dev-notation-token-secret").encode("utf-8")
+        mac = hmac.new(secret, body, hashlib.sha3_256).digest()
+        expected_ref = self._sig_ref("ntsig", mac)
+        return hmac.compare_digest(str(signature_ref), expected_ref)
+
+    def sign_manifold_snapshot(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        body = self._canonical_json_bytes(payload or {})
+        secret = (os.environ.get("MANIFOLD_SIGNING_SECRET") or "dev-manifold-signing-secret").encode("utf-8")
+        mac = hmac.new(secret, body, hashlib.sha3_256).digest()
+        sig_b64 = base64.b64encode(mac).decode("utf-8")
+        sig_ref = self._sig_ref("mfsig", mac)
+
+        self.signatures[sig_ref] = QuantumSignature(
+            signature_id=sig_ref,
+            algorithm="HMAC-SHA3-256",
+            data_hash=hashlib.sha3_256(body).hexdigest(),
+            signature=sig_b64,
+            signer_key_id="world_manifold_hmac",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+        return {
+            "signature_ref": sig_ref,
+            "algorithm": "HMAC-SHA3-256",
+            "data_hash": hashlib.sha3_256(body).hexdigest(),
+            "signature": sig_b64,
+            "mode": self.mode,
+            "note": "World manifold integrity seal.",
+        }
+
+    def verify_manifold_snapshot_signature(
+        self,
+        payload: Dict[str, Any],
+        signature_ref: Optional[str],
+        signature: Optional[str] = None,
+        algorithm: Optional[str] = None,
+    ) -> bool:
+        if not signature_ref:
+            return False
+
+        body = self._canonical_json_bytes(payload or {})
+        secret = (os.environ.get("MANIFOLD_SIGNING_SECRET") or "dev-manifold-signing-secret").encode("utf-8")
+        mac = hmac.new(secret, body, hashlib.sha3_256).digest()
+        expected_ref = self._sig_ref("mfsig", mac)
+        if not hmac.compare_digest(str(signature_ref), expected_ref):
+            return False
+
+        if signature is not None:
+            expected_sig = base64.b64encode(mac).decode("utf-8")
+            if not hmac.compare_digest(str(signature), expected_sig):
+                return False
+
+        if algorithm is not None and str(algorithm).upper() != "HMAC-SHA3-256":
+            return False
+
+        return True
     
     # =========================================================================
     # STATUS & MANAGEMENT

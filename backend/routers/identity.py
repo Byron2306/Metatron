@@ -5,12 +5,33 @@ Identity Protection API Router (frontend compatibility)
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends, HTTPException
 from pydantic import BaseModel
 
 from identity_protection import get_identity_protection_engine
 
-from .dependencies import get_db
+from .dependencies import get_db, get_current_user, check_permission
+
+# Optional identity and authentication services
+try:
+    from backend.services.attested_identity_bridge import AttestedIdentityBridge
+except ImportError:
+    AttestedIdentityBridge = None
+
+try:
+    from backend.services.node_identity_service import NodeIdentityService
+except ImportError:
+    NodeIdentityService = None
+
+try:
+    from backend.services.voice_registry import get_voice_registry
+except ImportError:
+    get_voice_registry = None
+
+try:
+    from backend.services.peer_registry import get_peer_registry
+except ImportError:
+    get_peer_registry = None
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -439,7 +460,7 @@ async def get_identity_alerts(limit: int = Query(100, ge=1, le=500)) -> Dict[str
         alerts.append({
             "id": t["id"],
             "severity": t["severity"],
-            "message": t["details"] or f"Identity threat: {t['type']}",
+            "message": (t.get("details") or t.get("description") or f"Identity threat: {t.get('type', 'unknown')}"),
             "user": t.get("source_user", "unknown"),
             "endpoint": t.get("target", "unknown"),
             "timestamp": t.get("timestamp"),
@@ -491,3 +512,79 @@ async def run_identity_scan(request: Optional[IdentityScanRequest] = None) -> Di
         "local_users_enumerated": len(local_accounts),
         "local_privileged_accounts": scan_doc["privileged_accounts"],
     }
+
+
+@router.get("/attested/identity")
+async def get_attested_identity(
+    current_user: dict = Depends(get_current_user),
+):
+    """Get cryptographically attested identity."""
+    if not AttestedIdentityBridge:
+        raise HTTPException(status_code=501, detail="Attested identity service not available")
+    
+    try:
+        bridge = AttestedIdentityBridge()
+        identity = await bridge.get_attested_identity()
+        return {"success": True, "identity": identity}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get attested identity: {str(e)}")
+
+
+@router.post("/node/register")
+async def register_node_identity(
+    node_id: str,
+    public_key: str,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Register a node in the peer registry."""
+    if not NodeIdentityService:
+        raise HTTPException(status_code=501, detail="Node identity service not available")
+    
+    try:
+        service = NodeIdentityService()
+        result = await service.register_node(node_id, public_key)
+        return {"success": True, "registered": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Node registration failed: {str(e)}")
+
+
+@router.get("/peers/list")
+async def list_peer_identities(
+    current_user: dict = Depends(get_current_user),
+):
+    """List known peer identities."""
+    if not get_peer_registry:
+        raise HTTPException(status_code=501, detail="Peer registry not available")
+    
+    try:
+        registry = get_peer_registry()
+        peers = await registry.list_peers()
+        return {
+            "success": True,
+            "peers": peers,
+            "count": len(peers),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list peers: {str(e)}")
+
+
+@router.post("/voice/enroll")
+async def enroll_voice_identity(
+    voice_sample: bytes,
+    principal_id: str,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Enroll voice in voice registry for biometric identity."""
+    if not get_voice_registry:
+        raise HTTPException(status_code=501, detail="Voice registry not available")
+    
+    try:
+        registry = get_voice_registry()
+        enrollment = await registry.enroll(principal_id, voice_sample)
+        return {
+            "success": True,
+            "principal_id": principal_id,
+            "enrollment_id": enrollment.get("id"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voice enrollment failed: {str(e)}")

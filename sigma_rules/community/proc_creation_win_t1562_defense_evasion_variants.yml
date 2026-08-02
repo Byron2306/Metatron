@@ -1,0 +1,106 @@
+title: Defense Evasion - Safe Mode Boot Abuse for EDR Bypass
+id: f8a9b0c1-d2e3-4567-fabc-567890123456
+status: experimental
+description: |
+    Detects modifications to boot configuration that enable Safe Mode, which is used
+    by adversaries (T1562.009) to disable EDR/AV drivers that don't load in Safe Mode.
+    Ransomware groups including REvil/Sodinokibi and BlackMatter have used this
+    technique to disable security products before encryption. Also detects adding
+    custom Safe Mode auto-start entries to persist payloads through the reboot.
+references:
+    - https://attack.mitre.org/techniques/T1562/009/
+    - https://www.cyberark.com/resources/threat-research-blog/cyberark-labs-from-safe-mode-to-domain-compromise
+    - https://news.sophos.com/en-us/2021/08/09/ransomware-attackers-use-your-own-defenses-against-you/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1562.009
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_bcdedit_safemode:
+        Image|endswith: '\bcdedit.exe'
+        CommandLine|contains:
+            - 'safeboot'
+            - 'minimal'
+            - 'network'
+        CommandLine|re: '(?i)/set\s+\{current\}'
+    selection_safemode_registry:
+        Image|endswith: '\reg.exe'
+        CommandLine|contains:
+            - 'HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot'
+            - 'Minimal\\'
+            - 'Network\\'
+    condition: 1 of selection_*
+falsepositives:
+    - IT administrators troubleshooting boot issues
+level: high
+---
+title: Defense Evasion - Downgrade Attack via PowerShell Version 2 Invocation
+id: a9b0c1d2-e3f4-5678-abcd-678901234567
+status: experimental
+description: |
+    Detects PowerShell being invoked with -Version 2 to downgrade to PowerShell 2.0,
+    which lacks AMSI, Script Block Logging, and Constrained Language Mode (T1562.011).
+    This is one of the oldest and most documented bypasses — still used because many
+    organizations have PS2 enabled. The -Version 2 flag must be combined with -Command
+    or -EncodedCommand to execute malicious content.
+references:
+    - https://attack.mitre.org/techniques/T1562/011/
+    - https://www.leeholmes.com/detecting-and-preventing-powershell-downgrade-attacks/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1562.011
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|contains: '-Version 2'
+    filter_legitimate:
+        CommandLine|contains: 'PSVersion'
+    condition: selection and not filter_legitimate
+falsepositives:
+    - Legacy scripts that explicitly require PowerShell 2 features
+level: high
+---
+title: Defense Evasion - Disabling or Tampering with Audit Policy
+id: b0c1d2e3-f4a5-6789-bcde-789012345678
+status: experimental
+description: |
+    Detects use of auditpol.exe or Group Policy modification to disable Windows
+    audit policies, a T1562.013 technique used to prevent security events from
+    being logged. Adversaries disable process tracking, logon events, and object
+    access auditing to remove evidence of their activity from Windows Security logs.
+references:
+    - https://attack.mitre.org/techniques/T1562/013/
+    - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/auditpol
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1562.013
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_auditpol_disable:
+        Image|endswith: '\auditpol.exe'
+        CommandLine|contains:
+            - '/set'
+            - '/success:disable'
+            - '/failure:disable'
+    selection_auditpol_clear:
+        Image|endswith: '\auditpol.exe'
+        CommandLine|contains: '/clear'
+    condition: 1 of selection_*
+falsepositives:
+    - Domain administrators configuring audit policy via GPO (should use Group Policy, not auditpol directly)
+level: high

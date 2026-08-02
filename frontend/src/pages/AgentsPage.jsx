@@ -23,6 +23,7 @@ import {
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
 import {
@@ -160,17 +161,24 @@ const DiscoveredHostCard = ({ host }) => (
 const AgentsPage = () => {
   const { getAuthHeaders } = useAuth();
   const [agents, setAgents] = useState([]);
+  const [unifiedAgents, setUnifiedAgents] = useState([]);
+  const [enrolledDevices, setEnrolledDevices] = useState([]);
   const [discoveredHosts, setDiscoveredHosts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
     try {
-      const [agentsRes, hostsRes] = await Promise.all([
-        axios.get(`${API}/agents`, { headers: getAuthHeaders() }),
-        axios.get(`${API}/network/discovered-hosts`, { headers: getAuthHeaders() })
+      const headers = getAuthHeaders();
+      const [agentsRes, hostsRes, unifiedRes, enrolledRes] = await Promise.all([
+        axios.get(`${API}/agents`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/network/discovered-hosts`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/unified/agents?limit=200`, { headers }).catch(() => ({ data: { agents: [] } })),
+        axios.get(`${API}/unified/enrollment/devices?limit=200`, { headers }).catch(() => ({ data: { devices: [] } })),
       ]);
-      setAgents(agentsRes.data);
-      setDiscoveredHosts(hostsRes.data);
+      setAgents(Array.isArray(agentsRes.data) ? agentsRes.data : []);
+      setDiscoveredHosts(Array.isArray(hostsRes.data) ? hostsRes.data : []);
+      setUnifiedAgents(unifiedRes.data?.agents || []);
+      setEnrolledDevices(enrolledRes.data?.devices || []);
     } catch (error) {
       console.error('Failed to fetch agent data:', error);
     } finally {
@@ -182,6 +190,7 @@ const AgentsPage = () => {
     fetchData();
     const interval = setInterval(fetchData, 10000); // Refresh every 10s
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const downloadAgent = () => {
@@ -197,27 +206,23 @@ const AgentsPage = () => {
       description: 'Run with: python advanced_agent.py --connect --api-url <your-server>'
     });
   };
-
   const stats = {
-    total: agents.length,
-    online: agents.filter(a => a.status === 'online').length,
-    offline: agents.filter(a => a.status !== 'online').length,
-    hosts: discoveredHosts.length
+    total: agents.length + unifiedAgents.length,
+    online: agents.filter(a => a.status === 'online').length + unifiedAgents.filter(a => a.status === 'online').length,
+    offline: agents.filter(a => a.status !== 'online').length + unifiedAgents.filter(a => a.status !== 'online').length,
+    hosts: discoveredHosts.length + enrolledDevices.length
   };
 
   return (
     <div className="p-6 lg:p-8 space-y-6" data-testid="agents-page">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-mono font-bold text-white flex items-center gap-3">
-            <Monitor className="w-7 h-7 text-cyan-400" />
-            Security Agents
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Monitor local agents and discovered network hosts
-          </p>
-        </div>
+      <SeraphPageHeader
+        eyebrow="seraph · agents · endpoint fleet"
+        title="Security Agents"
+        tagline="> local agents · discovered hosts · enrolled devices"
+        accent="cyan"
+        status={agentStats.online ? `${agentStats.online} ONLINE` : 'NO AGENTS'}
+      />
+      <div className="flex justify-end">
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
@@ -352,7 +357,7 @@ const AgentsPage = () => {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Connected Agents */}
+        {/* Connected Agents (legacy + unified) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -362,6 +367,9 @@ const AgentsPage = () => {
             <h3 className="font-mono font-semibold text-white flex items-center gap-2">
               <Activity className="w-5 h-5 text-green-400" />
               Connected Agents
+              {unifiedAgents.length > 0 && (
+                <span className="ml-auto text-xs text-cyan-400 font-normal">{unifiedAgents.length} unified</span>
+              )}
             </h3>
           </div>
           <ScrollArea className="h-96">
@@ -371,22 +379,59 @@ const AgentsPage = () => {
                   <div className="w-8 h-8 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin mx-auto mb-4" />
                   Loading agents...
                 </div>
-              ) : agents.length > 0 ? (
-                agents.map((agent) => (
-                  <AgentCard key={agent.id} agent={agent} />
-                ))
               ) : (
-                <div className="text-center py-8 text-slate-500">
-                  <Monitor className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>No agents connected</p>
-                  <p className="text-xs mt-1">Download and run the agent on your local machine</p>
-                </div>
+                <>
+                  {agents.map((agent) => (
+                    <AgentCard key={agent.id} agent={agent} />
+                  ))}
+                  {unifiedAgents.map((agent) => {
+                    const isOnline = agent.status === 'online';
+                    const platformIcon = { windows: '🪟', linux: '🐧', macos: '🍎', android: '🤖', ios: '📱' }[agent.platform] || '💻';
+                    return (
+                      <div key={agent.agent_id} className={`bg-slate-900/50 border rounded overflow-hidden ${isOnline ? 'border-cyan-500/30' : 'border-slate-700'}`}>
+                        <div className={`p-4 ${isOnline ? 'bg-cyan-500/10' : 'bg-slate-800/30'} border-b border-slate-800`}>
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-3">
+                              <div className={`w-10 h-10 rounded flex items-center justify-center text-xl ${isOnline ? 'bg-cyan-500/20' : 'bg-slate-700'}`}>
+                                {platformIcon}
+                              </div>
+                              <div>
+                                <h3 className="font-medium text-white">{agent.hostname || agent.agent_id}</h3>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Badge variant="outline" className={`text-xs ${isOnline ? 'text-cyan-400 border-cyan-500/50' : 'text-slate-500 border-slate-600'}`}>
+                                    {isOnline ? <><CheckCircle className="w-3 h-3 mr-1" />Online</> : <><XCircle className="w-3 h-3 mr-1" />Offline</>}
+                                  </Badge>
+                                  <Badge variant="outline" className="text-xs text-slate-400 border-slate-600">{agent.platform || 'unknown'}</Badge>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-slate-500">Agent ID</p>
+                              <p className="text-xs font-mono text-slate-400">{agent.agent_id?.slice(0, 18)}...</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="px-4 py-2 flex items-center justify-between text-xs text-slate-500">
+                          <span>{agent.ip_address}</span>
+                          <span>{agent.last_heartbeat ? new Date(agent.last_heartbeat).toLocaleString() : 'never'}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {agents.length === 0 && unifiedAgents.length === 0 && (
+                    <div className="text-center py-8 text-slate-500">
+                      <Monitor className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p>No agents connected</p>
+                      <p className="text-xs mt-1">Enroll a device at <a href="/enroll" className="text-cyan-400 underline">/enroll</a></p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </ScrollArea>
         </motion.div>
 
-        {/* Discovered Hosts */}
+        {/* Found Devices: Enrolled + Discovered */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -396,20 +441,49 @@ const AgentsPage = () => {
           <div className="p-4 border-b border-slate-800">
             <h3 className="font-mono font-semibold text-white flex items-center gap-2">
               <Globe className="w-5 h-5 text-blue-400" />
-              Discovered Network Hosts
+              Found Devices
+              <span className="ml-auto text-xs text-slate-400 font-normal">{enrolledDevices.length} enrolled · {discoveredHosts.length} scanned</span>
             </h3>
           </div>
           <ScrollArea className="h-96">
             <div className="p-4 space-y-3">
-              {discoveredHosts.length > 0 ? (
-                discoveredHosts.map((host, i) => (
-                  <DiscoveredHostCard key={host.ip || i} host={host} />
-                ))
-              ) : (
+              {enrolledDevices.length > 0 && (
+                <>
+                  <p className="text-xs uppercase tracking-wide text-slate-500 mb-2">Pre-Enrolled Devices</p>
+                  {enrolledDevices.map((device) => {
+                    const platformIcon = { windows: '🪟', linux: '🐧', macos: '🍎', android: '🤖', ios: '📱' }[device.platform] || '💻';
+                    return (
+                      <div key={device.device_id} className="p-3 bg-slate-800/30 border border-slate-700 rounded">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{platformIcon}</span>
+                            <span className="font-mono text-white text-sm">{device.device_label || device.name}</span>
+                          </div>
+                          <Badge variant="outline" className="text-xs text-cyan-400 border-cyan-500/40">{device.platform}</Badge>
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          <p>{device.email}</p>
+                          <p>Enrolled: {device.enrolled_at ? new Date(device.enrolled_at).toLocaleString() : 'unknown'}</p>
+                          <p className="font-mono">{device.device_id}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              {discoveredHosts.length > 0 && (
+                <>
+                  <p className="text-xs uppercase tracking-wide text-slate-500 mt-3 mb-2">Network Scan</p>
+                  {discoveredHosts.map((host, i) => (
+                    <DiscoveredHostCard key={host.ip || i} host={host} />
+                  ))}
+                </>
+              )}
+              {enrolledDevices.length === 0 && discoveredHosts.length === 0 && (
                 <div className="text-center py-8 text-slate-500">
                   <Wifi className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>No hosts discovered yet</p>
-                  <p className="text-xs mt-1">Network scans will populate this list</p>
+                  <p>No devices found yet</p>
+                  <p className="text-xs mt-1">Enroll a device or run a network scan</p>
                 </div>
               )}
             </div>

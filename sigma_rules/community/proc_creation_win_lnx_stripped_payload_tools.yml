@@ -1,0 +1,100 @@
+title: Stripped Payload - Binary Symbol and Debug Info Removal Tools
+id: 784e9393-f8b0-407f-8368-bbfbd9b5c2ff
+status: experimental
+description: |
+    Detects execution of tools used to strip symbols, debug information, and metadata
+    from binaries to hinder reverse engineering and evade signature-based detection.
+    Adversaries use stripped payloads (T1027.008) to make malware analysis harder.
+    Common tools include GNU strip, sstrip, UPX (with -9 or --best), and Go compiler
+    with -ldflags "-s -w" to remove symbol tables and DWARF debug sections.
+references:
+    - https://attack.mitre.org/techniques/T1027/008/
+    - https://www.mandiant.com/resources/blog/golang-cybercrime
+    - https://intezer.com/blog/malware-analysis/elf-malware-analysis-101-linux-threats-no-longer-an-afterthought/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1027.008
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_strip_tools:
+        Image|endswith:
+            - '/strip'
+            - '/sstrip'
+            - '/objcopy'
+            - '/eu-strip'
+        CommandLine|contains:
+            - '--strip-all'
+            - '--strip-debug'
+            - '-s '
+            - '-g '
+    selection_upx_aggressive:
+        Image|endswith: '/upx'
+        CommandLine|contains:
+            - '--best'
+            - '-9'
+            - '--ultra-brute'
+    selection_go_stripped:
+        Image|endswith:
+            - '/go'
+            - '/go1'
+        CommandLine|contains:
+            - '-ldflags'
+            - '-s -w'
+    condition: selection_strip_tools or selection_upx_aggressive or selection_go_stripped
+falsepositives:
+    - Legitimate software build pipelines stripping release binaries
+    - Go application compilation with size optimization
+level: low
+---
+title: Stripped Payload - Windows Binary Symbol Stripping via Build Tools
+id: 9ea121f4-379c-4e95-888f-58909e0b391a
+status: experimental
+description: |
+    Detects Windows build tool invocations that strip debug symbols and metadata from
+    PE binaries. Adversaries compile or post-process malware to remove PDB paths,
+    rich headers, and compiler metadata to evade tooling that identifies malware
+    families by these artifacts.
+references:
+    - https://attack.mitre.org/techniques/T1027/008/
+    - https://www.mandiant.com/resources/blog/golang-cybercrime
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1027.008
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_strip:
+        Image|endswith:
+            - '\strip.exe'
+            - '\sstrip.exe'
+            - '\upx.exe'
+        CommandLine|contains:
+            - '--strip-all'
+            - '--strip-debug'
+            - '--best'
+            - '-9'
+    selection_go_ldflags:
+        Image|endswith: '\go.exe'
+        CommandLine|contains:
+            - '-ldflags'
+        CommandLine|re: '-ldflags[= ]["\s]*-[sw]'
+    selection_pe_tools:
+        Image|endswith:
+            - '\pe-bear.exe'
+            - '\pebear.exe'
+            - '\CFF Explorer.exe'
+        CommandLine|contains:
+            - '--strip'
+            - '-strip'
+    condition: selection_strip or selection_go_ldflags or selection_pe_tools
+falsepositives:
+    - Legitimate Go application release builds
+    - Security researchers analyzing binaries
+level: low

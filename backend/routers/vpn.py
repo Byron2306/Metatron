@@ -23,6 +23,17 @@ class AddPeerRequest(BaseModel):
     auto_setup: Optional[bool] = None
     allowed_ips: Optional[str] = None
 
+
+class UpdateVPNConfigRequest(BaseModel):
+    enabled: Optional[bool] = None
+    type: Optional[str] = None
+    server_address: Optional[str] = None
+    port: Optional[int] = None
+    dns_servers: Optional[list[str]] = None
+    kill_switch_enabled: Optional[bool] = None
+    split_tunnel_enabled: Optional[bool] = None
+    server_endpoint: Optional[str] = None
+
 async def get_vpn_identity(
     request: Request,
     x_agent_id: Optional[str] = Header(None),
@@ -42,10 +53,7 @@ async def get_vpn_identity(
         credentials = await security(request)
         return await get_current_user(request=request, credentials=credentials)
 
-    # Calling verify_agent_auth() directly without passing header values will
-    # use FastAPI's `Header(...)` sentinel defaults, which are not strings and
-    # cause type errors inside the auth helper. Explicitly pass Nones.
-    return await verify_agent_auth(request, x_agent_id=None, x_agent_token=None, x_enrollment_key=None)
+    raise HTTPException(status_code=403, detail="Authentication required")
 
 @router.get("/status")
 async def get_vpn_status(auth: dict = Depends(get_vpn_identity)):
@@ -95,6 +103,21 @@ async def stop_vpn(current_user: dict = Depends(check_permission("write"))):
     """Stop VPN server"""
     result = await vpn_manager.stop()
     return result
+
+
+@router.get("/config")
+async def get_vpn_config(current_user: dict = Depends(get_current_user)):
+    """Get editable VPN configuration"""
+    return vpn_manager.get_config()
+
+
+@router.put("/config")
+async def update_vpn_config(
+    request: UpdateVPNConfigRequest,
+    current_user: dict = Depends(check_permission("write")),
+):
+    """Update editable VPN configuration"""
+    return await vpn_manager.update_config(request.model_dump(exclude_none=True))
 
 @router.get("/peers")
 async def get_peers(auth: dict = Depends(get_vpn_identity)):

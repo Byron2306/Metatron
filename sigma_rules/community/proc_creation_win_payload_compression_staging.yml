@@ -1,0 +1,80 @@
+title: Compression for Payload Staging - Suspicious Archive Creation Before Execution
+id: 6138d70f-bd6a-4c43-b7ed-9928252f1461
+status: experimental
+description: |
+    Detects compression tools being used to package payloads in user-writable staging
+    directories. T1027.015 (Compression) is used to obfuscate payload content, bypass
+    file size thresholds in AV/EDR, and deliver shellcode within archive containers.
+    Particularly suspicious when the archive is created in temp/appdata followed by
+    execution. Concatenated/polyglot ZIPs (multiple central directories) are used to
+    evade ZIP parsers in email gateways.
+references:
+    - https://attack.mitre.org/techniques/T1027/015/
+    - https://www.trustwave.com/en-us/resources/blogs/spiderlabs-blog/pillowmint-fin7s-monkey-thief/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1027.015
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_compress_tools:
+        Image|endswith:
+            - '\7z.exe'
+            - '\7za.exe'
+            - '\rar.exe'
+            - '\winrar.exe'
+            - '\zip.exe'
+            - '\compress.exe'
+    selection_staging_path:
+        CommandLine|contains:
+            - '\AppData\Local\Temp\'
+            - '\AppData\Roaming\'
+            - '\Users\Public\'
+            - '\Windows\Temp\'
+            - '\ProgramData\'
+    selection_suspicious_flags:
+        CommandLine|contains:
+            - ' a '
+            - '-p'
+            - '-mhe'
+            - '-r'
+    condition: selection_compress_tools and selection_staging_path and selection_suspicious_flags
+falsepositives:
+    - Backup software compressing to temp locations
+    - Legitimate installers self-extracting archives
+level: low
+---
+title: Compression for Payload Staging - PowerShell Compress-Archive on Sensitive Paths
+id: e7b5a0fb-84e0-4bd1-af22-ba82d9386d08
+status: experimental
+description: |
+    Detects PowerShell Compress-Archive cmdlet being used to compress files from
+    sensitive system paths or to stage in user-writable directories. Used in T1027.015
+    to package collected data or obfuscate payloads before exfiltration or execution.
+references:
+    - https://attack.mitre.org/techniques/T1027/015/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.collection
+    - attack.t1027.015
+    - attack.t1560.001
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging (Event ID 4104)'
+detection:
+    selection_cmdlet:
+        ScriptBlockText|contains:
+            - 'Compress-Archive'
+    selection_sensitive_source:
+        ScriptBlockText|re: '(?i)(C:\\Windows\\|C:\\Users\\[^\\]+\\AppData\\Roaming\\|NTDS|SAM|SYSTEM|SECURITY)'
+    condition: all of selection_*
+falsepositives:
+    - IT backup scripts
+    - Legitimate log archival tasks
+level: medium

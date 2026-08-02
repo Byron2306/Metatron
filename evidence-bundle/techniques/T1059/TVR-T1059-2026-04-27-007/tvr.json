@@ -1,0 +1,3303 @@
+{
+  "record_type": "technique_validation_record",
+  "schema_version": "1.0.0",
+  "validation_id": "TVR-T1059-2026-04-27-007",
+  "technique": {
+    "attack_id": "T1059",
+    "name": "T1059",
+    "tactics": [
+      "execution"
+    ],
+    "platforms": [
+      "Linux"
+    ]
+  },
+  "procedure": {
+    "source": "atomic_red_team",
+    "procedure_id": "ART-T1059-1",
+    "name": "Atomic Red Team validation for T1059",
+    "description": "Automated emulation procedure for T1059 executed via Invoke-AtomicRedTeam inside the Metatron lab environment.",
+    "test_ref": "atomics/T1059/T1059.yaml#test-1"
+  },
+  "environment": {
+    "lab_id": "metatron-lab-a",
+    "hostname": "debian-node-01",
+    "asset_id": "asset-001",
+    "os": {
+      "family": "linux",
+      "name": "Debian",
+      "version": "12"
+    },
+    "kernel_version": "6.12.74+deb12-amd64",
+    "sensor_stack": [
+      {
+        "name": "sigma-engine",
+        "version": "2026.04.27",
+        "rules_loaded": 505
+      },
+      {
+        "name": "osquery",
+        "version": "5.15.0"
+      },
+      {
+        "name": "atomic_red_team",
+        "version": "2025.01"
+      }
+    ]
+  },
+  "execution": {
+    "started_at": "2026-04-18T11:19:59.538369Z",
+    "ended_at": "2026-04-18T11:19:59.538369Z",
+    "executor": "atomic_red_team",
+    "operator": "Byron Bunt",
+    "status": "completed",
+    "exit_code": 0,
+    "real_execution": true,
+    "execution_mode": "docker_sandbox",
+    "execution_trust_level": "docker_sandbox_verified",
+    "sandbox_verified": true,
+    "evidence_inheritance": "inherited_from_parent",
+    "expected_outcome": "detect",
+    "command_line": "/usr/bin/pwsh -NonInteractive -NoProfile -Command Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam' -ErrorAction SilentlyContinue; Invoke-AtomicTest T1059.004 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TimeoutSeconds 90 -Confirm:$false 2>&1",
+    "run_count": 7,
+    "direct_run_count": 0,
+    "run_ids": [
+      "03861aa8e2224b79bf84ed0c0bc4b180",
+      "0deaac454c7343fe9e958a667b820fec",
+      "34257a897474478cb1ad28c40b9fc49c",
+      "53df88c9c8a44c469ed590263008de58",
+      "8cf32b203374435c80dff64824c488fe",
+      "9e899c4d2dbf4c4893a1bc1fdb9c81a9",
+      "9e899c4d2dbf4c4893a1bc1fdb9c81a9"
+    ],
+    "job_ids": [
+      "real-exec-t1059-004",
+      "sandbox-real-sweep"
+    ],
+    "runs": [
+      {
+        "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-23T07:01:53.324672+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "partial",
+        "outcome": "partial_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-03861aa8e222",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--cap-add",
+          "NET_RAW",
+          "--security-opt",
+          "no-new-privileges:false",
+          "--tmpfs",
+          "/tmp:exec,size=512m",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1059.004 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.004-1 Create and Execute Bash Shell Script\nHello from the Atomic Red Team\nping: connect: Network is unreachable\nExit code: 2\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script\nExecuting test: T1059.004-2 Command-Line Interface\ncurl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface\nExecuting test: T1059.004-3 Harvest SUID executable files\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files\nExecuting test: T1059.004-4 LinEnum tool execution\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution\nExecuting test: T1059.004-5 New script file in the tmp directory\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory\nExecuting test: T1059.004-6 What shell is running\nsh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running\nExecuting test: T1059.004-7 What shells are available\n/bin/sh\n# /etc/shells: valid login shells\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/rbash\n/usr/bin/dash\n/usr/bin/rbash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available\nExecuting test: T1059.004-8 Command line scripts\n1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts\nExecuting test: T1059.004-9 Obfuscated command line scripts\n\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts\nExecuting test: T1059.004-10 Change login shell\nart:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell\nExecuting test: T1059.004-11 Environment variable scripts\nAtomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts\nExecuting test: T1059.004-12 Detecting pipe-to-shell\nls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell\nExecuting test: T1059.004-13 Current kernel information enumeration\nLinux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration\nExecuting test: T1059.004-14 Shell Creation using awk command\nExit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command\nExecuting test: T1059.004-15 Creating shell using cpan command\nCPAN.pm requires configuration, but most of it can be done automatically.\nLoading internal logger. Log::Log4perl recommended for better logging\nIf you answer 'no' below, you will enter an interactive dialog for each\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to change it.\nAutoconfiguration complete.\ncommit: wrote '/root/.cpan/CPAN/MyConfig.pm'\nYou can re-run configuration any time with 'o conf init' in the CPAN shell\ncpan shell -- CPAN exploration and modules installation (v2.36)\nEnter 'h' for help.\nExit code: 0\nDone executing test: T1059.004-15 Creating shell using cpan command\nExecuting test: T1059.004-16 Shell Creation using busybox command\nsh: 1: busybox: not found\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command\nExecuting test: T1059.004-17 emacs spawning an interactive system shell\nsudo: unable to resolve host 4dd16e0aeb61: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: emacs: command not found\nExit code: 1\nDone executing test: T1059.004-17 emacs spawning an interactive system shell\n",
+        "stdout_sha256": "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics",
+            "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh",
+            "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh:",
+            "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh",
+            "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh:",
+            "/bin/sh",
+            "/etc/shells:",
+            "/usr/bin/sh",
+            "/bin/bash",
+            "/usr/bin/bash",
+            "/bin/rbash",
+            "/usr/bin/dash"
+          ]
+        }
+      },
+      {
+        "run_id": "0deaac454c7343fe9e958a667b820fec",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T18:48:05.512237+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-0deaac454c73",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1059.004 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.004-1 Create and Execute Bash Shell Script\nHello from the Atomic Red Team\n/tmp/art.sh: 2: ping: not found\nExit code: 127\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script\nExecuting test: T1059.004-2 Command-Line Interface\ncurl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface\nExecuting test: T1059.004-3 Harvest SUID executable files\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files\nExecuting test: T1059.004-4 LinEnum tool execution\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution\nExecuting test: T1059.004-5 New script file in the tmp directory\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory\nExecuting test: T1059.004-6 What shell is running\nsh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running\nExecuting test: T1059.004-7 What shells are available\n# /etc/shells: valid login shells\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/rbash\n/usr/bin/rbash\n/usr/bin/dash\n/bin/sh\nExit code: 0\nDone executing test: T1059.004-7 What shells are available\nExecuting test: T1059.004-8 Command line scripts\n1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts\nExecuting test: T1059.004-9 Obfuscated command line scripts\n\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts\nExecuting test: T1059.004-10 Change login shell\nart:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell\nExecuting test: T1059.004-11 Environment variable scripts\nAtomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts\nExecuting test: T1059.004-12 Detecting pipe-to-shell\nls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell\nExecuting test: T1059.004-13 Current kernel information enumeration\nLinux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration\nExecuting test: T1059.004-14 Shell Creation using awk command\nExit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command\nExecuting test: T1059.004-15 Creating shell using cpan command\nLoading internal logger. Log::Log4perl recommended for better logging\nCPAN.pm requires configuration, but most of it can be done automatically.\nconfiguration option instead.\nIf you answer 'no' below, you will enter an interactive dialog for each\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to change it.\nAutoconfiguration complete.\ncommit: wrote '/root/.cpan/CPAN/MyConfig.pm'\nYou can re-run configuration any time with 'o conf init' in the CPAN shell\ncpan shell -- CPAN exploration and modules installation (v2.36)\nEnter 'h' for help.\nExit code: 0\nDone executing test: T1059.004-15 Creating shell using cpan command\nExecuting test: T1059.004-16 Shell Creation using busybox command\nsh: 1: busybox: not found\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command\nExecuting test: T1059.004-17 emacs spawning an interactive system shell\nsudo: unable to resolve host d7a6d6aeb25a: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: emacs: command not found\nExit code: 1\nDone executing test: T1059.004-17 emacs spawning an interactive system shell\n",
+        "stdout_sha256": "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "34257a897474478cb1ad28c40b9fc49c",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T14:35:55.127523+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-34257a897474",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1059.004 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.004-1 Create and Execute Bash Shell Script\nHello from the Atomic Red Team\n/tmp/art.sh: 2: ping: not found\nExit code: 127\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script\nExecuting test: T1059.004-2 Command-Line Interface\ncurl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface\nExecuting test: T1059.004-3 Harvest SUID executable files\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files\nExecuting test: T1059.004-4 LinEnum tool execution\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution\nExecuting test: T1059.004-5 New script file in the tmp directory\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory\nExecuting test: T1059.004-6 What shell is running\nsh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running\nExecuting test: T1059.004-7 What shells are available\n# /etc/shells: valid login shells\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/sh\n/bin/rbash\n/usr/bin/rbash\n/usr/bin/dash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available\nExecuting test: T1059.004-8 Command line scripts\n1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts\nExecuting test: T1059.004-9 Obfuscated command line scripts\n\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts\nExecuting test: T1059.004-10 Change login shell\nart:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell\nExecuting test: T1059.004-11 Environment variable scripts\nAtomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts\nExecuting test: T1059.004-12 Detecting pipe-to-shell\nls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell\nExecuting test: T1059.004-13 Current kernel information enumeration\nLinux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration\nExecuting test: T1059.004-14 Shell Creation using awk command\nExit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command\nExecuting test: T1059.004-15 Creating shell using cpan command\nLoading internal logger. Log::Log4perl recommended for better logging\nCPAN.pm requires configuration, but most of it can be done automatically.\nIf you answer 'no' below, you will enter an interactive dialog for each\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to change it.\nAutoconfiguration complete.\nYou can re-run configuration any time with 'o conf init' in the CPAN shell\ncommit: wrote '/root/.cpan/CPAN/MyConfig.pm'\nEnter 'h' for help.\ncpan shell -- CPAN exploration and modules installation (v2.36)\nExit code: 0\nDone executing test: T1059.004-15 Creating shell using cpan command\nExecuting test: T1059.004-16 Shell Creation using busybox command\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command\nExecuting test: T1059.004-17 emacs spawning an interactive system shell\nsudo: unable to resolve host 275381d03786: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: emacs: command not found\nExit code: 1\nDone executing test: T1059.004-17 emacs spawning an interactive system shell\n",
+        "stdout_sha256": "77134dc33a1ded3f03f22e4f66d79fa1e079e782e3b543171933b0f0cd5abb15",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "53df88c9c8a44c469ed590263008de58",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T18:54:25.447913+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-53df88c9c8a4",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1059.004 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.004-1 Create and Execute Bash Shell Script\nHello from the Atomic Red Team\n/tmp/art.sh: 2: ping: not found\nExit code: 127\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script\nExecuting test: T1059.004-2 Command-Line Interface\ncurl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface\nExecuting test: T1059.004-3 Harvest SUID executable files\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files\nExecuting test: T1059.004-4 LinEnum tool execution\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution\nExecuting test: T1059.004-5 New script file in the tmp directory\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory\nExecuting test: T1059.004-6 What shell is running\nsh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running\nExecuting test: T1059.004-7 What shells are available\n# /etc/shells: valid login shells\n/bin/sh\n/usr/bin/sh\n/usr/bin/bash\n/bin/bash\n/bin/rbash\n/usr/bin/rbash\n/usr/bin/dash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available\nExecuting test: T1059.004-8 Command line scripts\n1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts\nExecuting test: T1059.004-9 Obfuscated command line scripts\n\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts\nExecuting test: T1059.004-10 Change login shell\nart:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell\nExecuting test: T1059.004-11 Environment variable scripts\nAtomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts\nExecuting test: T1059.004-12 Detecting pipe-to-shell\nls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell\nExecuting test: T1059.004-13 Current kernel information enumeration\nLinux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration\nExecuting test: T1059.004-14 Shell Creation using awk command\nExit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command\nExecuting test: T1059.004-15 Creating shell using cpan command\nLoading internal logger. Log::Log4perl recommended for better logging\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nIf you answer 'no' below, you will enter an interactive dialog for each\nCPAN.pm requires configuration, but most of it can be done automatically.\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to change it.\nAutoconfiguration complete.\ncommit: wrote '/root/.cpan/CPAN/MyConfig.pm'\nYou can re-run configuration any time with 'o conf init' in the CPAN shell\ncpan shell -- CPAN exploration and modules installation (v2.36)\nEnter 'h' for help.\nExit code: 0\nDone executing test: T1059.004-15 Creating shell using cpan command\nExecuting test: T1059.004-16 Shell Creation using busybox command\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command\nExecuting test: T1059.004-17 emacs spawning an interactive system shell\nsudo: unable to resolve host 7ce5c32dd64e: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: emacs: command not found\nExit code: 1\nDone executing test: T1059.004-17 emacs spawning an interactive system shell\n",
+        "stdout_sha256": "4adaca61757a3c2f44a73057860170b4543f155e9f76b8bdccda03c88d2dff15",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "8cf32b203374435c80dff64824c488fe",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T14:29:09.890552+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-8cf32b203374",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1059.004 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.004-1 Create and Execute Bash Shell Script\nHello from the Atomic Red Team\n/tmp/art.sh: 2: ping: not found\nExit code: 127\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script\nExecuting test: T1059.004-2 Command-Line Interface\ncurl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface\nExecuting test: T1059.004-3 Harvest SUID executable files\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files\nExecuting test: T1059.004-4 LinEnum tool execution\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution\nExecuting test: T1059.004-5 New script file in the tmp directory\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory\nExecuting test: T1059.004-6 What shell is running\nsh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running\nExecuting test: T1059.004-7 What shells are available\n# /etc/shells: valid login shells\n/bin/sh\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/rbash\n/usr/bin/rbash\n/usr/bin/dash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available\nExecuting test: T1059.004-8 Command line scripts\n1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts\nExecuting test: T1059.004-9 Obfuscated command line scripts\n\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts\nExecuting test: T1059.004-10 Change login shell\nart:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell\nExecuting test: T1059.004-11 Environment variable scripts\nAtomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts\nExecuting test: T1059.004-12 Detecting pipe-to-shell\nls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell\nExecuting test: T1059.004-13 Current kernel information enumeration\nLinux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration\nExecuting test: T1059.004-14 Shell Creation using awk command\nExit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command\nExecuting test: T1059.004-15 Creating shell using cpan command\nLoading internal logger. Log::Log4perl recommended for better logging\nCPAN.pm requires configuration, but most of it can be done automatically.\nIf you answer 'no' below, you will enter an interactive dialog for each\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to change it.\nAutoconfiguration complete.\ncommit: wrote '/root/.cpan/CPAN/MyConfig.pm'\nYou can re-run configuration any time with 'o conf init' in the CPAN shell\ncpan shell -- CPAN exploration and modules installation (v2.36)\nEnter 'h' for help.\nExit code: 0\nDone executing test: T1059.004-15 Creating shell using cpan command\nExecuting test: T1059.004-16 Shell Creation using busybox command\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command\nExecuting test: T1059.004-17 emacs spawning an interactive system shell\nsudo: unable to resolve host 21472c6bda7f: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: emacs: command not found\nExit code: 1\nDone executing test: T1059.004-17 emacs spawning an interactive system shell\n",
+        "stdout_sha256": "01e5395275ec80aef133c442b6aef8eecddfae363cdf5c22b6a0376c32752aef",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "9e899c4d2dbf4c4893a1bc1fdb9c81a9",
+        "job_id": "real-exec-t1059-004",
+        "job_name": "Unix Shell Real Execution",
+        "finished_at": "2026-04-18T11:19:59.538369Z",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": "/usr/bin/pwsh -NonInteractive -NoProfile -Command Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam' -ErrorAction SilentlyContinue; Invoke-AtomicTest T1059.004 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TimeoutSeconds 90 -Confirm:$false 2>&1",
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.004-1 Create and Execute Bash Shell Script\nHello from the Atomic Red Team\n/tmp/art.sh: 2: ping: not found\nExit code: 127\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script\nExecuting test: T1059.004-2 Command-Line Interface\ncurl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface\nExecuting test: T1059.004-3 Harvest SUID executable files\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files\nExecuting test: T1059.004-4 LinEnum tool execution\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution\nExecuting test: T1059.004-5 New script file in the tmp directory\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory\nExecuting test: T1059.004-6 What shell is running\nsh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running\nExecuting test: T1059.004-7 What shells are available\n/bin/sh\n# /etc/shells: valid login shells\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/rbash\n/usr/bin/rbash\n/usr/bin/dash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available\nExecuting test: T1059.004-8 Command line scripts\n1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts\nExecuting test: T1059.004-9 Obfuscated command line scripts\n\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts\nExecuting test: T1059.004-10 Change login shell\nart:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell\nExecuting test: T1059.004-11 Environment variable scripts\nAtomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts\nExecuting test: T1059.004-12 Detecting pipe-to-shell\nls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell\nExecuting test: T1059.004-13 Current kernel information enumeration\nLinux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration\nExecuting test: T1059.004-14 Shell Creation using awk command\nExit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command\nExecuting test: T1059.004-15 Creating shell using cpan command\nLoading internal logger. Log::Log4perl recommended for better logging\nCPAN.pm requires configuration, but most of it can be done automatically.\nIf you answer 'no' below, you will enter an interactive dialog for each\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to change it.\nAutoconfiguration complete.\ncommit: wrote '/root/.cpan/CPAN/MyConfig.pm'\nYou can re-run configuration any time with 'o conf init' in the CPAN shell\ncpan shell -- CPAN exploration and modules installation (v2.36)\nEnter 'h' for help.\nExit code: 0\nDone executing test: T1059.004-15 Creating shell using cpan command\nExecuting test: T1059.004-16 Shell Creation using busybox command\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command\nExecuting test: T1059.004-17 emacs spawning an interactive system shell\nsh: 1: sudo: not found\nExit code: 127\nDone executing test: T1059.004-17 emacs spawning an interactive system shell\n",
+        "stdout_sha256": "e5b3ded67942ef5152a4822357aa00d0d0bc21ee26ef6daa036fe863b6bf758a",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "9e899c4d2dbf4c4893a1bc1fdb9c81a9",
+        "job_id": "real-exec-t1059-004",
+        "job_name": "Unix Shell Real Execution",
+        "finished_at": "2026-04-18T11:19:59.538369Z",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": "/usr/bin/pwsh -NonInteractive -NoProfile -Command Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam' -ErrorAction SilentlyContinue; Invoke-AtomicTest T1059.004 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TimeoutSeconds 90 -Confirm:$false 2>&1",
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.004-1 Create and Execute Bash Shell Script\nHello from the Atomic Red Team\n/tmp/art.sh: 2: ping: not found\nExit code: 127\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script\nExecuting test: T1059.004-2 Command-Line Interface\ncurl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface\nExecuting test: T1059.004-3 Harvest SUID executable files\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files\nExecuting test: T1059.004-4 LinEnum tool execution\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution\nExecuting test: T1059.004-5 New script file in the tmp directory\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory\nExecuting test: T1059.004-6 What shell is running\nsh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running\nExecuting test: T1059.004-7 What shells are available\n/bin/sh\n# /etc/shells: valid login shells\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/rbash\n/usr/bin/rbash\n/usr/bin/dash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available\nExecuting test: T1059.004-8 Command line scripts\n1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts\nExecuting test: T1059.004-9 Obfuscated command line scripts\n\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts\nExecuting test: T1059.004-10 Change login shell\nart:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell\nExecuting test: T1059.004-11 Environment variable scripts\nAtomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts\nExecuting test: T1059.004-12 Detecting pipe-to-shell\nls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell\nExecuting test: T1059.004-13 Current kernel information enumeration\nLinux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration\nExecuting test: T1059.004-14 Shell Creation using awk command\nExit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command\nExecuting test: T1059.004-15 Creating shell using cpan command\nLoading internal logger. Log::Log4perl recommended for better logging\nCPAN.pm requires configuration, but most of it can be done automatically.\nIf you answer 'no' below, you will enter an interactive dialog for each\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to change it.\nAutoconfiguration complete.\ncommit: wrote '/root/.cpan/CPAN/MyConfig.pm'\nYou can re-run configuration any time with 'o conf init' in the CPAN shell\ncpan shell -- CPAN exploration and modules installation (v2.36)\nEnter 'h' for help.\nExit code: 0\nDone executing test: T1059.004-15 Creating shell using cpan command\nExecuting test: T1059.004-16 Shell Creation using busybox command\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command\nExecuting test: T1059.004-17 emacs spawning an interactive system shell\nsh: 1: sudo: not found\nExit code: 127\nDone executing test: T1059.004-17 emacs spawning an interactive system shell\n",
+        "stdout_sha256": "e5b3ded67942ef5152a4822357aa00d0d0bc21ee26ef6daa036fe863b6bf758a",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      }
+    ]
+  },
+  "telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "d2a65f5757bd01dbca2d5f5a596973eafb92c6e7dfcad0c98a13082f7ac34574"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "e5b3ded67942ef5152a4822357aa00d0d0bc21ee26ef6daa036fe863b6bf758a"
+      }
+    ],
+    "key_events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927714-atomic_t1059_004_b1",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-1 Create and Execute Bash Shell Script",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "Hello from the Atomic Red Team\nping: connect: Network is unreachable\nExit code: 2\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-1 Create and Execute Bash Shell Script\nHello from the Atomic Red Team\nping: connect: Network is unreachable\nExit code: 2\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927715-atomic_t1059_004_b2",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-2 Command-Line Interface",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "curl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-2 Command-Line Interface\ncurl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927716-atomic_t1059_004_b3",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-3 Harvest SUID executable files",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "chmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files",
+          "Image": "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh",
+          "TargetFilename": "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh\", \"/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh:\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-3 Harvest SUID executable files\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927717-atomic_t1059_004_b4",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-4 LinEnum tool execution",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "chmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution",
+          "Image": "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh",
+          "TargetFilename": "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh\", \"/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh:\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-4 LinEnum tool execution\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927718-atomic_t1059_004_b5",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-5 New script file in the tmp directory",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "uid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-5 New script file in the tmp directory\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927719-atomic_t1059_004_b6",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-6 What shell is running",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "sh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-6 What shell is running\nsh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927720-atomic_t1059_004_b7",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b7",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-7 What shells are available",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "/bin/sh\n# /etc/shells: valid login shells\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/rbash\n/usr/bin/dash\n/usr/bin/rbash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available",
+          "Image": "/bin/sh",
+          "TargetFilename": "/bin/sh",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/bin/sh\", \"/etc/shells:\", \"/usr/bin/sh\", \"/bin/bash\", \"/usr/bin/bash\", \"/bin/rbash\", \"/usr/bin/dash\", \"/usr/bin/rbash\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-7 What shells are available\n/bin/sh\n# /etc/shells: valid login shells\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/rbash\n/usr/bin/dash\n/usr/bin/rbash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927721-atomic_t1059_004_b8",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b8",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-8 Command line scripts",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-8 Command line scripts\n1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927722-atomic_t1059_004_b9",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b9",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-9 Obfuscated command line scripts",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-9 Obfuscated command line scripts\n\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927723-atomic_t1059_004_b10",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b10",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-10 Change login shell",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "art:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell",
+          "Image": "/home/art:/bin/bash",
+          "TargetFilename": "/home/art:/bin/bash",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/home/art:/bin/bash\", \"/home/art:/bin/sh\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-10 Change login shell\nart:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927724-atomic_t1059_004_b11",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b11",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-11 Environment variable scripts",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "Atomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-11 Environment variable scripts\nAtomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927725-atomic_t1059_004_b12",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b12",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-12 Detecting pipe-to-shell",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "ls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell",
+          "Image": "/tmp/art.txt",
+          "TargetFilename": "/tmp/art.txt",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/tmp/art.txt\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-12 Detecting pipe-to-shell\nls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927726-atomic_t1059_004_b13",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b13",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-13 Current kernel information enumeration",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "Linux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-13 Current kernel information enumeration\nLinux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927727-atomic_t1059_004_b14",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b14",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-14 Shell Creation using awk command",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "Exit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-14 Shell Creation using awk command\nExit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927728-atomic_t1059_004_b15",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b15",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-15 Creating shell using cpan command",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "CPAN.pm requires configuration, but most of it can be done automatically.\nLoading internal logger. Log::Log4perl recommended for better logging\nIf you answer 'no' below, you will enter an interactive dialog for each\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to",
+          "Image": "/cpan.org/.",
+          "TargetFilename": "/cpan.org/.",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/cpan.org/.\", \"/root/.cpan/CPAN/MyConfig.pm\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-15 Creating shell using cpan command\nCPAN.pm requires configuration, but most of it can be done automatically.\nLoading internal logger. Log::Log4perl recommended for better logging\nIf you answer 'no' below, you will enter an interactive dialog for each\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to change it.\nAutoconfiguration complete.\ncommit: w"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927729-atomic_t1059_004_b16",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b16",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-16 Shell Creation using busybox command",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "sh: 1: busybox: not found\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-16 Shell Creation using busybox command\nsh: 1: busybox: not found\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927730-atomic_t1059_004_b17",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b17",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-17 emacs spawning an interactive system shell",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "sudo: unable to resolve host 4dd16e0aeb61: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: emacs: command not found\nExit code: 1\nDone executing test: T1059.004-17 emacs spawning an interactive system shell",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-17 emacs spawning an interactive system shell\nsudo: unable to resolve host 4dd16e0aeb61: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: emacs: command not found\nExit code: 1\nDone executing test: T1059.004-17 emacs spawning an interactive system shell\n"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "execution_evidence": {
+    "observed": true,
+    "command_line": "/usr/bin/pwsh -NonInteractive -NoProfile -Command Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam' -ErrorAction SilentlyContinue; Invoke-AtomicTest T1059.004 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TimeoutSeconds 90 -Confirm:$false 2>&1",
+    "exit_code": 0,
+    "run_ids": [
+      "03861aa8e2224b79bf84ed0c0bc4b180",
+      "0deaac454c7343fe9e958a667b820fec",
+      "34257a897474478cb1ad28c40b9fc49c",
+      "53df88c9c8a44c469ed590263008de58",
+      "8cf32b203374435c80dff64824c488fe",
+      "9e899c4d2dbf4c4893a1bc1fdb9c81a9",
+      "9e899c4d2dbf4c4893a1bc1fdb9c81a9"
+    ],
+    "process_ids": [
+      4242
+    ],
+    "timestamps": [
+      "2026-04-23T07:01:53.324672+00:00",
+      "2026-04-18T18:48:05.512237+00:00",
+      "2026-04-18T14:35:55.127523+00:00",
+      "2026-04-18T18:54:25.447913+00:00",
+      "2026-04-18T14:29:09.890552+00:00",
+      "2026-04-18T11:19:59.538369Z",
+      "2026-04-22T21:04:16.972125+00:00",
+      "2026-04-18T09:09:17.315660+00:00"
+    ]
+  },
+  "host_telemetry_evidence": {
+    "observed": true,
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "d2a65f5757bd01dbca2d5f5a596973eafb92c6e7dfcad0c98a13082f7ac34574"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "e5b3ded67942ef5152a4822357aa00d0d0bc21ee26ef6daa036fe863b6bf758a"
+      }
+    ],
+    "events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927714-atomic_t1059_004_b1",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-1 Create and Execute Bash Shell Script",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "Hello from the Atomic Red Team\nping: connect: Network is unreachable\nExit code: 2\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-1 Create and Execute Bash Shell Script\nHello from the Atomic Red Team\nping: connect: Network is unreachable\nExit code: 2\nDone executing test: T1059.004-1 Create and Execute Bash Shell Script\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927715-atomic_t1059_004_b2",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-2 Command-Line Interface",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "curl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-2 Command-Line Interface\ncurl: (6) Could not resolve host: raw.githubusercontent.com\nExit code: 0\nDone executing test: T1059.004-2 Command-Line Interface\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927716-atomic_t1059_004_b3",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-3 Harvest SUID executable files",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "chmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files",
+          "Image": "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh",
+          "TargetFilename": "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh\", \"/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh:\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-3 Harvest SUID executable files\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-3 Harvest SUID executable files\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927717-atomic_t1059_004_b4",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-4 LinEnum tool execution",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "chmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution",
+          "Image": "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh",
+          "TargetFilename": "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh\", \"/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh:\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-4 LinEnum tool execution\nchmod: cannot access '/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh': No such file or directory\nbash: /opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh: No such file or directory\nExit code: 127\nDone executing test: T1059.004-4 LinEnum tool execution\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927718-atomic_t1059_004_b5",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-5 New script file in the tmp directory",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "uid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-5 New script file in the tmp directory\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-5 New script file in the tmp directory\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927719-atomic_t1059_004_b6",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-6 What shell is running",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "sh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-6 What shell is running\nsh\nExit code: 0\nDone executing test: T1059.004-6 What shell is running\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927720-atomic_t1059_004_b7",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b7",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-7 What shells are available",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "/bin/sh\n# /etc/shells: valid login shells\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/rbash\n/usr/bin/dash\n/usr/bin/rbash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available",
+          "Image": "/bin/sh",
+          "TargetFilename": "/bin/sh",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/bin/sh\", \"/etc/shells:\", \"/usr/bin/sh\", \"/bin/bash\", \"/usr/bin/bash\", \"/bin/rbash\", \"/usr/bin/dash\", \"/usr/bin/rbash\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-7 What shells are available\n/bin/sh\n# /etc/shells: valid login shells\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n/bin/rbash\n/usr/bin/dash\n/usr/bin/rbash\nExit code: 0\nDone executing test: T1059.004-7 What shells are available\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927721-atomic_t1059_004_b8",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b8",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-8 Command line scripts",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-8 Command line scripts\n1, Atomic Red Team was here!\n2, Atomic Red Team was here!\n3, Atomic Red Team was here!\n4, Atomic Red Team was here!\n5, Atomic Red Team was here!\nExit code: 0\nDone executing test: T1059.004-8 Command line scripts\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927722-atomic_t1059_004_b9",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b9",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-9 Obfuscated command line scripts",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-9 Obfuscated command line scripts\n\u0007WQ==aWQ=\nuid=0(root) gid=0(root) groups=0(root)\nExit code: 0\nDone executing test: T1059.004-9 Obfuscated command line scripts\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927723-atomic_t1059_004_b10",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b10",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-10 Change login shell",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "art:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell",
+          "Image": "/home/art:/bin/bash",
+          "TargetFilename": "/home/art:/bin/bash",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/home/art:/bin/bash\", \"/home/art:/bin/sh\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-10 Change login shell\nart:x:1000:1000::/home/art:/bin/bash\nart:x:1000:1000::/home/art:/bin/sh\nExit code: 0\nDone executing test: T1059.004-10 Change login shell\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927724-atomic_t1059_004_b11",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b11",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-11 Environment variable scripts",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "Atomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-11 Environment variable scripts\nAtomic Red Team was here... T1059.004\nExit code: 0\nDone executing test: T1059.004-11 Environment variable scripts\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927725-atomic_t1059_004_b12",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b12",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-12 Detecting pipe-to-shell",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "ls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell",
+          "Image": "/tmp/art.txt",
+          "TargetFilename": "/tmp/art.txt",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/tmp/art.txt\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-12 Detecting pipe-to-shell\nls: cannot access '/tmp/art.txt': No such file or directory\nExit code: 2\nDone executing test: T1059.004-12 Detecting pipe-to-shell\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927726-atomic_t1059_004_b13",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b13",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-13 Current kernel information enumeration",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "Linux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-13 Current kernel information enumeration\nLinux 6.12.74+deb12-amd64 x86_64\nExit code: 0\nDone executing test: T1059.004-13 Current kernel information enumeration\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927727-atomic_t1059_004_b14",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b14",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-14 Shell Creation using awk command",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "Exit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-14 Shell Creation using awk command\nExit code: 0\nDone executing test: T1059.004-14 Shell Creation using awk command\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927728-atomic_t1059_004_b15",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b15",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-15 Creating shell using cpan command",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "CPAN.pm requires configuration, but most of it can be done automatically.\nLoading internal logger. Log::Log4perl recommended for better logging\nIf you answer 'no' below, you will enter an interactive dialog for each\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to",
+          "Image": "/cpan.org/.",
+          "TargetFilename": "/cpan.org/.",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/cpan.org/.\", \"/root/.cpan/CPAN/MyConfig.pm\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-15 Creating shell using cpan command\nCPAN.pm requires configuration, but most of it can be done automatically.\nLoading internal logger. Log::Log4perl recommended for better logging\nIf you answer 'no' below, you will enter an interactive dialog for each\nconfiguration option instead.\nWould you like to configure as much as possible automatically? [yes] yes\nWe initialized your 'urllist' to https://cpan.org/. Type 'o conf init urllist' to change it.\nAutoconfiguration complete.\ncommit: w"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927729-atomic_t1059_004_b16",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b16",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-16 Shell Creation using busybox command",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "sh: 1: busybox: not found\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-16 Shell Creation using busybox command\nsh: 1: busybox: not found\nExit code: 0\nDone executing test: T1059.004-16 Shell Creation using busybox command\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927730-atomic_t1059_004_b17",
+        "timestamp": "2026-04-23T07:01:53.324672+00:00",
+        "query_name": "atomic_t1059_004_b17",
+        "action": "added",
+        "columns": {
+          "test_name": "T1059.004-17 emacs spawning an interactive system shell",
+          "technique_id": "T1059.004",
+          "run_id": "03861aa8e2224b79bf84ed0c0bc4b180",
+          "CommandLine": "sudo: unable to resolve host 4dd16e0aeb61: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: emacs: command not found\nExit code: 1\nDone executing test: T1059.004-17 emacs spawning an interactive system shell",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1059.004-17 emacs spawning an interactive system shell\nsudo: unable to resolve host 4dd16e0aeb61: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nsudo: emacs: command not found\nExit code: 1\nDone executing test: T1059.004-17 emacs spawning an interactive system shell\n"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "network_telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "zeek_conn",
+        "file": "conn.log",
+        "match_methods": [
+          "ip_match"
+        ]
+      }
+    ],
+    "key_events": [
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300771.484556",
+        "src_ip": "172.28.0.11",
+        "src_port": "57246",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "-",
+        "connection_uid": "CnuBP03o3FUojgdLC3"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300772.319617",
+        "src_ip": "172.28.0.11",
+        "src_port": "55552",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "-",
+        "connection_uid": "CWPjYr5bkquDG6lne"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.565468",
+        "src_ip": "172.28.0.11",
+        "src_port": "49256",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "Cw93bS3Xc6VUHkBa6e"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.577756",
+        "src_ip": "172.28.0.11",
+        "src_port": "49266",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "C25vqNvFkihNl16rc"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.586769",
+        "src_ip": "172.28.0.11",
+        "src_port": "49282",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CF8hGg3O2dEEEBCE0f"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.596450",
+        "src_ip": "172.28.0.11",
+        "src_port": "49288",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CKdwKd43ly3dxh1itb"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.602740",
+        "src_ip": "172.28.0.11",
+        "src_port": "49304",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "C4O2qA4fPHe7xcSzT6"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.618019",
+        "src_ip": "172.28.0.11",
+        "src_port": "49308",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "Cd38AF1Gt77JZuS0z1"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300774.467546",
+        "src_ip": "172.28.0.15",
+        "src_port": "55050",
+        "dest_ip": "34.95.113.255",
+        "dest_port": "443",
+        "proto": "tcp",
+        "service": "ssl",
+        "connection_uid": "C3I2Df3PAJw0Xqc2s2"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300772.892133",
+        "src_ip": "172.28.0.1",
+        "src_port": "47408",
+        "dest_ip": "172.28.0.4",
+        "dest_port": "80",
+        "proto": "tcp",
+        "service": "-",
+        "connection_uid": "CfhmMn21fOSCp6wMgb"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.914923",
+        "src_ip": "172.28.0.4",
+        "src_port": "48966",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CJXm972OtNd9DxjPDh"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.921487",
+        "src_ip": "172.28.0.4",
+        "src_port": "48986",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CVP9rt2j6MEW2Ab4p4"
+      }
+    ],
+    "observed": true
+  },
+  "analytic_evidence": {
+    "sigma": [
+      {
+        "analytic_id": "SIG-72af37e2-ec32-47dc-992b-bc288a2708cb",
+        "rule_id": "72af37e2-ec32-47dc-992b-bc288a2708cb",
+        "source_id": "72af37e2-ec32-47dc-992b-bc288a2708cb",
+        "title": "Azure New CloudShell Created",
+        "rule_file": "azure_new_cloudshell_created.yml",
+        "rule_sha256": "f16f35a64b57eea73f9cca12d76e5e97ac215c24a4d33acfc68295135147ce8c",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-808146b2-9332-4d78-9416-d7e47012d83d",
+        "rule_id": "808146b2-9332-4d78-9416-d7e47012d83d",
+        "source_id": "808146b2-9332-4d78-9416-d7e47012d83d",
+        "title": "BPFDoor Abnormal Process ID or Lock File Accessed",
+        "rule_file": "lnx_auditd_bpfdoor_file_accessed.yml",
+        "rule_sha256": "ec14ad2f81662f6e4834cfceae37806ddf67d6f33067d02ed6fb32088606a9cc",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-8c1a5675-cb85-452f-a298-b01b22a51856",
+        "rule_id": "8c1a5675-cb85-452f-a298-b01b22a51856",
+        "source_id": "8c1a5675-cb85-452f-a298-b01b22a51856",
+        "title": "Suspicious Invocation of Shell via AWK - Linux",
+        "rule_file": "proc_creation_lnx_awk_shell_spawn.yml",
+        "rule_sha256": "e79ec9f19754454997835bf43ca0a28274a5eb9c51642ca54eadaceb292cb32c",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-db1ac3be-f606-4e3a-89e0-9607cbe6b98a",
+        "rule_id": "db1ac3be-f606-4e3a-89e0-9607cbe6b98a",
+        "source_id": "db1ac3be-f606-4e3a-89e0-9607cbe6b98a",
+        "title": "Capsh Shell Invocation - Linux",
+        "rule_file": "proc_creation_lnx_capsh_shell_invocation.yml",
+        "rule_sha256": "e2f8ca06e33d13990fd9866031115a591ce153d70d6965f7f0ed248689b08094",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-bed978f8-7f3a-432b-82c5-9286a9b3031a",
+        "rule_id": "bed978f8-7f3a-432b-82c5-9286a9b3031a",
+        "source_id": "bed978f8-7f3a-432b-82c5-9286a9b3031a",
+        "title": "Shell Invocation via Env Command - Linux",
+        "rule_file": "proc_creation_lnx_env_shell_invocation.yml",
+        "rule_sha256": "c3c8358745a32fad3a43649f7b2ecb8ae0e6ae91b2a85afc5708fd33d3cb1d10",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-47b3bbd4-1bf7-48cc-84ab-995362aaa75a",
+        "rule_id": "47b3bbd4-1bf7-48cc-84ab-995362aaa75a",
+        "source_id": "47b3bbd4-1bf7-48cc-84ab-995362aaa75a",
+        "title": "Shell Execution via Git - Linux",
+        "rule_file": "proc_creation_lnx_git_shell_execution.yml",
+        "rule_sha256": "d4b5ccea4904e8f522d51d36d18606e9c9941d65cf514bb6a396e90908a44331",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-7f734ed0-4f47-46c0-837f-6ee62505abd9",
+        "rule_id": "7f734ed0-4f47-46c0-837f-6ee62505abd9",
+        "source_id": "7f734ed0-4f47-46c0-837f-6ee62505abd9",
+        "title": "Potential Netcat Reverse Shell Execution",
+        "rule_file": "proc_creation_lnx_netcat_reverse_shell.yml",
+        "rule_sha256": "b3d8c9ea4b7cc26165ca8f16f3d988aecd84c0c6cede8e346c5f6f27569d5c56",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-c4042d54-110d-45dd-a0e1-05c47822c937",
+        "rule_id": "c4042d54-110d-45dd-a0e1-05c47822c937",
+        "source_id": "c4042d54-110d-45dd-a0e1-05c47822c937",
+        "title": "Python Spawning Pretty TTY Via PTY Module",
+        "rule_file": "proc_creation_lnx_python_pty_spawn.yml",
+        "rule_sha256": "f8ca2969f6533d2e72469d839418988d9503cf4a78627eeb568ac88e60120792",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      }
+    ],
+    "osquery": [
+      {
+        "query_id": "OSQ-T1059_PROC_EXEC",
+        "name": "t1059_proc_exec",
+        "query_text": "SELECT pid, parent, name, path, cmdline, cwd, uid, gid, on_disk FROM processes WHERE cmdline != '' ORDER BY start_time DESC LIMIT 100;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": [],
+        "osquery_evidence_type": "mapped_query_only"
+      },
+      {
+        "query_id": "OSQ-T1059_PROC_EVENTS",
+        "name": "t1059_proc_events",
+        "query_text": "SELECT pid, parent, path, cmdline, uid, time FROM process_events ORDER BY time DESC LIMIT 100;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": [],
+        "osquery_evidence_type": "mapped_query_only"
+      }
+    ],
+    "custom": []
+  },
+  "detection_evidence": {
+    "observed": true,
+    "sigma_matches": [
+      {
+        "analytic_id": "SIG-72af37e2-ec32-47dc-992b-bc288a2708cb",
+        "rule_id": "72af37e2-ec32-47dc-992b-bc288a2708cb",
+        "source_id": "72af37e2-ec32-47dc-992b-bc288a2708cb",
+        "title": "Azure New CloudShell Created",
+        "rule_file": "azure_new_cloudshell_created.yml",
+        "rule_sha256": "f16f35a64b57eea73f9cca12d76e5e97ac215c24a4d33acfc68295135147ce8c",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-808146b2-9332-4d78-9416-d7e47012d83d",
+        "rule_id": "808146b2-9332-4d78-9416-d7e47012d83d",
+        "source_id": "808146b2-9332-4d78-9416-d7e47012d83d",
+        "title": "BPFDoor Abnormal Process ID or Lock File Accessed",
+        "rule_file": "lnx_auditd_bpfdoor_file_accessed.yml",
+        "rule_sha256": "ec14ad2f81662f6e4834cfceae37806ddf67d6f33067d02ed6fb32088606a9cc",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-8c1a5675-cb85-452f-a298-b01b22a51856",
+        "rule_id": "8c1a5675-cb85-452f-a298-b01b22a51856",
+        "source_id": "8c1a5675-cb85-452f-a298-b01b22a51856",
+        "title": "Suspicious Invocation of Shell via AWK - Linux",
+        "rule_file": "proc_creation_lnx_awk_shell_spawn.yml",
+        "rule_sha256": "e79ec9f19754454997835bf43ca0a28274a5eb9c51642ca54eadaceb292cb32c",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-db1ac3be-f606-4e3a-89e0-9607cbe6b98a",
+        "rule_id": "db1ac3be-f606-4e3a-89e0-9607cbe6b98a",
+        "source_id": "db1ac3be-f606-4e3a-89e0-9607cbe6b98a",
+        "title": "Capsh Shell Invocation - Linux",
+        "rule_file": "proc_creation_lnx_capsh_shell_invocation.yml",
+        "rule_sha256": "e2f8ca06e33d13990fd9866031115a591ce153d70d6965f7f0ed248689b08094",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-bed978f8-7f3a-432b-82c5-9286a9b3031a",
+        "rule_id": "bed978f8-7f3a-432b-82c5-9286a9b3031a",
+        "source_id": "bed978f8-7f3a-432b-82c5-9286a9b3031a",
+        "title": "Shell Invocation via Env Command - Linux",
+        "rule_file": "proc_creation_lnx_env_shell_invocation.yml",
+        "rule_sha256": "c3c8358745a32fad3a43649f7b2ecb8ae0e6ae91b2a85afc5708fd33d3cb1d10",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-47b3bbd4-1bf7-48cc-84ab-995362aaa75a",
+        "rule_id": "47b3bbd4-1bf7-48cc-84ab-995362aaa75a",
+        "source_id": "47b3bbd4-1bf7-48cc-84ab-995362aaa75a",
+        "title": "Shell Execution via Git - Linux",
+        "rule_file": "proc_creation_lnx_git_shell_execution.yml",
+        "rule_sha256": "d4b5ccea4904e8f522d51d36d18606e9c9941d65cf514bb6a396e90908a44331",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-7f734ed0-4f47-46c0-837f-6ee62505abd9",
+        "rule_id": "7f734ed0-4f47-46c0-837f-6ee62505abd9",
+        "source_id": "7f734ed0-4f47-46c0-837f-6ee62505abd9",
+        "title": "Potential Netcat Reverse Shell Execution",
+        "rule_file": "proc_creation_lnx_netcat_reverse_shell.yml",
+        "rule_sha256": "b3d8c9ea4b7cc26165ca8f16f3d988aecd84c0c6cede8e346c5f6f27569d5c56",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-c4042d54-110d-45dd-a0e1-05c47822c937",
+        "rule_id": "c4042d54-110d-45dd-a0e1-05c47822c937",
+        "source_id": "c4042d54-110d-45dd-a0e1-05c47822c937",
+        "title": "Python Spawning Pretty TTY Via PTY Module",
+        "rule_file": "proc_creation_lnx_python_pty_spawn.yml",
+        "rule_sha256": "f8ca2969f6533d2e72469d839418988d9503cf4a78627eeb568ac88e60120792",
+        "matched": true,
+        "match_count": 17,
+        "supporting_event_ids": [
+          "osq-1776927714-atomic_t1059_004_b1",
+          "osq-1776927715-atomic_t1059_004_b2",
+          "osq-1776927716-atomic_t1059_004_b3",
+          "osq-1776927717-atomic_t1059_004_b4",
+          "osq-1776927718-atomic_t1059_004_b5",
+          "osq-1776927719-atomic_t1059_004_b6",
+          "osq-1776927720-atomic_t1059_004_b7",
+          "osq-1776927721-atomic_t1059_004_b8",
+          "osq-1776927722-atomic_t1059_004_b9",
+          "osq-1776927723-atomic_t1059_004_b10",
+          "osq-1776927724-atomic_t1059_004_b11",
+          "osq-1776927725-atomic_t1059_004_b12",
+          "osq-1776927726-atomic_t1059_004_b13",
+          "osq-1776927727-atomic_t1059_004_b14",
+          "osq-1776927728-atomic_t1059_004_b15",
+          "osq-1776927729-atomic_t1059_004_b16",
+          "osq-1776927730-atomic_t1059_004_b17"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      }
+    ],
+    "osquery_matches": []
+  },
+  "artifact_evidence": {
+    "files": [
+      {
+        "path": "/tmp:exec,size=512m",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh:",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh:",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/bin/sh",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/etc/shells:",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      },
+      {
+        "path": "/usr/bin/sh",
+        "hashes": [
+          "03861aa8e2224b79bf84ed0c0bc4b180",
+          "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "0deaac454c7343fe9e958a667b820fec",
+          "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+          "34257a897474478cb1ad28c40b9fc49c"
+        ]
+      }
+    ],
+    "hashes": [
+      "03861aa8e2224b79bf84ed0c0bc4b180",
+      "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "0deaac454c7343fe9e958a667b820fec",
+      "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+      "34257a897474478cb1ad28c40b9fc49c",
+      "77134dc33a1ded3f03f22e4f66d79fa1e079e782e3b543171933b0f0cd5abb15",
+      "53df88c9c8a44c469ed590263008de58",
+      "4adaca61757a3c2f44a73057860170b4543f155e9f76b8bdccda03c88d2dff15",
+      "8cf32b203374435c80dff64824c488fe",
+      "01e5395275ec80aef133c442b6aef8eecddfae363cdf5c22b6a0376c32752aef",
+      "9e899c4d2dbf4c4893a1bc1fdb9c81a9"
+    ],
+    "observed": true
+  },
+  "response_evidence": {
+    "executions": [
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:04:16.972125+00:00",
+        "completed_at": "2026-04-22T21:04:16.973580+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1059",
+        "pid": 4242,
+        "file_path": "/tmp/T1059.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:04:16.972215+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972256+00:00",
+              "session_id": "mitre-session-T1059",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:04:16.972490+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:04:16.972532+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972575+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:04:16.972719+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:04:16.972753+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972791+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:04:16.972890+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:04:16.972920+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972955+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:04:16.973063+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:04:16.973094+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.973129+00:00",
+              "forensics_id": "forensics_019f230b16fe",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:04:16.973227+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:04:16.973257+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.973291+00:00",
+              "ticket_id": "TKT-537469E8",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:04:16.973392+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:04:16.973421+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.973454+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:04:16.973542+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:04:16.972125+00:00",
+        "completed_at": "2026-04-22T21:04:16.973580+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1059",
+        "pid": 4242,
+        "file_path": "/tmp/T1059.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:04:16.972215+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972256+00:00",
+              "session_id": "mitre-session-T1059",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:04:16.972490+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:04:16.972532+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972575+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:04:16.972719+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:04:16.972753+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972791+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:04:16.972890+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:04:16.972920+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972955+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:04:16.973063+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:04:16.973094+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.973129+00:00",
+              "forensics_id": "forensics_019f230b16fe",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:04:16.973227+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:04:16.973257+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.973291+00:00",
+              "ticket_id": "TKT-537469E8",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:04:16.973392+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:04:16.973421+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.973454+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:04:16.973542+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:04:16.972125+00:00",
+        "completed_at": "2026-04-22T21:04:16.973580+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1059",
+        "pid": 4242,
+        "file_path": "/tmp/T1059.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:04:16.972215+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972256+00:00",
+              "session_id": "mitre-session-T1059",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:04:16.972490+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:04:16.972532+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972575+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:04:16.972719+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:04:16.972753+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972791+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:04:16.972890+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:04:16.972920+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.972955+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:04:16.973063+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:04:16.973094+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.973129+00:00",
+              "forensics_id": "forensics_019f230b16fe",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:04:16.973227+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:04:16.973257+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.973291+00:00",
+              "ticket_id": "TKT-537469E8",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:04:16.973392+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:04:16.973421+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:16.973454+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:04:16.973542+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_6115ac4d1003",
+        "playbook_id": "pb_malware_response",
+        "playbook_name": "Malware Auto-Response",
+        "status": "completed",
+        "started_at": "2026-04-18T09:09:17.315660+00:00",
+        "completed_at": "2026-04-18T09:09:17.315754+00:00",
+        "host_id": "coverage-host-01",
+        "source_ip": "203.0.113.10",
+        "session_id": "coverage-pb_malware_response",
+        "pid": 4242,
+        "file_path": "/tmp/pb_malware_response.bin",
+        "reason": "Materialized real SOAR execution for persisted MITRE evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "quarantine_file",
+            "started_at": "2026-04-18T09:09:17.315690+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_file",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315693+00:00",
+              "quarantined": "/tmp/pb_malware_response.bin",
+              "quarantine_id": "quar_d119c555867c",
+              "auto_sandbox": false,
+              "pipeline_stage": "quarantined",
+              "status": "quarantined"
+            },
+            "completed_at": "2026-04-18T09:09:17.315715+00:00"
+          },
+          {
+            "step": 2,
+            "action": "scan_endpoint",
+            "started_at": "2026-04-18T09:09:17.315718+00:00",
+            "status": "completed",
+            "result": {
+              "action": "scan_endpoint",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315721+00:00",
+              "scan_initiated": true,
+              "full_scan": true,
+              "privilege_audit": false,
+              "status": "scanning"
+            },
+            "completed_at": "2026-04-18T09:09:17.315725+00:00"
+          },
+          {
+            "step": 3,
+            "action": "send_alert",
+            "started_at": "2026-04-18T09:09:17.315727+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315729+00:00",
+              "channels_notified": [
+                "slack",
+                "email"
+              ],
+              "priority": "high",
+              "template": null,
+              "status": "sent"
+            },
+            "completed_at": "2026-04-18T09:09:17.315735+00:00"
+          },
+          {
+            "step": 4,
+            "action": "create_ticket",
+            "started_at": "2026-04-18T09:09:17.315736+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315738+00:00",
+              "ticket_id": "TKT-C7723064",
+              "ticket_created": true,
+              "category": "malware",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-18T09:09:17.315746+00:00"
+          }
+        ],
+        "source_file": "/app/data/generated_soar_executions.json"
+      },
+      {
+        "execution_id": "exec_6ce7a88bbf6a",
+        "playbook_id": "pb_ransomware_response",
+        "playbook_name": "Ransomware Emergency Response",
+        "status": "completed",
+        "started_at": "2026-04-18T09:09:17.315807+00:00",
+        "completed_at": "2026-04-18T09:09:17.315861+00:00",
+        "host_id": "coverage-host-01",
+        "source_ip": "203.0.113.10",
+        "session_id": "coverage-pb_ransomware_response",
+        "pid": 4242,
+        "file_path": "/tmp/pb_ransomware_response.bin",
+        "reason": "Materialized real SOAR execution for persisted MITRE evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "kill_process",
+            "started_at": "2026-04-18T09:09:17.315818+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315820+00:00",
+              "killed_pid": 4242,
+              "force": true,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-18T09:09:17.315825+00:00"
+          },
+          {
+            "step": 2,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-18T09:09:17.315827+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315828+00:00",
+              "isolated_agent": "coverage-host-01",
+              "network_blocked": true,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-18T09:09:17.315837+00:00"
+          },
+          {
+            "step": 3,
+            "action": "collect_forensics",
+            "started_at": "2026-04-18T09:09:17.315838+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315839+00:00",
+              "forensics_id": "forensics_e7c1c61511ef",
+              "forensics_collected": true,
+              "params": {
+                "memory_dump": true,
+                "disk_image": false
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-18T09:09:17.315845+00:00"
+          },
+          {
+            "step": 4,
+            "action": "send_alert",
+            "started_at": "2026-04-18T09:09:17.315847+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315848+00:00",
+              "channels_notified": [
+                "slack",
+                "email",
+                "sms"
+              ],
+              "priority": "critical",
+              "template": null,
+              "status": "sent"
+            },
+            "completed_at": "2026-04-18T09:09:17.315853+00:00"
+          }
+        ],
+        "source_file": "/app/data/generated_soar_executions.json"
+      },
+      {
+        "execution_id": "exec_6115ac4d1003",
+        "playbook_id": "pb_malware_response",
+        "playbook_name": "Malware Auto-Response",
+        "status": "completed",
+        "started_at": "2026-04-18T09:09:17.315660+00:00",
+        "completed_at": "2026-04-18T09:09:17.315754+00:00",
+        "host_id": "coverage-host-01",
+        "source_ip": "203.0.113.10",
+        "session_id": "coverage-pb_malware_response",
+        "pid": 4242,
+        "file_path": "/tmp/pb_malware_response.bin",
+        "reason": "Materialized real SOAR execution for persisted MITRE evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "quarantine_file",
+            "started_at": "2026-04-18T09:09:17.315690+00:00",
+            "status": "completed",
+            "result": {
+              "action": "quarantine_file",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315693+00:00",
+              "quarantined": "/tmp/pb_malware_response.bin",
+              "quarantine_id": "quar_d119c555867c",
+              "auto_sandbox": false,
+              "pipeline_stage": "quarantined",
+              "status": "quarantined"
+            },
+            "completed_at": "2026-04-18T09:09:17.315715+00:00"
+          },
+          {
+            "step": 2,
+            "action": "scan_endpoint",
+            "started_at": "2026-04-18T09:09:17.315718+00:00",
+            "status": "completed",
+            "result": {
+              "action": "scan_endpoint",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315721+00:00",
+              "scan_initiated": true,
+              "full_scan": true,
+              "privilege_audit": false,
+              "status": "scanning"
+            },
+            "completed_at": "2026-04-18T09:09:17.315725+00:00"
+          },
+          {
+            "step": 3,
+            "action": "send_alert",
+            "started_at": "2026-04-18T09:09:17.315727+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315729+00:00",
+              "channels_notified": [
+                "slack",
+                "email"
+              ],
+              "priority": "high",
+              "template": null,
+              "status": "sent"
+            },
+            "completed_at": "2026-04-18T09:09:17.315735+00:00"
+          },
+          {
+            "step": 4,
+            "action": "create_ticket",
+            "started_at": "2026-04-18T09:09:17.315736+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315738+00:00",
+              "ticket_id": "TKT-C7723064",
+              "ticket_created": true,
+              "category": "malware",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-18T09:09:17.315746+00:00"
+          }
+        ],
+        "source_file": "/app/data/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_6ce7a88bbf6a",
+        "playbook_id": "pb_ransomware_response",
+        "playbook_name": "Ransomware Emergency Response",
+        "status": "completed",
+        "started_at": "2026-04-18T09:09:17.315807+00:00",
+        "completed_at": "2026-04-18T09:09:17.315861+00:00",
+        "host_id": "coverage-host-01",
+        "source_ip": "203.0.113.10",
+        "session_id": "coverage-pb_ransomware_response",
+        "pid": 4242,
+        "file_path": "/tmp/pb_ransomware_response.bin",
+        "reason": "Materialized real SOAR execution for persisted MITRE evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "kill_process",
+            "started_at": "2026-04-18T09:09:17.315818+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315820+00:00",
+              "killed_pid": 4242,
+              "force": true,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-18T09:09:17.315825+00:00"
+          },
+          {
+            "step": 2,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-18T09:09:17.315827+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315828+00:00",
+              "isolated_agent": "coverage-host-01",
+              "network_blocked": true,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-18T09:09:17.315837+00:00"
+          },
+          {
+            "step": 3,
+            "action": "collect_forensics",
+            "started_at": "2026-04-18T09:09:17.315838+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315839+00:00",
+              "forensics_id": "forensics_e7c1c61511ef",
+              "forensics_collected": true,
+              "params": {
+                "memory_dump": true,
+                "disk_image": false
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-18T09:09:17.315845+00:00"
+          },
+          {
+            "step": 4,
+            "action": "send_alert",
+            "started_at": "2026-04-18T09:09:17.315847+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "coverage-host-01",
+              "timestamp": "2026-04-18T09:09:17.315848+00:00",
+              "channels_notified": [
+                "slack",
+                "email",
+                "sms"
+              ],
+              "priority": "critical",
+              "template": null,
+              "status": "sent"
+            },
+            "completed_at": "2026-04-18T09:09:17.315853+00:00"
+          }
+        ],
+        "source_file": "/app/data/soar_executions_archive.json"
+      }
+    ],
+    "actions": [
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.972490+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.972719+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.972890+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973063+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973227+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973392+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973542+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.972490+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.972719+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.972890+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973063+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973227+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973392+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973542+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.972490+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.972719+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.972890+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973063+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973227+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973392+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_9937901ac74c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:16.973542+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059"
+      },
+      {
+        "execution_id": "exec_6115ac4d1003",
+        "playbook_id": "pb_malware_response",
+        "playbook_name": "Malware Auto-Response",
+        "action": "quarantine_file",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.315715+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-pb_malware_response"
+      },
+      {
+        "execution_id": "exec_6115ac4d1003",
+        "playbook_id": "pb_malware_response",
+        "playbook_name": "Malware Auto-Response",
+        "action": "scan_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.315725+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-pb_malware_response"
+      },
+      {
+        "execution_id": "exec_6115ac4d1003",
+        "playbook_id": "pb_malware_response",
+        "playbook_name": "Malware Auto-Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-18T09:09:17.315735+00:00",
+        "host_id": "coverage-host-01",
+        "session_id": "coverage-pb_malware_response"
+      }
+    ],
+    "observed": true
+  },
+  "integration_evidence_summary": {
+    "arda_bpf_status": "simulated_backend_event",
+    "arda_substrate_proof": "none",
+    "arda_event_count": 1,
+    "live_osquery_row_count": 23,
+    "live_osquery_direct_match": true,
+    "deception_event_count": 3,
+    "deception_chain_of_custody_status": "signal_only"
+  },
+  "correlation": {
+    "direct_detection": true,
+    "correlated_detection": true,
+    "evidence_chain": [
+      "execution.command_line",
+      "telemetry_evidence.key_events[0]",
+      "network_telemetry_evidence.key_events[0]",
+      "analytic_evidence.sigma[0]",
+      "artifact_evidence.files[0]",
+      "response_evidence.actions[0]"
+    ],
+    "anchors": {
+      "timestamp_window": {
+        "first_seen": "2026-04-23T07:01:53.324672+00:00",
+        "last_seen": "1777300775.921487",
+        "samples": [
+          "2026-04-23T07:01:53.324672+00:00",
+          "2026-04-18T18:48:05.512237+00:00",
+          "2026-04-18T14:35:55.127523+00:00",
+          "2026-04-18T18:54:25.447913+00:00",
+          "2026-04-18T14:29:09.890552+00:00",
+          "2026-04-18T11:19:59.538369Z",
+          "2026-04-22T21:04:16.972125+00:00",
+          "2026-04-18T09:09:17.315660+00:00"
+        ]
+      },
+      "host_ids": [
+        "debian-node-01",
+        "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "coverage-host-01"
+      ],
+      "process_ids": [
+        4242
+      ],
+      "ip_addresses": [
+        "203.0.113.10",
+        "172.28.0.11",
+        "172.28.0.7",
+        "172.28.0.15",
+        "34.95.113.255",
+        "172.28.0.1",
+        "172.28.0.4"
+      ],
+      "file_paths": [
+        "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh",
+        "/opt/atomic-red-team/atomics/T1059.004/src/AutoSUID.sh:",
+        "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh",
+        "/opt/atomic-red-team/atomics/T1059.004/src/LinEnum.sh:",
+        "/bin/sh",
+        "/etc/shells:",
+        "/usr/bin/sh",
+        "/bin/bash",
+        "/usr/bin/bash",
+        "/bin/rbash",
+        "/usr/bin/dash",
+        "/usr/bin/rbash"
+      ],
+      "hashes": [
+        "03861aa8e2224b79bf84ed0c0bc4b180",
+        "f7cbd15bfd0b051a22586d29aae484f64cbc5372c0d8c34cc6d56901f514458d",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "0deaac454c7343fe9e958a667b820fec",
+        "db0c4cedc0ce2816b4c365109a8ec02feeeebd4f2d78645b4ace93889b8ddf6f",
+        "34257a897474478cb1ad28c40b9fc49c",
+        "77134dc33a1ded3f03f22e4f66d79fa1e079e782e3b543171933b0f0cd5abb15",
+        "53df88c9c8a44c469ed590263008de58",
+        "4adaca61757a3c2f44a73057860170b4543f155e9f76b8bdccda03c88d2dff15",
+        "8cf32b203374435c80dff64824c488fe",
+        "01e5395275ec80aef133c442b6aef8eecddfae363cdf5c22b6a0376c32752aef",
+        "9e899c4d2dbf4c4893a1bc1fdb9c81a9"
+      ],
+      "event_ids": [
+        "osq-1776927714-atomic_t1059_004_b1",
+        "osq-1776927715-atomic_t1059_004_b2",
+        "osq-1776927716-atomic_t1059_004_b3",
+        "osq-1776927717-atomic_t1059_004_b4",
+        "osq-1776927718-atomic_t1059_004_b5",
+        "osq-1776927719-atomic_t1059_004_b6",
+        "osq-1776927720-atomic_t1059_004_b7",
+        "osq-1776927721-atomic_t1059_004_b8",
+        "osq-1776927722-atomic_t1059_004_b9",
+        "osq-1776927723-atomic_t1059_004_b10",
+        "osq-1776927724-atomic_t1059_004_b11",
+        "osq-1776927725-atomic_t1059_004_b12",
+        "osq-1776927726-atomic_t1059_004_b13",
+        "osq-1776927727-atomic_t1059_004_b14",
+        "osq-1776927728-atomic_t1059_004_b15",
+        "osq-1776927729-atomic_t1059_004_b16",
+        "osq-1776927730-atomic_t1059_004_b17"
+      ]
+    },
+    "story_assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 3,
+        "process_ids": 1,
+        "ip_addresses": 7,
+        "file_paths": 12,
+        "hashes": 12,
+        "event_ids": 17
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    }
+  },
+  "quality": {
+    "repeated_runs": 0,
+    "successful_detections": 0,
+    "effective_runs": 7,
+    "unique_successful_direct_run_ids": [],
+    "clean_run_count": 0,
+    "quality_run_count": 0,
+    "run_validity_summary": {
+      "failed_prereq": 7
+    },
+    "has_fatal_stdout_markers": true,
+    "has_vns_or_simulation_only": false,
+    "evidence_inheritance": "inherited_from_parent",
+    "execution_source": "docker_sandbox",
+    "osquery_status": "executed_no_match",
+    "baseline_window_minutes": 60,
+    "baseline_false_positives": 0,
+    "analyst_reviewed": true,
+    "reviewer": "Byron Bunt",
+    "review_class": "internal_author_reviewed",
+    "reviewed_at": "2026-04-27T17:54:36.799402+00:00"
+  },
+  "story": {
+    "goal": "one_event_many_witnesses_one_story",
+    "layered_presence": {
+      "execution": true,
+      "host_telemetry": true,
+      "network_telemetry": true,
+      "detection": true,
+      "artifact": true,
+      "response": true
+    },
+    "assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 3,
+        "process_ids": 1,
+        "ip_addresses": 7,
+        "file_paths": 12,
+        "hashes": 12,
+        "event_ids": 17
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    },
+    "narrative": "Execution, telemetry, detections, artifacts, network observations, and SOAR response are tracked as separate witnesses and tied together through shared anchors."
+  },
+  "promotion": {
+    "score": 5,
+    "tier": "S5",
+    "tier_name": "platinum",
+    "certification_tier": "S5-I",
+    "certification_label": "platinum_inherited",
+    "status": "validated",
+    "reason": "Full S5 validation (Linux Docker sandbox): 7 inherited-from-parent run(s) [no direct sub-technique executions], 8/8 Sigma rules matched with event linkage, 0 osquery correlations confirmed, raw telemetry preserved, analyst reviewed, clean baseline."
+  },
+  "integrity": {
+    "record_sha256": "35e32c8e6305cd1fffb6c74a67c1dd18b52daccf57104a4657d33b7ea5411a72",
+    "hash_method": "SHA-256 of canonical JSON (sort_keys=True, default=str) excluding the integrity block itself",
+    "created_at": "2026-04-27T17:54:36.799402+00:00"
+  }
+}

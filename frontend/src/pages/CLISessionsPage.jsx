@@ -13,11 +13,26 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
+
+const CLI_ACCENTS = {
+  magenta: { border: 'rgba(255,138,217,0.34)', glow: 'rgba(255,138,217,0.12)' },
+  violet: { border: 'rgba(197,162,235,0.32)', glow: 'rgba(197,162,235,0.12)' },
+  gold: { border: 'rgba(255,209,102,0.3)', glow: 'rgba(255,209,102,0.1)' },
+  green: { border: 'rgba(124,226,163,0.28)', glow: 'rgba(124,226,163,0.1)' },
+};
+
+const cliPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
 
 const CLISessionsPage = () => {
   const { token } = useAuth();
@@ -63,6 +78,7 @@ const CLISessionsPage = () => {
     } finally {
       setLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchSessionCommands = async (hostId, sessionId) => {
@@ -112,35 +128,33 @@ const CLISessionsPage = () => {
       persistence: 'bg-amber-500/20 text-amber-400',
       defense_evasion: 'bg-slate-500/20 text-slate-400',
       exfil_prep: 'bg-pink-500/20 text-pink-400',
-      data_staging: 'bg-cyan-500/20 text-cyan-400'
+      data_staging: 'bg-fuchsia-500/20 text-fuchsia-300'
     };
     return colors[intent] || 'bg-slate-500/20 text-slate-400';
   };
 
   return (
-    <div className="p-6 space-y-6" data-testid="cli-sessions-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <Brain className="w-8 h-8 text-purple-400" />
-            AI-Agentic Detection Dashboard
-          </h1>
-          <p className="text-slate-400 mt-1">
-            Real-time analysis of CLI sessions for machine-paced behavior patterns
-          </p>
-        </div>
+    <div className="p-6 space-y-6" data-testid="cli-sessions-page" data-accent="cyan">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <SeraphPageHeader
+          eyebrow="seraph · cli-sessions · machine-paced signals"
+          title="AI-Agentic Detection Dashboard"
+          tagline="> real-time analysis of CLI sessions for machine-paced behavior patterns"
+          accent="cyan"
+          status={autoRefresh ? 'LIVE' : 'PAUSED'}
+        />
         <div className="flex items-center gap-3">
           <Button
             variant={autoRefresh ? "default" : "outline"}
             size="sm"
             onClick={() => setAutoRefresh(!autoRefresh)}
-            className={autoRefresh ? "bg-green-600 hover:bg-green-500" : "border-slate-700"}
+            className={autoRefresh ? "" : "border-slate-700"}
+            style={autoRefresh ? { background: 'linear-gradient(135deg, #7ce2a3, #c5a2eb)', color: '#071018' } : { background: 'rgba(8,20,38,0.82)', border: '1px solid rgba(115,163,185,0.16)' }}
           >
             {autoRefresh ? <Play className="w-4 h-4 mr-2" /> : <Pause className="w-4 h-4 mr-2" />}
             {autoRefresh ? 'Live' : 'Paused'}
           </Button>
-          <Button onClick={fetchData} variant="outline" className="border-slate-700">
+          <Button onClick={fetchData} variant="outline" style={{ borderColor: 'rgba(255,138,217,0.24)', color: '#ffd8f4' }}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
@@ -152,7 +166,7 @@ const CLISessionsPage = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4"
+          className="p-4" style={cliPanelStyle(CLI_ACCENTS.violet)}
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
@@ -169,7 +183,7 @@ const CLISessionsPage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-slate-900/50 border border-orange-500/30 rounded-lg p-4"
+          className="p-4" style={cliPanelStyle(CLI_ACCENTS.gold)}
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
@@ -186,7 +200,7 @@ const CLISessionsPage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-slate-900/50 border border-red-500/30 rounded-lg p-4"
+          className="p-4" style={cliPanelStyle(CLI_ACCENTS.magenta)}
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">
@@ -203,15 +217,15 @@ const CLISessionsPage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4"
+          className="p-4" style={cliPanelStyle(CLI_ACCENTS.gold)}
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-cyan-400" />
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(255,209,102,0.12)' }}>
+              <TrendingUp className="w-5 h-5" style={{ color: '#ffd166' }} />
             </div>
             <div>
               <p className="text-slate-400 text-sm">Avg ML Score</p>
-              <p className="text-2xl font-bold text-cyan-400">{((stats.averageML || 0) * 100).toFixed(0)}%</p>
+              <p className="text-2xl font-bold" style={{ color: '#ffd166' }}>{((stats.averageML || 0) * 100).toFixed(0)}%</p>
             </div>
           </div>
         </motion.div>
@@ -220,7 +234,7 @@ const CLISessionsPage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="bg-slate-900/50 border border-pink-500/30 rounded-lg p-4"
+          className="p-4" style={cliPanelStyle(CLI_ACCENTS.magenta)}
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-pink-500/20 flex items-center justify-center">
@@ -237,7 +251,7 @@ const CLISessionsPage = () => {
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Sessions List */}
-        <Card className="lg:col-span-1 bg-slate-900/50 border-slate-800">
+        <Card className="lg:col-span-1" style={cliPanelStyle(CLI_ACCENTS.violet)}>
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Activity className="w-5 h-5 text-purple-400" />
@@ -324,7 +338,7 @@ const CLISessionsPage = () => {
         </Card>
 
         {/* Session Details */}
-        <Card className="lg:col-span-2 bg-slate-900/50 border-slate-800">
+        <Card className="lg:col-span-2" style={cliPanelStyle(CLI_ACCENTS.gold)}>
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Eye className="w-5 h-5 text-cyan-400" />
@@ -472,7 +486,7 @@ const CLISessionsPage = () => {
 
       {/* Deception Hits */}
       {deceptionHits.length > 0 && (
-        <Card className="bg-red-900/20 border-red-500/30">
+        <Card style={cliPanelStyle(CLI_ACCENTS.magenta)}>
           <CardHeader>
             <CardTitle className="text-red-400 flex items-center gap-2">
               <Target className="w-5 h-5" />

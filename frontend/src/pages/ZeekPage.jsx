@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const ZeekPage = () => {
   const { token } = useAuth();
@@ -73,6 +74,7 @@ const ZeekPage = () => {
       fetchRecords();
       fetchDetections();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const refreshAll = async () => {
@@ -80,20 +82,20 @@ const ZeekPage = () => {
   };
 
   return (
-    <div className="space-y-6" data-testid="zeek-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Radar className="w-6 h-6 text-cyan-400" />
-            Zeek NDR Integration
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Network telemetry from Zeek logs, mapped into backend analytics</p>
-        </div>
-        <Button onClick={refreshAll} variant="outline" className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="zeek-page">
+      <SeraphPageHeader
+        eyebrow="seraph · zeek · network detection & response"
+        title="Zeek NDR Integration"
+        tagline="> conn · dns · http · files · network analytics & detection"
+        accent="cyan"
+        status="LIVE"
+        actions={
+          <Button onClick={refreshAll} variant="outline" className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">

@@ -8,41 +8,441 @@
     <link rel="dns-prefetch" href="//cdn.jsdelivr.net">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'IBM Plex Sans', sans-serif; background: #020617; color: #F8FAFC; }
-        .font-mono { font-family: 'JetBrains Mono', monospace; }
-        .card { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .tab-btn { transition: all 0.2s; }
-        .tab-btn.active { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.5); color: #60A5FA; }
-        .tab-btn:not(.active):hover { background: rgba(255,255,255,0.05); }
-        .sub-tab-btn { transition: all 0.15s; }
-        .sub-tab-btn.active { color: #60A5FA; border-bottom: 2px solid #3B82F6; }
-        .sub-tab-btn:not(.active):hover { color: #94A3B8; }
+        :root {
+            --neon-cyan: #00f0ff;
+            --neon-pink: #ff2bd6;
+            --neon-purple: #bc13fe;
+            --neon-green: #39ff14;
+            --neon-amber: #ffb800;
+            --bg-base: #1a2f49;
+            --bg-card: rgba(30, 50, 79, 0.92);
+            --bg-card-hover: rgba(0, 240, 255, 0.06);
+            --border-dim: rgba(0, 240, 255, 0.12);
+            --border-active: rgba(0, 240, 255, 0.5);
+            --text-primary: #f1fdff;
+            --text-muted: #b7f4ff;
+            --text-dim: #8dddff;
+            --font-display: 'Orbitron', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-body: 'IBM Plex Sans', sans-serif;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; }
+
+        html { scrollbar-width: thin; scrollbar-color: var(--neon-cyan) var(--bg-base); }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: var(--bg-base); }
+        ::-webkit-scrollbar-thumb { background: rgba(0,240,255,0.25); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0,240,255,0.5); }
+
+        body {
+            font-family: var(--font-body);
+            background:
+                radial-gradient(circle at top left, rgba(0, 240, 255, 0.2), transparent 34%),
+                radial-gradient(circle at top right, rgba(188, 19, 254, 0.12), transparent 30%),
+                linear-gradient(180deg, #2a4367 0%, var(--bg-base) 48%, #10233a 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* scanline overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,0,0,0.08) 2px,
+                rgba(0,0,0,0.08) 4px
+            );
+            pointer-events: none;
+            z-index: 9998;
+        }
+
+        /* ambient glow */
+        body::after {
+            content: '';
+            position: fixed;
+            top: -30%;
+            left: -10%;
+            width: 60%;
+            height: 60%;
+            background: radial-gradient(ellipse at center, rgba(0,240,255,0.04) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .font-mono { font-family: var(--font-mono); }
+
+        header h1,
+        nav .tab-btn,
+        .sub-tab-btn,
+        .card h3,
+        .card h4,
+        #status-badge,
+        #agent-id-badge,
+        #cmd-badge {
+            font-family: var(--font-display);
+            letter-spacing: 0.08em;
+        }
+
+        header h1 {
+            color: #f5fbff;
+            text-shadow: 0 0 16px rgba(0, 240, 255, 0.28), 0 0 24px rgba(188, 19, 254, 0.12);
+        }
+
+        /* brighten reused tailwind slate utility text to match the HUD palette */
+        .text-slate-700 {
+            color: #74d3ea !important;
+            text-shadow: 0 0 8px rgba(0, 240, 255, 0.12);
+        }
+        .text-slate-600 {
+            color: #95eaff !important;
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.16);
+        }
+        .text-slate-500 {
+            color: #b7f3ff !important;
+            text-shadow: 0 0 12px rgba(0, 240, 255, 0.22);
+        }
+        .text-slate-400 {
+            color: #d3fbff !important;
+            text-shadow: 0 0 14px rgba(0, 240, 255, 0.24);
+        }
+        .text-slate-300 {
+            color: #f4feff !important;
+            text-shadow: 0 0 16px rgba(0, 240, 255, 0.26);
+        }
+
+        .data-table thead th {
+            color: #aef5ff;
+            text-shadow: 0 0 12px rgba(0, 240, 255, 0.24);
+        }
+
+        .data-table tbody td,
+        .table-wrap,
+        p,
+        span,
+        label,
+        li {
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.08);
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: #9fe9ff;
+            opacity: 1;
+        }
+
+        /* ---- CARD ---- */
+        .card {
+            background: linear-gradient(180deg, rgba(20, 33, 54, 0.96), rgba(12, 21, 36, 0.94));
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(0, 240, 255, 0.18);
+            position: relative;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.015), 0 0 18px rgba(0,240,255,0.03);
+            animation: hud-float 9s ease-in-out infinite;
+        }
+        .card::before, .card::after {
+            content: '';
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-color: var(--neon-cyan);
+            border-style: solid;
+            opacity: 0.5;
+        }
+        .card::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; }
+        .card::after  { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; }
+        .card:hover {
+            border-color: rgba(0,240,255,0.3);
+            box-shadow: 0 0 20px rgba(0,240,255,0.1), 0 0 28px rgba(188,19,254,0.05);
+        }
+
+        /* ---- TAB NAV ---- */
+        .tab-btn {
+            transition: all 0.2s;
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            position: relative;
+        }
+        .tab-btn.active {
+            background: linear-gradient(180deg, rgba(0,240,255,0.14), rgba(0,240,255,0.05));
+            border-color: var(--neon-cyan) !important;
+            color: var(--neon-cyan);
+            text-shadow: 0 0 12px rgba(0,240,255,0.72);
+            box-shadow: 0 -2px 10px rgba(0,240,255,0.16) inset, 0 0 12px rgba(0,240,255,0.12);
+            animation: tab-flicker 3.2s linear infinite;
+        }
+        .tab-btn:not(.active):hover {
+            background: rgba(0,240,255,0.07);
+            color: rgba(185,245,255,0.96);
+        }
+        .sub-tab-btn { transition: all 0.15s; font-family: var(--font-display); color: var(--text-muted); }
+        .sub-tab-btn.active { color: var(--neon-cyan); border-bottom: 2px solid var(--neon-cyan); text-shadow: 0 0 10px rgba(0,240,255,0.7); }
+        .sub-tab-btn:not(.active):hover { color: rgba(185,245,255,0.95); }
+
+        /* ---- TABLES ---- */
         .data-table { width: 100%; border-collapse: collapse; }
-        .data-table thead th { text-align: left; padding: 6px 10px; font-size: 11px; color: #64748B; border-bottom: 1px solid rgba(255,255,255,0.06); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; user-select: none; }
-        .data-table thead th:hover { color: #94A3B8; }
-        .data-table tbody tr { border-bottom: 1px solid rgba(255,255,255,0.03); transition: background 0.15s; }
-        .data-table tbody tr:hover { background: rgba(255,255,255,0.03); }
-        .data-table tbody td { padding: 5px 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+        .data-table thead th {
+            text-align: left; padding: 6px 10px; font-size: 11px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-dim);
+            font-family: var(--font-mono);
+            text-transform: uppercase; letter-spacing: 0.08em;
+            cursor: pointer; user-select: none;
+        }
+        .data-table thead th:hover { color: var(--neon-cyan); }
+        .data-table tbody tr { border-bottom: 1px solid rgba(0,240,255,0.04); transition: background 0.15s; }
+        .data-table tbody tr:hover { background: rgba(0,240,255,0.04); }
+        .data-table tbody td { padding: 5px 10px; font-size: 12px; font-family: var(--font-mono); }
         .table-wrap { max-height: 420px; overflow-y: auto; }
-        .table-wrap::-webkit-scrollbar { width: 6px; }
-        .table-wrap::-webkit-scrollbar-track { background: transparent; }
-        .table-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-        .action-btn { padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.15s; border: none; }
-        .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .toast { position: fixed; top: 16px; right: 16px; z-index: 9999; padding: 10px 20px; border-radius: 6px; font-size: 13px; animation: slideIn 0.3s ease; max-width: 400px; }
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* ---- ACTION BUTTONS ---- */
+        .action-btn {
+            padding: 5px 14px; border-radius: 999px;
+            font-size: 11px; font-weight: 700;
+            cursor: pointer; transition: all 0.15s;
+            border: 1px solid;
+            font-family: var(--font-mono);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .action-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .action-btn.bg-green-600, .action-btn.bg-green-500 {
+            background: rgba(57,255,20,0.1);
+            border-color: var(--neon-green);
+            color: var(--neon-green);
+        }
+        .action-btn.bg-green-600:hover:not(:disabled) {
+            background: rgba(57,255,20,0.2);
+            box-shadow: 0 0 12px rgba(57,255,20,0.4);
+        }
+        .action-btn.bg-red-600, .action-btn.bg-red-500 {
+            background: rgba(255,43,214,0.1);
+            border-color: var(--neon-pink);
+            color: var(--neon-pink);
+        }
+        .action-btn.bg-red-600:hover:not(:disabled) {
+            background: rgba(255,43,214,0.2);
+            box-shadow: 0 0 12px rgba(255,43,214,0.4);
+        }
+        .action-btn.bg-blue-600 {
+            background: linear-gradient(90deg, rgba(0,240,255,0.16), rgba(77,184,255,0.1));
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
+        .action-btn.bg-blue-600:hover:not(:disabled) {
+            background: rgba(0,240,255,0.2);
+            box-shadow: 0 0 12px rgba(0,240,255,0.4);
+        }
+        .action-btn.bg-amber-600 {
+            background: rgba(255,184,0,0.1);
+            border-color: var(--neon-amber);
+            color: var(--neon-amber);
+        }
+        .action-btn.bg-amber-600:hover:not(:disabled) {
+            background: rgba(255,184,0,0.2);
+            box-shadow: 0 0 12px rgba(255,184,0,0.35);
+        }
+        .action-btn.bg-purple-600 {
+            background: linear-gradient(90deg, rgba(188,19,254,0.14), rgba(255,43,214,0.1));
+            border-color: var(--neon-purple);
+            color: var(--neon-purple);
+        }
+        .action-btn.bg-purple-600:hover:not(:disabled) {
+            background: rgba(188,19,254,0.2);
+            box-shadow: 0 0 12px rgba(188,19,254,0.4);
+        }
+
+        /* ---- TOAST ---- */
+        .toast {
+            position: fixed; top: 16px; right: 16px; z-index: 9999;
+            padding: 10px 20px; border-radius: 3px;
+            font-size: 12px; font-family: var(--font-mono);
+            animation: slideIn 0.3s ease; max-width: 380px;
+            border: 1px solid var(--neon-cyan);
+            background: rgba(0,15,25,0.95);
+            color: var(--neon-cyan);
+            box-shadow: 0 0 20px rgba(0,240,255,0.15);
+        }
+        @keyframes slideIn { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* ---- CHART / CANVAS ---- */
         .gauge-ring { transition: stroke-dashoffset 0.6s ease; }
-        .log-area { font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.6; white-space: pre-wrap; max-height: 500px; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 12px; }
-        input[type="text"], input[type="number"], select { background: rgba(15,23,42,0.9); border: 1px solid rgba(255,255,255,0.1); color: #F8FAFC; border-radius: 4px; padding: 6px 10px; font-size: 13px; font-family: 'IBM Plex Sans', sans-serif; outline: none; }
-        input[type="text"]:focus, input[type="number"]:focus { border-color: rgba(59,130,246,0.5); }
-        .severity-critical { color: #EF4444; } .severity-high { color: #F59E0B; } .severity-medium { color: #EAB308; } .severity-low { color: #22C55E; } .severity-info { color: #60A5FA; }
+
+        /* ---- LOG AREA ---- */
+        .log-area {
+            font-family: var(--font-mono); font-size: 11px; line-height: 1.65;
+            white-space: pre-wrap; max-height: 500px; overflow-y: auto;
+            background: rgba(6,12,24,0.72);
+            border: 1px solid var(--border-dim);
+            border-radius: 3px; padding: 12px;
+            color: rgba(193, 248, 255, 0.96);
+        }
+
+        /* ---- FORM INPUTS ---- */
+        input[type="text"], input[type="number"], select, textarea {
+            background: rgba(0,8,18,0.9);
+            border: 1px solid var(--border-dim);
+            color: var(--text-primary);
+            border-radius: 3px; padding: 6px 10px;
+            font-size: 12px; font-family: var(--font-mono); outline: none;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 8px rgba(0,240,255,0.2);
+        }
+        select option { background: #0a0f1c; }
+
+        /* ---- SEVERITY ---- */
+        .severity-critical { color: #ff3b5c; text-shadow: 0 0 6px rgba(255,59,92,0.5); }
+        .severity-high { color: var(--neon-amber); text-shadow: 0 0 6px rgba(255,184,0,0.4); }
+        .severity-medium { color: #fde047; }
+        .severity-low { color: var(--neon-green); }
+        .severity-info { color: var(--neon-cyan); }
+
+        /* ---- STATUS DOTS ---- */
         .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-        .status-dot.green { background: #22C55E; box-shadow: 0 0 6px #22C55E; }
-        .status-dot.yellow { background: #EAB308; box-shadow: 0 0 6px #EAB308; }
-        .status-dot.red { background: #EF4444; box-shadow: 0 0 6px #EF4444; }
-        .checkbox-custom { accent-color: #3B82F6; }
+        .status-dot.green { background: var(--neon-green); box-shadow: 0 0 8px var(--neon-green); }
+        .status-dot.yellow { background: var(--neon-amber); box-shadow: 0 0 8px var(--neon-amber); }
+        .status-dot.red { background: #ff3b5c; box-shadow: 0 0 8px #ff3b5c; }
+
+        /* ---- CHECKBOX ---- */
+        .checkbox-custom { accent-color: var(--neon-cyan); }
+
+        /* ---- TAILWIND OVERRIDE: text colors for data ---- */
+        .text-cyan-400 { color: var(--neon-cyan) !important; }
+        .text-blue-400  { color: #4db8ff !important; }
+        .text-purple-400 { color: #c77dff !important; }
+        .text-amber-400, .text-yellow-400 { color: var(--neon-amber) !important; }
+        .text-green-400 { color: var(--neon-green) !important; }
+        .text-red-400, .text-red-300 { color: #ff3b5c !important; }
+        .text-slate-400, .text-slate-500 { color: #c8f8ff !important; }
+
+        .card p.text-slate-400,
+        .card span.text-slate-400,
+        .card p.text-slate-500,
+        .card span.text-slate-500,
+        .card .text-xs,
+        .card .text-\[10px\] {
+            color: #d8fcff !important;
+            text-shadow: 0 0 12px rgba(0, 240, 255, 0.18);
+        }
+
+        /* ---- TAILWIND OVERRIDE: bg for data bars ---- */
+        .bg-cyan-500 { background-color: var(--neon-cyan) !important; box-shadow: 0 0 6px var(--neon-cyan); }
+        .bg-blue-500 { background-color: #4db8ff !important; }
+        .bg-purple-500 { background-color: var(--neon-purple) !important; box-shadow: 0 0 6px var(--neon-purple); }
+        .bg-amber-500, .bg-yellow-500 { background-color: var(--neon-amber) !important; }
+        .bg-green-500 { background-color: var(--neon-green) !important; }
+        .bg-red-500 { background-color: #ff3b5c !important; }
+        .bg-slate-800 { background-color: rgba(0,240,255,0.06) !important; }
+
+        /* ---- NEON GRADIENT HEADING ---- */
+        .neon-brand {
+            font-family: var(--font-display);
+            background: linear-gradient(90deg, var(--neon-cyan) 0%, var(--neon-purple) 60%, var(--neon-pink) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 0.12em;
+            font-weight: 700;
+        }
+        .neon-sub {
+            font-family: var(--font-mono);
+            font-size: 9px;
+            letter-spacing: 0.2em;
+            color: #d5f9ff;
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.16);
+            text-transform: uppercase;
+        }
+
+        /* ---- HUD frame border on header ---- */
+        header {
+            border-bottom: 1px solid var(--border-dim) !important;
+            background: linear-gradient(180deg, rgba(11,20,35,0.94), rgba(8,15,27,0.92)) !important;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 1px 20px rgba(0,0,0,0.45), 0 0 18px rgba(0,240,255,0.05);
+            position: relative;
+            z-index: 100;
+        }
+        nav {
+            background: linear-gradient(180deg, rgba(12,21,37,0.88), rgba(8,15,27,0.84));
+            border-bottom: 1px solid var(--border-dim) !important;
+            position: relative;
+            z-index: 99;
+        }
+
+        /* ---- STATUS BADGE ---- */
+        #status-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+        #status-badge.running {
+            color: var(--neon-green);
+            border: 1px solid rgba(57,255,20,0.4);
+            background: rgba(57,255,20,0.08);
+            box-shadow: 0 0 12px rgba(57,255,20,0.2);
+        }
+        #status-badge.stopped {
+            color: var(--neon-pink);
+            border: 1px solid rgba(255,43,214,0.3);
+            background: rgba(255,43,214,0.06);
+        }
+
+        /* ---- AGENT ID ---- */
+        #agent-id-badge { font-family: var(--font-mono); color: var(--text-muted); font-size: 9px; letter-spacing: 0.1em; }
+
+        /* ---- SECTION HEADINGS ---- */
+        h3 {
+            font-family: var(--font-display);
+            font-size: 11px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: #8ff5ff;
+            text-shadow: 0 0 14px rgba(0, 240, 255, 0.24);
+        }
+
+        /* ---- SOAR / inline buttons ---- */
+        button.w-full { font-family: var(--font-mono); }
+        .bg-red-600\/20 { background: rgba(255,43,214,0.08) !important; }
+        .border-red-500\/30 { border-color: rgba(255,43,214,0.3) !important; }
+        .text-red-400 { color: var(--neon-pink) !important; }
+        .bg-amber-600\/20 { background: rgba(255,184,0,0.08) !important; }
+        .border-amber-500\/30 { border-color: rgba(255,184,0,0.3) !important; }
+        .bg-purple-600\/20 { background: rgba(188,19,254,0.08) !important; }
+        .border-purple-500\/30 { border-color: rgba(188,19,254,0.3) !important; }
+        .text-purple-400 { color: #c77dff !important; }
+        .bg-blue-600\/20 { background: rgba(0,240,255,0.08) !important; }
+        .border-blue-500\/30 { border-color: rgba(0,240,255,0.3) !important; }
+
+        /* cmd badge */
+        #cmd-badge { font-family: var(--font-mono); }
+
+        @keyframes tab-flicker {
+            0%, 100% { opacity: 1; }
+            3% { opacity: 0.93; }
+            5% { opacity: 1; }
+            16% { opacity: 0.96; }
+            17% { opacity: 1; }
+            46% { opacity: 0.95; }
+            47% { opacity: 1; }
+        }
+
+        @keyframes hud-float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-3px); }
+        }
     </style>
 </head>
 <body class="min-h-screen">
@@ -51,17 +451,15 @@
 <div id="toast-container"></div>
 
 <!-- Header -->
-<header class="px-4 py-3 border-b border-white/5">
+<header class="px-4 py-3">
     <div class="max-w-[1600px] mx-auto flex items-center justify-between">
         <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded bg-blue-500/20 flex items-center justify-center">
-                <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
-                </svg>
+            <div class="w-14 h-14 flex items-center justify-center" style="border:1px solid rgba(0,240,255,0.42);background:radial-gradient(circle at 30% 20%,rgba(0,240,255,0.18),rgba(0,240,255,0.04));box-shadow:0 0 18px rgba(0,240,255,0.25);clip-path:polygon(10% 0%,90% 0%,100% 10%,100% 90%,90% 100%,10% 100%,0% 90%,0% 10%);">
+                <img src="/static/icon-transparent-96.png?v=3" alt="Seraph" style="width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 0 11px rgba(0,240,255,0.72));" />
             </div>
             <div>
-                <h1 class="text-lg font-mono font-bold tracking-wide">SERAPH AI</h1>
-                <p class="text-[10px] text-slate-400">Security Agent v1.0</p>
+                <h1 class="text-lg neon-brand">SERAPH AI</h1>
+                <p class="neon-sub">Local Security Agent · v1.0</p>
             </div>
         </div>
         <div class="flex items-center gap-3">
@@ -74,20 +472,19 @@
 </header>
 
 <!-- Tab Navigation -->
-<nav class="px-4 pt-3 border-b border-white/5">
+<nav class="px-4 pt-3">
     <div class="max-w-[1600px] mx-auto flex gap-1 flex-wrap">
-        <button class="tab-btn active px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-white/10" data-tab="dashboard">&#x1F4CA; Dashboard</button>
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="monitoring">&#x1F50D; Monitoring</button>
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="network">&#x1F310; Network</button>
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="vpn">&#x1F510; VPN</button>
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="email">&#x1F4E7; Email</button>
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="mobile">&#x1F4F1; Mobile</button>
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="integrations">&#x1F680; Integrations</button>
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="commands">&#x1F6E1; Commands<span id="cmd-badge" class="ml-1 hidden px-1.5 py-0.5 rounded-full bg-red-500 text-[10px]">0</span></button>
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="settings">&#x2699; Settings</button>
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" data-tab="logs">&#x1F4DD; Logs</button>
-        <!-- external Metatron world view -->
-        <button class="tab-btn px-4 py-2 rounded-t text-xs font-mono border border-b-0 border-transparent text-slate-400" onclick="openMetatronWorld()">🧠 Metatron</button>
+        <button class="tab-btn active px-4 py-2 rounded-t text-xs border border-b-0" style="border-color:var(--border-dim)" data-tab="dashboard">DASHBOARD</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" data-tab="monitoring">MONITORING</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" data-tab="network">NETWORK</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" data-tab="vpn">VPN</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" data-tab="email">EMAIL</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" data-tab="mobile">MOBILE</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" data-tab="integrations">INTEGRATIONS</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" data-tab="commands">COMMANDS<span id="cmd-badge" class="ml-1 hidden px-1.5 py-0.5 rounded-full text-[10px]" style="background:rgba(255,43,214,0.2);color:var(--neon-pink);border:1px solid rgba(255,43,214,0.4)">0</span></button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" data-tab="settings">SETTINGS</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" data-tab="logs">LOGS</button>
+        <button class="tab-btn px-4 py-2 rounded-t text-xs border border-b-0 border-transparent" style="color:var(--neon-purple)" onclick="openMetatronWorld()">&#x1F9E0; METATRON</button>
     </div>
 </nav>
 
@@ -1334,15 +1731,39 @@ let selectedHiddenPath = null;
 let selectedMalwarePath = null;
 let procSortCol = 'cpu';
 let procSortReverse = true;
-const coreIntegrationTools = ['amass', 'arkime', 'bloodhound', 'spiderfoot', 'velociraptor', 'sigma', 'atomic'];
+const coreIntegrationTools = [
+    'amass',
+    'arkime',
+    'bloodhound',
+    'spiderfoot',
+    'purplesharp',
+    'velociraptor',
+    'sigma',
+    'atomic',
+    'trivy',
+    'falco',
+    'suricata',
+    'clamav',
+    'yara',
+    'zeek',
+    'osquery',
+];
 const coreDefaultActions = {
-    amass: 'status',
-    arkime: 'status',
-    bloodhound: 'status',
-    spiderfoot: 'status',
-    velociraptor: 'status',
+    amass: 'run',
+    arkime: 'start',
+    bloodhound: 'start',
+    spiderfoot: 'start',
+    purplesharp: 'run',
+    velociraptor: 'run',
     sigma: 'status',
-    atomic: 'status',
+    atomic: 'run',
+    trivy: 'scan_all',
+    falco: 'alerts',
+    suricata: 'alerts',
+    clamav: 'scan',
+    yara: 'scan',
+    zeek: 'stats',
+    osquery: 'stats',
 };
 let coreIntegrationStatus = {};
 
@@ -2907,11 +3328,13 @@ async function analyzeApp() {
 }
 
 // =============================================================================
-// CORE INTEGRATIONS (AMASS/ARKIME/BLOODHOUND/SPIDERFOOT/VELO/SIGMA/ATOMIC)
+// CORE INTEGRATIONS (runtime tools surfaced from backend integrations manager)
 // =============================================================================
 function coreActionOptions(tool) {
     switch (tool) {
         case 'amass':
+            return ['status', 'run'];
+        case 'purplesharp':
             return ['status', 'run'];
         case 'arkime':
         case 'bloodhound':
@@ -2923,6 +3346,20 @@ function coreActionOptions(tool) {
             return ['status', 'reload', 'coverage', 'list_rules'];
         case 'atomic':
             return ['status', 'jobs', 'runs', 'run'];
+        case 'trivy':
+            return ['status', 'scan_image', 'scan_all'];
+        case 'falco':
+            return ['status', 'alerts', 'escape_attempts'];
+        case 'suricata':
+            return ['status', 'alerts'];
+        case 'clamav':
+            return ['status', 'scan'];
+        case 'yara':
+            return ['status', 'scan'];
+        case 'zeek':
+            return ['status', 'stats', 'log'];
+        case 'osquery':
+            return ['status', 'stats', 'queries', 'results', 'live_query'];
         default:
             return ['status'];
     }
@@ -2995,6 +3432,36 @@ function _coreParamsForAction(tool, action, forceStatus = false) {
         }
     }
 
+    if (tool === 'trivy' && selectedAction === 'scan_image') {
+        const imageName = prompt('Trivy image to scan (e.g. nginx:latest):', 'nginx:latest');
+        if (!imageName || !imageName.trim()) return null;
+        params.image_name = imageName.trim();
+    }
+
+    if (tool === 'clamav' && selectedAction === 'scan') {
+        const scanPath = prompt('ClamAV scan path (inside backend container):', '/tmp');
+        if (!scanPath || !scanPath.trim()) return null;
+        params.scan_path = scanPath.trim();
+    }
+
+    if (tool === 'yara' && selectedAction === 'scan') {
+        const targetPath = prompt('YARA target path (inside backend container):', '/tmp');
+        if (!targetPath || !targetPath.trim()) return null;
+        params.target_path = targetPath.trim();
+    }
+
+    if (tool === 'zeek' && selectedAction === 'log') {
+        const logType = prompt('Zeek log type (conn, dns, notice, etc.):', 'conn');
+        if (!logType || !logType.trim()) return null;
+        params.log_type = logType.trim();
+    }
+
+    if (tool === 'osquery' && selectedAction === 'live_query') {
+        const sql = prompt('osquery SQL query:', 'select * from processes limit 5;');
+        if (!sql || !sql.trim()) return null;
+        params.sql = sql.trim();
+    }
+
     return params;
 }
 
@@ -3057,7 +3524,7 @@ async function runCoreIntegration(tool, forceStatus) {
     if (data.ok === false || data.error) {
         showToast(`${tool} failed: ${data.error || 'request failed'}`, 'error');
     } else if (data.queue_id || data.decision_id) {
-        showToast(`${tool} queued for triune approval`, 'info');
+        showToast(`${tool} launch accepted (${data.queue_id || data.decision_id})`, 'info');
     } else {
         showToast(`${tool} launched`, 'success');
     }

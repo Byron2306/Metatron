@@ -12,12 +12,9 @@ import asyncio
 import threading
 
 try:
-    from services.world_events import emit_world_event
+    from backend.services.world_events import emit_world_event
 except Exception:
-    try:
-        from backend.services.world_events import emit_world_event
-    except Exception:
-        emit_world_event = None
+    emit_world_event = None
 
 
 def _emit_reasoner_event(db: Any, event_type: str, entity_refs: List[str], payload: Dict[str, Any]):

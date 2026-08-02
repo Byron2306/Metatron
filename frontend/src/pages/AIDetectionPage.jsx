@@ -29,40 +29,71 @@ import {
 } from '../components/ui/select';
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
+const AI_ACCENTS = {
+  magenta: { border: 'rgba(239,68,68,0.34)', glow: 'rgba(239,68,68,0.12)', text: '#fecaca', meta: '#fef3f3', icon: '#EF4444' }, // neon_red
+  violet: { border: 'rgba(6,182,212,0.34)', glow: 'rgba(6,182,212,0.12)', text: '#ccfbf6', meta: '#e0faf9', icon: '#06B6D4' }, // cyan
+  gold: { border: 'rgba(245,158,11,0.34)', glow: 'rgba(245,158,11,0.12)', text: '#fef9c3', meta: '#fefce8', icon: '#F59E0B' }, // neon_amber
+  green: { border: 'rgba(16,185,129,0.34)', glow: 'rgba(16,185,129,0.12)', text: '#d1fae5', meta: '#a7f3d0', icon: '#10B981' }, // neon_green
+};
+
+const aiPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
+
+const aiRiskTheme = (score) => {
+  if (score >= 75) return { hex: '#ff7a66', border: 'rgba(255,122,102,0.34)', bg: 'rgba(255,122,102,0.08)' };
+  if (score >= 50) return { hex: '#ffb366', border: 'rgba(255,179,102,0.34)', bg: 'rgba(255,179,102,0.08)' };
+  if (score >= 25) return { hex: '#ffd166', border: 'rgba(255,209,102,0.32)', bg: 'rgba(255,209,102,0.07)' };
+  return { hex: '#7ce2a3', border: 'rgba(124,226,163,0.28)', bg: 'rgba(124,226,163,0.07)' };
+};
+
 const AnalysisTypeCard = ({ type, icon: Icon, label, description, selected, onSelect }) => (
   <button
     onClick={() => onSelect(type)}
-    className={`p-4 rounded border text-left transition-all duration-200 ${
-      selected 
-        ? 'bg-blue-500/10 border-blue-500/50 shadow-glow-blue' 
-        : 'bg-slate-800/30 border-slate-700 hover:border-slate-600'
-    }`}
+    className="p-4 rounded border text-left transition-all duration-200"
+    style={selected ? aiPanelStyle(AI_ACCENTS.magenta) : aiPanelStyle(AI_ACCENTS.violet)}
     data-testid={`analysis-type-${type}`}
   >
     <div className="flex items-center gap-3 mb-2">
-      <div className={`w-8 h-8 rounded flex items-center justify-center ${
-        selected ? 'bg-blue-500/20' : 'bg-slate-700'
-      }`}>
-        <Icon className={`w-4 h-4 ${selected ? 'text-blue-400' : 'text-slate-400'}`} />
+      <div
+        className="w-8 h-8 rounded flex items-center justify-center"
+        style={{
+          background: selected ? 'rgba(255,138,217,0.18)' : 'rgba(197,162,235,0.12)',
+          border: selected ? '1px solid rgba(255,138,217,0.34)' : '1px solid rgba(197,162,235,0.22)',
+        }}
+      >
+        <Icon className="w-4 h-4" style={{ color: selected ? AI_ACCENTS.magenta.icon : AI_ACCENTS.violet.icon }} />
       </div>
-      <span className={`font-medium text-sm ${selected ? 'text-blue-400' : 'text-white'}`}>
+      <span className="font-medium text-sm" style={{ color: selected ? AI_ACCENTS.magenta.text : '#f5fbff' }}>
         {label}
       </span>
     </div>
-    <p className="text-xs text-slate-400">{description}</p>
+    <p className="sophia-terminal-meta text-xs">{description}</p>
   </button>
 );
 
 const ResultIndicator = ({ label, value, color }) => (
-  <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded">
-    <span className="text-sm text-slate-400">{label}</span>
-    <span className={`font-mono font-bold text-${color}-400`}>{value}</span>
+  <div
+    className="flex items-center justify-between p-3 rounded"
+    style={aiPanelStyle(color === 'green' ? AI_ACCENTS.green : color === 'cyan' ? AI_ACCENTS.violet : AI_ACCENTS.magenta)}
+  >
+    <span className="sophia-terminal-label text-sm">{label}</span>
+    <span
+      className="sophia-flicker sophia-terminal-value font-bold"
+      style={{ color: color === 'green' ? AI_ACCENTS.green.text : color === 'cyan' ? AI_ACCENTS.violet.text : AI_ACCENTS.magenta.text }}
+    >
+      {value}
+    </span>
   </div>
 );
 
@@ -131,13 +162,6 @@ const AIDetectionPage = () => {
     }
   };
 
-  const getRiskColor = (score) => {
-    if (score >= 75) return 'red';
-    if (score >= 50) return 'amber';
-    if (score >= 25) return 'yellow';
-    return 'green';
-  };
-
   const sampleContent = {
     threat_detection: `import requests
 import subprocess
@@ -174,23 +198,14 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
   };
 
   return (
-    <div className="p-6 lg:p-8 space-y-6" data-testid="ai-detection-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-mono font-bold text-white flex items-center gap-3">
-            <Cpu className="w-7 h-7 text-blue-400" />
-            AI Detection Engine
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Advanced threat analysis powered by GPT-5.2
-          </p>
-        </div>
-        <Badge className="bg-green-500/10 text-green-400 border-green-500/30">
-          <Zap className="w-3 h-3 mr-1" />
-          Engine Active
-        </Badge>
-      </div>
+    <div className="p-6 lg:p-8 space-y-6" data-testid="ai-detection-page" data-accent="magenta">
+      <SeraphPageHeader
+        eyebrow="seraph · ai-detection · live signals"
+        title="AI Detection Engine"
+        tagline="> advanced threat analysis powered by GPT-5.2"
+        accent="magenta"
+        status="ENGINE ACTIVE"
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Panel - Analysis Input */}
@@ -199,9 +214,10 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-5"
+            className="p-5"
+            style={aiPanelStyle(AI_ACCENTS.magenta)}
           >
-            <h3 className="font-mono font-semibold text-white mb-4">Analysis Type</h3>
+            <h3 className="sophia-terminal-heading mb-4" style={{ color: AI_ACCENTS.magenta.text }}>Analysis Type</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {analysisTypes.map((type) => (
                 <AnalysisTypeCard
@@ -219,14 +235,15 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-5"
+            className="p-5"
+            style={aiPanelStyle(AI_ACCENTS.violet)}
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-mono font-semibold text-white">Content to Analyze</h3>
+              <h3 className="sophia-terminal-heading" style={{ color: AI_ACCENTS.violet.text }}>Content to Analyze</h3>
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-slate-400 hover:text-blue-400"
+                className="sophia-terminal-meta hover:text-white"
                 onClick={() => setContent(sampleContent[analysisType])}
                 data-testid="load-sample-btn"
               >
@@ -238,17 +255,19 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Paste code, logs, network data, or any content for threat analysis..."
-              className="min-h-[250px] bg-slate-950 border-slate-700 text-white font-mono text-sm placeholder:text-slate-600 focus:border-blue-500"
+              className="min-h-[250px] text-white font-mono text-sm placeholder:text-slate-600"
+              style={{ background: 'rgba(3,9,18,0.94)', borderColor: 'rgba(197,162,235,0.3)' }}
               data-testid="analysis-content-input"
             />
             <div className="flex items-center justify-between mt-4">
-              <span className="text-xs text-slate-500">
+              <span className="sophia-terminal-meta text-xs">
                 {content.length} characters
               </span>
               <Button
                 onClick={handleAnalyze}
                 disabled={loading || !content.trim()}
-                className="bg-blue-600 hover:bg-blue-500 shadow-glow-blue btn-tactical"
+                className="btn-tactical"
+                style={{ background: 'linear-gradient(135deg, #ff8ad9, #c5a2eb)', color: '#071018' }}
                 data-testid="analyze-btn"
               >
                 {loading ? (
@@ -271,46 +290,47 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded overflow-hidden"
+              className="overflow-hidden"
+              style={aiPanelStyle(aiRiskTheme(result.risk_score))}
             >
               {/* Result Header */}
-              <div className={`p-4 border-b border-slate-800 bg-${getRiskColor(result.risk_score)}-500/10`}>
+              <div className="p-4" style={{ borderBottom: `1px solid ${aiRiskTheme(result.risk_score).border}`, background: aiRiskTheme(result.risk_score).bg }}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     {result.risk_score >= 50 ? (
-                      <AlertTriangle className={`w-5 h-5 text-${getRiskColor(result.risk_score)}-400`} />
+                      <AlertTriangle className="w-5 h-5" style={{ color: aiRiskTheme(result.risk_score).hex }} />
                     ) : (
                       <CheckCircle className="w-5 h-5 text-green-400" />
                     )}
-                    <h3 className="font-mono font-semibold text-white">Analysis Result</h3>
+                    <h3 className="sophia-terminal-heading" style={{ color: aiRiskTheme(result.risk_score).hex }}>Analysis Result</h3>
                   </div>
-                  <Badge className={`bg-${getRiskColor(result.risk_score)}-500/20 text-${getRiskColor(result.risk_score)}-400 border-${getRiskColor(result.risk_score)}-500/30`}>
+                  <Badge style={{ background: aiRiskTheme(result.risk_score).bg, color: aiRiskTheme(result.risk_score).hex, border: `1px solid ${aiRiskTheme(result.risk_score).border}` }}>
                     Risk Score: {result.risk_score.toFixed(0)}%
                   </Badge>
                 </div>
               </div>
 
               {/* Risk Score Progress */}
-              <div className="p-5 border-b border-slate-800">
+              <div className="p-5" style={{ borderBottom: `1px solid ${aiRiskTheme(result.risk_score).border}` }}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-slate-400">Threat Level</span>
-                  <span className={`text-sm font-mono text-${getRiskColor(result.risk_score)}-400`}>
+                  <span className="sophia-terminal-label text-sm">Threat Level</span>
+                  <span className="sophia-flicker sophia-terminal-value text-sm" style={{ color: aiRiskTheme(result.risk_score).hex }}>
                     {result.risk_score >= 75 ? 'CRITICAL' : result.risk_score >= 50 ? 'HIGH' : result.risk_score >= 25 ? 'MEDIUM' : 'LOW'}
                   </span>
                 </div>
                 <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                   <div 
-                    className={`h-full bg-${getRiskColor(result.risk_score)}-500 transition-all duration-500`}
-                    style={{ width: `${result.risk_score}%` }}
+                    className="h-full transition-all duration-500"
+                    style={{ width: `${result.risk_score}%`, background: `linear-gradient(90deg, ${aiRiskTheme(result.risk_score).hex}, rgba(255,255,255,0.9))` }}
                   />
                 </div>
               </div>
 
               {/* Analysis Content */}
               <div className="p-5">
-                <h4 className="font-medium text-white mb-3">Analysis Details</h4>
+                <h4 className="sophia-terminal-heading mb-3" style={{ color: AI_ACCENTS.violet.text }}>Analysis Details</h4>
                 <ScrollArea className="h-64">
-                  <div className="bg-slate-950/50 rounded p-4 font-mono text-sm text-slate-300 whitespace-pre-wrap">
+                  <div className="rounded p-4 font-mono text-sm whitespace-pre-wrap" style={{ background: 'rgba(3,9,18,0.88)', border: '1px solid rgba(197,162,235,0.18)', color: '#dfeffd' }}>
                     {result.result}
                   </div>
                 </ScrollArea>
@@ -318,11 +338,11 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
 
               {/* Threat Indicators */}
               {result.threat_indicators?.length > 0 && (
-                <div className="p-5 border-t border-slate-800">
-                  <h4 className="font-medium text-white mb-3">Threat Indicators</h4>
+                <div className="p-5" style={{ borderTop: `1px solid ${aiRiskTheme(result.risk_score).border}` }}>
+                  <h4 className="sophia-terminal-heading mb-3" style={{ color: AI_ACCENTS.gold.text }}>Threat Indicators</h4>
                   <div className="flex flex-wrap gap-2">
                     {result.threat_indicators.map((indicator, i) => (
-                      <Badge key={i} variant="outline" className="text-amber-400 border-amber-500/30">
+                      <Badge key={i} variant="outline" style={{ color: '#ffd7a1', borderColor: 'rgba(255,209,102,0.3)' }}>
                         {indicator}
                       </Badge>
                     ))}
@@ -332,12 +352,12 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
 
               {/* Recommendations */}
               {result.recommendations?.length > 0 && (
-                <div className="p-5 border-t border-slate-800">
-                  <h4 className="font-medium text-white mb-3">Recommendations</h4>
+                <div className="p-5" style={{ borderTop: `1px solid ${aiRiskTheme(result.risk_score).border}` }}>
+                  <h4 className="sophia-terminal-heading mb-3" style={{ color: AI_ACCENTS.green.text }}>Recommendations</h4>
                   <ul className="space-y-2">
                     {result.recommendations.map((rec, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-slate-400">
-                        <Shield className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                      <li key={i} className="flex items-start gap-2 text-sm sophia-terminal-meta">
+                        <Shield className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#7ce2a3' }} />
                         {rec}
                       </li>
                     ))}
@@ -355,9 +375,10 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-5"
+            className="p-5"
+            style={aiPanelStyle(AI_ACCENTS.green)}
           >
-            <h3 className="font-mono font-semibold text-white mb-4">Engine Status</h3>
+            <h3 className="sophia-terminal-heading mb-4" style={{ color: AI_ACCENTS.green.text }}>Engine Status</h3>
             <div className="space-y-3">
               <ResultIndicator label="Model" value="GPT-5.2" color="blue" />
               <ResultIndicator label="Status" value="Online" color="green" />
@@ -370,9 +391,10 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-5"
+            className="p-5"
+            style={aiPanelStyle(AI_ACCENTS.gold)}
           >
-            <h3 className="font-mono font-semibold text-white mb-4">Detection Capabilities</h3>
+            <h3 className="sophia-terminal-heading mb-4" style={{ color: AI_ACCENTS.gold.text }}>Detection Capabilities</h3>
             <ul className="space-y-3">
               {[
                 { label: 'AI Agent Detection', desc: 'Turing test inversion' },
@@ -383,8 +405,8 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
                 <li key={i} className="flex items-start gap-3">
                   <CheckCircle className="w-4 h-4 text-green-400 mt-0.5" />
                   <div>
-                    <p className="text-sm text-white">{cap.label}</p>
-                    <p className="text-xs text-slate-500">{cap.desc}</p>
+                    <p className="sophia-flicker sophia-terminal-value text-sm" style={{ fontSize: '0.92rem', color: '#fff6de' }}>{cap.label}</p>
+                    <p className="sophia-terminal-meta text-xs">{cap.desc}</p>
                   </div>
                 </li>
               ))}
@@ -396,26 +418,27 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
-            className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-5"
+            className="p-5"
+            style={aiPanelStyle(AI_ACCENTS.violet)}
           >
-            <h3 className="font-mono font-semibold text-white mb-4">Recent Analyses</h3>
+            <h3 className="sophia-terminal-heading mb-4" style={{ color: AI_ACCENTS.violet.text }}>Recent Analyses</h3>
             {analysisHistory.length > 0 ? (
               <ScrollArea className="h-48">
                 <div className="space-y-2">
                   {analysisHistory.map((item, i) => (
-                    <div key={i} className="p-3 bg-slate-800/30 rounded border border-slate-700">
+                    <div key={i} className="p-3 rounded" style={{ background: 'rgba(8,20,38,0.78)', border: '1px solid rgba(197,162,235,0.18)' }}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-slate-400 capitalize">
+                        <span className="sophia-terminal-meta text-xs capitalize">
                           {item.analysis_type.replace('_', ' ')}
                         </span>
                         <Badge 
                           variant="outline" 
-                          className={`text-xs text-${getRiskColor(item.risk_score)}-400 border-${getRiskColor(item.risk_score)}-500/30`}
+                          style={{ color: aiRiskTheme(item.risk_score).hex, borderColor: aiRiskTheme(item.risk_score).border }}
                         >
                           {item.risk_score.toFixed(0)}%
                         </Badge>
                       </div>
-                      <p className="text-xs text-slate-500">
+                      <p className="sophia-terminal-meta text-xs">
                         {new Date(item.timestamp).toLocaleString()}
                       </p>
                     </div>
@@ -423,7 +446,7 @@ Anti-Debug: IsDebuggerPresent, NtQueryInformationProcess detected`,
                 </div>
               </ScrollArea>
             ) : (
-              <div className="text-center py-8 text-slate-500">
+              <div className="text-center py-8 sophia-terminal-meta">
                 <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">No analyses yet</p>
               </div>

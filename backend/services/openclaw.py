@@ -8,10 +8,7 @@ from pydantic import BaseModel
 import os
 
 from .dependencies import get_current_user, get_db, check_permission, logger
-try:
-    from services.world_events import emit_world_event
-except Exception:
-    from backend.services.world_events import emit_world_event
+from backend.services.world_events import emit_world_event
 
 router = APIRouter(prefix="/openclaw", tags=["OpenClaw"])
 

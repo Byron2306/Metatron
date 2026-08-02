@@ -10,6 +10,10 @@ except Exception:
 
 class WorldManifoldSnapshot(BaseModel):
     manifold_id: str
+    snapshot_version: int = 1
+    state_version: int = 1
+    immutable: bool = True
+    previous_manifold_ref: Optional[str] = None
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     world_state_hash: str
     boot_truth_ref: str
@@ -45,7 +49,14 @@ class WorldManifoldSnapshot(BaseModel):
     # -------------------------------------
     recent_precedents: List[str] = Field(default_factory=list)
     trust_zone_state: Dict[str, str] = Field(default_factory=dict)
+    authoritative_evidence: Dict[str, Any] = Field(default_factory=dict)
+    authoritative_control_state: Dict[str, Any] = Field(default_factory=dict)
+    strategic_narrative: Dict[str, Any] = Field(default_factory=dict)
     epoch_strictness: float
+    signature_ref: Optional[str] = None
+    signature_algorithm: Optional[str] = None
+    signature: Optional[str] = None
+    signature_valid: Optional[bool] = None
 
 # Phase II: Formation & Covenant State
 # Using string literals for status to ensure cross-package compatibility.

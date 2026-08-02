@@ -32,6 +32,7 @@
             <button class="nav-button" data-view="context" id="nav-context">CONTEXT</button>
             <button class="nav-button" data-view="inspect" id="nav-inspect">INSPECT</button>
             <button class="nav-button" data-view="commands" id="nav-commands">COMMANDS</button>
+            <button class="nav-button" data-view="writing" id="nav-writing">WRITING</button>
             <button class="nav-button integrity-btn" id="nav-integrity" title="Check text for plagiarism and AI authorship">INTEGRITY</button>
           </nav>
 
@@ -141,6 +142,52 @@
               </div>
               <div class="retrieval-sources" id="retrieval-sources"></div>
             </div>
+            <div class="pedagogical-mirror panel-glass" id="mirror-panel">
+              <div class="panel-title">PEDAGOGICAL MIRROR</div>
+              <div class="mirror-stage">
+                <span class="mirror-stage-label">STAGE</span>
+                <strong id="mirror-stage">—</strong>
+                <span id="mirror-office-status">awaiting encounter</span>
+              </div>
+              <div class="mirror-grid">
+                <div class="mirror-item">
+                  <span class="mirror-label">OFFICE</span>
+                  <span class="mirror-value" id="mirror-office">—</span>
+                </div>
+                <div class="mirror-item">
+                  <span class="mirror-label">REQUESTED</span>
+                  <span class="mirror-value" id="mirror-requested-office">—</span>
+                </div>
+                <div class="mirror-item">
+                  <span class="mirror-label">PERMITTED</span>
+                  <span class="mirror-value" id="mirror-permitted-office">—</span>
+                </div>
+                <div class="mirror-item">
+                  <span class="mirror-label">ZPD</span>
+                  <span class="mirror-value" id="mirror-zpd">—</span>
+                </div>
+                <div class="mirror-item">
+                  <span class="mirror-label">BLOOM / BARRETT</span>
+                  <span class="mirror-value" id="mirror-bloom">—</span>
+                </div>
+                <div class="mirror-item">
+                  <span class="mirror-label">PROVENANCE</span>
+                  <span class="mirror-value" id="mirror-provenance">—</span>
+                </div>
+                <div class="mirror-item">
+                  <span class="mirror-label">HANDOFF</span>
+                  <span class="mirror-value" id="mirror-handback">—</span>
+                </div>
+                <div class="mirror-item">
+                  <span class="mirror-label">QUALITY</span>
+                  <span class="mirror-value" id="mirror-quality">—</span>
+                </div>
+              </div>
+              <div class="mirror-lenses" id="mirror-lenses"></div>
+              <div class="mirror-contract" id="mirror-contract">
+                Speculum contract: reflect request, mark evidence, state limits, return authorship.
+              </div>
+            </div>
           </section>
 
           <!-- TAB 3: SUBSTRATE -->
@@ -185,7 +232,7 @@
 
           <form class="directive-bar panel-glass" id="directive-form">
             <input id="directive-input" type="text" placeholder="Enter directive." autocomplete="off" />
-            <input id="document-input" type="file" accept=".txt,.md,.rst,.json,.html,.htm,.csv,.tsv,.pdf,text/plain,text/markdown,application/json,text/html,text/csv,application/pdf" multiple hidden />
+            <input id="document-input" type="file" accept=".txt,.md,.rst,.json,.html,.htm,.csv,.tsv,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.wav,.mp3,.m4a,.webm,text/plain,text/markdown,application/json,text/html,text/csv,application/pdf,image/*,audio/*" multiple hidden />
             <button type="submit" class="icon-button" id="speak-button" title="Speak directive">▶</button>
             <button type="button" class="icon-button" id="attach-button" title="Attach documents">⎘</button>
             <button type="button" class="icon-button" id="mic-button" title="Speak directive (microphone)">🎙</button>
@@ -193,6 +240,22 @@
             <button type="button" class="icon-button" id="settings-button" title="Settings">⚙</button>
           </form>
           <div class="attachment-strip" id="attachment-strip" aria-live="polite"></div>
+          <section class="academic-actions panel-glass" aria-label="Academic writing assistance">
+            <div class="academic-actions-head">
+              <span>ACADEMIC ASSIST</span>
+              <small>explicit routes, fewer ambiguous prompts</small>
+            </div>
+            <div class="academic-action-grid">
+              <button type="button" class="academic-action" data-academic-action="review">Review Uploaded Paper</button>
+              <button type="button" class="academic-action" data-academic-action="sources">Find Recent Sources</button>
+              <button type="button" class="academic-action" data-academic-action="summarize">Summarize Sources</button>
+              <button type="button" class="academic-action" data-academic-action="rank">Rank Retrieved Sources</button>
+              <button type="button" class="academic-action" data-academic-action="map">Map Sources To Paper</button>
+              <button type="button" class="academic-action" data-academic-action="ledger">Build Evidence Ledger</button>
+              <button type="button" class="academic-action" data-academic-action="writing">Open Writing Desk</button>
+              <button type="button" class="academic-action" data-academic-action="integrity">Open Integrity Desk</button>
+            </div>
+          </section>
         </aside>
 
         <div class="center-trace" aria-hidden="true">
@@ -246,6 +309,7 @@
         <span class="status-item">Bombadil <strong class="status-steady">steady</strong></span>
         <span class="status-item">Mandos <strong class="status-steady">operational</strong></span>
         <span class="status-item">Presence <strong>declared</strong></span>
+        <span class="status-item">Provider <strong id="provider-status">gemini:ready</strong></span>
         <span class="status-item">Voice <strong id="voice-status">ready</strong></span>
         <span class="status-item">Resonance <strong id="footer-resonance" class="status-steady">—</strong></span>
         <span class="status-item">Verdict <strong id="footer-verdict">—</strong></span>
@@ -293,6 +357,165 @@
         redeclare_presence<br />
         restate_boundary
       </p>
+    </template>
+
+    <template id="writing-template">
+      <div class="writing-desk" id="writing-desk">
+        <div class="writing-head">
+          <div>
+            <p class="lead">Live Writing Desk</p>
+            <p class="writing-subtitle">Draft, select lines, and ask Sophia for integrity-bounded guidance while your authorship stays yours.</p>
+          </div>
+          <div class="writing-status-pill" id="writing-status-pill">autosaved locally</div>
+        </div>
+
+        <div class="writing-toolbar">
+          <button type="button" class="writing-tool" id="writing-import-btn">Upload / Import</button>
+          <button type="button" class="writing-tool" id="writing-use-chat-btn">Use Chat Input</button>
+          <button type="button" class="writing-tool" id="writing-open-integrity-btn">Open Integrity Desk</button>
+          <button type="button" class="writing-tool" id="writing-export-source-ledger-btn">Export Source Ledger</button>
+          <button type="button" class="writing-tool" id="writing-export-evidence-ledger-btn">Export Evidence Ledger</button>
+          <button type="button" class="writing-tool ghost" id="writing-clear-btn">Clear Draft</button>
+          <input id="writing-file-input" type="file" accept=".txt,.md,.pdf,.docx,.rtf,text/plain,text/markdown,application/pdf" hidden />
+        </div>
+
+        <div class="writing-state-grid" aria-label="Writing Desk state">
+          <div class="writing-state-card" id="writing-state-draft">Draft: empty</div>
+          <div class="writing-state-card" id="writing-state-selection">Selection: none</div>
+          <div class="writing-state-card" id="writing-state-sources">Sources: 0</div>
+          <div class="writing-state-card" id="writing-state-ledger">Ledger: not synced</div>
+        </div>
+
+        <div class="writing-editor-shell">
+          <div class="writing-line-numbers" id="writing-line-numbers">1</div>
+          <div id="writing-editor" class="writing-editor rich-editor" contenteditable="true" spellcheck="true" role="textbox" aria-multiline="true" data-placeholder="Start writing here, or upload a paper draft. Highlight any sentence, paragraph, or line range, then ask Sophia for bounded feedback."></div>
+        </div>
+
+        <div class="writing-preview-panel" id="writing-preview-panel">
+          <div class="writing-annotation-head">
+            <span>Annotated Draft Preview</span>
+            <small>line-linked mirror</small>
+          </div>
+          <div class="writing-preview-body" id="writing-preview-body">
+            The preview will mirror your draft and highlight annotated lines after a Writing Desk check.
+          </div>
+        </div>
+
+        <div class="writing-annotation-panel" id="writing-annotation-panel">
+          <div class="writing-annotation-head">
+            <span>Live Annotations</span>
+            <small id="writing-annotation-count">0 active</small>
+          </div>
+          <div class="writing-annotation-filters" aria-label="Annotation filters">
+            <button type="button" class="writing-filter active" data-writing-filter="all">All</button>
+            <button type="button" class="writing-filter" data-writing-filter="provenance">Provenance</button>
+            <button type="button" class="writing-filter" data-writing-filter="rigor">Rigor</button>
+            <button type="button" class="writing-filter" data-writing-filter="similarity">Similarity</button>
+          </div>
+          <div class="writing-annotation-list" id="writing-annotation-list">
+            <div class="writing-annotation-empty">Run a Writing Desk check to generate line-linked integrity, provenance, and rigor annotations.</div>
+          </div>
+        </div>
+
+        <div class="writing-claim-inspector" id="writing-claim-inspector">
+          <div class="writing-annotation-head">
+            <span>Claim Inspector</span>
+            <small id="writing-claim-status">idle</small>
+          </div>
+          <div class="writing-claim-body" id="writing-claim-body">
+            Select an annotation after a check to inspect claim type, source need, current status, and revision move.
+          </div>
+        </div>
+
+        <div class="writing-evidence-ledger" id="writing-evidence-ledger">
+          <div class="writing-annotation-head">
+            <span>Evidence Ledger</span>
+            <small id="writing-evidence-ledger-count">0 records</small>
+          </div>
+          <div class="writing-project-dashboard" id="writing-project-dashboard">
+            <div><strong>Project</strong><span id="writing-project-id">local only</span></div>
+            <div><strong>Backend</strong><span id="writing-project-sync">not synced</span></div>
+            <div><strong>Claims</strong><span id="writing-project-claims">0</span></div>
+            <div><strong>Sources</strong><span id="writing-project-sources">0</span></div>
+            <div><strong>Weak warrants</strong><span id="writing-project-warrants">0</span></div>
+            <div><strong>Unsupported</strong><span id="writing-project-unsupported">0</span></div>
+          </div>
+          <div class="writing-ledger-body" id="writing-evidence-ledger-list">
+            <div class="writing-annotation-empty">Run Map Sources to Claim or mark a selected passage to build claim -> evidence -> warrant -> limitation records.</div>
+          </div>
+        </div>
+
+        <div class="writing-selection-card">
+          <div class="writing-selection-meta" id="writing-selection-meta">No selection yet. Sophia will use the current cursor line or the whole visible draft if needed.</div>
+          <div class="writing-scope-row">
+            <label for="writing-scope-select">Scope</label>
+            <select id="writing-scope-select" class="writing-scope-select">
+              <option value="auto">Auto: selection or cursor line</option>
+              <option value="paragraph">Current paragraph</option>
+              <option value="abstract">Whole abstract / visible excerpt</option>
+              <option value="draft">Whole draft excerpt</option>
+            </select>
+            <label for="writing-response-mode">Response</label>
+            <select id="writing-response-mode" class="writing-scope-select">
+              <option value="compact">Compact: findings + next move</option>
+              <option value="detailed">Detailed: claim map + audit notes</option>
+            </select>
+            <span class="writing-shortcuts">Shortcuts: Ctrl+Enter ask · Ctrl+Shift+I integrity · Ctrl+Shift+P provenance</span>
+          </div>
+          <div class="writing-pedagogy-row">
+            <label for="writing-pedagogy-office">Office</label>
+            <select id="writing-pedagogy-office" class="writing-scope-select">
+              <option value="auto">Auto</option>
+              <option value="supervisor">Supervisor</option>
+              <option value="peer_reviewer">Peer reviewer</option>
+              <option value="methodologist">Methodologist</option>
+              <option value="source_librarian">Source librarian</option>
+              <option value="integrity_auditor">Integrity auditor</option>
+              <option value="writing_coach">Writing coach</option>
+              <option value="examiner">Examiner</option>
+              <option value="novice_scaffold">Novice scaffold</option>
+              <option value="expert_challenge">Expert challenge</option>
+            </select>
+            <label for="writing-learner-level">Learner</label>
+            <select id="writing-learner-level" class="writing-scope-select">
+              <option value="intermediate">Intermediate</option>
+              <option value="novice">Novice</option>
+              <option value="advanced">Advanced</option>
+              <option value="expert">Expert</option>
+            </select>
+            <label for="writing-feedback-style">Style</label>
+            <select id="writing-feedback-style" class="writing-scope-select">
+              <option value="balanced">Balanced</option>
+              <option value="socratic">Socratic</option>
+              <option value="direct_critique">Direct critique</option>
+              <option value="gentle_scaffold">Gentle scaffold</option>
+            </select>
+            <label for="writing-assessment-layer">Layer</label>
+            <select id="writing-assessment-layer" class="writing-scope-select">
+              <option value="formative">Formative</option>
+              <option value="diagnostic">Diagnostic</option>
+              <option value="criterion">Criterion</option>
+              <option value="reflective">Reflective</option>
+              <option value="ipsative">Ipsative</option>
+            </select>
+          </div>
+          <textarea id="writing-question" class="writing-question" rows="2" placeholder="Ask about the selected line(s), e.g. 'Is this claim sufficiently supported?' or 'How should I define human agency here?'"></textarea>
+        </div>
+
+        <div class="writing-action-grid">
+          <button type="button" class="writing-action" data-writing-action="ask">Ask Sophia</button>
+          <button type="button" class="writing-action" data-writing-action="integrity">Integrity Check</button>
+          <button type="button" class="writing-action" data-writing-action="provenance">Provenance Check</button>
+          <button type="button" class="writing-action" data-writing-action="similarity">Similarity Check</button>
+          <button type="button" class="writing-action" data-writing-action="find_sources">Find Sources for Claim</button>
+          <button type="button" class="writing-action" data-writing-action="map_sources">Map Sources to Claim</button>
+          <button type="button" class="writing-action" data-writing-action="scaffold">Scaffold Revision</button>
+        </div>
+
+        <div class="writing-feedback" id="writing-feedback">
+          <strong>How this works:</strong> Sophia receives the active draft as document evidence and the selected lines as the only passage to evaluate. She should flag provenance gaps, similarity risk, unsupported claims, and revision options without replacing your authorship.
+        </div>
+      </div>
     </template>
 
     <!-- CORONATION OVERLAY -->
@@ -389,6 +612,10 @@
             <div class="integrity-field">
               <label class="integrity-label">STUDENT TEXT</label>
               <textarea id="integrity-student-text" class="integrity-textarea" rows="8" placeholder="Paste the student's submission here…"></textarea>
+              <div class="integrity-quick-actions">
+                <button type="button" class="integrity-mini-btn" id="integrity-use-chat-input">Use chat input</button>
+                <button type="button" class="integrity-mini-btn" id="integrity-use-last-response">Use Sophia response</button>
+              </div>
             </div>
 
             <div class="integrity-field">
@@ -400,7 +627,10 @@
                   <button class="integrity-remove-source" title="Remove source">✕</button>
                 </div>
               </div>
-              <button class="integrity-add-source" id="integrity-add-source">+ Add source</button>
+              <div class="integrity-quick-actions">
+                <button type="button" class="integrity-add-source" id="integrity-add-source">+ Add source</button>
+                <button type="button" class="integrity-mini-btn" id="integrity-add-last-sources">Add retrieved sources</button>
+              </div>
             </div>
 
             <div class="integrity-field integrity-options-row">

@@ -14,8 +14,12 @@ class OsqueryFleetIntegration:
     def __init__(self):
         self.fleet_base_url = os.environ.get("FLEET_BASE_URL", "").strip().rstrip("/")
         self.fleet_api_token = os.environ.get("FLEET_API_TOKEN", "").strip()
-        self.demo_mode = os.environ.get("OSQUERY_DEMO_MODE", "true").strip().lower() in {"1", "true", "yes", "on"}
         self.results_log = Path(os.environ.get("OSQUERY_RESULTS_LOG", "/var/log/osquery/osqueryd.results.log"))
+        demo_mode_raw = os.environ.get("OSQUERY_DEMO_MODE")
+        if demo_mode_raw is None:
+            self.demo_mode = not (self.fleet_api_token or self.results_log.exists())
+        else:
+            self.demo_mode = demo_mode_raw.strip().lower() in {"1", "true", "yes", "on"}
         self.generated_catalog_path = Path(
             os.environ.get(
                 "OSQUERY_BUILTIN_QUERY_CATALOG",
@@ -225,18 +229,19 @@ class OsqueryFleetIntegration:
         return list(hosts.values())[:limit]
 
     def get_status(self) -> Dict:
-        fleet_reachable = False
+        fleet_reachable = self.demo_mode
         fleet_error = ""
 
         if self.fleet_base_url and self.fleet_api_token:
             data, err = self._fleet_get("/api/latest/fleet/health")
-            fleet_reachable = not err and isinstance(data, dict)
+            fleet_reachable = self.demo_mode or (not err and isinstance(data, dict))
             fleet_error = err
 
+        configured = bool(self.fleet_base_url and self.fleet_api_token) or self.demo_mode
         return {
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "fleet": {
-                "configured": bool(self.fleet_base_url and self.fleet_api_token),
+                "configured": configured,
                 "base_url": self.fleet_base_url or None,
                 "reachable": fleet_reachable,
                 "error": fleet_error,

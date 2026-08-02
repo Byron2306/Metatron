@@ -7,6 +7,7 @@ import base64
 import hashlib
 from datetime import datetime
 from typing import List, Dict, Optional, Any
+from backend.services.runtime_environment import is_production_like
 try:
     from schemas.phase6_models import PcrSnapshot, AttestationQuote
 except Exception:
@@ -31,7 +32,7 @@ class TpmAttestationService:
 
     def _initialize_tpm(self):
         """Mandates hardware TPM presence in production or fails-closed."""
-        is_production = os.environ.get("ARDA_ENV") == "production"
+        is_production = is_production_like()
         tpm_available = self._detect_tpm_environment()
         
         if is_production and not tpm_available:
@@ -95,7 +96,7 @@ class TpmAttestationService:
             logger.error(f"Failed to read hardware PCRs: {e}")
         
         # FAIL-CLOSED: No mock fallback in production
-        if os.environ.get("ARDA_ENV") == "production":
+        if is_production_like():
             raise HardwareSovereigntyError("Hardware PCR read failed. Integrity of the Arda OS truth is compromised.")
             
         return self._generate_mock_pcrs(pcr_indices)
@@ -107,7 +108,7 @@ class TpmAttestationService:
         """
         if self.is_mock:
             # Only allowed in Development/CI environments
-            if os.environ.get("ARDA_ENV") == "production":
+            if is_production_like():
                 raise HardwareSovereigntyError("Mock attestation attempted in production environment.")
             return self._generate_mock_quote(pcr_indices, nonce)
         
@@ -230,7 +231,7 @@ class TpmAttestationService:
                 if current_pcr_str != bound_pcr_str:
                     logger.warning(f"TPM (Mock): PCR Mismatch detected (Bound: {bound_pcr_str[:8]}... Current: {current_pcr_str[:8]}...). Overriding for Infallible Audit.")
                     # Allow relaxation for the Coronation Audit in non-production
-                    if os.environ.get("ARDA_ENV") != "production":
+                    if not is_production_like():
                         return base64.b64decode(parts[-1].encode())
                     return None
                 

@@ -101,6 +101,14 @@ class NotationToken(BaseModel):
     response_class: Optional[str] = None
     world_state_hash: str
     issued_to: str
+    capability_lease_id: Optional[str] = None
+    capability_lease_digest: Optional[str] = None
+    authority_request_digest: Optional[str] = None
+    action_digest: Optional[str] = None
+    consequence_class: Optional[str] = None
+    target_digest: Optional[str] = None
+    audience: Optional[str] = None
+    maximum_uses: int = 1
     issued_at: datetime
     expires_at: datetime
     status: str = "issued"
@@ -108,43 +116,49 @@ class NotationToken(BaseModel):
 
 
 class TimingFeatures(BaseModel):
-    sample_size: int
-    timestamps_ms: Optional[List[float]] = None
-    intervals_ms: List[float] = Field(default_factory=list)
-    last_interval_ms: Optional[float] = None
-    median_interval_ms: Optional[float] = None
-    mean_interval_ms: Optional[float] = None
-    jitter_ms: Optional[float] = None
-    jitter_norm: Optional[float] = None
-    drift_norm: Optional[float] = None
-    burstiness: Optional[float] = None
-    entropy_signature: Optional[float] = None
-    sequence_class: Optional[str] = None
-    dominant_frequency: Optional[float] = None
+    sample_size: int = Field(..., description="Number of interval observations used to derive timing features.")
+    timestamps_ms: Optional[List[float]] = Field(default=None, description="Observed event timestamps in milliseconds.")
+    intervals_ms: List[float] = Field(default_factory=list, description="Inter-arrival intervals derived from timestamps.")
+    last_interval_ms: Optional[float] = Field(default=None, description="Most recent interval in milliseconds.")
+    median_interval_ms: Optional[float] = Field(default=None, description="Median interval across the current observation window.")
+    mean_interval_ms: Optional[float] = Field(default=None, description="Mean interval across the current observation window.")
+    jitter_ms: Optional[float] = Field(default=None, description="Population standard deviation of intervals in milliseconds.")
+    jitter_norm: Optional[float] = Field(default=None, description="Normalized jitter relative to the baseline jitter band; high values indicate unstable variance.")
+    drift_norm: Optional[float] = Field(default=None, description="Normalized median-tempo drift from the selected lawful baseline.")
+    burstiness: Optional[float] = Field(default=None, description="Short-interval clustering above baseline expectation, clamped to 0..1.")
+    entropy_signature: Optional[float] = Field(default=None, description="Normalized Shannon entropy of interval bucket distribution.")
+    sequence_class: Optional[str] = Field(default=None, description="Descriptive timing class: cold_start, rapid_regular, regular, chaotic, or adaptive.")
+    dominant_frequency: Optional[float] = Field(default=None, description="Approximate dominant cadence frequency inferred from median interval.")
 
 
 class BaselineRef(BaseModel):
     baseline_id: str
     scope_type: str
+    baseline_class: str = "unknown"
+    coverage_status: str = "insufficient"
     actor_id: Optional[str] = None
     tool_name: Optional[str] = None
     target_domain: Optional[str] = None
     environment: Optional[str] = None
     version: str = "v1"
     source: str = "harmonic_engine"
+    review_status: str = "unreviewed"
+    expires_at: Optional[datetime] = None
+    derived_from_audited_behavior: bool = False
+    baseline_quality: float = 0.0
     baseline_band: Optional[Dict[str, Any]] = None
 
 
 class HarmonicState(BaseModel):
-    resonance_score: float
-    discord_score: float
-    confidence: float
+    resonance_score: float = Field(..., description="0..1 harmonic alignment score derived from inverse drift, jitter, burstiness, entropy fit, and resonance modulation.")
+    discord_score: float = Field(..., description="0..1 harmonic strain score derived from drift, jitter, burstiness, entropy delta, and spectral penalties.")
+    confidence: float = Field(..., description="0..1 reliability score for policy use of the harmonic inference, constrained by sample size and baseline quality.")
     baseline_ref: Optional[BaselineRef] = None
     mode_recommendation: Optional[str] = None
-    drift_norm: Optional[float] = None
-    jitter_norm: Optional[float] = None
-    burstiness: Optional[float] = None
-    entropy_signature: Optional[float] = None
+    drift_norm: Optional[float] = Field(default=None, description="Normalized median cadence drift from the chosen baseline.")
+    jitter_norm: Optional[float] = Field(default=None, description="Normalized timing variance relative to the chosen baseline.")
+    burstiness: Optional[float] = Field(default=None, description="Normalized short-interval burst pressure above the expected baseline.")
+    entropy_signature: Optional[float] = Field(default=None, description="Normalized diversity of interval distribution across timing buckets.")
     rationale: List[str] = Field(default_factory=list)
 
 

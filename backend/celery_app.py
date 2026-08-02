@@ -3,10 +3,7 @@ from celery import Celery
 from celery.signals import task_prerun, task_postrun, task_failure
 import asyncio
 import threading
-try:
-    from services.attack_metadata import build_celery_attack_metadata
-except Exception:
-    from backend.services.attack_metadata import build_celery_attack_metadata
+from backend.services.attack_metadata import build_celery_attack_metadata
 
 # Celery configuration
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
@@ -42,7 +39,7 @@ except Exception:
 def _emit_celery_world_event(event_type: str, payload: dict, trigger_triune: bool = False):
     try:
         from backend.server import db
-        from services.world_events import emit_world_event
+        from backend.services.world_events import emit_world_event
     except Exception:
         return
 

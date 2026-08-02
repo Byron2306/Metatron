@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from collections import deque
 from typing import Dict, Any, List, Optional
 
-from flask import Flask, render_template, jsonify, request, send_file, Response
+from flask import Flask, render_template, jsonify, request, send_file, Response, url_for, redirect
 from flask_cors import CORS
 
 # ---------------------------------------------------------------------------
@@ -193,9 +193,17 @@ class WebAgentBridge:
         "arkime",
         "bloodhound",
         "spiderfoot",
+        "purplesharp",
         "velociraptor",
         "sigma",
         "atomic",
+        "trivy",
+        "falco",
+        "suricata",
+        "clamav",
+        "yara",
+        "zeek",
+        "osquery",
     )
 
     # Credentials for auto-login against the local backend
@@ -210,6 +218,8 @@ class WebAgentBridge:
         self.monolithic_monitoring_active = False
         self._monolithic_thread = None
         self._vpn_autoboot_started = False
+        self._startup_discovery_started = False
+        self._last_usb_scan_result = {"success": True, "devices": [], "scan_time": 0.0}
         self.monitoring_active = False
         self.events: deque = deque(maxlen=500)
         self.logs: deque = deque(maxlen=1000)
@@ -254,6 +264,38 @@ class WebAgentBridge:
 
         # Initialize monolithic core in-process so localhost:5000 is the canonical surface.
         self._setup_monolithic_bridge()
+        self._maybe_run_startup_discovery()
+
+    def _startup_discovery_enabled(self) -> bool:
+        """Run one startup sweep, then leave heavy scans to explicit user actions."""
+        return str(os.environ.get("SERAPH_AGENT_STARTUP_DISCOVERY", "true")).lower() in {"1", "true", "yes", "on"}
+
+    def _maybe_run_startup_discovery(self):
+        """Kick off a one-time startup discovery pass without enabling continuous loops."""
+        if self._startup_discovery_started or not self._startup_discovery_enabled():
+            return
+
+        self._startup_discovery_started = True
+
+        def _bg():
+            try:
+                time.sleep(8)
+                self.log("Running one-time startup discovery sweep")
+
+                if str(os.environ.get("SERAPH_AGENT_NETWORK_SCANNING", "true")).lower() in {"1", "true", "yes", "on"}:
+                    self.scan_network()
+                if str(os.environ.get("SERAPH_AGENT_WIRELESS_SCANNING", "true")).lower() in {"1", "true", "yes", "on"}:
+                    self.scan_wireless()
+                if str(os.environ.get("SERAPH_AGENT_BLUETOOTH_SCANNING", "true")).lower() in {"1", "true", "yes", "on"}:
+                    self.scan_bluetooth()
+                if str(os.environ.get("SERAPH_AGENT_USB_MONITORING", "true")).lower() in {"1", "true", "yes", "on"}:
+                    self.scan_usb()
+
+                self.log("Startup discovery complete; heavy scanners remain manual-only")
+            except Exception as e:
+                self.log(f"Startup discovery failed: {e}", "WARN")
+
+        threading.Thread(target=_bg, daemon=True).start()
 
     def _vpn_state_path(self) -> Path:
         """Local persistence for dashboard VPN settings when remote config APIs are absent."""
@@ -321,9 +363,19 @@ class WebAgentBridge:
                 agent_name=persisted_auth.get("agent_id") or getattr(self.agent.config, "agent_name", socket.gethostname()),
                 enrollment_key=os.environ.get("SERAPH_AGENT_SECRET") or os.environ.get("SERAPH_ENROLLMENT_KEY", "dev-agent-secret-change-in-production"),
                 auth_token=persisted_auth.get("auth_token", ""),
+                update_interval=int(os.environ.get("SERAPH_AGENT_UPDATE_INTERVAL", "300") or 300),
+                heartbeat_interval=int(os.environ.get("SERAPH_AGENT_HEARTBEAT_INTERVAL", "300") or 300),
+                auto_remediate=str(os.environ.get("SERAPH_AGENT_AUTO_REMEDIATE", "true")).lower() in {"1", "true", "yes", "on"},
+                network_scanning=str(os.environ.get("SERAPH_AGENT_NETWORK_SCANNING", "true")).lower() in {"1", "true", "yes", "on"},
+                wireless_scanning=str(os.environ.get("SERAPH_AGENT_WIRELESS_SCANNING", "true")).lower() in {"1", "true", "yes", "on"},
+                bluetooth_scanning=str(os.environ.get("SERAPH_AGENT_BLUETOOTH_SCANNING", "true")).lower() in {"1", "true", "yes", "on"},
+                usb_monitoring=str(os.environ.get("SERAPH_AGENT_USB_MONITORING", "true")).lower() in {"1", "true", "yes", "on"},
+                vns_sync=str(os.environ.get("SERAPH_AGENT_VNS_SYNC", "true")).lower() in {"1", "true", "yes", "on"},
+                ai_analysis=str(os.environ.get("SERAPH_AGENT_AI_ANALYSIS", "true")).lower() in {"1", "true", "yes", "on"},
+                threat_hunting=str(os.environ.get("SERAPH_AGENT_THREAT_HUNTING", "true")).lower() in {"1", "true", "yes", "on"},
                 local_ui_enabled=False,
                 local_ui_port=5000,
-                vpn_auto_configure=True,
+                vpn_auto_configure=str(os.environ.get("SERAPH_AGENT_VPN_AUTO_CONFIGURE", "true")).lower() in {"1", "true", "yes", "on"},
             )
             self.monolithic_agent = MonolithicUnifiedAgent(config=mono_cfg)
             self.log("Monolithic core bridge initialized for canonical UI")
@@ -461,8 +513,10 @@ class WebAgentBridge:
                 self.log("Monitoring started - Server offline (local mode)", "WARN")
         threading.Thread(target=_bg, daemon=True).start()
 
-        # Keep monolithic core monitor loop active so canonical port 5000 has full parity.
-        if self.monolithic_agent is not None and not self.monolithic_monitoring_active:
+        run_monolithic_loop = str(os.environ.get("SERAPH_AGENT_MONOLITHIC_LOOP", "true")).lower() in {"1", "true", "yes", "on"}
+
+        # The monolithic core is expensive; keep its live monitor loop opt-in for local dashboards.
+        if run_monolithic_loop and self.monolithic_agent is not None and not self.monolithic_monitoring_active:
             def _mono_bg():
                 try:
                     self.monolithic_monitoring_active = True
@@ -475,6 +529,8 @@ class WebAgentBridge:
 
             self._monolithic_thread = threading.Thread(target=_mono_bg, daemon=True)
             self._monolithic_thread.start()
+        elif self.monolithic_agent is not None and not run_monolithic_loop:
+            self.log("Monolithic monitoring loop was disabled via SERAPH_AGENT_MONOLITHIC_LOOP override", "WARN")
 
         return {"status": "starting"}
 
@@ -1845,6 +1901,59 @@ class WebAgentBridge:
         self.add_event("INFO", f"Bluetooth scan: {len(devices)} devices found in {elapsed}s")
         return {"success": True, "devices": devices, "scan_time": elapsed}
 
+    def scan_usb(self) -> dict:
+        """Snapshot USB and removable devices without starting a continuous monitor."""
+        self.log("Starting USB scan...")
+        start = time.time()
+        devices = []
+        seen = set()
+
+        def _record(name: str, source: str, mountpoint: str = "", extra: dict = None):
+            key = (name or "", source, mountpoint or "")
+            if key in seen:
+                return
+            seen.add(key)
+            row = {
+                "name": name or "Unknown USB device",
+                "source": source,
+                "mountpoint": mountpoint or "",
+            }
+            if extra:
+                row.update(extra)
+            devices.append(row)
+
+        try:
+            if psutil:
+                for partition in psutil.disk_partitions(all=True):
+                    opts = (partition.opts or "").lower()
+                    dev = (partition.device or "").lower()
+                    mountpoint = partition.mountpoint or ""
+                    if "removable" in opts or "usb" in dev or mountpoint.startswith('/media/') or mountpoint.startswith('/run/media/'):
+                        _record(partition.device, "disk_partition", mountpoint, {"opts": partition.opts})
+        except Exception:
+            pass
+
+        for cmd in (["lsusb"], ["usb-devices"]):
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+                if result.returncode != 0:
+                    continue
+                for line in result.stdout.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if cmd[0] == "lsusb" and line.lower().startswith("bus "):
+                        _record(line, "lsusb")
+                    elif cmd[0] == "usb-devices" and line.startswith("T:"):
+                        _record(line, "usb-devices")
+            except Exception:
+                continue
+
+        elapsed = round(time.time() - start, 2)
+        self.add_event("INFO", f"USB scan: {len(devices)} devices found in {elapsed}s")
+        self._last_usb_scan_result = {"success": True, "devices": devices, "scan_time": elapsed}
+        return self._last_usb_scan_result
+
     # --- Hidden file scan ---
     def scan_hidden_files(self) -> dict:
         self.add_event("INFO", "Starting hidden file scan...")
@@ -3124,6 +3233,16 @@ class WebAgentBridge:
             return self.get_trusted_ai_stats()
         if monitor_name == "power":
             return self.get_power_stats()
+        if monitor_name == "usb":
+            cached = self._last_usb_scan_result or {"success": True, "devices": [], "scan_time": 0.0}
+            return {
+                "name": "usb",
+                "enabled": str(os.environ.get("SERAPH_AGENT_USB_MONITORING", "true")).lower() in {"1", "true", "yes", "on"},
+                "connected_devices": cached.get("devices", []),
+                "blocked_devices": [],
+                "last_scan_time": cached.get("scan_time", 0.0),
+                "success": cached.get("success", True),
+            }
 
         resolved_name = self._resolve_monitor_name(monitor_name)
         if resolved_name not in self._monitors():
@@ -3529,6 +3648,36 @@ def create_app() -> Flask:
     # Single global agent bridge
     bridge = WebAgentBridge()
 
+    def _resolve_public_base_url() -> str:
+        """Resolve the canonical enrollment base URL for install links and docs."""
+        configured = os.environ.get("SERAPH_PUBLIC_URL", "").strip().rstrip("/")
+        if configured:
+            return configured
+        forwarded_host = request.headers.get("X-Forwarded-Host", "").strip()
+        forwarded_proto = request.headers.get("X-Forwarded-Proto", "").strip() or "https"
+        host = forwarded_host or request.headers.get("Host", "").strip() or "localhost:5000"
+        if host.startswith("seraphai.com") or host.startswith("www.seraphai.com"):
+            return f"{forwarded_proto}://{host}"
+        return f"{forwarded_proto}://seraphai.com"
+
+    def _resolve_enrollment_token() -> str:
+        """Pull invite token from the request when present."""
+        token = (
+            request.args.get("token")
+            or request.args.get("invite_token")
+            or request.args.get("enrollment_token")
+            or request.headers.get("X-Enrollment-Token")
+            or request.headers.get("X-Invite-Token")
+            or ""
+        ).strip()
+        return token
+
+    def _with_optional_token(url: str, token: str) -> str:
+        if not token:
+            return url
+        separator = "&" if "?" in url else "?"
+        return f"{url}{separator}token={token}"
+
     # ------------------------------------------------------------------
     # Page routes
     # ------------------------------------------------------------------
@@ -3538,7 +3687,15 @@ def create_app() -> Flask:
 
     @app.route("/enroll")
     def enroll():
-        return render_template("enroll.html")
+        if os.environ.get("SERAPH_LOCAL_ENROLL_ENABLED", "false").lower() != "true":
+            configured = os.environ.get("SERAPH_ENROLLMENT_URL", "").strip()
+            if configured:
+                return redirect(configured, code=302)
+            host = request.headers.get("Host", "localhost:5000").split(":")[0] or "localhost"
+            proto = request.headers.get("X-Forwarded-Proto", request.scheme or "http")
+            target_port = os.environ.get("SERAPH_ENROLLMENT_PORT", "3000")
+            return redirect(f"{proto}://{host}:{target_port}/enroll", code=302)
+        return render_template("enroll.html", public_base_url=_resolve_public_base_url(), invite_token=_resolve_enrollment_token())
 
     # ------------------------------------------------------------------
     # Enrollment API — called by the enroll page
@@ -3561,21 +3718,33 @@ def create_app() -> Flask:
         if not _re.match(r"[^@]+@[^@]+\.[^@]+", email):
             return jsonify({"success": False, "error": "Invalid email address"}), 400
 
-        # Derive server base URL for install links
-        host = request.headers.get("Host", "localhost:5000")
-        proto = request.headers.get("X-Forwarded-Proto", "http")
-        server_url = f"{proto}://{host}"
-
-        # Backend URL for the installer scripts to talk to
-        backend_url = os.environ.get("REMOTE_SERVER_URL", "http://localhost:8001")
+        # Derive server base URL for install links.
+        # Priority: SERAPH_PUBLIC_URL (operator-set) → request Host header → fallback.
+        # We deliberately ignore REMOTE_SERVER_URL because that is the docker-internal
+        # address (e.g. http://backend:8001) which a remote device cannot resolve.
+        public_url = os.environ.get("SERAPH_PUBLIC_URL", "").strip().rstrip("/")
+        if public_url:
+            server_url = public_url
+        else:
+            host = request.headers.get("Host", "localhost:5000")
+            proto = request.headers.get("X-Forwarded-Proto", "http")
+            server_url = f"{proto}://{host}"
+        backend_url = server_url  # /api/* is proxied by nginx on the same host
         enrollment_key = os.environ.get("SERAPH_ENROLLMENT_KEY",
                                         os.environ.get("ENROLLMENT_KEY",
                                                         "dev-agent-secret-change-in-production"))
+        docker_image = os.environ.get("SERAPH_DOCKER_IMAGE", "metatron-triune-outbound-gate-unified-agent:latest")
 
         device_id = str(uuid.uuid4())[:8]
 
-        # Persist to a local enrolled_devices.json (append)
-        enrolled_path = Path(__file__).resolve().parent.parent.parent / "enrolled_devices.json"
+        # Persist to enrolled_devices.json in a writable state directory.
+        # SERAPH_STATE_DIR is set by docker-compose to a host-mounted writable volume;
+        # otherwise we fall back to the project tree (works for non-container deploys).
+        state_dir_env = os.environ.get("SERAPH_STATE_DIR", "").strip()
+        if state_dir_env:
+            enrolled_path = Path(state_dir_env) / "enrolled_devices.json"
+        else:
+            enrolled_path = Path(__file__).resolve().parent.parent.parent / "enrolled_devices.json"
         record = {
             "device_id": device_id,
             "name": name,
@@ -3587,25 +3756,46 @@ def create_app() -> Flask:
             "enrolled_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
         }
         try:
+            enrolled_path.parent.mkdir(parents=True, exist_ok=True)
             devices = []
             if enrolled_path.exists():
                 with open(enrolled_path) as fh:
                     devices = json.load(fh)
             devices.append(record)
-            with open(enrolled_path, "w") as fh:
+            tmp_path = enrolled_path.with_suffix(".json.tmp")
+            with open(tmp_path, "w") as fh:
                 json.dump(devices, fh, indent=2)
+            tmp_path.replace(enrolled_path)
+            bridge.add_event("INFO", f"enroll: persisted device {device_id} to {enrolled_path}")
         except Exception as exc:
-            bridge.add_event("WARN", f"enroll: could not save record: {exc}")
+            bridge.add_event("ERROR", f"enroll: could not save record to {enrolled_path}: {exc}")
+            print(f"[enroll] PERSISTENCE FAILED: {enrolled_path}: {exc}", file=__import__('sys').stderr, flush=True)
 
         bridge.add_event("INFO", f"Device enrolled: {name} <{email}> ({platform_hint}) from {request.remote_addr}")
 
-        # Build platform-specific install instructions
-        linux_cmd   = f'curl -fsSL {backend_url}/api/unified/agent/install-script?enrollment_key={enrollment_key} | sudo bash'
-        windows_cmd = f'iwr "{backend_url}/api/unified/agent/install-script/windows?enrollment_key={enrollment_key}" | iex'
-        macos_cmd   = f'curl -fsSL {backend_url}/api/unified/agent/install-script?enrollment_key={enrollment_key} | sudo bash'
-        apk_url     = f'{server_url}/api/enroll/download/android'
         linux_url   = f'{backend_url}/api/unified/agent/download'
         windows_url = f'{backend_url}/api/unified/agent/download/windows'
+        import shlex as _shlex
+        import urllib.parse as _urlparse
+        _urlquote = _urlparse.quote
+        invite_token = _resolve_enrollment_token()
+        # Build platform-specific install instructions.
+        token_suffix = f"&token={_urlquote(invite_token)}" if invite_token else ""
+        encoded_key = _urlquote(enrollment_key)
+        linux_cmd   = f'curl -fsSL {backend_url}/api/unified/agent/install-script?enrollment_key={encoded_key}{token_suffix} | sudo bash'
+        windows_cmd = f"powershell -ExecutionPolicy Bypass -Command \"irm {backend_url}/api/unified/agent/install-windows?enrollment_key={encoded_key}{token_suffix} -Headers @{{'ngrok-skip-browser-warning'='1'}} | iex\""
+        macos_cmd   = f'curl -fsSL {backend_url}/api/unified/agent/install-macos?enrollment_key={encoded_key}{token_suffix} | bash'
+        apk_url     = f'{backend_url}/api/unified/agent/download/android'
+        android_termux_cmd = f'curl -fsSL {backend_url}/api/unified/agent/install-android?enrollment_key={encoded_key}{token_suffix} | bash'
+        _hostname = (device_label or name or "seraph-agent").strip()
+        docker_cmd  = (
+            f'docker run -d --name seraph-agent --restart unless-stopped '
+            f'-e BACKEND_URL={_shlex.quote(backend_url)} '
+            f'-e SERAPH_ENROLLMENT_KEY={_shlex.quote(enrollment_key)} '
+            f'-e AGENT_HOSTNAME={_shlex.quote(_hostname)} '
+            f'-p 5000:5000 '
+            f'{docker_image}'
+        )
 
         return jsonify({
             "success": True,
@@ -3615,15 +3805,20 @@ def create_app() -> Flask:
                 "linux":   {"cmd": linux_cmd,   "download_url": linux_url},
                 "macos":   {"cmd": macos_cmd,   "download_url": linux_url},
                 "windows": {"cmd": windows_cmd, "download_url": windows_url},
-                "android": {"apk_url": apk_url},
+                "android": {"apk_url": apk_url, "termux_cmd": android_termux_cmd},
                 "ios":     {"message": "iOS MDM profile or TestFlight — contact your administrator"},
+                "docker":  {"cmd": docker_cmd,  "image": docker_image},
             }
         })
 
     @app.route("/api/enroll/devices")
     def api_enroll_devices():
         """Return list of enrolled devices (admin view)."""
-        enrolled_path = Path(__file__).resolve().parent.parent.parent / "enrolled_devices.json"
+        state_dir_env = os.environ.get("SERAPH_STATE_DIR", "").strip()
+        if state_dir_env:
+            enrolled_path = Path(state_dir_env) / "enrolled_devices.json"
+        else:
+            enrolled_path = Path(__file__).resolve().parent.parent.parent / "enrolled_devices.json"
         try:
             if enrolled_path.exists():
                 with open(enrolled_path) as fh:
@@ -3631,6 +3826,10 @@ def create_app() -> Flask:
         except Exception:
             pass
         return jsonify([])
+
+    @app.route("/api/enroll/dev")
+    def api_enroll_dev_alias():
+        return api_enroll_devices()
 
     @app.route("/api/enroll/download/android")
     def api_enroll_download_android():
@@ -3864,6 +4063,10 @@ def create_app() -> Flask:
     @app.route("/api/scan/bluetooth", methods=["POST"])
     def api_scan_bluetooth():
         return jsonify(bridge.scan_bluetooth())
+
+    @app.route("/api/scan/usb", methods=["POST"])
+    def api_scan_usb():
+        return jsonify(bridge.scan_usb())
 
     @app.route("/api/scan/hidden", methods=["POST"])
     def api_scan_hidden():

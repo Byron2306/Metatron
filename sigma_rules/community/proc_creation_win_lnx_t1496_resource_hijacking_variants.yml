@@ -1,0 +1,125 @@
+title: Resource Hijacking - Cryptominer Execution via Common Miner Binaries
+id: c5d6e7f8-a9b0-1234-cdef-234567890123
+status: experimental
+description: |
+    Detects execution of known cryptomining binaries or mining pool connection
+    patterns (T1496.001). Adversaries compromise systems to run cryptocurrency miners,
+    consuming CPU/GPU resources. XMRig is the most common tool; pool connections
+    use stratum+tcp protocol. Also detects miners disguised with common process names.
+references:
+    - https://attack.mitre.org/techniques/T1496/001/
+    - https://github.com/xmrig/xmrig
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.impact
+    - attack.t1496.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_miner_binary:
+        Image|endswith:
+            - '\xmrig.exe'
+            - '\xmrig-cuda.exe'
+            - '\xmrig-opencl.exe'
+            - '\nbminer.exe'
+            - '\t-rex.exe'
+            - '\PhoenixMiner.exe'
+            - '\ethminer.exe'
+    selection_pool_args:
+        CommandLine|contains:
+            - 'stratum+tcp://'
+            - 'stratum+ssl://'
+            - '--pool '
+            - '-o pool.'
+            - 'mining.pool'
+            - 'moneropool'
+            - 'xmrpool'
+    condition: 1 of selection_*
+falsepositives:
+    - Intentional cryptocurrency mining (clearly authorized environments only)
+level: high
+---
+title: Resource Hijacking - Cloud Compute Instance Spin-Up via CLI After Credential Access
+id: d6e7f8a9-b0c1-2345-defa-345678901234
+status: experimental
+description: |
+    Detects cloud provider CLI tools being used to create/start compute instances
+    in patterns consistent with resource hijacking for cryptomining (T1496.002).
+    Adversaries who steal cloud credentials (T1552.005) quickly spin up GPU/high-CPU
+    instances in regions they don't normally use. Key indicators: unusual region,
+    large instance type, and instance creation outside business hours.
+references:
+    - https://attack.mitre.org/techniques/T1496/002/
+    - https://unit42.paloaltonetworks.com/cloud-lateral-movement-cryptomining/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.impact
+    - attack.t1496.002
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_aws_create:
+        Image|endswith:
+            - '/aws'
+            - '/aws2'
+        CommandLine|contains:
+            - 'run-instances'
+            - 'start-instances'
+        CommandLine|re: '(?i)(p2\.|p3\.|p4\.|g4\.|g5\.|c5n\.|hpc)'
+    selection_gcp_create:
+        Image|endswith: '/gcloud'
+        CommandLine|contains:
+            - 'compute instances create'
+            - 'compute instances start'
+    selection_azure_create:
+        Image|endswith:
+            - '/az'
+            - '/azure-cli'
+        CommandLine|contains:
+            - 'vm create'
+            - 'vm start'
+    condition: 1 of selection_*
+falsepositives:
+    - Legitimate cloud infrastructure provisioning by DevOps teams
+    - CI/CD pipelines spinning up compute for builds
+level: medium
+---
+title: Resource Hijacking - GPU Resource Abuse via CUDA/OpenCL in Suspicious Process
+id: e7f8a9b0-c1d2-3456-efab-456789012345
+status: experimental
+description: |
+    Detects processes loading CUDA or OpenCL libraries from non-standard paths or
+    from processes that should not be using GPU compute (T1496.003). Adversaries
+    compile GPU-accelerated miners and inject them into long-running processes to
+    abuse GPU resources while hiding the mining workload behind a legitimate process.
+references:
+    - https://attack.mitre.org/techniques/T1496/003/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.impact
+    - attack.t1496.003
+logsource:
+    category: image_load
+    product: windows
+detection:
+    selection_cuda_nonstandard:
+        ImageLoaded|contains:
+            - 'nvcuda.dll'
+            - 'nvopencl.dll'
+            - 'OpenCL.dll'
+        Image|endswith:
+            - '\cmd.exe'
+            - '\powershell.exe'
+            - '\wscript.exe'
+            - '\cscript.exe'
+            - '\mshta.exe'
+            - '\rundll32.exe'
+    condition: selection_cuda_nonstandard
+falsepositives:
+    - Legitimate GPGPU tools launched from command line
+level: medium

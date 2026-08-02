@@ -1,5 +1,8 @@
 ## Arda / Seraph Runtime Map (Valinor • Ainur • Triune)
 
+Authoritative index for the hardened backend control plane:
+- `docs/ARCHITECTURE_INDEX.md`
+
 This repo has multiple “planes” that intentionally mirror each other:
 
 ### 1) **Valinor** (kernel-adjacent runtime governance)

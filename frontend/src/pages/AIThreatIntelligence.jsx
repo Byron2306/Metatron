@@ -17,6 +17,58 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
 import { API_ROOT as API } from '../lib/api';
+import SeraphPageHeader from '../components/SeraphPageHeader';
+
+const AI_INTEL_ACCENTS = {
+  magenta: { border: 'rgba(255,138,217,0.34)', glow: 'rgba(255,138,217,0.12)' },
+  violet: { border: 'rgba(197,162,235,0.32)', glow: 'rgba(197,162,235,0.12)' },
+  gold: { border: 'rgba(255,209,102,0.3)', glow: 'rgba(255,209,102,0.1)' },
+  green: { border: 'rgba(124,226,163,0.28)', glow: 'rgba(124,226,163,0.1)' },
+};
+
+const aiIntelPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+});
+
+const formatPercent = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '0%';
+  return `${(numeric * 100).toFixed(0)}%`;
+};
+
+const formatCount = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '0';
+  return numeric.toLocaleString();
+};
+
+const formatAabTimestamp = (value) => {
+  if (!value || value.length < 15) return value || 'unknown';
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)} ${value.slice(9, 11)}:${value.slice(11, 13)}Z`;
+};
+
+const getAgenticityColor = (classification) => {
+  switch (classification) {
+    case 'autonomous_agent_high': return 'text-red-400 border-red-500/30 bg-red-500/10';
+    case 'autonomous_agent_medium': return 'text-orange-400 border-orange-500/30 bg-orange-500/10';
+    case 'automation_suspected': return 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10';
+    case 'human_or_script_low': return 'text-green-400 border-green-500/30 bg-green-500/10';
+    default: return 'text-slate-400 border-slate-500/30 bg-slate-500/10';
+  }
+};
+
+const fetchAabEvidenceSnapshot = async () => {
+  try {
+    const response = await fetch('/aab-live-latest.json', { cache: 'no-store' });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
 
 
 const AIThreatIntelligence = () => {
@@ -38,6 +90,7 @@ const AIThreatIntelligence = () => {
   
   // Combined Intelligence
   const [dashboard, setDashboard] = useState(null);
+  const [aabEvidence, setAabEvidence] = useState(null);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -52,7 +105,8 @@ const AIThreatIntelligence = () => {
         stagesRes,
         aatrSummaryRes,
         entriesRes,
-        indicatorsRes
+        indicatorsRes,
+        aabEvidenceRes
       ] = await Promise.all([
         axios.get(`${API}/ai-threats/intelligence/dashboard`, { headers }),
         axios.get(`${API}/ai-threats/aatl/summary`, { headers }),
@@ -61,7 +115,8 @@ const AIThreatIntelligence = () => {
         axios.get(`${API}/ai-threats/aatl/lifecycle-stages`, { headers }),
         axios.get(`${API}/ai-threats/aatr/summary`, { headers }),
         axios.get(`${API}/ai-threats/aatr/entries?active_only=true`, { headers }),
-        axios.get(`${API}/ai-threats/aatr/indicators`, { headers })
+        axios.get(`${API}/ai-threats/aatr/indicators`, { headers }),
+        fetchAabEvidenceSnapshot()
       ]);
       
       setDashboard(dashboardRes.data);
@@ -72,13 +127,19 @@ const AIThreatIntelligence = () => {
       setAatrSummary(aatrSummaryRes.data);
       setRegistryEntries(entriesRes.data.entries || []);
       setIndicators(indicatorsRes.data.indicators || []);
+      setAabEvidence(aabEvidenceRes);
     } catch (err) {
       console.error('Failed to fetch AI threat intelligence:', err);
       toast.error('Failed to load AI threat intelligence');
     } finally {
       setLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  const liveAabClasses = aabEvidence?.classes || [];
+  const liveAabSessions = aabEvidence?.sessions || [];
+  const agenticityCounts = aabEvidence?.agenticity?.classification_counts || {};
 
   useEffect(() => {
     fetchData();
@@ -106,16 +167,31 @@ const AIThreatIntelligence = () => {
     }
   };
 
+  const STRATEGY_NEON = {
+    observe:   { bg: 'rgba(76,196,255,0.08)',   border: '#4cc4ff', color: '#76e3ff', glow: 'rgba(76,196,255,0.4)'   },
+    slow:      { bg: 'rgba(0,240,255,0.08)',    border: '#00f0ff', color: '#aef0ff', glow: 'rgba(0,240,255,0.4)'    },
+    poison:    { bg: 'rgba(188,19,254,0.08)',   border: '#bc13fe', color: '#f3beff', glow: 'rgba(188,19,254,0.4)'   },
+    deceive:   { bg: 'rgba(255,43,214,0.08)',   border: '#ff2bd6', color: '#ff8ad9', glow: 'rgba(255,43,214,0.4)'   },
+    contain:   { bg: 'rgba(255,138,60,0.08)',   border: '#ff8a3c', color: '#ffd47a', glow: 'rgba(255,138,60,0.4)'   },
+    eradicate: { bg: 'rgba(255,56,56,0.08)',    border: '#ff3838', color: '#ff8a96', glow: 'rgba(255,56,56,0.4)'    },
+  };
+
   const getStrategyColor = (strategy) => {
-    switch (strategy) {
-      case 'observe': return 'bg-blue-500/20 text-blue-400';
-      case 'slow': return 'bg-cyan-500/20 text-cyan-400';
-      case 'poison': return 'bg-purple-500/20 text-purple-400';
-      case 'deceive': return 'bg-pink-500/20 text-pink-400';
-      case 'contain': return 'bg-orange-500/20 text-orange-400';
-      case 'eradicate': return 'bg-red-500/20 text-red-400';
-      default: return 'bg-slate-500/20 text-slate-400';
-    }
+    const m = STRATEGY_NEON[strategy];
+    return m ? `border` : 'bg-slate-500/20 text-slate-400';
+  };
+
+  const getStrategyStyle = (strategy) => {
+    const m = STRATEGY_NEON[strategy] || { bg: 'rgba(0,240,255,0.08)', border: '#00f0ff', color: '#aef0ff', glow: 'rgba(0,240,255,0.4)' };
+    return {
+      background: m.bg,
+      borderColor: m.border,
+      borderWidth: '1px',
+      borderStyle: 'solid',
+      boxShadow: `0 0 16px ${m.glow}, -3px 0 10px ${m.glow}, inset 0 0 12px rgba(0,0,0,0.3)`,
+      color: m.color,
+      clipPath: 'polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)',
+    };
   };
 
   const getRiskColor = (risk) => {
@@ -137,23 +213,20 @@ const AIThreatIntelligence = () => {
   }
 
   return (
-    <div className="space-y-6" data-testid="ai-threat-intelligence">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Brain className="w-8 h-8 text-purple-400" />
-            AI Threat Intelligence
-          </h1>
-          <p className="text-slate-400 mt-1">
-            Autonomous Agent Threat Layer (AATL) & AI Threat Registry (AATR)
-          </p>
-        </div>
-        <Button onClick={fetchData} variant="outline" className="border-purple-500/50">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
-      </div>
+    <div className="space-y-6" data-testid="ai-threat-intelligence" data-accent="gold">
+      <SeraphPageHeader
+        eyebrow="seraph · ai-threat-intel · aatl · aatr"
+        title="AI Threat Intelligence"
+        tagline="> autonomous agent threat layer · ai threat registry · behavioral detection"
+        accent="gold"
+        status="MONITORING"
+        actions={
+          <Button onClick={fetchData} variant="outline" style={{ borderColor: 'rgba(255,138,217,0.34)', color: '#ffd8f4' }}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Overview Stats */}
       {dashboard && (
@@ -161,7 +234,7 @@ const AIThreatIntelligence = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="seraph-stat-card p-4 border-l-4 border-purple-500"
+            className="p-4" style={aiIntelPanelStyle(AI_INTEL_ACCENTS.magenta)}
           >
             <div className="flex items-center justify-between mb-2">
               <Brain className="w-8 h-8 text-purple-400" />
@@ -179,7 +252,7 @@ const AIThreatIntelligence = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="seraph-stat-card p-4 border-l-4 border-red-500"
+            className="p-4" style={aiIntelPanelStyle(AI_INTEL_ACCENTS.magenta)}
           >
             <div className="flex items-center justify-between mb-2">
               <Bot className="w-8 h-8 text-red-400" />
@@ -195,7 +268,7 @@ const AIThreatIntelligence = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="seraph-stat-card p-4 border-l-4 border-cyan-500"
+            className="p-4" style={aiIntelPanelStyle(AI_INTEL_ACCENTS.gold)}
           >
             <div className="flex items-center justify-between mb-2">
               <Database className="w-8 h-8 text-cyan-400" />
@@ -211,7 +284,7 @@ const AIThreatIntelligence = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="seraph-stat-card p-4 border-l-4 border-yellow-500"
+            className="p-4" style={aiIntelPanelStyle(AI_INTEL_ACCENTS.green)}
           >
             <div className="flex items-center justify-between mb-2">
               <AlertTriangle className="w-8 h-8 text-yellow-400" />
@@ -227,17 +300,20 @@ const AIThreatIntelligence = () => {
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="bg-slate-800/50">
-          <TabsTrigger value="overview" className="data-[state=active]:bg-purple-500/20">
+        <TabsList style={aiIntelPanelStyle(AI_INTEL_ACCENTS.violet)}>
+          <TabsTrigger value="overview" className="data-[state=active]:text-white" style={{ color: '#d7dff1' }}>
             <Eye className="w-4 h-4 mr-2" /> AATL Overview
           </TabsTrigger>
-          <TabsTrigger value="assessments" className="data-[state=active]:bg-red-500/20">
+          <TabsTrigger value="assessments" className="data-[state=active]:text-white" style={{ color: '#d7dff1' }}>
             <Target className="w-4 h-4 mr-2" /> Threat Assessments
           </TabsTrigger>
-          <TabsTrigger value="registry" className="data-[state=active]:bg-cyan-500/20">
+          <TabsTrigger value="registry" className="data-[state=active]:text-white" style={{ color: '#d7dff1' }}>
             <Database className="w-4 h-4 mr-2" /> AATR Registry
           </TabsTrigger>
-          <TabsTrigger value="indicators" className="data-[state=active]:bg-yellow-500/20">
+          <TabsTrigger value="aab-live" className="data-[state=active]:text-white" style={{ color: '#d7dff1' }}>
+            <Gauge className="w-4 h-4 mr-2" /> Live AAB
+          </TabsTrigger>
+          <TabsTrigger value="indicators" className="data-[state=active]:text-white" style={{ color: '#d7dff1' }}>
             <Crosshair className="w-4 h-4 mr-2" /> Detection Indicators
           </TabsTrigger>
         </TabsList>
@@ -246,7 +322,7 @@ const AIThreatIntelligence = () => {
         <TabsContent value="overview" className="mt-4 space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Actor Type Distribution */}
-            <Card className="bg-slate-900/50 border-slate-800">
+            <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.violet)}>
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <Users className="w-5 h-5 text-purple-400" />
@@ -285,7 +361,7 @@ const AIThreatIntelligence = () => {
             </Card>
 
             {/* Lifecycle Stage Distribution */}
-            <Card className="bg-slate-900/50 border-slate-800">
+            <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.gold)}>
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <GitBranch className="w-5 h-5 text-cyan-400" />
@@ -313,7 +389,7 @@ const AIThreatIntelligence = () => {
             </Card>
 
             {/* Response Strategies */}
-            <Card className="bg-slate-900/50 border-slate-800 lg:col-span-2">
+            <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.green)} className="lg:col-span-2">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <Shield className="w-5 h-5 text-green-400" />
@@ -326,12 +402,13 @@ const AIThreatIntelligence = () => {
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                   {Object.entries(strategies).map(([key, strategy]) => (
-                    <div 
+                    <div
                       key={key}
-                      className={`p-4 rounded-lg border border-slate-700 hover:border-slate-600 transition-all ${getStrategyColor(key)}`}
+                      className="p-4 transition-all seraph-fx-hover-lift"
+                      style={getStrategyStyle(key)}
                     >
-                      <div className="text-lg font-semibold mb-1">{strategy.name}</div>
-                      <div className="text-xs opacity-80 mb-2">{strategy.description}</div>
+                      <div className="text-sm font-bold mb-1" style={{ fontFamily: "'Orbitron', monospace", letterSpacing: '0.1em', color: STRATEGY_NEON[key]?.color || '#aef0ff', textShadow: `0 0 10px ${STRATEGY_NEON[key]?.border || '#00f0ff'}` }}>{(strategy.name || key).toUpperCase()}</div>
+                      <div className="text-xs opacity-80 mb-2" style={{ color: STRATEGY_NEON[key]?.color || '#aef0ff', opacity: 0.7 }}>{strategy.description}</div>
                       <div className="text-xs space-y-1">
                         {strategy.actions?.slice(0, 2).map((action, i) => (
                           <div key={i} className="flex items-center gap-1">
@@ -350,7 +427,7 @@ const AIThreatIntelligence = () => {
 
         {/* Threat Assessments Tab */}
         <TabsContent value="assessments" className="mt-4">
-          <Card className="bg-slate-900/50 border-slate-800">
+          <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.magenta)}>
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Target className="w-5 h-5 text-red-400" />
@@ -472,14 +549,14 @@ const AIThreatIntelligence = () => {
 
         {/* AATR Registry Tab */}
         <TabsContent value="registry" className="mt-4">
-          <Card className="bg-slate-900/50 border-slate-800">
+          <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.gold)}>
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Database className="w-5 h-5 text-cyan-400" />
-                Autonomous AI Threat Registry ({registryEntries.length} Active Threats)
+                Autonomous AI Threat Registry ({registryEntries.length} Core / {liveAabClasses.length} Live AAB Classes)
               </CardTitle>
               <CardDescription>
-                Defensive intelligence catalog of AI agent frameworks and behavior patterns
+                Defensive intelligence catalog plus the latest 38-class AAB live evidence matrix
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -591,9 +668,209 @@ const AIThreatIntelligence = () => {
           </Card>
         </TabsContent>
 
+        {/* Live AAB Evidence Tab */}
+        <TabsContent value="aab-live" className="mt-4 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.gold)}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white flex items-center gap-2 text-base">
+                  <Database className="w-5 h-5 text-cyan-400" />
+                  38-Class Coverage
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-white">{liveAabClasses.length || 0}</div>
+                <div className="text-xs text-slate-400 mt-1">
+                  {aabEvidence?.class_order_ok ? 'Class order verified' : 'Waiting for latest snapshot'}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.green)}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white flex items-center gap-2 text-base">
+                  <Shield className="w-5 h-5 text-green-400" />
+                  Containment
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-white">
+                  {formatCount(aabEvidence?.contained_count)} / {formatCount(aabEvidence?.run_count)}
+                </div>
+                <div className="text-xs text-slate-400 mt-1">
+                  {formatCount(aabEvidence?.zero_real_asset_count)} runs with zero real assets reached
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.magenta)}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white flex items-center gap-2 text-base">
+                  <Gauge className="w-5 h-5 text-purple-400" />
+                  Agenticity
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-white">
+                  {formatPercent(aabEvidence?.agenticity?.avg_max_score)}
+                </div>
+                <div className="text-xs text-slate-400 mt-1">
+                  Avg max score; peak {formatPercent(aabEvidence?.agenticity?.max_max_score)}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.violet)}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white flex items-center gap-2 text-base">
+                  <Clock className="w-5 h-5 text-yellow-400" />
+                  Latest Session
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-lg font-bold text-white">
+                  {formatAabTimestamp(aabEvidence?.latest_generated_at)}
+                </div>
+                <div className="text-xs text-slate-400 mt-1">
+                  Claude baseline AAB rev13
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.violet)}>
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-purple-400" />
+                Agenticity Score Distribution
+              </CardTitle>
+              <CardDescription>
+                Extracted from canonical router and detection-event score fields in the latest AAB evidence bundle
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                {[
+                  ['autonomous_agent_high', 'High autonomous'],
+                  ['autonomous_agent_medium', 'Medium autonomous'],
+                  ['automation_suspected', 'Automation suspected'],
+                  ['human_or_script_low', 'Low / script-like'],
+                ].map(([key, label]) => (
+                  <div key={key} className={`p-3 rounded-lg border ${getAgenticityColor(key)}`}>
+                    <div className="text-2xl font-bold">{agenticityCounts[key] || 0}</div>
+                    <div className="text-xs uppercase tracking-wide">{label}</div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.gold)}>
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-cyan-400" />
+                Latest Live Sessions ({liveAabSessions.length})
+              </CardTitle>
+              <CardDescription>
+                Recent AAB runs now visible on the AI activity surface
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {liveAabSessions.slice(0, 12).map((session) => (
+                  <div key={`${session.aatr_id}-${session.session_id}`} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-white font-semibold">{session.display_name}</span>
+                          <Badge variant="outline" className="text-xs">{session.aatr_id}</Badge>
+                          <Badge className={getAgenticityColor(session.agenticity_classification)}>
+                            {formatPercent(session.max_agenticity_score)}
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-slate-400 mt-1">
+                          {session.session_id} · {formatAabTimestamp(session.generated_at)}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge className={session.contained ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>
+                          {session.contained ? 'contained' : 'escaped'}
+                        </Badge>
+                        <Badge variant="outline" className="text-cyan-400 border-cyan-500/30">
+                          {formatCount(session.tokens)} tokens
+                        </Badge>
+                        <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
+                          CDI {(Number(session.cdi || 0) * 100).toFixed(0)}%
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {liveAabSessions.length === 0 && (
+                  <div className="text-center py-10 text-slate-400">
+                    <Radio className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p>No live AAB snapshot has been loaded yet.</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.magenta)}>
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-pink-400" />
+                Live AATR Class Matrix
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {liveAabClasses.map((entry) => (
+                  <div key={`${entry.aatr_id}-${entry.class_name}`} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="min-w-0">
+                        <div className="text-white font-semibold truncate">{entry.display_name}</div>
+                        <div className="text-xs text-slate-500">{entry.aatr_id}</div>
+                      </div>
+                      <Badge className={getAgenticityColor(entry.agenticity_classification)}>
+                        {formatPercent(entry.max_agenticity_score)}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs text-slate-400">
+                      <div>
+                        <div className="text-slate-500">Outcome</div>
+                        <div className="text-slate-200">{entry.outcome}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500">Routes</div>
+                        <div className="text-slate-200">
+                          {(entry.routes?.trap_sink || 0) + (entry.routes?.disinformation || 0)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500">SOAR</div>
+                        <div className="text-slate-200">{entry.soar_events || 0}</div>
+                      </div>
+                    </div>
+                    {entry.categories?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-3">
+                        {entry.categories.slice(0, 4).map((category) => (
+                          <span key={category} className="px-2 py-1 rounded bg-slate-900/60 text-slate-300 text-xs">
+                            {category.replace('_', ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Detection Indicators Tab */}
         <TabsContent value="indicators" className="mt-4">
-          <Card className="bg-slate-900/50 border-slate-800">
+          <Card style={aiIntelPanelStyle(AI_INTEL_ACCENTS.violet)}>
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Crosshair className="w-5 h-5 text-yellow-400" />

@@ -21,6 +21,7 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 import { ScrollArea } from '../components/ui/scroll-area';
 import {
   Select,
@@ -44,6 +45,34 @@ const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl ===
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
 
+const THREAT_ACCENTS = {
+  critical: { border: '#ff35f4', glow: 'rgba(255,43,214,0.42)', surface: 'rgba(46,8,38,0.78)', text: '#ffd1f8', badge: 'bg-pink-500/16 text-pink-200 border-pink-400/55' },
+  high: { border: '#bc13fe', glow: 'rgba(188,19,254,0.38)', surface: 'rgba(28,8,46,0.78)', text: '#efddff', badge: 'bg-purple-500/16 text-purple-200 border-purple-400/55' },
+  medium: { border: '#00f6ff', glow: 'rgba(0,240,255,0.36)', surface: 'rgba(8,26,38,0.80)', text: '#c8fbff', badge: 'bg-cyan-500/16 text-cyan-200 border-cyan-400/55' },
+  low: { border: '#39ff14', glow: 'rgba(57,255,20,0.34)', surface: 'rgba(8,36,18,0.76)', text: '#d4ffe2', badge: 'bg-green-500/16 text-green-200 border-green-400/55' },
+  info: { border: '#00f6ff', glow: 'rgba(0,240,255,0.32)', surface: 'rgba(8,22,38,0.82)', text: '#c8f6ff', badge: 'bg-cyan-500/16 text-cyan-200 border-cyan-400/55' },
+};
+
+const threatPanelStyle = (accent) => ({
+  background: `
+    linear-gradient(rgba(0,0,0,0) 50%, rgba(0,0,0,0.32) 50%),
+    linear-gradient(90deg, rgba(255,43,214,0.05), rgba(0,240,255,0.07), rgba(57,255,20,0.035)),
+    linear-gradient(160deg, rgba(8,18,34,0.94), rgba(3,9,18,0.97))
+  `,
+  backgroundSize: '100% 3px, 100% 100%, 100% 100%',
+  border: `3px solid ${accent.border}`,
+  boxShadow: `0 0 34px ${accent.glow}, inset 0 0 22px rgba(0,240,255,0.07), inset 0 0 36px ${accent.glow}`,
+  clipPath: 'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)',
+});
+
+const threatActionStyle = (accent, filled = false) => ({
+  background: filled ? `linear-gradient(135deg, ${accent.border}, rgba(255,255,255,0.08))` : 'linear-gradient(135deg, rgba(8,20,38,0.88), rgba(4,11,22,0.94))',
+  border: `2px solid ${accent.border}`,
+  color: filled ? '#07111e' : accent.text,
+  boxShadow: `0 0 16px ${accent.glow}`,
+  clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+});
+
 const ThreatTypeIcon = ({ type }) => {
   const icons = {
     ai_agent: Bot,
@@ -58,15 +87,15 @@ const ThreatTypeIcon = ({ type }) => {
 
 const ThreatCard = ({ threat, onStatusChange }) => {
   const severityColors = {
-    critical: { bg: 'bg-red-500/10', border: 'border-red-500', text: 'text-red-400' },
-    high: { bg: 'bg-amber-500/10', border: 'border-amber-500', text: 'text-amber-400' },
-    medium: { bg: 'bg-yellow-500/10', border: 'border-yellow-500', text: 'text-yellow-400' },
-    low: { bg: 'bg-green-500/10', border: 'border-green-500', text: 'text-green-400' }
+    critical: THREAT_ACCENTS.critical,
+    high: THREAT_ACCENTS.high,
+    medium: THREAT_ACCENTS.medium,
+    low: THREAT_ACCENTS.low
   };
 
   const statusColors = {
-    active: 'bg-red-500/20 text-red-400',
-    contained: 'bg-amber-500/20 text-amber-400',
+    active: 'bg-pink-500/20 text-pink-300',
+    contained: 'bg-purple-500/20 text-purple-200',
     resolved: 'bg-green-500/20 text-green-400'
   };
 
@@ -76,28 +105,29 @@ const ThreatCard = ({ threat, onStatusChange }) => {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`bg-slate-900/50 backdrop-blur-md border ${colors.border}/30 rounded overflow-hidden hover:border-${threat.severity === 'critical' ? 'red' : threat.severity === 'high' ? 'amber' : 'blue'}-500/50 transition-all duration-300`}
+      className="overflow-hidden transition-all duration-300 sophia-scan sophia-edge-sweep sophia-panel-glow"
+      style={threatPanelStyle(colors)}
     >
       {/* Header */}
-      <div className={`p-4 ${colors.bg} border-b border-slate-800`}>
+      <div className="p-4" style={{ background: `linear-gradient(135deg, ${colors.surface}, rgba(4,11,22,0.88))`, borderBottom: `1px solid ${colors.border}55` }}>
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-3">
-            <div className={`w-10 h-10 rounded ${colors.bg} flex items-center justify-center ${colors.text}`}>
+            <div className="w-10 h-10 rounded flex items-center justify-center" style={{ background: `${colors.border}1f`, border: `1px solid ${colors.border}88`, color: colors.border, boxShadow: `0 0 12px ${colors.glow}` }}>
               <ThreatTypeIcon type={threat.type} />
             </div>
             <div>
-              <h3 className="font-medium text-white">{threat.name}</h3>
+              <div className="sophia-flicker sophia-terminal-value text-base" style={{ fontSize: '1rem', color: colors.text }}>{threat.name}</div>
               <div className="flex items-center gap-2 mt-1">
-                <Badge variant="outline" className={`${colors.text} ${colors.border}/50 text-xs`}>
+                <Badge variant="outline" className={`${colors.badge} text-xs`} style={{ color: colors.text, borderColor: `${colors.border}88` }}>
                   {threat.severity}
                 </Badge>
-                <Badge variant="outline" className="text-slate-400 border-slate-600 text-xs">
+                <Badge variant="outline" className="text-xs sophia-terminal-meta" style={{ borderColor: 'rgba(102,230,255,0.26)', color: '#a8ebff' }}>
                   {threat.type.replace('_', ' ')}
                 </Badge>
               </div>
             </div>
           </div>
-          <span className={`text-xs px-2 py-1 rounded ${statusColors[threat.status]}`}>
+          <span className={`text-xs px-2 py-1 rounded ${statusColors[threat.status]}`} style={{ border: `1px solid ${colors.border}55`, boxShadow: `0 0 10px ${colors.glow}` }}>
             {threat.status}
           </span>
         </div>
@@ -106,30 +136,30 @@ const ThreatCard = ({ threat, onStatusChange }) => {
       {/* Content */}
       <div className="p-4 space-y-3">
         {threat.description && (
-          <p className="text-sm text-slate-400">{threat.description}</p>
+          <p className="sophia-terminal-meta text-sm" style={{ color: '#b5d3de' }}>{threat.description}</p>
         )}
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           {threat.source_ip && (
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4 text-slate-500" />
-              <span className="text-slate-400">Source: <span className="text-white font-mono">{threat.source_ip}</span></span>
+              <span className="sophia-terminal-meta">Source: <span className="sophia-flicker sophia-terminal-value text-sm" style={{ fontSize: '0.85rem', color: '#e8fdff' }}>{threat.source_ip}</span></span>
             </div>
           )}
           {threat.target_system && (
             <div className="flex items-center gap-2">
               <Server className="w-4 h-4 text-slate-500" />
-              <span className="text-slate-400">Target: <span className="text-white">{threat.target_system}</span></span>
+              <span className="sophia-terminal-meta">Target: <span className="sophia-flicker sophia-terminal-value text-sm" style={{ fontSize: '0.85rem', color: '#e8fdff' }}>{threat.target_system}</span></span>
             </div>
           )}
         </div>
 
         {threat.indicators?.length > 0 && (
           <div className="pt-2">
-            <p className="text-xs text-slate-500 mb-2">Indicators:</p>
+            <p className="sophia-scan sophia-terminal-label text-xs mb-2">Indicators</p>
             <div className="flex flex-wrap gap-1">
               {threat.indicators.map((indicator, i) => (
-                <Badge key={i} variant="outline" className="text-xs text-slate-400 border-slate-700">
+                <Badge key={i} variant="outline" className="text-xs" style={{ color: '#a8ebff', borderColor: `${colors.border}66`, background: `${colors.border}12` }}>
                   {indicator}
                 </Badge>
               ))}
@@ -139,8 +169,8 @@ const ThreatCard = ({ threat, onStatusChange }) => {
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-slate-800 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
+      <div className="p-4 flex items-center justify-between" style={{ borderTop: `1px solid ${colors.border}44` }}>
+        <div className="flex items-center gap-2 sophia-terminal-meta text-xs">
           <Clock className="w-3 h-3" />
           {new Date(threat.created_at).toLocaleString()}
         </div>
@@ -149,7 +179,8 @@ const ThreatCard = ({ threat, onStatusChange }) => {
             <Button
               size="sm"
               variant="outline"
-              className="text-xs border-amber-700 text-amber-400 hover:bg-amber-500/10"
+              className="text-xs"
+              style={threatActionStyle(THREAT_ACCENTS.high)}
               onClick={() => onStatusChange(threat.id, 'contained')}
               data-testid={`contain-threat-${threat.id}`}
             >
@@ -161,7 +192,8 @@ const ThreatCard = ({ threat, onStatusChange }) => {
             <Button
               size="sm"
               variant="outline"
-              className="text-xs border-green-700 text-green-400 hover:bg-green-500/10"
+              className="text-xs"
+              style={threatActionStyle(THREAT_ACCENTS.low)}
               onClick={() => onStatusChange(threat.id, 'resolved')}
               data-testid={`resolve-threat-${threat.id}`}
             >
@@ -212,6 +244,9 @@ const ThreatsPage = () => {
 
   useEffect(() => {
     fetchThreats();
+    const id = setInterval(fetchThreats, 10000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, severityFilter]);
 
   const handleStatusChange = async (threatId, newStatus) => {
@@ -258,22 +293,19 @@ const ThreatsPage = () => {
   };
 
   return (
-    <div className="p-6 lg:p-8 space-y-6" data-testid="threats-page">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-mono font-bold text-white flex items-center gap-3">
-            <AlertTriangle className="w-7 h-7 text-amber-400" />
-            Threat Management
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Track and manage detected security threats
-          </p>
-        </div>
+    <div className="p-6 lg:p-8 space-y-6" data-testid="threats-page" data-accent="magenta">
+      <SeraphPageHeader
+        eyebrow="seraph · threats · adversary tracking"
+        title={<span className="seraph-heading-flood-rtl">Threat Management</span>}
+        tagline="> tracked threats · attribution · response status"
+        accent="pink"
+        status={threatStats.active ? `${threatStats.active} ACTIVE` : 'CLEAR'}
+      />
+      <div className="flex justify-end">
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
           <DialogTrigger asChild>
             <Button
-              className="bg-blue-600 hover:bg-blue-500 shadow-glow-blue"
+              style={threatActionStyle(THREAT_ACCENTS.info, true)}
               onClick={() => setShowAddDialog(true)}
               data-testid="add-threat-btn"
             >
@@ -281,29 +313,30 @@ const ThreatsPage = () => {
               Log Threat
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-slate-900 border-slate-800 max-w-md">
+          <DialogContent className="max-w-md sophia-scan" style={threatPanelStyle(THREAT_ACCENTS.info)}>
             <DialogHeader>
-              <DialogTitle className="text-white font-mono">Log New Threat</DialogTitle>
-              <DialogDescription className="text-slate-400">
+              <DialogTitle className="sophia-terminal-heading">Log New Threat</DialogTitle>
+              <DialogDescription className="sophia-terminal-meta">
                 Enter details about the detected threat
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div>
-                <Label className="text-slate-300">Threat Name</Label>
+                <Label className="sophia-scan sophia-terminal-label">Threat Name</Label>
                 <Input
                   value={newThreat.name}
                   onChange={(e) => setNewThreat({ ...newThreat, name: e.target.value })}
-                  className="bg-slate-950 border-slate-700 text-white"
+                  className="text-white"
+                  style={{ background: 'rgba(3,9,18,0.92)', borderColor: 'rgba(102,230,255,0.26)' }}
                   placeholder="e.g., Suspicious AI Agent Activity"
                   data-testid="threat-name-input"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-slate-300">Type</Label>
+                  <Label className="sophia-scan sophia-terminal-label">Type</Label>
                   <Select value={newThreat.type} onValueChange={(v) => setNewThreat({ ...newThreat, type: v })}>
-                    <SelectTrigger className="bg-slate-950 border-slate-700" data-testid="threat-type-select">
+                    <SelectTrigger className="text-white" style={{ background: 'rgba(3,9,18,0.92)', borderColor: 'rgba(102,230,255,0.26)' }} data-testid="threat-type-select">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-slate-700">
@@ -316,9 +349,9 @@ const ThreatsPage = () => {
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-slate-300">Severity</Label>
+                  <Label className="sophia-scan sophia-terminal-label">Severity</Label>
                   <Select value={newThreat.severity} onValueChange={(v) => setNewThreat({ ...newThreat, severity: v })}>
-                    <SelectTrigger className="bg-slate-950 border-slate-700" data-testid="threat-severity-select">
+                    <SelectTrigger className="text-white" style={{ background: 'rgba(3,9,18,0.92)', borderColor: 'rgba(102,230,255,0.26)' }} data-testid="threat-severity-select">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-slate-700">
@@ -331,38 +364,42 @@ const ThreatsPage = () => {
                 </div>
               </div>
               <div>
-                <Label className="text-slate-300">Source IP</Label>
+                <Label className="sophia-scan sophia-terminal-label">Source IP</Label>
                 <Input
                   value={newThreat.source_ip}
                   onChange={(e) => setNewThreat({ ...newThreat, source_ip: e.target.value })}
-                  className="bg-slate-950 border-slate-700 text-white"
+                  className="text-white"
+                  style={{ background: 'rgba(3,9,18,0.92)', borderColor: 'rgba(102,230,255,0.26)' }}
                   placeholder="e.g., 192.168.1.100"
                   data-testid="threat-ip-input"
                 />
               </div>
               <div>
-                <Label className="text-slate-300">Target System</Label>
+                <Label className="sophia-scan sophia-terminal-label">Target System</Label>
                 <Input
                   value={newThreat.target_system}
                   onChange={(e) => setNewThreat({ ...newThreat, target_system: e.target.value })}
-                  className="bg-slate-950 border-slate-700 text-white"
+                  className="text-white"
+                  style={{ background: 'rgba(3,9,18,0.92)', borderColor: 'rgba(102,230,255,0.26)' }}
                   placeholder="e.g., Production Server"
                   data-testid="threat-target-input"
                 />
               </div>
               <div>
-                <Label className="text-slate-300">Description</Label>
+                <Label className="sophia-scan sophia-terminal-label">Description</Label>
                 <Textarea
                   value={newThreat.description}
                   onChange={(e) => setNewThreat({ ...newThreat, description: e.target.value })}
-                  className="bg-slate-950 border-slate-700 text-white"
+                  className="text-white"
+                  style={{ background: 'rgba(3,9,18,0.92)', borderColor: 'rgba(102,230,255,0.26)' }}
                   placeholder="Describe the threat..."
                   data-testid="threat-description-input"
                 />
               </div>
               <Button 
                 onClick={handleAddThreat} 
-                className="w-full bg-blue-600 hover:bg-blue-500"
+                className="w-full"
+                style={threatActionStyle(THREAT_ACCENTS.info, true)}
                 disabled={!newThreat.name}
                 data-testid="submit-threat-btn"
               >
@@ -376,33 +413,34 @@ const ThreatsPage = () => {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Threats', value: threatStats.total, color: 'blue' },
-          { label: 'Active', value: threatStats.active, color: 'red' },
-          { label: 'Contained', value: threatStats.contained, color: 'amber' },
-          { label: 'Resolved', value: threatStats.resolved, color: 'green' }
+          { label: 'Total Threats', value: threatStats.total, accent: THREAT_ACCENTS.info },
+          { label: 'Active', value: threatStats.active, accent: THREAT_ACCENTS.critical },
+          { label: 'Contained', value: threatStats.contained, accent: THREAT_ACCENTS.high },
+          { label: 'Resolved', value: threatStats.resolved, accent: THREAT_ACCENTS.low }
         ].map((stat, i) => (
           <motion.div
             key={stat.label}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4"
+            className="sophia-scan p-4"
+            style={threatPanelStyle(stat.accent)}
           >
-            <p className="text-slate-400 text-sm">{stat.label}</p>
-            <p className={`text-2xl font-mono font-bold text-${stat.color}-400`}>{stat.value}</p>
+            <p className="sophia-terminal-label text-sm">{stat.label}</p>
+            <p className="sophia-flicker sophia-terminal-value text-2xl font-bold" style={{ color: stat.accent.text, textShadow: `0 0 14px ${stat.accent.glow}` }}>{stat.value}</p>
           </motion.div>
         ))}
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-4 bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4">
+      <div className="flex flex-wrap items-center gap-4 p-4 sophia-scan" style={threatPanelStyle(THREAT_ACCENTS.info)}>
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-slate-400" />
-          <span className="text-sm text-slate-400">Filter:</span>
+          <span className="sophia-terminal-label text-sm">Filter</span>
         </div>
         
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40 bg-slate-950 border-slate-700" data-testid="threat-status-filter">
+          <SelectTrigger className="w-40 text-white" style={{ background: 'rgba(3,9,18,0.92)', borderColor: 'rgba(102,230,255,0.26)' }} data-testid="threat-status-filter">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent className="bg-slate-900 border-slate-700">
@@ -414,7 +452,7 @@ const ThreatsPage = () => {
         </Select>
 
         <Select value={severityFilter} onValueChange={setSeverityFilter}>
-          <SelectTrigger className="w-40 bg-slate-950 border-slate-700" data-testid="threat-severity-filter">
+          <SelectTrigger className="w-40 text-white" style={{ background: 'rgba(3,9,18,0.92)', borderColor: 'rgba(102,230,255,0.26)' }} data-testid="threat-severity-filter">
             <SelectValue placeholder="Severity" />
           </SelectTrigger>
           <SelectContent className="bg-slate-900 border-slate-700">
@@ -429,7 +467,8 @@ const ThreatsPage = () => {
         <Button
           variant="outline"
           size="sm"
-          className="ml-auto border-slate-700 text-slate-400"
+          className="ml-auto"
+          style={threatActionStyle(THREAT_ACCENTS.info)}
           onClick={fetchThreats}
           data-testid="refresh-threats-btn"
         >
@@ -454,10 +493,10 @@ const ThreatsPage = () => {
           ))}
         </div>
       ) : (
-        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-12 text-center">
-          <Shield className="w-12 h-12 mx-auto mb-4 text-slate-600" />
-          <h3 className="text-lg font-medium text-slate-400 mb-2">No Threats Found</h3>
-          <p className="text-sm text-slate-500">
+        <div className="p-12 text-center sophia-scan" style={threatPanelStyle(THREAT_ACCENTS.low)}>
+          <Shield className="w-12 h-12 mx-auto mb-4" style={{ color: THREAT_ACCENTS.low.border, filter: 'drop-shadow(0 0 8px rgba(141,255,179,0.44))' }} />
+          <h3 className="sophia-terminal-heading text-lg mb-2">No Threats Found</h3>
+          <p className="sophia-terminal-meta text-sm">
             {statusFilter !== 'all' || severityFilter !== 'all' 
               ? 'Try adjusting your filters' 
               : 'System is secure - no threats detected'}

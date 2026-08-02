@@ -1,0 +1,150 @@
+title: Process Injection - Thread Execution Hijacking via Suspend and SetContext
+id: d4e5f6a7-b8c9-0123-defa-123456789012
+status: experimental
+description: |
+    Detects patterns consistent with thread execution hijacking (T1055.003) using
+    SuspendThread, SetThreadContext, and ResumeThread API sequences — commonly
+    seen in Cobalt Strike, Metasploit, and custom loaders. While the API calls
+    themselves require an EDR to monitor, this rule detects process creation from
+    parent processes that have opened handles to other processes in unusual ways,
+    and tools known to implement thread hijacking loaders.
+references:
+    - https://attack.mitre.org/techniques/T1055/003/
+    - https://www.ired.team/offensive-security/code-injection-process-injection/injecting-to-remote-process-via-thread-hijacking
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.privilege_escalation
+    - attack.t1055.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_injector_tools:
+        Image|endswith:
+            - '\ThreadInjector.exe'
+            - '\HijackThis.exe'
+        CommandLine|contains: '--hijack'
+    selection_suspicious_spawn:
+        ParentImage|endswith:
+            - '\notepad.exe'
+            - '\calc.exe'
+            - '\mspaint.exe'
+            - '\wordpad.exe'
+        Image|endswith:
+            - '\cmd.exe'
+            - '\powershell.exe'
+            - '\rundll32.exe'
+    condition: selection_injector_tools or selection_suspicious_spawn
+falsepositives:
+    - Debugging tools and reverse engineering environments
+level: high
+---
+title: Process Injection - Extra Window Memory Injection via SetWindowLong
+id: e5f6a7b8-c9d0-1234-efab-234567890123
+status: experimental
+description: |
+    Detects Extra Window Memory (EWM) injection (T1055.011) where adversaries
+    abuse the SetWindowLong / SetWindowLongPtr API to write shellcode into the
+    EWM allocated for a GUI window handle. This technique allows code injection
+    without WriteProcessMemory by abusing legitimate GUI memory management.
+    Used in older malware families and still relevant as a stealth injection path.
+references:
+    - https://attack.mitre.org/techniques/T1055/011/
+    - https://www.ired.team/offensive-security/code-injection-process-injection/extra-window-memory-injection
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.privilege_escalation
+    - attack.t1055.011
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging'
+detection:
+    selection:
+        ScriptBlockText|contains:
+            - 'SetWindowLong'
+            - 'SetWindowLongPtr'
+            - 'PostMessage'
+        ScriptBlockText|contains:
+            - 'VirtualAllocEx'
+            - 'shellcode'
+            - '[byte[]]'
+    condition: all of selection_*
+falsepositives:
+    - Security research tools
+level: high
+---
+title: Process Injection - VDSO Hijacking on Linux
+id: f6a7b8c9-d0e1-2345-fabc-345678901234
+status: experimental
+description: |
+    Detects attempts to hijack the Linux vDSO (virtual dynamic shared object) for
+    process injection (T1055.014). The vDSO is a small shared library mapped by
+    the kernel into every user process address space for fast syscall execution.
+    Adversaries with sufficient privileges can overwrite vDSO mappings to redirect
+    syscalls to malicious code. This requires ptrace access to target processes.
+references:
+    - https://attack.mitre.org/techniques/T1055/014/
+    - https://xcellerator.github.io/posts/linux_rootkits_07/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.privilege_escalation
+    - attack.t1055.014
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_ptrace_vdso:
+        Image|endswith:
+            - '/gdb'
+            - '/strace'
+        CommandLine|re: '(?i)(vdso|vsyscall|/proc/[0-9]+/mem)'
+    selection_proc_mem_write:
+        Image|contains: '/proc/'
+        CommandLine|contains: '/mem'
+    condition: 1 of selection_*
+falsepositives:
+    - Legitimate debugging with gdb/strace on servers
+level: medium
+---
+title: Process Injection - ListPlanting via Common Control ListView
+id: a7b8c9d0-e1f2-3456-abcd-456789012345
+status: experimental
+description: |
+    Detects ListPlanting (T1055.015), a process injection technique that abuses the
+    Windows Common Controls ListView control's custom draw callback pointer. An
+    attacker writes shellcode to a target process, then overwrites the callback pointer
+    with its address and triggers a repaint to execute the shellcode — entirely within
+    normal Win32 message passing, evading memory scanning heuristics.
+references:
+    - https://attack.mitre.org/techniques/T1055/015/
+    - https://www.hexacorn.com/blog/2022/05/10/listplanting-a-new-code-injection-trick/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.privilege_escalation
+    - attack.t1055.015
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging'
+detection:
+    selection:
+        ScriptBlockText|contains:
+            - 'LVM_SETITEMCOUNT'
+            - 'LVM_GETITEMCOUNT'
+            - 'SendMessage'
+        ScriptBlockText|contains:
+            - 'VirtualAllocEx'
+            - 'WriteProcessMemory'
+    condition: all of selection_*
+falsepositives:
+    - Security research tools implementing PoC
+level: high

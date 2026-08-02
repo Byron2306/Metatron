@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 import logging
 import os
+import zipfile
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -157,18 +159,55 @@ def _count_alert_types():
     return type_counts
 
 
+def _extension_candidates() -> list[Path]:
+    return [
+        Path("/app/frontend/public/downloads/seraph-extension.zip"),
+        Path("/app/backend/frontend/public/downloads/seraph-extension.zip"),
+        Path("/workspace/frontend/public/downloads/seraph-extension.zip"),
+        Path.cwd() / "frontend/public/downloads/seraph-extension.zip",
+    ]
+
+
+def _extension_source_dirs() -> list[Path]:
+    return [
+        Path("/app/frontend/public/downloads/seraph-extension"),
+        Path("/app/backend/frontend/public/downloads/seraph-extension"),
+        Path("/workspace/frontend/public/downloads/seraph-extension"),
+        Path.cwd() / "frontend/public/downloads/seraph-extension",
+    ]
+
+
+def _build_zip_if_needed(zip_path: Path) -> bool:
+    if zip_path.exists():
+        return True
+
+    src_dir = next((d for d in _extension_source_dirs() if d.exists() and d.is_dir()), None)
+    if src_dir is None:
+        return False
+
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file_path in src_dir.rglob("*"):
+            if file_path.is_file():
+                archive.write(file_path, file_path.relative_to(src_dir))
+
+    return zip_path.exists()
+
+
 @router.get("/download")
 async def download_extension():
     """Download the browser extension zip file"""
-    extension_path = "/app/frontend/public/downloads/seraph-extension.zip"
-    
-    if not os.path.exists(extension_path):
-        raise HTTPException(status_code=404, detail="Extension package not found")
-    
-    return FileResponse(
-        path=extension_path,
-        filename="seraph-extension.zip",
-        media_type="application/zip"
+    for candidate in _extension_candidates():
+        if candidate.exists() or _build_zip_if_needed(candidate):
+            return FileResponse(
+                path=str(candidate),
+                filename="seraph-extension.zip",
+                media_type="application/zip",
+            )
+
+    raise HTTPException(
+        status_code=404,
+        detail="Extension package not found. Expected a ZIP or source folder under frontend/public/downloads/seraph-extension.",
     )
 
 

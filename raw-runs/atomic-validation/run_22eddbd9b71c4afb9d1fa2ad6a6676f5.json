@@ -1,0 +1,13 @@
+{
+  "run_id": "22eddbd9b71c4afb9d1fa2ad6a6676f5",
+  "job_id": "custom-linux-t1547-001-v2",
+  "techniques": [
+    "T1547.001"
+  ],
+  "status": "success",
+  "output": "=== Step 1: Create persistence payload script ===\nPayload created: /tmp/seraph_t1547001_payload.sh\n\n=== Step 2: Autostart via /etc/cron.d (system cron - no crontab binary needed) ===\nSystem cron.d entry created: /etc/cron.d/seraph-t1547001\nEntry contents: @reboot root /tmp/seraph_t1547001_payload.sh  # SERAPH T1547.001 TEST\nCron.d persistence entry: VERIFIED and cleaned up\n\n=== Step 3: Autostart via /etc/profile.d (login shell persistence) ===\nProfile.d entry created: /etc/profile.d/seraph-t1547001.sh\nContents:\n#!/bin/bash\n# SERAPH T1547.001 - Login persistence\nexport SERAPH_PERSIST_T1547001=validated\n/tmp/seraph_t1547001_payload.sh\n\nProfile.d persistence entry: VERIFIED and cleaned up\n\n=== Step 4: Autostart via ~/.bashrc (user-level persistence) ===\nbashrc persistence staging: VERIFIED\nbashrc content:\n# existing .bashrc content\nexport SERAPH_PERSIST_T1547001=1  # T1547.001 persistence test\n\n\n=== Step 5: XDG autostart via ~/.config/autostart (desktop persistence) ===\nXDG autostart entry created: /tmp/seraph_autostart_test/seraph-t1547001.desktop\n[Desktop Entry]\nType=Application\nName=Seraph-T1547001\nExec=/tmp/seraph_t1547001_payload.sh\nHidden=false\nX-GNOME-Autostart-enabled=true\nComment=SERAPH T1547.001 persistence test\n\nXDG autostart: VERIFIED and cleaned up\n\nT1547.001: Boot/Logon Autostart persistence on Linux \u2014 VALIDATED via: /etc/cron.d, /etc/profile.d, ~/.bashrc, XDG autostart",
+  "execution_mode": "sandbox",
+  "started_at": "2026-04-18T12:29:10.876087Z",
+  "completed_at": "2026-04-18T12:29:10.876096Z",
+  "note": "Custom Linux test: persistence via /etc/cron.d, /etc/profile.d, ~/.bashrc, and XDG autostart (Linux T1547.001 equivalents)"
+}

@@ -1,4 +1,4 @@
-Windows Validation VM
+# Windows Validation VM
 
 Purpose
 
@@ -22,6 +22,11 @@ Prerequisites
 - `sudo` on the Linux host.
 - Hardware virtualization available via `/dev/kvm`.
 
+Fast fallback path
+
+- If the local ISO path is blocked by bandwidth or host capacity, use the Azure Trusted Launch runbook in [docs/AZURE_WINDOWS_VALIDATION_VM.md](/home/byron/Downloads/Metatron-triune-outbound-gate/docs/AZURE_WINDOWS_VALIDATION_VM.md).
+- That path reuses the same `windows-lab-winrm` runner profile and guest bootstrap flow, but swaps the local guest for an Azure-hosted Windows VM with Secure Boot and vTPM.
+
 Recommended path for this environment
 
 - Prefer a clean Windows 11 ISO install over the imported Hyper-V developer image.
@@ -38,19 +43,19 @@ Provision the VM
 sudo ./scripts/import_windows_dev_vm.sh
 ```
 
-4. Create or import the VM:
+1. Create or import the VM:
 
 ```bash
 ATOMIC_VM_ENV_FILE=config/windows_validation_vm_clean.env sudo ./scripts/setup_windows_validation_vm.sh
 ```
 
-5. Open the console and complete Windows setup if needed:
+1. Open the console and complete Windows setup if needed:
 
 ```bash
 sudo virt-viewer metatron-winval-clean-01
 ```
 
-6. After Windows setup finishes, follow the guest bootstrap guide in [docs/WINDOWS_GUEST_BOOTSTRAP.md](../docs/WINDOWS_GUEST_BOOTSTRAP.md).
+1. After Windows setup finishes, follow the guest bootstrap guide in [docs/WINDOWS_GUEST_BOOTSTRAP.md](../docs/WINDOWS_GUEST_BOOTSTRAP.md).
 
 Guest setup
 
@@ -71,13 +76,13 @@ Recommended install paths inside the guest:
 Wire the backend to the VM
 
 1. Copy the `windows-lab-winrm` profile from [config/atomic_runner_profiles.example.yml](../config/atomic_runner_profiles.example.yml) into [config/atomic_powershell.yml](../config/atomic_powershell.yml).
-2. Set `remote_host` to the Windows VM IP from:
+1. Set `remote_host` to the Windows VM IP from:
 
 ```bash
 sudo virsh domifaddr metatron-winval-clean-01
 ```
 
-3. Export the WinRM password used by `password_env` before starting the backend.
+1. Export the WinRM password used by `password_env` before starting the backend.
 
 Validation approach
 

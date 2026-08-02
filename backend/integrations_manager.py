@@ -14,21 +14,16 @@ from routers.dependencies import get_db
 
 _scheduler_task = None
 _scheduler_config = {}
+_runtime_semaphore = None
 
 from runtime_paths import ensure_data_dir
 from threat_intel import threat_intel
-try:
-    from services.governance_context import assert_governance_context
-except Exception:
-    from backend.services.governance_context import assert_governance_context
+from backend.services.governance_context import assert_governance_context
 
 try:
-    from services.world_events import emit_world_event
+    from backend.services.world_events import emit_world_event
 except Exception:  # pragma: no cover
-    try:
-        from backend.services.world_events import emit_world_event
-    except Exception:  # pragma: no cover
-        emit_world_event = None
+    emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +50,24 @@ SUPPORTED_RUNTIME_TOOLS = {
     "zeek",
     "clamav",
 }
+
+
+def _runtime_max_concurrent() -> int:
+    try:
+        return max(1, int(os.environ.get("INTEGRATION_RUNTIME_MAX_CONCURRENT", "1") or 1))
+    except Exception:
+        return 1
+
+
+def _get_runtime_semaphore() -> asyncio.Semaphore:
+    global _runtime_semaphore
+    desired = _runtime_max_concurrent()
+    current = _runtime_semaphore
+    if current is None or getattr(current, "_seraph_limit", None) != desired:
+        current = asyncio.Semaphore(desired)
+        setattr(current, "_seraph_limit", desired)
+        _runtime_semaphore = current
+    return current
 
 
 def _db_collection():
@@ -303,7 +316,7 @@ async def _queue_unified_agent_runtime(
 ) -> Dict[str, Any]:
     """Queue integration runtime command for a unified agent through governed dispatch."""
     try:
-        from services.governed_dispatch import GovernedDispatchService
+        from backend.services.governed_dispatch import GovernedDispatchService
     except Exception:
         from backend.services.governed_dispatch import GovernedDispatchService
 
@@ -1202,8 +1215,23 @@ async def run_yara(governance_context: Dict[str, Any] = None, params: Dict[str, 
     job_id = await _new_running_job("yara", {"action": action, "params": payload})
     try:
         yara_bin = _tool_binary("yara")
+        rule_dirs = [
+            Path(str(payload.get("rules_path") or "")).expanduser(),
+            Path("/yara_rules"),
+            Path("/app/yara_rules"),
+            Path("/etc/yara/rules"),
+            Path("/var/lib/seraph-ai/yara_rules"),
+        ]
+        resolved_rules_path = ""
+        for directory in rule_dirs:
+            if not str(directory):
+                continue
+            if directory.exists():
+                resolved_rules_path = str(directory)
+                break
+
         if action == "scan":
-            rules_path = str(payload.get("rules_path") or "/app/yara_rules")
+            rules_path = resolved_rules_path or str(payload.get("rules_path") or "/yara_rules")
             target_path = str(payload.get("target_path") or "/tmp")
             timeout_s = int(payload.get("timeout") or 180)
             if yara_bin:
@@ -1247,11 +1275,6 @@ async def run_yara(governance_context: Dict[str, Any] = None, params: Dict[str, 
             return _jobs[job_id]
 
         # status
-        rule_dirs = [
-            Path("/app/yara_rules"),
-            Path("/etc/yara/rules"),
-            Path("/var/lib/seraph-ai/yara_rules"),
-        ]
         rule_count = 0
         for directory in rule_dirs:
             if directory.exists():
@@ -1267,6 +1290,7 @@ async def run_yara(governance_context: Dict[str, Any] = None, params: Dict[str, 
             "runtime": "binary" if yara_bin else ("docker" if docker_available else "none"),
             "version": version,
             "rule_count": rule_count,
+            "rules_path": resolved_rules_path,
             "docker_image": os.environ.get("YARA_DOCKER_IMAGE") or "alpine:3.20",
         }
         await _persist_job(job_id, status="completed", result={"action": action, "result": result})
@@ -1350,7 +1374,7 @@ async def run_cuckoo(governance_context: Dict[str, Any] = None, params: Dict[str
     job_id = await _new_running_job("cuckoo", {"action": action, "params": payload})
     try:
         try:
-            from services.cuckoo_sandbox import cuckoo_sandbox
+            from backend.services.cuckoo_sandbox import cuckoo_sandbox
         except Exception:
             from backend.services.cuckoo_sandbox import cuckoo_sandbox
 
@@ -1617,43 +1641,44 @@ async def run_runtime_tool(
     if not action and t in {"amass", "purplesharp"}:
         return await _run_tool_status_probe(t, payload)
 
-    if t == "amass":
-        domain = str(payload.get("domain") or "").strip()
-        if not domain:
-            job_id = await _new_job("amass", {"runtime_target": rt, "params": payload})
-            await _persist_job(job_id, status="failed", result={"error": "domain_required"})
-            return _jobs[job_id]
-        return await run_amass(domain, governance_context=context)
-    if t == "velociraptor":
-        return await run_velociraptor(collection_name=payload.get("collection_name"), governance_context=context)
-    if t == "purplesharp":
-        return await run_purplesharp(target=payload.get("target"), options=payload.get("options"), governance_context=context)
-    if t == "arkime":
-        return await run_arkime(governance_context=context, params=payload)
-    if t == "bloodhound":
-        return await run_bloodhound(governance_context=context, params=payload)
-    if t == "spiderfoot":
-        return await run_spiderfoot(governance_context=context, params=payload)
-    if t == "sigma":
-        return await run_sigma(governance_context=context, params=payload)
-    if t == "atomic":
-        return await run_atomic(governance_context=context, params=payload)
-    if t == "trivy":
-        return await run_trivy(governance_context=context, params=payload)
-    if t == "falco":
-        return await run_falco(governance_context=context, params=payload)
-    if t == "suricata":
-        return await run_suricata(governance_context=context, params=payload)
-    if t == "yara":
-        return await run_yara(governance_context=context, params=payload)
-    if t == "osquery":
-        return await run_osquery(governance_context=context, params=payload)
-    if t == "zeek":
-        return await run_zeek(governance_context=context, params=payload)
-    if t == "cuckoo":
-        return await run_cuckoo(governance_context=context, params=payload)
-    if t == "clamav":
-        return await run_clamav(governance_context=context, params=payload)
+    async with _get_runtime_semaphore():
+        if t == "amass":
+            domain = str(payload.get("domain") or "").strip()
+            if not domain:
+                job_id = await _new_job("amass", {"runtime_target": rt, "params": payload})
+                await _persist_job(job_id, status="failed", result={"error": "domain_required"})
+                return _jobs[job_id]
+            return await run_amass(domain, governance_context=context)
+        if t == "velociraptor":
+            return await run_velociraptor(collection_name=payload.get("collection_name"), governance_context=context)
+        if t == "purplesharp":
+            return await run_purplesharp(target=payload.get("target"), options=payload.get("options"), governance_context=context)
+        if t == "arkime":
+            return await run_arkime(governance_context=context, params=payload)
+        if t == "bloodhound":
+            return await run_bloodhound(governance_context=context, params=payload)
+        if t == "spiderfoot":
+            return await run_spiderfoot(governance_context=context, params=payload)
+        if t == "sigma":
+            return await run_sigma(governance_context=context, params=payload)
+        if t == "atomic":
+            return await run_atomic(governance_context=context, params=payload)
+        if t == "trivy":
+            return await run_trivy(governance_context=context, params=payload)
+        if t == "falco":
+            return await run_falco(governance_context=context, params=payload)
+        if t == "suricata":
+            return await run_suricata(governance_context=context, params=payload)
+        if t == "yara":
+            return await run_yara(governance_context=context, params=payload)
+        if t == "osquery":
+            return await run_osquery(governance_context=context, params=payload)
+        if t == "zeek":
+            return await run_zeek(governance_context=context, params=payload)
+        if t == "cuckoo":
+            return await run_cuckoo(governance_context=context, params=payload)
+        if t == "clamav":
+            return await run_clamav(governance_context=context, params=payload)
     raise ValueError(f"Unsupported tool '{tool}'")
 
 

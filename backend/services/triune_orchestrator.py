@@ -102,6 +102,7 @@ class TriuneOrchestrator:
     ) -> Dict[str, Any]:
         context = context or {}
         session_token = context.get("session_token")
+        bounded_world_state = await self._build_world_snapshot(entity_ids or [])
 
         # Calibration and gauntlet sessions are measurement paths.
         # They must not be denied by ordinary triune routing.
@@ -145,6 +146,7 @@ class TriuneOrchestrator:
                     "hard_veto": False,
                 },
                 "metatron_ai": {"reasoning": "Calibration/Gauntlet bypass active."},
+                "bounded_world_state": bounded_world_state,
             }
 
         directive = context.get("text", event_type)
@@ -171,6 +173,7 @@ class TriuneOrchestrator:
                 "metatron_ai": {
                     "reasoning": metatron.get("reasoning", "Constitutional boundary triggered.")
                 },
+                "bounded_world_state": bounded_world_state,
             }
 
         diagnosis = self.classifier.classify(directive, context)
@@ -208,10 +211,40 @@ class TriuneOrchestrator:
                     f"{schema_route['challenge_type']}."
                 )
             },
+            "bounded_world_state": bounded_world_state,
         }
 
     async def _build_world_snapshot(self, entity_ids):
-        return {"entities": [], "timestamp": datetime.now(timezone.utc).isoformat()}
+        db = getattr(self.world_model, "db", None)
+        entity_ids = [str(entity_id) for entity_id in (entity_ids or []) if entity_id][:5]
+        entities = []
+        if db is not None and hasattr(db, "world_entities"):
+            for entity_id in entity_ids:
+                try:
+                    doc = await db.world_entities.find_one({"id": entity_id})
+                except Exception:
+                    doc = None
+                if not isinstance(doc, dict):
+                    continue
+                attrs = doc.get("attributes") or {}
+                entities.append(
+                    {
+                        "id": doc.get("id"),
+                        "type": doc.get("type"),
+                        "risk_score": attrs.get("risk_score"),
+                        "trust_state": attrs.get("trust_state"),
+                        "sector": attrs.get("sector"),
+                    }
+                )
+
+        return {
+            "entities": entities,
+            "entity_count": len(entities),
+            "entity_ids": entity_ids,
+            "bounded": True,
+            "source_quality": "bounded_authoritative_subset",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
     def _build_schema_route(
         self,

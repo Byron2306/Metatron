@@ -6,14 +6,7 @@ import uuid
 import asyncio
 import logging
 
-try:
-    from websocket_service import realtime_ws, WSMessage
-except Exception:
-    try:
-        from backend.websocket_service import realtime_ws, WSMessage
-    except Exception:
-        realtime_ws = None
-        WSMessage = None
+from backend.websocket_service import realtime_ws, WSMessage
 
 
 logger = logging.getLogger(__name__)
@@ -21,14 +14,10 @@ logger = logging.getLogger(__name__)
 
 def _load_triune_orchestrator():
     try:
-        from services.triune_orchestrator import TriuneOrchestrator
+        from backend.services.triune_orchestrator import TriuneOrchestrator
         return TriuneOrchestrator
     except Exception:
-        try:
-            from backend.services.triune_orchestrator import TriuneOrchestrator
-            return TriuneOrchestrator
-        except Exception:
-            return None
+        return None
 
 
 EVENT_CLASS_PASSIVE_FACT = "passive_fact"
@@ -62,6 +51,9 @@ _ACTION_CRITICAL_MARKERS = (
     "policy_bind_completed",
     "policy_obligations_emitted",
     "policy_resolution_class",
+    # AI adversary action-critical events (force Triune recompute + governance veto eligible)
+    "ai_logic_budget_trap",
+    "ai_token_revoked",
 )
 
 _STRATEGIC_MARKERS = (
@@ -74,6 +66,10 @@ _STRATEGIC_MARKERS = (
     "triune_periodic_tick",
     "genre_mode_changed",
     "score_id_changed",
+    # AI adversary strategic events (trigger Triune analysis)
+    "ai_adversary_",
+    "agenticity_",
+    "logic_budget_",
 )
 
 _LOCAL_REFLEX_MARKERS = (

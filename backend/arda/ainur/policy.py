@@ -24,6 +24,8 @@ class AinurPolicy:
             "manifestation_rights": "observer",
             "reason": ""
         }
+
+        success_states = {"heralded", "harmonic"}
         
         if mode == ConstitutionalMode.DEVELOPMENT:
             # Flexible: allowed unless explicitly vetoed
@@ -36,7 +38,7 @@ class AinurPolicy:
             return outcome
 
         if mode == ConstitutionalMode.GUARDED:
-            if verdict.overall_state == "heralded":
+            if verdict.overall_state in success_states:
                 outcome.update({
                     "node_status": "active",
                     "vote_eligible": True,
@@ -47,7 +49,7 @@ class AinurPolicy:
             return outcome
 
         if mode == ConstitutionalMode.SOVEREIGN:
-            if verdict.overall_state == "heralded":
+            if verdict.overall_state in success_states:
                 outcome.update({
                     "node_status": "sovereign",
                     "vote_eligible": True,
@@ -55,11 +57,11 @@ class AinurPolicy:
                 })
             else:
                 outcome["node_status"] = "excluded"
-                outcome["reason"] = f"Sovereign mode requires heralded status (current: {verdict.overall_state})"
+                outcome["reason"] = f"Sovereign mode requires harmonic/heralded status (current: {verdict.overall_state})"
             return outcome
 
         if mode == ConstitutionalMode.GENESIS:
-            if verdict.overall_state == "heralded":
+            if verdict.overall_state in success_states:
                 outcome.update({
                     "node_status": "genesis_root",
                     "vote_eligible": True,

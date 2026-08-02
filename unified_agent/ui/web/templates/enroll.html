@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Seraph AI — Device Enrollment</title>
+  <meta name="seraph-public-base-url" content="{{ public_base_url }}">
+  <meta name="seraph-invite-token" content="{{ invite_token or '' }}">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { background: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
@@ -118,14 +120,27 @@
     <!-- Android -->
     <div id="install-android" class="hidden space-y-4">
       <p class="text-sm text-slate-300">
-        Download and install the Seraph Agent APK directly on your Android device.
+        For the same port-5000 dashboard as Linux, install the Android agent through Termux.
       </p>
-      <a id="apk-link" href="#" class="btn-primary block text-center no-underline text-sm py-3" style="text-decoration:none">
-        &#x2B07; Download MetatronAgent.apk
-      </a>
+      <div>
+        <div class="flex gap-2 items-start">
+          <code id="android-termux-cmd" class="text-xs bg-slate-900 text-cyan-300 rounded px-3 py-2 flex-1 overflow-x-auto break-all"></code>
+          <button class="copy-btn mt-1" onclick="copy('android-termux-cmd')">Copy</button>
+        </div>
+      </div>
       <div class="text-xs text-slate-500 space-y-1">
-        <p>&#x2139; You may need to allow <strong class="text-slate-300">Install unknown apps</strong> from your browser in Settings.</p>
-        <p>&#x2139; After install, open the app and tap <strong class="text-slate-300">Connect to server</strong>.</p>
+        <p>&#x2139; Run the command in <strong class="text-slate-300">Termux from F-Droid</strong>. It installs the same Python agent and serves the canonical dashboard on <strong class="text-slate-300">http://127.0.0.1:5000</strong>.</p>
+        <p>&#x2139; Install <strong class="text-slate-300">Termux:Boot</strong> if you want the agent to auto-start after reboot.</p>
+      </div>
+      <div class="border-t border-slate-700 pt-4 space-y-3">
+        <p class="text-xs text-amber-300">The APK below is only a native preview shell and does not match the canonical Linux dashboard.</p>
+        <a id="apk-link" href="#" class="btn-primary block text-center no-underline text-sm py-3">
+          &#x2B07; Download MetatronAgent.apk (preview shell)
+        </a>
+        <div class="text-xs text-slate-500 space-y-1">
+          <p>&#x2139; You may need to allow <strong class="text-slate-300">Install unknown apps</strong> from your browser in Settings.</p>
+          <p>&#x2139; The APK remains available for testing, but it does not provide the same dashboard parity as the Termux install.</p>
+        </div>
       </div>
       <div class="border-t border-slate-700 pt-4">
         <p class="text-xs text-slate-400 mb-2">Or if developer mode is on — sideload via ADB:</p>
@@ -176,6 +191,19 @@
       <a id="windows-dl" href="#" class="text-xs text-sky-400 hover:underline">Or download the ZIP manually</a>
     </div>
 
+    <!-- Docker -->
+    <div id="install-docker" class="hidden space-y-4">
+      <p class="text-sm text-slate-300">Run the Seraph agent as a Docker container on any Linux host.</p>
+      <div class="flex gap-2 items-start">
+        <code id="docker-cmd" class="text-xs bg-slate-900 text-cyan-300 rounded px-3 py-2 flex-1 overflow-x-auto break-all"></code>
+        <button class="copy-btn mt-1" onclick="copy('docker-cmd')">Copy</button>
+      </div>
+      <div class="text-xs text-slate-500 space-y-1">
+        <p>&#x2139; The container registers itself with the Seraph server automatically on start.</p>
+        <p>&#x2139; Image: <code id="docker-image-label" class="bg-slate-800 px-1 rounded text-slate-300"></code></p>
+      </div>
+    </div>
+
     <!-- Unknown -->
     <div id="install-unknown" class="hidden">
       <p class="text-sm text-slate-400">Platform not recognized. Choose your OS below:</p>
@@ -184,16 +212,20 @@
         <button onclick="showInstall('macos')" class="copy-btn px-4 py-2">macOS</button>
         <button onclick="showInstall('windows')" class="copy-btn px-4 py-2">Windows</button>
         <button onclick="showInstall('android')" class="copy-btn px-4 py-2">Android</button>
+        <button onclick="showInstall('docker')" class="copy-btn px-4 py-2">Docker</button>
       </div>
     </div>
   </div>
 
   <!-- Footer -->
   <p class="text-slate-600 text-xs mt-8">Seraph AI &mdash; Metatron Security Platform</p>
+  <p class="text-slate-500 text-[10px] mt-2">Enrollment host: <span id="public-host-label" class="text-slate-300"></span></p>
 
 <script>
 // ── Platform detection ────────────────────────────────────────────────────────
 const ua = navigator.userAgent;
+const publicBaseUrl = document.querySelector('meta[name="seraph-public-base-url"]')?.content?.trim() || window.location.origin;
+const inviteToken = document.querySelector('meta[name="seraph-invite-token"]')?.content?.trim() || '';
 let detectedPlatform = 'unknown';
 let platformLabel = 'Unknown Device';
 let platformIcon = '💻';
@@ -232,6 +264,8 @@ let platformColor = 'bg-slate-700 text-slate-300';
   document.getElementById('platform-label').textContent = platformLabel;
   document.getElementById('platform-icon').textContent = platformIcon;
   document.getElementById('platform-ua').textContent = ua.slice(0, 80);
+  const hostLabel = document.getElementById('public-host-label');
+  if (hostLabel) hostLabel.textContent = publicBaseUrl.replace(/^https?:\/\//, '');
   const chip = document.getElementById('platform-chip');
   chip.textContent = detectedPlatform.toUpperCase();
   chip.className = `platform-badge ml-auto ${platformColor}`;
@@ -254,7 +288,9 @@ async function submitEnroll(e) {
   };
 
   try {
-    const resp = await fetch('/api/enroll/register', {
+    const enrollUrl = new URL('/api/enroll/register', publicBaseUrl);
+    if (inviteToken) enrollUrl.searchParams.set('token', inviteToken);
+    const resp = await fetch(enrollUrl.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -290,24 +326,30 @@ function showSuccess(data, name) {
   if (install.windows) document.getElementById('windows-cmd').textContent = install.windows.cmd;
   if (install.windows) document.getElementById('windows-dl').href          = install.windows.download_url;
   if (install.android) {
+    if (install.android.termux_cmd) document.getElementById('android-termux-cmd').textContent = install.android.termux_cmd;
     document.getElementById('apk-link').href = install.android.apk_url;
     document.getElementById('adb-cmd').textContent = `adb install MetatronAgent.apk`;
+  }
+  if (install.docker) {
+    document.getElementById('docker-cmd').textContent = install.docker.cmd;
+    document.getElementById('docker-image-label').textContent = install.docker.image;
   }
 
   showInstall(platform);
 }
 
 function showInstall(platform) {
-  const sections = ['android', 'ios', 'linux', 'macos', 'windows', 'unknown'];
+  const sections = ['android', 'ios', 'linux', 'macos', 'windows', 'docker', 'unknown'];
   sections.forEach(s => document.getElementById('install-' + s).classList.add('hidden'));
   const target = sections.includes(platform) ? platform : 'unknown';
   document.getElementById('install-' + target).classList.remove('hidden');
   document.getElementById('install-subtitle').textContent =
-    { android: 'Install the APK on your Android device',
+    { android: 'Use the Termux installer for the canonical port-5000 dashboard',
       ios: 'iOS MDM enrollment required',
       linux: 'Run the one-liner in your terminal',
       macos: 'Run the one-liner in Terminal',
       windows: 'Run in PowerShell as Administrator',
+      docker: 'Run the Docker container on your host',
       unknown: 'Select your OS' }[target] || 'Follow the steps for your device';
 }
 

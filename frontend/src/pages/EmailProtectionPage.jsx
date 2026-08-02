@@ -25,11 +25,26 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? ''
   : envBackendUrl.replace(/\/+$/, '');
+
+const EMAIL_PROTECTION_ACCENTS = {
+  magenta: { border: 'rgba(255,138,217,0.34)', glow: 'rgba(255,138,217,0.12)' },
+  gold: { border: 'rgba(255,209,102,0.3)', glow: 'rgba(255,209,102,0.1)' },
+  green: { border: 'rgba(124,226,163,0.28)', glow: 'rgba(124,226,163,0.1)' },
+  violet: { border: 'rgba(197,162,235,0.32)', glow: 'rgba(197,162,235,0.12)' },
+};
+
+const emailProtectionPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
 
 const EmailProtectionPage = () => {
   const { token } = useAuth();
@@ -61,6 +76,7 @@ const EmailProtectionPage = () => {
 
   useEffect(() => {
     fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const demoEmailData = {
@@ -373,18 +389,17 @@ const EmailProtectionPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Mail className="h-8 w-8 text-blue-500" />
-            <div>
-              <h1 className="text-2xl font-bold text-white">Email Protection</h1>
-              <p className="text-slate-400">Advanced email security with SPF/DKIM/DMARC, phishing detection, and DLP</p>
-            </div>
-          </div>
-          <Button onClick={fetchData} variant="outline" className="border-slate-700">
+    <div className="min-h-screen bg-slate-950 p-6" data-testid="email-protection-page">
+      <div className="max-w-7xl mx-auto space-y-6" data-accent="amber">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <SeraphPageHeader
+            eyebrow="seraph · email-protection · mailbox shielding"
+            title="Email Protection"
+            tagline="> advanced email security with SPF/DKIM/DMARC, phishing detection, and DLP"
+            accent="amber"
+            status={activeTab.toUpperCase()}
+          />
+          <Button onClick={fetchData} variant="outline" style={{ borderColor: 'rgba(255,138,217,0.28)', color: '#ffd8f4' }}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
@@ -392,11 +407,11 @@ const EmailProtectionPage = () => {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="bg-slate-900 border-slate-800">
+          <Card style={emailProtectionPanelStyle(EMAIL_PROTECTION_ACCENTS.magenta)}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-500/20">
-                  <FileText className="h-5 w-5 text-blue-400" />
+                <div className="p-2 rounded-lg" style={{ background: 'rgba(255,138,217,0.16)' }}>
+                  <FileText className="h-5 w-5" style={{ color: '#ff8ad9' }} />
                 </div>
                 <div>
                   <p className="text-sm text-slate-400">Total Assessed</p>
@@ -406,7 +421,7 @@ const EmailProtectionPage = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-slate-900 border-slate-800">
+          <Card style={emailProtectionPanelStyle(EMAIL_PROTECTION_ACCENTS.magenta)}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-red-500/20">
@@ -420,7 +435,7 @@ const EmailProtectionPage = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-slate-900 border-slate-800">
+          <Card style={emailProtectionPanelStyle(EMAIL_PROTECTION_ACCENTS.violet)}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-purple-500/20">
@@ -434,7 +449,7 @@ const EmailProtectionPage = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-slate-900 border-slate-800">
+          <Card style={emailProtectionPanelStyle(EMAIL_PROTECTION_ACCENTS.gold)}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-orange-500/20">
@@ -456,7 +471,8 @@ const EmailProtectionPage = () => {
               key={tab}
               variant={activeTab === tab ? 'default' : 'ghost'}
               onClick={() => setActiveTab(tab)}
-              className={activeTab === tab ? 'bg-blue-600' : 'text-slate-400'}
+              className={activeTab === tab ? '' : 'text-slate-400'}
+              style={activeTab === tab ? { background: 'linear-gradient(135deg, #ff8ad9, #c5a2eb)', color: '#071018' } : { border: '1px solid rgba(115,163,185,0.12)' }}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </Button>

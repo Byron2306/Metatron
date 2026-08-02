@@ -10,6 +10,18 @@ from .dependencies import get_current_user, check_permission
 # Import threat intel service
 from threat_intel import threat_intel, ThreatIntelManager
 
+# Optional threat intel services
+try:
+    from services.academic_retrieval import get_academic_retrieval_service
+except ImportError:
+    get_academic_retrieval_service = None
+
+try:
+    from services.attack_metadata import extract_attack_techniques, build_celery_attack_metadata
+except ImportError:
+    extract_attack_techniques = None
+    build_celery_attack_metadata = None
+
 router = APIRouter(prefix="/threat-intel", tags=["Threat Intelligence"])
 
 class IOCCheckRequest(BaseModel):
@@ -90,3 +102,46 @@ async def get_feeds_status(current_user: dict = Depends(get_current_user)):
         "by_feed": stats["by_feed"],
         "total_indicators": stats["total_indicators"]
     }
+
+
+@router.post("/attack-techniques/extract")
+async def extract_attack_techniques_endpoint(
+    payload: dict,
+    current_user: dict = Depends(check_permission("read")),
+):
+    """Extract MITRE ATT&CK techniques from detection/alert data."""
+    if not extract_attack_techniques:
+        raise HTTPException(status_code=501, detail="Attack metadata service not available")
+    
+    try:
+        techniques = extract_attack_techniques(payload)
+        return {
+            "success": True,
+            "techniques": techniques,
+            "count": len(techniques),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to extract techniques: {str(e)}")
+
+
+@router.get("/academic/research")
+async def search_academic_research(
+    query: str,
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user),
+):
+    """Search academic threat research publications."""
+    if not get_academic_retrieval_service:
+        raise HTTPException(status_code=501, detail="Academic retrieval service not available")
+    
+    try:
+        service = get_academic_retrieval_service()
+        results = await service.search(query, limit=limit)
+        return {
+            "success": True,
+            "query": query,
+            "results": results,
+            "count": len(results),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Research search failed: {str(e)}")

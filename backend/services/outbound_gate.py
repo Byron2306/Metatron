@@ -4,48 +4,19 @@ from datetime import datetime, timezone
 import secrets
 import logging
 
-try:
-    from services.governance_epoch import get_governance_epoch_service
-except Exception:
-    from backend.services.governance_epoch import get_governance_epoch_service
-
-try:
-    from services.notation_token import get_notation_token_service
-except Exception:
-    from backend.services.notation_token import get_notation_token_service
-
-try:
-    from services.harmonic_engine import get_harmonic_engine
-except Exception:
-    from backend.services.harmonic_engine import get_harmonic_engine
-
-try:
-    from services.chorus_engine import get_chorus_engine
-except Exception:
-    from backend.services.chorus_engine import get_chorus_engine
-
-try:
-    from services.vns import vns
-except Exception:
-    from backend.services.vns import vns
-
-try:
-    from services.vns_alerts import vns_alert_service
-except Exception:
-    from backend.services.vns_alerts import vns_alert_service
-
-try:
-    from services.arda_fabric import get_arda_fabric
-except Exception:
-    from backend.services.arda_fabric import get_arda_fabric
-
-try:
-    from services.world_events import emit_world_event
-except Exception:
-    try:
-        from backend.services.world_events import emit_world_event
-    except Exception:
-        emit_world_event = None
+from backend.services.authority_binding import canonical_action_digest, canonical_target_digest
+from backend.services.governance_epoch import get_governance_epoch_service
+from backend.services.notation_token import get_notation_token_service
+from backend.services.harmonic_engine import get_harmonic_engine
+from backend.services.harmonic_explainability import build_harmonic_explanation
+from backend.services.harmonic_policy import get_harmonic_policy_service
+from backend.services.chorus_engine import get_chorus_engine
+from backend.services.vns import vns
+from backend.services.vns_alerts import vns_alert_service
+from backend.services.arda_fabric import get_arda_fabric
+from backend.services.runtime_environment import current_environment
+from backend.services.world_manifold import world_manifold
+from backend.services.world_events import emit_world_event
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +35,16 @@ MANDATORY_HIGH_IMPACT_ACTIONS = {
     "tool_execution",
     "mcp_tool_execution",
     "fetch_truth",
+    # System-level actions (Phase Q hardening)
+    "mcp.sys.exfiltrate",
+    "mcp.sys.cat_shadow",
+    "mcp.sys.mutate",
+    "mcp.deploy.ransomware",
+    "admin.escalate",
+    "admin.sudo",
+    "mcp.admin.sudo",
+    "sys.modify",
+    "sys.restart",
 }
 
 
@@ -85,13 +66,11 @@ class OutboundGateService:
         self.epoch_service = get_governance_epoch_service(db)
         self.notation_tokens = get_notation_token_service(db)
         self.harmonic = get_harmonic_engine(db)
+        self.harmonic_policy = get_harmonic_policy_service()
         self.chorus = get_chorus_engine(db)
         self.fabric = get_arda_fabric()
-        
-        # Robust environment detection
-        env = os.environ.get("ENVIRONMENT")
-        arda_env = os.environ.get("ARDA_ENV")
-        self.environment = str(env or arda_env or "local").lower()
+
+        self.environment = current_environment()
 
     def _is_human_actor(self, actor: str) -> bool:
         """
@@ -134,6 +113,135 @@ class OutboundGateService:
         if action in MANDATORY_HIGH_IMPACT_ACTIONS:
             return "outbound_gated_action"
         return None
+
+    @staticmethod
+    def _extract_deception_provenance(
+        *,
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+        harmonic_state_at_gate: Optional[Dict[str, Any]],
+        harmonic_guidance: Dict[str, Any],
+        harmonic_obligations: List[str],
+        harmonic_enforcement: Dict[str, Any],
+        notation_token_id: Optional[str],
+        governance_epoch: Optional[str],
+        world_state_hash: Optional[str],
+        manifold_signature_valid: bool,
+    ) -> Optional[Dict[str, Any]]:
+        raw = {}
+        if isinstance(polyphonic_context.get("deception_provenance"), dict):
+            raw = dict(polyphonic_context.get("deception_provenance") or {})
+        elif isinstance(payload.get("deception_provenance"), dict):
+            raw = dict(payload.get("deception_provenance") or {})
+
+        deception_case_id = (
+            raw.get("deception_case_id")
+            or payload.get("deception_case_id")
+            or polyphonic_context.get("deception_case_id")
+        )
+        if not deception_case_id and not raw:
+            return None
+
+        corroboration = raw.get("independent_corroboration")
+        if not isinstance(corroboration, dict):
+            corroboration = {}
+        sources = list(dict.fromkeys(corroboration.get("sources") or raw.get("corroboration_sources") or []))
+        missing_sources = list(
+            dict.fromkeys(
+                corroboration.get("missing_sources") or raw.get("missing_corroboration_sources") or []
+            )
+        )
+
+        revocation_conditions = list(
+            dict.fromkeys(
+                raw.get("revocation_conditions")
+                or [
+                    "world_state_hash_drift",
+                    "notation_token_revoked",
+                    "corroboration_degraded",
+                    "manifold_signature_invalid",
+                ]
+            )
+        )
+
+        return {
+            "deception_case_id": deception_case_id,
+            "requested_mode": raw.get("requested_mode"),
+            "approved_mode": raw.get("approved_mode"),
+            "harmonic_shaped_requested_mode": raw.get("harmonic_shaped_requested_mode"),
+            "harmonic_shape_reasons": list(raw.get("harmonic_shape_reasons") or []),
+            "harmonic_band": raw.get("harmonic_band") or harmonic_guidance.get("band"),
+            "harmonic_confidence": raw.get("harmonic_confidence")
+            or float((harmonic_state_at_gate or {}).get("confidence") or 0.0),
+            "harmonic_discord": raw.get("harmonic_discord")
+            or float((harmonic_state_at_gate or {}).get("discord_score") or 0.0),
+            "harmonic_obligations": list(
+                dict.fromkeys(list(raw.get("harmonic_obligations") or []) + list(harmonic_obligations or []))
+            ),
+            "harmonic_enforcement": raw.get("harmonic_enforcement") or harmonic_enforcement,
+            "independent_corroboration": {
+                "required": bool(corroboration.get("required")),
+                "satisfied": bool(corroboration.get("satisfied")),
+                "sources": sources,
+                "missing_sources": missing_sources,
+                "reasons": list(corroboration.get("reasons") or []),
+            },
+            "notation_token_id": raw.get("notation_token_id") or notation_token_id,
+            "governance_epoch": raw.get("governance_epoch") or governance_epoch,
+            "world_state_hash": raw.get("world_state_hash") or world_state_hash,
+            "manifold_signature_valid": bool(
+                raw.get("manifold_signature_valid")
+                if raw.get("manifold_signature_valid") is not None
+                else manifold_signature_valid
+            ),
+            "triune_decision_link_required": True,
+            "outbound_gate_link_required": True,
+            "revocation_conditions": revocation_conditions,
+        }
+
+    @staticmethod
+    def _derive_harmonic_notation_controls(
+        *,
+        harmonic_guidance: Dict[str, Any],
+        harmonic_enforcement: Dict[str, Any],
+        base_strictness_level: Optional[str],
+        base_enforcement_profile: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        band = str(harmonic_guidance.get("band") or "normal").lower()
+        strictness = str(base_strictness_level or "balanced").lower()
+        tightened = dict(base_enforcement_profile or {})
+        entry_window_ms = [0, 300000]
+        maximum_uses = 1
+        triune_required = False
+
+        if harmonic_enforcement.get("token_narrowing_required"):
+            entry_window_ms = [0, 90000]
+            maximum_uses = 1
+            strictness = "elevated" if strictness in {"balanced", "normal", ""} else strictness
+            tightened["enforce_sequence_slot"] = True
+        if harmonic_enforcement.get("corroboration_required") or harmonic_enforcement.get("additional_approval_required"):
+            triune_required = True
+            strictness = "critical" if strictness not in {"emergency"} else strictness
+            tightened["enforce_required_companions"] = True
+            tightened["enforce_sequence_slot"] = True
+            entry_window_ms = [0, 60000]
+        if harmonic_enforcement.get("sandbox_required"):
+            triune_required = True
+            strictness = "emergency"
+            tightened["enforce_required_companions"] = True
+            tightened["enforce_sequence_slot"] = True
+            entry_window_ms = [0, 30000]
+
+        if band in {"insufficient_baseline_review", "low_confidence_review", "low_confidence_discord_review"}:
+            triune_required = True
+
+        return {
+            "effective_strictness_level": strictness,
+            "notation_entry_window_ms": entry_window_ms,
+            "notation_maximum_uses": maximum_uses,
+            "triune_required_by_harmonic": triune_required,
+            "enforcement_profile": tightened,
+        }
 
     def verify_transport_lock(self, node_id: str) -> bool:
         """
@@ -319,6 +427,13 @@ class OutboundGateService:
             polyphonic_context["timing_features"] = harmonic_observation.get("timing_features")
             polyphonic_context["harmonic_state"] = harmonic_observation.get("harmonic_state")
             polyphonic_context["baseline_ref"] = harmonic_observation.get("baseline_ref")
+            polyphonic_context["harmonic_explanation_at_gate"] = build_harmonic_explanation(
+                scope_key=str((harmonic_observation.get("baseline_ref") or {}).get("baseline_id") or ""),
+                stage="gate",
+                timing_features=harmonic_observation.get("timing_features"),
+                harmonic_state=harmonic_observation.get("harmonic_state"),
+                baseline_ref=harmonic_observation.get("baseline_ref"),
+            )
             history = list(polyphonic_context.get("harmonic_history") or [])
             history.append(
                 {
@@ -418,30 +533,10 @@ class OutboundGateService:
                 resolved_polyphonic_context.setdefault("world_state_hash", active_epoch.world_state_hash)
         notation_token = notation_token or payload.get("notation_token")
         notation_token_id = notation_token_id or payload.get("notation_token_id")
-        if (not notation_token and not notation_token_id) and active_epoch is not None:
-            try:
-                issued = await self.notation_tokens.mint_notation_token(
-                    epoch_id=active_epoch.epoch_id,
-                    score_id=active_epoch.score_id,
-                    genre_mode=active_epoch.genre_mode,
-                    voice_role=str((voice_profile or {}).get("voice_type") or "governance_voice"),
-                    capability_class=str((voice_profile or {}).get("capability_class") or "governance"),
-                    world_state_hash=active_epoch.world_state_hash,
-                    issued_to=str(subject_id or actor or "unknown"),
-                    entry_window_ms=payload.get("entry_window_ms") or [0, 300000],
-                    sequence_slot=payload.get("sequence_slot"),
-                    required_companions=payload.get("required_companions") or [],
-                    response_class=normalized_action,
-                    ttl_seconds=int(payload.get("notation_ttl_seconds") or 600),
-                )
-                notation_token = issued.model_dump() if hasattr(issued, "model_dump") else issued.dict()
-                notation_token_id = notation_token.get("token_id")
-                if isinstance(resolved_polyphonic_context, dict):
-                    resolved_polyphonic_context["notation_token"] = notation_token
-                    resolved_polyphonic_context["notation_token_id"] = notation_token_id
-                    resolved_polyphonic_context["notation_auto_issued"] = True
-            except Exception:
-                logger.debug("Failed auto-issuing notation token in gate_action", exc_info=True)
+        # The gate is a relying/enforcement point.  It must not manufacture the
+        # prerequisite notation or BEAST capability that it is meant to check.
+        if isinstance(resolved_polyphonic_context, dict):
+            resolved_polyphonic_context["notation_auto_issued"] = False
         enforcement_profile = self.notation_tokens.resolve_enforcement_profile(
             genre_mode=(active_epoch.genre_mode if active_epoch is not None else payload.get("genre_mode")),
             strictness_level=(
@@ -455,6 +550,31 @@ class OutboundGateService:
             "enforce_sequence_slot": bool(enforcement_profile.get("enforce_sequence_slot", False)),
             "enforce_required_companions": bool(enforcement_profile.get("enforce_required_companions", False)),
         }
+        capability_required = bool(
+            self.environment == "production"
+            and (
+                normalized_action in MANDATORY_HIGH_IMPACT_ACTIONS
+                or normalized_impact in {"high", "critical"}
+            )
+        )
+        expected_action_digest = canonical_action_digest(
+            action_type=normalized_action,
+            actor=actor,
+            subject_id=subject_id,
+            impact_level=normalized_impact,
+            payload=payload,
+        )
+        expected_target_digest = canonical_target_digest(subject_id=subject_id, payload=payload)
+        validation_context.update(
+            {
+                "require_capability": capability_required,
+                "capability_lease_id": payload.get("capability_lease_id"),
+                "authority_request_digest": payload.get("authority_request_digest"),
+                "action_digest": expected_action_digest,
+                "audience": "metatron-outbound-gate",
+                "target_digest": expected_target_digest,
+            }
+        )
         notation_validation = await self.notation_tokens.validate_notation_token(
             token=notation_token or notation_token_id,
             active_epoch=active_epoch_doc if active_epoch_doc else None,
@@ -471,6 +591,13 @@ class OutboundGateService:
         world_state_hash_match = bool(notation_checks.get("world_state_hash_match", False))
         epoch_match = bool(notation_checks.get("epoch_match", False))
         score_match = bool(notation_checks.get("score_match", False))
+        capability_binding_valid = bool(notation_checks.get("capability_binding_valid", False))
+        authority_request_binding_valid = bool(
+            notation_checks.get("authority_request_binding_valid", False)
+        )
+        action_binding_valid = bool(notation_checks.get("action_binding_valid", False))
+        audience_binding_valid = bool(notation_checks.get("audience_binding_valid", False))
+        target_binding_valid = bool(notation_checks.get("target_binding_valid", False))
         if isinstance(resolved_polyphonic_context, dict):
             if notation_validation.get("token"):
                 resolved_polyphonic_context["notation_token"] = notation_validation.get("token")
@@ -638,6 +765,8 @@ class OutboundGateService:
             payload_with_polyphonic["required_companions"] = edge_context.get("required_companions") or []
             payload_with_polyphonic["settlement_timeout_ms"] = edge_context.get("settlement_timeout_ms")
         payload_with_polyphonic["gate_seen_at_ms"] = gate_seen_at_ms
+        payload_with_polyphonic["canonical_action_digest"] = expected_action_digest
+        payload_with_polyphonic["canonical_target_digest"] = expected_target_digest
         if gate_lag_ms is not None:
             payload_with_polyphonic["gate_lag_ms"] = gate_lag_ms
         if harmonic_observation:
@@ -654,6 +783,29 @@ class OutboundGateService:
             payload_with_polyphonic.setdefault("world_state_hash", active_epoch.world_state_hash)
 
         harmonic_state_at_gate = harmonic_observation.get("harmonic_state") if harmonic_observation else {}
+        harmonic_modulation = self.harmonic_policy.apply_harmonic_obligations(
+            harmonic_state=harmonic_state_at_gate
+        )
+        harmonic_guidance = harmonic_modulation.get("harmonic_guidance") or {}
+        harmonic_obligations = harmonic_modulation.get("harmonic_obligations") or []
+        harmonic_enforcement = harmonic_modulation.get("harmonic_enforcement") or {}
+        harmonic_release_not_before = harmonic_modulation.get("release_not_before")
+        harmonic_notation_controls = self._derive_harmonic_notation_controls(
+            harmonic_guidance=harmonic_guidance,
+            harmonic_enforcement=harmonic_enforcement,
+            base_strictness_level=(
+                active_epoch.strictness_level if active_epoch is not None else payload.get("strictness_level")
+            ),
+            base_enforcement_profile=enforcement_profile,
+        )
+        enforcement_profile = dict(harmonic_notation_controls.get("enforcement_profile") or enforcement_profile)
+        validation_context["enforce_sequence_slot"] = bool(enforcement_profile.get("enforce_sequence_slot", False))
+        validation_context["enforce_required_companions"] = bool(enforcement_profile.get("enforce_required_companions", False))
+        if isinstance(resolved_polyphonic_context, dict):
+            resolved_polyphonic_context["harmonic_notation_controls"] = harmonic_notation_controls
+            resolved_polyphonic_context["strictness_level"] = harmonic_notation_controls.get(
+                "effective_strictness_level"
+            )
         harmonic_discord = float((harmonic_state_at_gate or {}).get("discord_score") or 0.0)
         harmonic_confidence = float((harmonic_state_at_gate or {}).get("confidence") or 0.0)
         harmonic_mode_recommendation = (harmonic_state_at_gate or {}).get("mode_recommendation")
@@ -665,6 +817,8 @@ class OutboundGateService:
         explicit_human_override = self._is_human_actor(actor) and not requested_triune
         requires_triune = requested_triune
         if harmonic_review_required and not explicit_human_override:
+            requires_triune = True
+        if harmonic_notation_controls.get("triune_required_by_harmonic") and not explicit_human_override:
             requires_triune = True
             
         # Bypass Triune for local development/testing scenarios
@@ -680,21 +834,55 @@ class OutboundGateService:
         # Physical Veto: Transport Lock (Phase Q Hardening)
         transport_verified = self.verify_transport_lock(str(subject_id or actor or "unknown"))
 
+        # Integrity Veto: high-impact actions require a valid manifold seal.
+        manifold_signature_valid = True
+        if normalized_action in MANDATORY_HIGH_IMPACT_ACTIONS:
+            try:
+                current_manifold = world_manifold.get_current_manifold()
+                manifold_signature_valid = bool(current_manifold and getattr(current_manifold, "signature_valid", False))
+            except Exception:
+                manifold_signature_valid = False
+
+        # Impact-level based gate enforcement: high/critical actions trigger ALL vetoes regardless of action type
+        is_high_or_critical_impact = normalized_impact in {"high", "critical"}
+        is_mandatory_high = normalized_action in MANDATORY_HIGH_IMPACT_ACTIONS
+        applies_veto_checks = is_mandatory_high or is_high_or_critical_impact
+
         deny_for_notation = (
             (not notation_valid)
-            and normalized_action in MANDATORY_HIGH_IMPACT_ACTIONS
+            and applies_veto_checks
         )
         
-        deny_for_attestation = is_attestation_failed and normalized_action in MANDATORY_HIGH_IMPACT_ACTIONS
+        deny_for_attestation = is_attestation_failed and applies_veto_checks
         
         # Deny if action is high-impact but transport is not cryptographically locked (no WireGuard)
-        deny_for_transport = (not transport_verified) and normalized_action in MANDATORY_HIGH_IMPACT_ACTIONS
+        deny_for_transport = (not transport_verified) and applies_veto_checks
+        deny_for_manifold_signature = (
+            (not manifold_signature_valid)
+            and applies_veto_checks
+        )
+        deny_for_capability = capability_required and not all(
+            (
+                capability_binding_valid,
+                authority_request_binding_valid,
+                action_binding_valid,
+                audience_binding_valid,
+                target_binding_valid,
+            )
+        )
 
-        if explicit_human_override:
-            deny_for_attestation = False
-            deny_for_transport = False
+        # Human review may satisfy a discretionary approval requirement, but it
+        # must never transmute failed attestation or transport evidence into a
+        # pass.  Those are hard physical/identity vetoes and require fresh
+        # evidence, not an override bit.
 
-        is_denied = deny_for_notation or deny_for_attestation or deny_for_transport
+        is_denied = (
+            deny_for_notation
+            or deny_for_attestation
+            or deny_for_transport
+            or deny_for_manifold_signature
+            or deny_for_capability
+        )
         
         if is_denied:
             queue_status = "denied"
@@ -708,6 +896,23 @@ class OutboundGateService:
             queue_status = "pending"
             decision_status = "pending"
             execution_status = "awaiting_decision"
+
+        deception_provenance = self._extract_deception_provenance(
+            payload=payload_with_polyphonic,
+            polyphonic_context=(
+                resolved_polyphonic_context if isinstance(resolved_polyphonic_context, dict) else {}
+            ),
+            harmonic_state_at_gate=harmonic_state_at_gate,
+            harmonic_guidance=harmonic_guidance,
+            harmonic_obligations=harmonic_obligations,
+            harmonic_enforcement=harmonic_enforcement,
+            notation_token_id=notation_token_id,
+            governance_epoch=active_epoch.epoch_id if active_epoch is not None else None,
+            world_state_hash=active_epoch.world_state_hash if active_epoch is not None else None,
+            manifold_signature_valid=manifold_signature_valid,
+        )
+        if deception_provenance and isinstance(resolved_polyphonic_context, dict):
+            resolved_polyphonic_context["deception_provenance"] = deception_provenance
 
         queue_doc = {
             "queue_id": queue_id,
@@ -726,11 +931,32 @@ class OutboundGateService:
             "score_id": active_epoch.score_id if active_epoch is not None else None,
             "genre_mode": active_epoch.genre_mode if active_epoch is not None else None,
             "strictness_level": active_epoch.strictness_level if active_epoch is not None else None,
+            "effective_strictness_level": harmonic_notation_controls.get("effective_strictness_level"),
             "world_state_hash": active_epoch.world_state_hash if active_epoch is not None else None,
             "notation_token_id": notation_token_id,
             "notation_valid": notation_valid,
             "notation_failure_reason": notation_failure_reason,
             "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
+            "capability_required": capability_required,
+            "capability_binding_valid": capability_binding_valid,
+            "action_binding_valid": action_binding_valid,
+            "authority_request_binding_valid": authority_request_binding_valid,
+            "audience_binding_valid": audience_binding_valid,
+            "target_binding_valid": target_binding_valid,
+            "deny_for_capability": deny_for_capability,
+            "canonical_action_digest": expected_action_digest,
+            "canonical_target_digest": expected_target_digest,
+            # Veto audit trail (Phase Q hardening)
+            "applies_veto_checks": applies_veto_checks,
+            "is_high_or_critical_impact": is_high_or_critical_impact,
+            "is_mandatory_high": is_mandatory_high,
+            "deny_for_notation": deny_for_notation,
+            "deny_for_attestation": deny_for_attestation,
+            "deny_for_transport": deny_for_transport,
+            "deny_for_manifold_signature": deny_for_manifold_signature,
+            "attestation_state": attestation_state,
+            "transport_verified": transport_verified,
+            "manifold_signature_valid": manifold_signature_valid,
             "world_state_hash_match": world_state_hash_match,
             "epoch_match": epoch_match,
             "score_match": score_match,
@@ -741,6 +967,12 @@ class OutboundGateService:
             "baseline_ref": harmonic_observation.get("baseline_ref") if harmonic_observation else None,
             "harmonic_review_required": harmonic_review_required,
             "harmonic_mode_recommendation": harmonic_mode_recommendation,
+            "harmonic_band": harmonic_guidance.get("band"),
+            "harmonic_obligations": harmonic_obligations,
+            "harmonic_enforcement": harmonic_enforcement,
+            "harmonic_notation_controls": harmonic_notation_controls,
+            "harmonic_release_not_before": harmonic_release_not_before,
+            "deception_provenance": deception_provenance,
             "status": queue_status,
             "execution_status": execution_status,
             "created_at": now,
@@ -766,11 +998,32 @@ class OutboundGateService:
             "score_id": active_epoch.score_id if active_epoch is not None else None,
             "genre_mode": active_epoch.genre_mode if active_epoch is not None else None,
             "strictness_level": active_epoch.strictness_level if active_epoch is not None else None,
+            "effective_strictness_level": harmonic_notation_controls.get("effective_strictness_level"),
             "world_state_hash": active_epoch.world_state_hash if active_epoch is not None else None,
             "notation_token_id": notation_token_id,
             "notation_valid": notation_valid,
             "notation_failure_reason": notation_failure_reason,
             "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
+            "capability_required": capability_required,
+            "capability_binding_valid": capability_binding_valid,
+            "action_binding_valid": action_binding_valid,
+            "authority_request_binding_valid": authority_request_binding_valid,
+            "audience_binding_valid": audience_binding_valid,
+            "target_binding_valid": target_binding_valid,
+            "deny_for_capability": deny_for_capability,
+            "canonical_action_digest": expected_action_digest,
+            "canonical_target_digest": expected_target_digest,
+            # Veto audit trail (Phase Q hardening)
+            "applies_veto_checks": applies_veto_checks,
+            "is_high_or_critical_impact": is_high_or_critical_impact,
+            "is_mandatory_high": is_mandatory_high,
+            "deny_for_notation": deny_for_notation,
+            "deny_for_attestation": deny_for_attestation,
+            "deny_for_transport": deny_for_transport,
+            "deny_for_manifold_signature": deny_for_manifold_signature,
+            "attestation_state": attestation_state,
+            "transport_verified": transport_verified,
+            "manifold_signature_valid": manifold_signature_valid,
             "world_state_hash_match": world_state_hash_match,
             "epoch_match": epoch_match,
             "score_match": score_match,
@@ -781,9 +1034,12 @@ class OutboundGateService:
             "baseline_ref": harmonic_observation.get("baseline_ref") if harmonic_observation else None,
             "harmonic_review_required": harmonic_review_required,
             "harmonic_mode_recommendation": harmonic_mode_recommendation,
-            "status": decision_status,
-            "created_at": now,
-            "updated_at": now,
+            "harmonic_band": harmonic_guidance.get("band"),
+            "harmonic_obligations": harmonic_obligations,
+            "harmonic_enforcement": harmonic_enforcement,
+            "harmonic_notation_controls": harmonic_notation_controls,
+            "harmonic_release_not_before": harmonic_release_not_before,
+            "deception_provenance": deception_provenance,
             "notes": (
                 f"Notation denied before triune approval: {normalized_action} | {notation_failure_reason}"
                 if deny_for_notation
@@ -791,12 +1047,20 @@ class OutboundGateService:
                     f"Attestation denied: subject '{subject_id or actor}' is {attestation_state.upper()}"
                     if deny_for_attestation
                     else (
-                        f"Approved for immediate execution: {normalized_action}"
-                        if not requires_triune
-                        else f"Queued for triune approval: {normalized_action}"
+                        (
+                            f"Manifold signature denied: no valid manifold seal for {normalized_action}"
+                            if deny_for_manifold_signature
+                            else (
+                                f"Approved for immediate execution: {normalized_action}"
+                                if not requires_triune
+                                else f"Queued for triune approval: {normalized_action}"
+                            )
+                        )
                     )
                 )
             ),
+            "created_at": now,
+            "updated_at": now,
         }
 
         try:
@@ -837,6 +1101,7 @@ class OutboundGateService:
                         "notation_valid": notation_valid,
                         "notation_failure_reason": notation_failure_reason,
                         "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
+                        "manifold_signature_valid": manifold_signature_valid,
                         "world_state_hash_match": world_state_hash_match,
                         "epoch_match": epoch_match,
                         "score_match": score_match,
@@ -846,6 +1111,7 @@ class OutboundGateService:
                         "harmonic_state_at_gate": harmonic_observation.get("harmonic_state") if harmonic_observation else None,
                         "harmonic_review_required": harmonic_review_required,
                         "harmonic_mode_recommendation": harmonic_mode_recommendation,
+                        "deception_provenance": deception_provenance,
                     },
                     trigger_triune=requires_triune,
                     source="outbound_gate",
@@ -876,6 +1142,7 @@ class OutboundGateService:
             "notation_valid": notation_valid,
             "notation_failure_reason": notation_failure_reason,
             "notation_enforcement_profile": notation_validation.get("enforcement_profile"),
+            "manifold_signature_valid": manifold_signature_valid,
             "world_state_hash_match": world_state_hash_match,
             "epoch_match": epoch_match,
             "score_match": score_match,
@@ -885,10 +1152,19 @@ class OutboundGateService:
             "harmonic_state_at_gate": harmonic_observation.get("harmonic_state") if harmonic_observation else None,
             "harmonic_review_required": harmonic_review_required,
             "harmonic_mode_recommendation": harmonic_mode_recommendation,
+            "deception_provenance": deception_provenance,
             "message": (
                 "Action denied due to notation validation failure"
                 if deny_for_notation
-                else ("Action denied due to attestation failure" if deny_for_attestation else ("Action approved for immediate execution" if not requires_triune else "Action queued for triune approval"))
+                else (
+                    "Action denied due to attestation failure"
+                    if deny_for_attestation
+                    else (
+                        "Action denied due to manifold signature validation failure"
+                        if deny_for_manifold_signature
+                        else ("Action approved for immediate execution" if not requires_triune else "Action queued for triune approval")
+                    )
+                )
             ),
         }
 

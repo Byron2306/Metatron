@@ -12,6 +12,12 @@ from .dependencies import (
     HoneypotCreate, HoneypotResponse, HoneypotInteraction,
     get_current_user, get_db, check_permission
 )
+try:
+    from backend.schemas.deception_models import DeceptionMode
+    from backend.services.deception_authority import DeceptionAuthorityService
+except Exception:
+    from schemas.deception_models import DeceptionMode  # type: ignore
+    from services.deception_authority import DeceptionAuthorityService  # type: ignore
 
 router = APIRouter(prefix="/honeypots", tags=["Honeypots"])
 
@@ -108,6 +114,35 @@ async def record_honeypot_interaction(honeypot_id: str, source_ip: str, action: 
         "data": data,
         "threat_level": threat_levels.get(action, "medium")
     }
+
+    headers = data.get("headers", {})
+    session_id = data.get("session_id")
+    authority = DeceptionAuthorityService(db)
+    case, validation = await authority.create_case(
+        session_id=session_id,
+        campaign_id=None,
+        source_ip=source_ip,
+        path=f"/honeypots/{honeypot_id}/interaction",
+        trigger_reason="honeypot_triggered",
+        triggering_signals=[
+            "decoy_touched",
+            f"honeypot_action:{action}",
+            f"honeypot_type:{honeypot.get('type', 'unknown')}",
+        ],
+        desired_mode=DeceptionMode.TRAP_SINK,
+        risk_score=100 if threat_levels.get(action) == "high" else 85,
+        headers=headers,
+        behavior_flags={
+            "decoy_touched": True,
+            "actor_type": data.get("actor_type"),
+            "machine_plausibility": data.get("machine_plausibility", 0.85),
+            "agenticity_score": data.get("agenticity_score", 0.75),
+        },
+        evidence_refs=[interaction_id, honeypot_id],
+    )
+    interaction_doc["deception_case_id"] = case.deception_case_id
+    if not validation.allowed:
+        interaction_doc["deception_validation_reasons"] = list(validation.reasons)
     
     await db.honeypot_interactions.insert_one(interaction_doc)
     
@@ -128,11 +163,11 @@ async def record_honeypot_interaction(honeypot_id: str, source_ip: str, action: 
     campaign_info = None
     if deception:
         try:
-            headers = data.get("headers", {})
             assessment = await deception.record_decoy_interaction(
                 ip=source_ip,
                 decoy_type="honeypot",
                 decoy_id=honeypot_id,
+                session_id=session_id,
                 headers=headers
             )
             campaign_info = {
@@ -141,9 +176,35 @@ async def record_honeypot_interaction(honeypot_id: str, source_ip: str, action: 
                 "risk_score": assessment.score
             }
             interaction_doc["campaign_id"] = assessment.campaign_id
+            case.campaign_id = assessment.campaign_id
+            await authority.record_execution_outcome(
+                case=case,
+                status="engaged",
+                note="honeypot interaction correlated to active campaign",
+                output_class="event_capture",
+                extra={
+                    "campaign_id": assessment.campaign_id,
+                    "fingerprint_id": assessment.fingerprint_id,
+                    "escalation_level": assessment.escalation_level.value,
+                },
+            )
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Deception engine notification failed: {e}")
+            await authority.record_execution_outcome(
+                case=case,
+                status="partial",
+                note="honeypot interaction recorded but campaign correlation failed",
+                output_class="event_capture",
+                extra={"campaign_error": str(e)},
+            )
+    else:
+        await authority.record_execution_outcome(
+            case=case,
+            status="captured",
+            note="honeypot interaction recorded without campaign engine",
+            output_class="event_capture",
+        )
     
     # Auto-create threat if high severity
     if threat_levels.get(action) == "high":
@@ -172,7 +233,12 @@ async def record_honeypot_interaction(honeypot_id: str, source_ip: str, action: 
             "threat_level": "high"
         })
     
-    response = {"message": "Interaction recorded", "id": interaction_id, "threat_level": threat_levels.get(action)}
+    response = {
+        "message": "Interaction recorded",
+        "id": interaction_id,
+        "threat_level": threat_levels.get(action),
+        "deception_case_id": case.deception_case_id,
+    }
     if campaign_info:
         response["campaign_tracking"] = campaign_info
     return response

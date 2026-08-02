@@ -17,11 +17,41 @@ import {
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? ''
   : envBackendUrl.replace(/\/+$/, '');
+
+const ISOLATION_ACCENTS = {
+  violet: { border: 'rgba(188,19,254,0.38)', glow: 'rgba(188,19,254,0.14)' },
+  green: { border: 'rgba(57,255,20,0.34)', glow: 'rgba(57,255,20,0.12)' },
+  magenta: { border: 'rgba(255,43,214,0.42)', glow: 'rgba(255,43,214,0.16)' },
+  gold: { border: 'rgba(251,191,36,0.36)', glow: 'rgba(251,191,36,0.12)' },
+};
+
+const isolationPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
+
+const isolationTabStyle = (selected) => (
+  selected
+    ? {
+        background: 'linear-gradient(180deg, rgba(20,18,38,0.94), rgba(7,14,26,0.96))',
+        color: '#ffe6fb',
+        border: '1px solid rgba(255,43,214,0.38)',
+        boxShadow: 'inset 0 -2px 0 rgba(255,43,214,0.9), 0 0 10px rgba(255,43,214,0.12)',
+      }
+    : {
+        background: 'linear-gradient(180deg, rgba(10,19,34,0.88), rgba(5,11,20,0.94))',
+        color: '#a7c7d6',
+        border: '1px solid rgba(115,163,185,0.12)',
+      }
+);
 
 const BrowserIsolationPage = () => {
   const { token } = useAuth();
@@ -70,6 +100,7 @@ const BrowserIsolationPage = () => {
 
   useEffect(() => {
     fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   useEffect(() => {
@@ -119,6 +150,7 @@ const BrowserIsolationPage = () => {
         streamSocketRef.current = null;
       }
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSession, token]);
 
   const fetchData = async () => {
@@ -310,69 +342,64 @@ const BrowserIsolationPage = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 p-6" data-testid="browser-isolation-page">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg bg-cyan-500/20 flex items-center justify-center">
-              <Globe className="w-6 h-6 text-cyan-400" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">Browser Isolation</h1>
-              <p className="text-slate-400">Secure remote browsing with content isolation</p>
-            </div>
-          </div>
-          <Button onClick={fetchData} variant="outline" className="border-slate-700">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
-        </div>
+      <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+        <SeraphPageHeader
+          eyebrow="seraph · browser-isolation · remote browsing"
+          title="Browser Isolation"
+          tagline="> secure remote browsing with content isolation"
+          accent="orange"
+          status={activeTab.toUpperCase()}
+        />
+        <Button className="sophia-btn sophia-btn-refresh" onClick={fetchData} variant="outline" style={{ borderColor: 'rgba(255,43,214,0.54)', color: '#ffb5f4' }}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <Card className="bg-slate-900/50 border-slate-800">
+        <Card style={isolationPanelStyle(ISOLATION_ACCENTS.violet)}>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-slate-400 text-sm">Total Sessions</p>
-                <p className="text-2xl font-bold text-white">{stats?.total_sessions || 0}</p>
+                <p className="sophia-terminal-label text-sm">Total Sessions</p>
+                <p className="sophia-terminal-value text-2xl font-bold text-white">{stats?.total_sessions || 0}</p>
               </div>
-              <Globe className="w-8 h-8 text-cyan-400" />
+              <Globe className="w-8 h-8" style={{ color: '#bc13fe' }} />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900/50 border-slate-800">
+        <Card style={isolationPanelStyle(ISOLATION_ACCENTS.green)}>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-slate-400 text-sm">Active Sessions</p>
-                <p className="text-2xl font-bold text-white">{stats?.active_sessions || 0}</p>
+                <p className="sophia-terminal-label text-sm">Active Sessions</p>
+                <p className="sophia-terminal-value text-2xl font-bold text-white">{stats?.active_sessions || 0}</p>
               </div>
               <Activity className="w-8 h-8 text-green-400" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900/50 border-slate-800">
+        <Card style={isolationPanelStyle(ISOLATION_ACCENTS.magenta)}>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-slate-400 text-sm">Blocked Domains</p>
-                <p className="text-2xl font-bold text-white">{stats?.blocked_domains || 0}</p>
+                <p className="sophia-terminal-label text-sm">Blocked Domains</p>
+                <p className="sophia-terminal-value text-2xl font-bold text-white">{stats?.blocked_domains || 0}</p>
               </div>
               <Ban className="w-8 h-8 text-red-400" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900/50 border-slate-800">
+        <Card style={isolationPanelStyle(ISOLATION_ACCENTS.gold)}>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-slate-400 text-sm">Threats Blocked</p>
-                <p className="text-2xl font-bold text-white">{stats?.total_threats_blocked || 0}</p>
+                <p className="sophia-terminal-label text-sm">Threats Blocked</p>
+                <p className="sophia-terminal-value text-2xl font-bold text-white">{stats?.total_threats_blocked || 0}</p>
               </div>
               <Shield className="w-8 h-8 text-orange-400" />
             </div>
@@ -381,11 +408,18 @@ const BrowserIsolationPage = () => {
       </div>
 
       {/* URL Input Section */}
-      <Card className="bg-slate-900/50 border-slate-800 mb-6">
+      <Card className="mb-6" style={isolationPanelStyle(ISOLATION_ACCENTS.violet)}>
         <CardContent className="p-4">
-          <div className="mb-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded">
-            <p className="text-cyan-400 text-sm font-medium mb-1">How to use Browser Isolation:</p>
-            <ol className="text-xs text-slate-300 list-decimal list-inside space-y-1">
+          <div
+            className="mb-4 p-3 rounded"
+            style={{
+              background: 'linear-gradient(180deg, rgba(10,36,46,0.34), rgba(6,14,24,0.82))',
+              border: '1px solid rgba(0,240,255,0.3)',
+              boxShadow: 'inset 0 0 14px rgba(0,240,255,0.05)',
+            }}
+          >
+            <p className="sophia-terminal-label text-sm mb-1" style={{ color: '#b9fff9', textShadow: '0 0 8px rgba(0,240,255,0.4)' }}>How to use Browser Isolation:</p>
+            <ol className="sophia-terminal-meta text-xs list-decimal list-inside space-y-1">
               <li><strong>Analyze URL</strong> - Check if a URL is safe before visiting</li>
               <li><strong>Start Isolated Session</strong> - Browse untrusted sites in a secure container</li>
               <li>Choose isolation mode: <strong>Full</strong> (safest), <strong>CDR</strong> (sanitized), <strong>Read-only</strong>, or <strong>Pixel push</strong></li>
@@ -412,11 +446,11 @@ const BrowserIsolationPage = () => {
               </select>
             </div>
             <div className="flex gap-2">
-              <Button onClick={analyzeURL} variant="outline" className="border-slate-700">
+              <Button className="sophia-btn sophia-btn-refresh" onClick={analyzeURL} variant="outline" style={{ borderColor: 'rgba(255,43,214,0.54)', color: '#ffb5f4' }}>
                 <Eye className="w-4 h-4 mr-2" />
                 Analyze URL
               </Button>
-              <Button onClick={createSession} disabled={creating} className="bg-cyan-600 hover:bg-cyan-700">
+              <Button className="sophia-btn arm-button" onClick={createSession} disabled={creating} style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,43,214,0.95), rgba(251,191,36,0.9))', color: '#041018', border: '1px solid rgba(255,43,214,0.35)' }}>
                 {creating ? (
                   <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                 ) : (
@@ -476,7 +510,8 @@ const BrowserIsolationPage = () => {
             key={tab}
             variant={activeTab === tab ? 'default' : 'ghost'}
             onClick={() => setActiveTab(tab)}
-            className={activeTab === tab ? 'bg-cyan-600 hover:bg-cyan-700' : 'text-slate-400'}
+            className={activeTab === tab ? 'sophia-scan' : ''}
+            style={isolationTabStyle(activeTab === tab)}
           >
             {tab === 'browser' ? (
               <span className="flex items-center gap-2">
@@ -540,7 +575,7 @@ const BrowserIsolationPage = () => {
                 </div>
 
                 {/* Isolated Browser Frame */}
-                <div className="relative bg-white rounded-lg overflow-hidden" style={{ height: '500px' }}>
+                <div className="relative rounded-lg overflow-hidden border border-cyan-400/25 bg-slate-950/70" style={{ height: '500px', boxShadow: 'inset 0 0 20px rgba(0,240,255,0.08), 0 0 18px rgba(0,240,255,0.12)' }}>
                   <div className="absolute top-0 left-0 right-0 bg-slate-800 text-white px-3 py-1 text-xs flex items-center gap-2 z-10">
                     <Shield className="w-3 h-3 text-green-400" />
                     <span className="text-green-400">ISOLATED</span>

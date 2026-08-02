@@ -9,6 +9,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card'
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const defaultEvent = {
   Image: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
@@ -95,25 +96,25 @@ const SigmaPage = () => {
   };
 
   return (
-    <div className="space-y-6" data-testid="sigma-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Shield className="w-6 h-6 text-cyan-400" />
-            Sigma Detection Engine
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Backend Sigma rule coverage and real-time event matching</p>
-        </div>
-        <Button
-          onClick={reloadRules}
-          disabled={reloading}
-          variant="outline"
-          className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10"
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${reloading ? 'animate-spin' : ''}`} />
-          {reloading ? 'Reloading...' : 'Reload Rules'}
-        </Button>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="sigma-page">
+      <SeraphPageHeader
+        eyebrow="seraph · sigma · detection engineering"
+        title="Sigma Detection Engine"
+        tagline="> rule coverage · real-time event matching · technique mapping"
+        accent="cyan"
+        status={reloading ? 'RELOADING' : 'ACTIVE'}
+        actions={
+          <Button
+            onClick={reloadRules}
+            disabled={reloading}
+            variant="outline"
+            className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${reloading ? 'animate-spin' : ''}`} />
+            {reloading ? 'Reloading...' : 'Reload Rules'}
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">

@@ -1,0 +1,49 @@
+title: PowerShell Base64 or AES Decode Written to Disk
+id: 59b5f38c-9926-4a36-9eda-3660b848a49c
+status: experimental
+description: |
+    Detects PowerShell script blocks that decode Base64 or decrypt AES-encrypted
+    content and write the result directly to disk. This pattern is characteristic
+    of T1027.013 where adversaries deliver payloads as encrypted/encoded files to
+    bypass static AV detection, decoding them at runtime before execution.
+    Combines [System.Convert]::FromBase64String or ConvertTo-SecureString with
+    Out-File, Set-Content, or [IO.File]::WriteAllBytes.
+references:
+    - https://attack.mitre.org/techniques/T1027/013/
+    - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1027.013/T1027.013.yaml
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.defense_evasion
+    - attack.t1027.013
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Requires PowerShell Script Block Logging (Event ID 4104)'
+detection:
+    selection_decode:
+        ScriptBlockText|contains:
+            - 'FromBase64String'
+            - 'ConvertTo-SecureString'
+            - 'SecureStringToBSTR'
+            - '[System.Convert]::FromBase64'
+    selection_write:
+        ScriptBlockText|contains:
+            - 'Out-File'
+            - 'Set-Content'
+            - 'WriteAllBytes'
+            - 'WriteAllText'
+            - '[IO.File]::'
+            - '[System.IO.File]::'
+            - '| Out-File'
+    filter_known_legitimate:
+        ScriptBlockText|contains:
+            - 'Microsoft.PowerShell'
+            - 'PSReadLine'
+            - 'WindowsDefender'
+    condition: all of selection_* and not filter_known_legitimate
+falsepositives:
+    - Legitimate software installers that decode embedded resources
+    - Security tools that use encoded configs
+    - Certificate management scripts
+level: medium

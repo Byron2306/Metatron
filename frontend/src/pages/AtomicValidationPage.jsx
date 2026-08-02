@@ -7,6 +7,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const AtomicValidationPage = () => {
   const { token } = useAuth();
@@ -20,15 +21,25 @@ const AtomicValidationPage = () => {
 
   const loadData = async () => {
     try {
-      const [statusRes, jobsRes, runsRes] = await Promise.all([
-        apiClient.get(`/atomic-validation/status`),
-        apiClient.get(`/atomic-validation/jobs`),
-        apiClient.get(`/atomic-validation/runs?limit=30`),
+      const requestConfig = { headers };
+      const [statusRes, jobsRes, runsRes] = await Promise.allSettled([
+        apiClient.get(`/atomic-validation/status`, requestConfig),
+        apiClient.get(`/atomic-validation/jobs`, requestConfig),
+        apiClient.get(`/atomic-validation/runs?limit=30`, requestConfig),
       ]);
-      setStatus(statusRes.data);
-      setJobs(jobsRes.data.jobs || []);
-      setRuns(runsRes.data.runs || []);
-      setSummary(runsRes.data.summary || null);
+
+      const statusData = statusRes.status === 'fulfilled' ? statusRes.value?.data : null;
+      const jobsData = jobsRes.status === 'fulfilled' ? jobsRes.value?.data : null;
+      const runsData = runsRes.status === 'fulfilled' ? runsRes.value?.data : null;
+
+      setStatus(statusData);
+      setJobs(jobsData?.jobs || []);
+      setRuns(runsData?.runs || []);
+      setSummary(runsData?.summary || null);
+
+      if (statusRes.status !== 'fulfilled' || jobsRes.status !== 'fulfilled' || runsRes.status !== 'fulfilled') {
+        toast.warning('Atomic validation loaded with partial data');
+      }
     } catch (err) {
       toast.error('Failed to load Atomic validation data');
     }
@@ -45,7 +56,8 @@ const AtomicValidationPage = () => {
     try {
       const res = await apiClient.post(
         `/atomic-validation/run`,
-        { job_id: jobId, dry_run: dryRun }
+        { job_id: jobId, dry_run: dryRun },
+        { headers }
       );
       if (res.data.status === 'success' || res.data.status === 'dry_run') {
         toast.success(`Atomic job ${jobId} ${dryRun ? 'dry-run' : 'completed'}`);
@@ -61,26 +73,20 @@ const AtomicValidationPage = () => {
   };
 
   return (
-    <div className="space-y-6" data-testid="atomic-validation-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <FlaskConical className="w-6 h-6 text-rose-400" />
-            Atomic Red Team Validation Jobs
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Weekly ATT&CK emulation jobs for detection quality scoring (target score &gt;= 4)
-          </p>
-        </div>
-        <Button
-          onClick={loadData}
-          variant="outline"
-          className="border-rose-500/50 text-rose-400 hover:bg-rose-500/10"
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="atomic-validation-page" data-accent="amber">
+      <SeraphPageHeader
+        eyebrow="seraph · atomic · att&ck emulation"
+        title="Atomic Red Team Validation Jobs"
+        tagline="> weekly emulation · detection quality scoring · target ≥ S4"
+        accent="amber"
+        status={runningJob ? 'EXECUTING' : 'READY'}
+        actions={
+          <Button onClick={loadData} variant="outline" className="border-rose-500/50 text-rose-400 hover:bg-rose-500/10">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">

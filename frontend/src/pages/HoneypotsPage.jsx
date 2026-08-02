@@ -37,6 +37,7 @@ import {
   DialogDescription,
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -72,6 +73,7 @@ const HoneypotCard = ({ honeypot, onRefresh }) => {
     if (showInteractions) {
       fetchInteractions();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showInteractions]);
 
   const statusColors = {
@@ -84,7 +86,7 @@ const HoneypotCard = ({ honeypot, onRefresh }) => {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded overflow-hidden hover:border-slate-700 transition-all"
+      className="seraph-content-panel bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded overflow-hidden hover:border-slate-700 transition-all"
     >
       <div className={`p-4 ${honeypot.status === 'triggered' ? 'bg-red-500/10' : 'bg-slate-800/30'} border-b border-slate-800`}>
         <div className="flex items-start justify-between">
@@ -224,6 +226,7 @@ const HoneypotsPage = () => {
 
   useEffect(() => {
     fetchHoneypots();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleAddHoneypot = async () => {
@@ -253,17 +256,14 @@ const HoneypotsPage = () => {
 
   return (
     <div className="p-6 lg:p-8 space-y-6" data-testid="honeypots-page">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-mono font-bold text-white flex items-center gap-3">
-            <Radar className="w-7 h-7 text-cyan-400" />
-            Honeypot System
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Deploy and monitor deceptive security traps
-          </p>
-        </div>
+      <SeraphPageHeader
+        eyebrow="seraph · honeypots · deception fabric"
+        title="Honeypot System"
+        tagline="> deceptive traps · canary lures · adversary engagement"
+        accent="cyan"
+        status={stats?.active ? `${stats.active} ACTIVE` : 'DORMANT'}
+      />
+      <div className="flex justify-end">
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
@@ -365,7 +365,7 @@ const HoneypotsPage = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="seraph-stat-grid grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Total Honeypots', value: stats.total, color: 'cyan', icon: Radar },
           { label: 'Active', value: stats.active, color: 'green', icon: Activity },
@@ -377,7 +377,7 @@ const HoneypotsPage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4"
+            className="seraph-stat-tile bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4"
           >
             <div className="flex items-center gap-2 mb-1">
               <stat.icon className={`w-4 h-4 text-${stat.color}-400`} />
@@ -401,7 +401,7 @@ const HoneypotsPage = () => {
           ))}
         </div>
       ) : (
-        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-12 text-center">
+        <div className="seraph-content-panel bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-12 text-center">
           <Radar className="w-12 h-12 mx-auto mb-4 text-slate-600" />
           <h3 className="text-lg font-medium text-slate-400 mb-2">No Honeypots Deployed</h3>
           <p className="text-sm text-slate-500 mb-4">

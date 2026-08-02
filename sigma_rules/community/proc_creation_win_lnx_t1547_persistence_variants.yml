@@ -1,0 +1,123 @@
+title: Persistence - Netlogon Script Modification for Domain-Wide Execution
+id: f4a5b6c7-d8e9-0123-fabc-123456789012
+status: experimental
+description: |
+    Detects modification of Netlogon scripts (T1547.012) used for domain-wide
+    persistence. Files written to SYSVOL\NETLOGON are executed on every domain
+    computer at logon. Adversaries who compromise a domain controller or have
+    write access to NETLOGON can deploy malware to every domain-joined host
+    without additional lateral movement.
+references:
+    - https://attack.mitre.org/techniques/T1547/012/
+    - https://adsecurity.org/?p=2716
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.persistence
+    - attack.t1547.012
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_netlogon_write:
+        TargetFilename|contains:
+            - '\NETLOGON\'
+            - '\SYSVOL\'
+        TargetFilename|endswith:
+            - '.bat'
+            - '.cmd'
+            - '.ps1'
+            - '.vbs'
+            - '.exe'
+            - '.dll'
+    filter_dc_admin:
+        Image|endswith:
+            - '\dfs.exe'
+            - '\dfssvc.exe'
+    condition: selection_netlogon_write and not filter_dc_admin
+falsepositives:
+    - Domain administrators intentionally deploying logon scripts via SYSVOL
+level: high
+---
+title: Persistence - Port Monitor DLL Hijack via Print Processor Registry
+id: a5b6c7d8-e9f0-1234-abcd-234567890123
+status: experimental
+description: |
+    Detects registration of a custom port monitor or print processor DLL in the
+    Windows registry (T1547.007 / T1547.013). The Print Spooler service loads
+    DLLs from HKLM\SYSTEM\CurrentControlSet\Control\Print\Monitors and
+    \Print\Environments at startup with SYSTEM privileges. This is a classic
+    stealthy persistence vector that survives reboots and runs before most
+    security software.
+references:
+    - https://attack.mitre.org/techniques/T1547/013/
+    - https://pentestlab.blog/2019/10/28/persistence-port-monitors/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.persistence
+    - attack.privilege_escalation
+    - attack.t1547.013
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection_print_monitor:
+        TargetObject|contains:
+            - '\SYSTEM\CurrentControlSet\Control\Print\Monitors\'
+            - '\SYSTEM\CurrentControlSet\Control\Print\Environments\'
+        TargetObject|endswith:
+            - '\Driver'
+            - '\Dll'
+    filter_legit_drivers:
+        Details|contains:
+            - 'localspl.dll'
+            - 'tcpmon.dll'
+            - 'usbmon.dll'
+            - 'WSDMon.dll'
+            - 'win32spl.dll'
+    condition: selection_print_monitor and not filter_legit_drivers
+falsepositives:
+    - Legitimate printer driver installation
+level: high
+---
+title: Persistence - Plist Modification for macOS/Linux Scheduled Execution
+id: b6c7d8e9-f0a1-2345-bcde-345678901234
+status: experimental
+description: |
+    Detects creation or modification of plist files in LaunchDaemon and LaunchAgent
+    directories (T1547.007) for macOS persistence, or systemd service unit files
+    on Linux. Adversaries use these to achieve persistence that survives reboots
+    and runs with elevated privileges (LaunchDaemon = root).
+references:
+    - https://attack.mitre.org/techniques/T1547/007/
+author: Byron (Seraph AI Defense Platform)
+date: 2026/04/20
+tags:
+    - attack.persistence
+    - attack.t1547.007
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection_systemd_persistence:
+        TargetFilename|startswith:
+            - '/etc/systemd/system/'
+            - '/usr/lib/systemd/system/'
+            - '/home/'
+            - '/root/'
+        TargetFilename|endswith: '.service'
+    filter_package_manager:
+        Image|endswith:
+            - '/apt'
+            - '/apt-get'
+            - '/dpkg'
+            - '/rpm'
+            - '/yum'
+            - '/dnf'
+            - '/zypper'
+    condition: selection_systemd_persistence and not filter_package_manager
+falsepositives:
+    - System administrators installing custom services
+    - Software installation via package managers (filter above)
+level: medium

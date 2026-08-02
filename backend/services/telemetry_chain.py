@@ -61,11 +61,17 @@ class AuditRecord:
     # Why
     case_id: Optional[str]
     evidence_refs: List[str]
-    policy_decision_hash: str
+    policy_decision_id: str
     
     # How
     token_id: str               # Capability token used
     constraints: Dict[str, Any]
+    
+    # Governance
+    governance_decision_id: Optional[str]
+    governance_queue_id: Optional[str]
+    execution_id: Optional[str]
+    trace_id: Optional[str]
     
     # Result
     result: str                 # success / failed / denied
@@ -121,6 +127,10 @@ class TamperEvidentTelemetry:
         self.active_traces: Dict[str, Dict] = {}
         
         logger.info("Tamper-Evident Telemetry Service initialized")
+    
+    def set_db(self, db):
+        """Set database reference for persistence"""
+        self.db = db
     
     def _compute_hash(self, data: Dict[str, Any]) -> str:
         """Compute SHA256 hash of data"""
@@ -306,10 +316,14 @@ class TamperEvidentTelemetry:
     def record_action(self, principal: str, principal_trust_state: str,
                       action: str, targets: List[str],
                       case_id: str = None, evidence_refs: List[str] = None,
-                      policy_decision_hash: str = None, token_id: str = None,
+                      policy_decision_id: str = None, token_id: str = None,
                       constraints: Dict = None, tool_id: str = None,
                       result: str = "pending", result_details: str = None,
-                      output_artifact_ids: List[str] = None) -> AuditRecord:
+                      output_artifact_ids: List[str] = None,
+                      governance_decision_id: str = None,
+                      governance_queue_id: str = None,
+                      execution_id: str = None,
+                      trace_id: str = None) -> AuditRecord:
         """
         Record an action in the audit chain.
         
@@ -339,9 +353,13 @@ class TamperEvidentTelemetry:
             targets=targets,
             case_id=case_id,
             evidence_refs=evidence_refs or [],
-            policy_decision_hash=policy_decision_hash or "",
+            policy_decision_id=policy_decision_id or "",
             token_id=token_id or "",
             constraints=constraints or {},
+            governance_decision_id=governance_decision_id,
+            governance_queue_id=governance_queue_id,
+            execution_id=execution_id,
+            trace_id=trace_id,
             result=result,
             result_details=result_details,
             output_artifact_ids=output_artifact_ids or [],

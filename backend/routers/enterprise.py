@@ -25,6 +25,40 @@ router = APIRouter(prefix="/enterprise", tags=["Enterprise Security"])
 ENTERPRISE_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
 
 
+def _normalize_boundary_outcome(raw_outcome: Any) -> str:
+    normalized = str(raw_outcome or "").strip().lower()
+    if normalized in {"deny", "denied", "blocked", "reject", "rejected"}:
+        return "denied"
+    if normalized in {"queue", "queued", "throttle", "throttled", "pending"}:
+        return "queued"
+    if normalized in {"allow", "allowed", "success", "completed"}:
+        return "allowed"
+    return "queued"
+
+
+def _extract_endpoint_boundary_context(data: Dict[str, Any], fallback_agent_id: Optional[str] = None) -> Dict[str, Any]:
+    boundary = data.get("boundary") if isinstance(data, dict) else {}
+    boundary = boundary if isinstance(boundary, dict) else {}
+    post_observation = data.get("post_observation") if isinstance(data, dict) else {}
+    post_observation = post_observation if isinstance(post_observation, dict) else {}
+
+    outcome = data.get("outcome") or post_observation.get("gate_outcome") or boundary.get("outcome")
+    return {
+        "agent_id": data.get("agent_id") or fallback_agent_id,
+        "decision_context": boundary.get("decision_context") or data.get("decision_context") or {},
+        "outcome": _normalize_boundary_outcome(outcome),
+        "beacon": post_observation.get("beacon") or data.get("beacon") or {},
+        "raw": data,
+    }
+
+
+def _endpoint_boundary_trigger_triune(boundary_context: Dict[str, Any]) -> bool:
+    beacon = boundary_context.get("beacon") if isinstance(boundary_context, dict) else {}
+    state = str((beacon or {}).get("state") or "").strip().lower()
+    outcome = _normalize_boundary_outcome((boundary_context or {}).get("outcome"))
+    return state in {"red", "amber"} or outcome in {"denied", "queued"}
+
+
 # =============================================================================
 # MODELS
 # =============================================================================
@@ -287,16 +321,19 @@ async def issue_token(
     """Issue a capability token"""
     from services.token_broker import token_broker
     
-    token = token_broker.issue_token(
-        principal=request.principal,
-        principal_identity=request.principal_identity,
-        action=request.action,
-        targets=request.targets,
-        tool_id=request.tool_id,
-        ttl_seconds=request.ttl_seconds,
-        max_uses=request.max_uses,
-        constraints=request.constraints
-    )
+    try:
+        token = token_broker.issue_token(
+            principal=request.principal,
+            principal_identity=request.principal_identity,
+            action=request.action,
+            targets=request.targets,
+            tool_id=request.tool_id,
+            ttl_seconds=request.ttl_seconds,
+            max_uses=request.max_uses,
+            constraints=request.constraints
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     
     return {
         "token_id": token.token_id,
@@ -498,7 +535,7 @@ async def record_audit_action(
         targets=request.targets,
         case_id=request.case_id,
         evidence_refs=request.evidence_refs,
-        policy_decision_hash=request.policy_decision_hash,
+        policy_decision_id=request.policy_decision_hash,
         token_id=request.token_id,
         tool_id=request.tool_id,
         constraints=request.constraints
@@ -566,15 +603,17 @@ async def get_enterprise_status(current_user: dict = Depends(get_current_user)):
     from services.token_broker import token_broker
     from services.tool_gateway import tool_gateway
     from services.telemetry_chain import tamper_evident_telemetry
-    
+
+    trust_states: Dict[str, int] = {}
+    for identity in identity_service.identities.values():
+        trust_state = getattr(identity, "trust_state", "unknown")
+        trust_state_key = getattr(trust_state, "value", str(trust_state))
+        trust_states[trust_state_key] = trust_states.get(trust_state_key, 0) + 1
+
     return {
         "identity": {
             "registered_agents": len(identity_service.identities),
-            "trust_states": {
-                state.value: sum(1 for i in identity_service.identities.values() 
-                               if i.trust_state == state)
-                for state in identity_service.identities.values()
-            } if identity_service.identities else {}
+            "trust_states": trust_states
         },
         "policy": policy_engine.get_policy_status(),
         "tokens": token_broker.get_broker_status(),

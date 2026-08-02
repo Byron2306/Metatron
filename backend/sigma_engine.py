@@ -15,7 +15,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 import yaml
 
-from backend.mitre_catalog import load_mitre_catalog_totals
+from mitre_catalog import load_mitre_catalog_totals
 
 logger = logging.getLogger(__name__)
 

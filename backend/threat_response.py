@@ -36,6 +36,14 @@ from enum import Enum
 from pathlib import Path
 import httpx
 from runtime_paths import ensure_data_dir
+from services.agenticity import compute_agenticity_score, compute_exhaustion_metrics
+
+try:
+    from services.resonance_service import get_resonance_service
+    from services.world_events import emit_world_event
+except Exception:
+    get_resonance_service = None
+    emit_world_event = None
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +181,12 @@ class AIThreatAssessment:
     dominant_intents: List[str]
     decoy_touched: bool
     recommended_escalation: DefenseEscalationLevel
+    agenticity_score: float = 0.0
+    agenticity_classification: str = "unknown"
+    agenticity_feature_vector: Dict[str, float] = field(default_factory=dict)
+    cbr: float = 0.0
+    tbcr: float = 0.0
+    cdi: float = 0.0
     assessment_timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 @dataclass
@@ -584,7 +598,22 @@ class ForensicsCollector:
     """Collect forensic data for incident investigation"""
     
     FORENSICS_DIR = ensure_data_dir("forensics")
-    
+
+    @classmethod
+    async def get_evidence_by_id(cls, incident_id: str) -> dict:
+        """Retrieve previously collected forensic evidence for an incident"""
+        incident_dir = cls.FORENSICS_DIR / incident_id[:12]
+        if not incident_dir.exists():
+            return {"incident_id": incident_id, "status": "not_found", "files": {}}
+        files: dict = {}
+        for f in incident_dir.iterdir():
+            if f.is_file() and f.suffix == ".json":
+                try:
+                    files[f.name] = json.loads(f.read_text())
+                except Exception:
+                    files[f.name] = f.read_text()
+        return {"incident_id": incident_id, "status": "found", "files": files}
+
     @classmethod
     async def collect_incident_data(cls, context: ThreatContext) -> ResponseResult:
         """Collect all relevant forensic data for an incident"""
@@ -1261,6 +1290,10 @@ class AIDefenseEngine:
     
     # Tarpit sessions
     tarpit_sessions: Dict[str, Dict[str, Any]] = {}
+
+    # Formal metrics per session
+    agenticity_sessions: Dict[str, Dict[str, Any]] = {}
+    exhaustion_sessions: Dict[str, Dict[str, Any]] = {}
     
     @classmethod
     async def assess_ai_threat(
@@ -1299,6 +1332,10 @@ class AIDefenseEngine:
         
         # Goal persistence - how consistently pursuing objectives
         goal_persistence = behavior_data.get("goal_persistence", 0.5)
+
+        # Compute formal metrics required by strategy document.
+        agenticity = compute_agenticity_score(behavior_data)
+        exhaustion = compute_exhaustion_metrics(behavior_data)
         
         # Machine likelihood score
         ml_score = 0.0
@@ -1323,6 +1360,9 @@ class AIDefenseEngine:
         decoy_touched = behavior_data.get("decoy_touched", False)
         if decoy_touched:
             ml_score += 0.1
+
+        # Blend legacy machine-likelihood with formal Agenticity score.
+        ml_score = min(1.0, max(0.0, (ml_score * 0.6) + (agenticity.score * 0.4)))
         
         # Determine confidence level
         if ml_score >= 0.9:
@@ -1359,6 +1399,54 @@ class AIDefenseEngine:
         if behavior_data.get("recon_commands", 0) > 5:
             intents.append("reconnaissance")
         
+        cls.agenticity_sessions[session_id] = {
+            "session_id": session_id,
+            "host_id": host_id,
+            **agenticity.to_dict(),
+        }
+        cls.exhaustion_sessions[session_id] = {
+            "session_id": session_id,
+            "host_id": host_id,
+            **exhaustion.to_dict(),
+        }
+
+        # ── RESONANCE: record adversary signals into the macro choir ──────────
+        if get_resonance_service is not None:
+            try:
+                rs = get_resonance_service()
+                rs.sing_ai_adversary_signals(
+                    session_id=session_id,
+                    agenticity_score=agenticity.score,
+                    agenticity_classification=agenticity.classification,
+                    cbr=exhaustion.cbr,
+                    tbcr=exhaustion.tbcr,
+                    cognitive_pressure=0.0,  # enriched further in correlation/hunting
+                )
+            except Exception:
+                pass
+
+        # ── WORLD STATE: append-only tamper-evident write on HIGH agenticity ──
+        if agenticity.classification in ("HIGH", "VERY_HIGH") and emit_world_event is not None:
+            try:
+                asyncio.ensure_future(emit_world_event(
+                    db=None,   # DB not available at class-method level; world_events falls back gracefully
+                    event_type="ai_adversary_agenticity_assessment",
+                    entity_refs=[session_id, host_id],
+                    payload={
+                        "session_id": session_id,
+                        "host_id": host_id,
+                        "agenticity_score": agenticity.score,
+                        "agenticity_classification": agenticity.classification,
+                        "cbr": exhaustion.cbr,
+                        "tbcr": exhaustion.tbcr,
+                        "cdi": exhaustion.cdi,
+                        "impact_level": "high" if agenticity.classification == "HIGH" else "critical",
+                    },
+                    source="ai_defense_engine",
+                ))
+            except Exception:
+                pass
+
         return AIThreatAssessment(
             session_id=session_id,
             host_id=host_id,
@@ -1369,8 +1457,23 @@ class AIDefenseEngine:
             goal_persistence=goal_persistence,
             dominant_intents=intents,
             decoy_touched=decoy_touched,
-            recommended_escalation=escalation
+            recommended_escalation=escalation,
+            agenticity_score=agenticity.score,
+            agenticity_classification=agenticity.classification,
+            agenticity_feature_vector=agenticity.feature_vector.to_dict(),
+            cbr=exhaustion.cbr,
+            tbcr=exhaustion.tbcr,
+            cdi=exhaustion.cdi,
         )
+
+    @classmethod
+    def get_session_metrics(cls, session_id: str) -> Dict[str, Any]:
+        """Get formal agenticity and logic-budget metrics for a session."""
+        return {
+            "session_id": session_id,
+            "agenticity": cls.agenticity_sessions.get(session_id),
+            "exhaustion": cls.exhaustion_sessions.get(session_id),
+        }
     
     @classmethod
     async def engage_tarpit(
@@ -1758,6 +1861,8 @@ class AIDefenseEngine:
             "active_tarpits": len(cls.tarpit_sessions),
             "deployed_decoys": sum(d["count"] for d in cls.deployed_decoys.values()),
             "active_defense_sessions": len(cls.active_defenses),
+            "tracked_agenticity_sessions": len(cls.agenticity_sessions),
+            "tracked_exhaustion_sessions": len(cls.exhaustion_sessions),
             "tarpit_sessions": list(cls.tarpit_sessions.keys()),
             "decoy_batches": list(cls.deployed_decoys.keys())
         }
@@ -1800,6 +1905,11 @@ class AIDefenseEngine:
             "correlation": {
                 "primary_ml_score": our_assessment.machine_likelihood,
                 "aatl_ml_score": aatl_assessment.get("machine_plausibility") if aatl_assessment else None,
+                "agenticity_score": our_assessment.agenticity_score,
+                "agenticity_classification": our_assessment.agenticity_classification,
+                "cbr": our_assessment.cbr,
+                "tbcr": our_assessment.tbcr,
+                "cdi": our_assessment.cdi,
                 "recommended_escalation": our_assessment.recommended_escalation.value,
                 "aatl_strategy": aatl_assessment.get("recommended_strategy") if aatl_assessment else None,
                 "unified_threat_level": cls._calculate_unified_threat_level(

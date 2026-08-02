@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import ForceGraph2D from 'react-force-graph-2d';
 import { 
-  Network, 
   RefreshCw, 
   Shield, 
   AlertTriangle, 
@@ -21,6 +20,7 @@ import {
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -109,7 +109,50 @@ const NetworkTopologyPage = () => {
         curvature: link.type === 'attack' ? 0.3 : 0
       }));
       
-      setGraphData({ nodes, links });
+      // Merge with the previous graphData so existing nodes keep their
+      // simulated x/y/vx/vy positions — otherwise ForceGraph2D re-runs the
+      // d3 layout from scratch on every poll and the canvas "resets".
+      setGraphData((prev) => {
+        const prevById = new Map((prev?.nodes || []).map((n) => [n.id, n]));
+        const mergedNodes = nodes.map((n) => {
+          const existing = prevById.get(n.id);
+          if (!existing) return n;
+          // Preserve simulation state, only overwrite presentation/threat metadata.
+          // Crucially: PIN the node at its current position (fx/fy) so the next
+          // d3-force tick can't drag it away from where the operator left it.
+          return Object.assign(existing, {
+            label: n.label,
+            ip: n.ip,
+            type: n.type,
+            status: n.status,
+            val: n.val,
+            color: n.color,
+            hasThreats: n.hasThreats,
+            threatCount: n.threatCount,
+            pulsing: n.pulsing,
+            fx: existing.fx ?? existing.x,
+            fy: existing.fy ?? existing.y,
+          });
+        });
+        // Same trick for links — keep the link source/target object references
+        // when the link already exists, so d3-force doesn't re-resolve them.
+        const linkKey = (l) =>
+          `${typeof l.source === 'object' ? l.source.id : l.source}->${
+            typeof l.target === 'object' ? l.target.id : l.target
+          }:${l.type || ''}`;
+        const prevLinkByKey = new Map((prev?.links || []).map((l) => [linkKey(l), l]));
+        const mergedLinks = links.map((l) => {
+          const existing = prevLinkByKey.get(linkKey(l));
+          if (!existing) return l;
+          return Object.assign(existing, {
+            color: l.color,
+            width: l.width,
+            curvature: l.curvature,
+            type: l.type,
+          });
+        });
+        return { nodes: mergedNodes, links: mergedLinks };
+      });
     } catch (error) {
       toast.error('Failed to load network topology');
     } finally {
@@ -119,8 +162,10 @@ const NetworkTopologyPage = () => {
 
   useEffect(() => {
     fetchTopology();
-    // Auto-refresh for live threats
-    const interval = setInterval(fetchTopology, 10000);
+    // Refresh threat overlay every 90s. The simulation re-runs on each
+    // refetch and tugs the camera away from wherever the operator panned —
+    // so we keep the cadence slow.
+    const interval = setInterval(fetchTopology, 90000);
     return () => clearInterval(interval);
   }, [fetchTopology]);
 
@@ -165,18 +210,13 @@ const NetworkTopologyPage = () => {
 
   return (
     <div className="p-6 lg:p-8 h-screen flex flex-col" data-testid="network-topology-page">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-mono font-bold text-white flex items-center gap-3">
-            <Network className="w-7 h-7 text-cyan-400" />
-            Network Topology
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Real-time network visualization with threat mapping
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+      <SeraphPageHeader
+        eyebrow="seraph · network topology · threat graph"
+        title="Network Topology"
+        tagline="Real-time network visualization with threat mapping"
+        accent="cyan"
+        actions={(
+          <div className="flex items-center gap-3">
           <Button
             variant="outline"
             className="border-slate-700 text-slate-300 hover:bg-slate-800"
@@ -186,11 +226,12 @@ const NetworkTopologyPage = () => {
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-        </div>
-      </div>
+          </div>
+        )}
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+      <div className="seraph-stat-grid grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
         {[
           { label: 'Total Nodes', value: nodeStats.total, color: 'blue', icon: Server },
           { label: 'Live Threats', value: nodeStats.liveThreats, color: 'red', icon: AlertOctagon },
@@ -204,7 +245,7 @@ const NetworkTopologyPage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            className={`bg-slate-900/50 backdrop-blur-md border rounded p-4 ${
+            className={`seraph-stat-tile bg-slate-900/50 backdrop-blur-md border rounded p-4 ${
               stat.label === 'Live Threats' && stat.value > 0 
                 ? 'border-red-500/50 animate-pulse' 
                 : 'border-slate-800'
@@ -233,46 +274,85 @@ const NetworkTopologyPage = () => {
             </div>
           ) : (
             <ForceGraph2D
-              ref={graphRef}
+              ref={(el) => {
+                graphRef.current = el;
+                if (el && el.d3Force) {
+                  el.d3Force('charge')?.strength(-380).distanceMax(720);
+                  el.d3Force('link')?.distance((l) => 110 + ((l.width || 1) * 12));
+                  el.d3Force('center')?.strength(0.05);
+                }
+              }}
               graphData={graphData}
+              onNodeDragEnd={(node) => {
+                // Pin the node where the operator dropped it. Without this
+                // d3-force keeps tugging it back toward its computed slot.
+                node.fx = node.x;
+                node.fy = node.y;
+              }}
               nodeLabel={node => `${node.label}\n${node.ip || ''}`}
               nodeColor={node => node.color}
               nodeVal={node => node.val}
-              linkColor={link => link.color}
-              linkWidth={link => link.width}
-              linkCurvature={link => link.curvature}
-              linkDirectionalArrowLength={link => link.type === 'attack' ? 6 : 0}
+              nodeRelSize={6}
+              linkColor={link => link.color || 'rgba(0,240,255,0.45)'}
+              linkWidth={link => link.width || 1.2}
+              linkCurvature={link => link.curvature || 0.15}
+              linkDirectionalArrowLength={link => link.type === 'attack' ? 7 : 0}
               linkDirectionalArrowRelPos={1}
+              linkDirectionalParticles={(link) => link.type === 'attack' ? 3 : 1}
+              linkDirectionalParticleWidth={(link) => link.type === 'attack' ? 2.4 : 1.4}
+              linkDirectionalParticleSpeed={(link) => link.type === 'attack' ? 0.018 : 0.008}
+              linkDirectionalParticleColor={(link) => link.type === 'attack' ? '#ff3838' : '#00f0ff'}
               onNodeClick={handleNodeClick}
-              backgroundColor="#020617"
+              backgroundColor="rgba(0,0,0,0)"
               nodeCanvasObject={(node, ctx, globalScale) => {
                 const label = node.label;
-                const fontSize = 12/globalScale;
-                ctx.font = `${fontSize}px JetBrains Mono`;
-                
-                // Draw node circle
+                const fontSize = 12 / globalScale;
+                ctx.font = `bold ${fontSize}px 'JetBrains Mono', monospace`;
+                const color = node.color || '#00f0ff';
+
+                // Outer glow halo
+                ctx.save();
+                ctx.shadowColor = color;
+                ctx.shadowBlur = node.hasThreats || node.type === 'attacker' ? 26 : 12;
                 ctx.beginPath();
                 ctx.arc(node.x, node.y, node.val, 0, 2 * Math.PI);
-                ctx.fillStyle = node.color;
+                ctx.fillStyle = color;
                 ctx.fill();
-                
-                // Add glow for attackers
-                if (node.type === 'attacker' || node.status === 'compromised') {
-                  ctx.shadowColor = node.color;
-                  ctx.shadowBlur = 15;
+                ctx.restore();
+
+                // Bright core
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.val * 0.4, 0, 2 * Math.PI);
+                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                ctx.fill();
+
+                // Pulse ring on threatened nodes
+                if (node.hasThreats || node.type === 'attacker' || node.status === 'compromised') {
+                  const t = (Date.now() % 1400) / 1400;
+                  ctx.strokeStyle = color;
+                  ctx.globalAlpha = Math.max(0, 1 - t);
+                  ctx.lineWidth = 2;
                   ctx.beginPath();
-                  ctx.arc(node.x, node.y, node.val, 0, 2 * Math.PI);
-                  ctx.fill();
-                  ctx.shadowBlur = 0;
+                  ctx.arc(node.x, node.y, node.val + t * 14, 0, 2 * Math.PI);
+                  ctx.stroke();
+                  ctx.globalAlpha = 1;
                 }
-                
-                // Draw label
-                ctx.fillStyle = '#F8FAFC';
+
+                // Label
+                ctx.fillStyle = '#e6fbff';
                 ctx.textAlign = 'center';
-                ctx.fillText(label, node.x, node.y + node.val + fontSize + 2);
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 4;
+                ctx.fillText(label, node.x, node.y + node.val + fontSize + 4);
+                ctx.shadowBlur = 0;
               }}
-              cooldownTicks={100}
-              d3VelocityDecay={0.3}
+              cooldownTicks={140}
+              warmupTicks={80}
+              d3AlphaDecay={0.02}
+              d3VelocityDecay={0.28}
+              onEngineStop={() => {
+                if (graphRef.current) graphRef.current.zoomToFit(450, 60);
+              }}
             />
           )}
         </motion.div>
@@ -285,7 +365,7 @@ const NetworkTopologyPage = () => {
         >
           {/* Live Threats Panel */}
           {liveThreats.length > 0 && (
-            <div className="bg-red-900/20 backdrop-blur-md border border-red-500/50 rounded p-4">
+            <div className="seraph-content-panel bg-red-900/20 backdrop-blur-md border border-red-500/50 rounded p-4">
               <h3 className="font-mono font-semibold text-red-400 mb-3 flex items-center gap-2">
                 <AlertOctagon className="w-4 h-4 animate-pulse" />
                 Live Threats
@@ -313,7 +393,7 @@ const NetworkTopologyPage = () => {
 
           {/* Critical Alerts Panel */}
           {criticalAlerts.filter(a => !a.acknowledged).length > 0 && (
-            <div className="bg-amber-900/20 backdrop-blur-md border border-amber-500/50 rounded p-4">
+            <div className="seraph-content-panel bg-amber-900/20 backdrop-blur-md border border-amber-500/50 rounded p-4">
               <h3 className="font-mono font-semibold text-amber-400 mb-3 flex items-center gap-2">
                 <Zap className="w-4 h-4" />
                 Auto-Kill Alerts
@@ -333,7 +413,7 @@ const NetworkTopologyPage = () => {
           )}
 
           {/* Legend */}
-          <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4">
+          <div className="seraph-content-panel bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4">
             <h3 className="font-mono font-semibold text-white mb-3">Legend</h3>
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2">
@@ -365,7 +445,7 @@ const NetworkTopologyPage = () => {
 
           {/* Selected Node Info */}
           {selectedNode && (
-            <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4">
+            <div className="seraph-content-panel bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4">
               <h3 className="font-mono font-semibold text-white mb-3">Node Details</h3>
               <div className="space-y-3">
                 <div>
@@ -407,7 +487,7 @@ const NetworkTopologyPage = () => {
           )}
 
           {/* Node Types */}
-          <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4">
+          <div className="seraph-content-panel bg-slate-900/50 backdrop-blur-md border border-slate-800 rounded p-4">
             <h3 className="font-mono font-semibold text-white mb-3">Node Types</h3>
             <div className="space-y-2 text-sm">
               {[

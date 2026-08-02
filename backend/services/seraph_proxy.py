@@ -12,6 +12,11 @@ import json
 import logging
 import httpx
 from typing import Dict, Any, Optional
+from backend.services.outbound_policy_hardening import (
+    OutboundPolicyError,
+    canonicalize_target,
+    host_matches_allowlist,
+)
 
 logger = logging.getLogger("presence.seraph_proxy")
 
@@ -34,7 +39,15 @@ class SeraphProxy:
 
     def _is_whitelisted(self, url: str) -> bool:
         """Check if the domain is in the academic allowlist."""
-        return any(domain in url.lower() for domain in ACADEMIC_ALLOWLIST)
+        try:
+            target = canonicalize_target(url)
+        except OutboundPolicyError:
+            return False
+        return host_matches_allowlist(
+            target.host,
+            exact_hosts=ACADEMIC_ALLOWLIST,
+            allowed_subdomain_roots=ACADEMIC_ALLOWLIST,
+        )
 
     def _log_egress(self, url: str, action: str, principal: str = "Sophia-Core"):
         """Article VIII: Forensic Logging of all egress."""

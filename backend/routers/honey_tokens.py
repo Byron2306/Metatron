@@ -9,7 +9,14 @@ from pydantic import BaseModel
 import asyncio
 
 from .dependencies import get_current_user, check_permission, logger
+from .dependencies import get_db
 from honey_tokens import honey_token_manager
+try:
+    from backend.schemas.deception_models import DeceptionMode
+    from backend.services.deception_authority import DeceptionAuthorityService
+except Exception:
+    from schemas.deception_models import DeceptionMode  # type: ignore
+    from services.deception_authority import DeceptionAuthorityService  # type: ignore
 
 router = APIRouter(prefix="/honey-tokens", tags=["Honey Tokens"])
 
@@ -108,7 +115,8 @@ async def toggle_honey_token(
 async def check_honey_token(
     request: CheckTokenRequest,
     req: Request,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db),
 ):
     """Check if a value matches any honey token (for testing/validation)"""
     token = honey_token_manager.check_token(request.value)
@@ -129,6 +137,9 @@ async def check_honey_token(
         # Notify deception engine for campaign tracking
         deception = get_deception_engine()
         campaign_info = None
+        authority = DeceptionAuthorityService(db)
+        case = None
+        event_id = None
         if deception:
             try:
                 assessment = await deception.record_decoy_interaction(
@@ -142,6 +153,43 @@ async def check_honey_token(
                     "escalation_level": assessment.escalation_level.value,
                     "risk_score": assessment.score
                 }
+                case, _ = await authority.create_case(
+                    session_id=None,
+                    campaign_id=assessment.campaign_id,
+                    source_ip=source_ip,
+                    path="/api/honey-tokens/check",
+                    trigger_reason="honey_token_accessed",
+                    triggering_signals=["decoy_touched", "decoy_type:honey_token"],
+                    desired_mode=DeceptionMode.TRAP_SINK,
+                    risk_score=assessment.score,
+                    headers=headers,
+                    behavior_flags={
+                        "decoy_touched": True,
+                        "machine_plausibility": 0.9,
+                        "agenticity_score": 0.9,
+                    },
+                    evidence_refs=[token.id, access.id],
+                )
+                event_id = await authority.persist_event(
+                    deception_case_id=case.deception_case_id,
+                    event_type="honey_token_access",
+                    campaign_id=assessment.campaign_id,
+                    source_ip=source_ip,
+                    details={
+                        "token_id": token.id,
+                        "access_id": access.id,
+                        "token_type": token.token_type.value,
+                        "route": assessment.route.value,
+                        "risk_score": assessment.score,
+                    },
+                )
+                await authority.record_execution_outcome(
+                    case=case,
+                    status="engaged",
+                    note="honey token access recorded",
+                    output_class="event_capture",
+                    extra={"event_id": event_id, "access_id": access.id},
+                )
             except Exception as e:
                 logger.warning(f"Deception engine notification failed: {e}")
         
@@ -151,7 +199,9 @@ async def check_honey_token(
             "token_type": token.token_type.value,
             "alert": "CRITICAL: Honey token accessed!",
             "access_id": access.id,
-            "campaign_tracking": campaign_info
+            "campaign_tracking": campaign_info,
+            "deception_case_id": case.deception_case_id if case else None,
+            "event_id": event_id,
         }
     return {"matched": False}
 

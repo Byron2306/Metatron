@@ -36,11 +36,60 @@ import {
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
+
+const IDENTITY_TONES = {
+  cyan: { border: 'rgba(0,240,255,0.34)', glow: 'rgba(0,240,255,0.16)', text: '#aef7ff' },
+  orange: { border: 'rgba(255,176,32,0.34)', glow: 'rgba(255,176,32,0.16)', text: '#ffd78a' },
+  red: { border: 'rgba(255,91,91,0.34)', glow: 'rgba(255,91,91,0.14)', text: '#ffd4d4' },
+  green: { border: 'rgba(57,255,20,0.34)', glow: 'rgba(57,255,20,0.16)', text: '#b8ffca' },
+  yellow: { border: 'rgba(255,211,122,0.34)', glow: 'rgba(255,211,122,0.16)', text: '#fff2d2' },
+  purple: { border: 'rgba(188,19,254,0.34)', glow: 'rgba(188,19,254,0.16)', text: '#f3d3ff' },
+  magenta: { border: 'rgba(255,43,214,0.34)', glow: 'rgba(255,43,214,0.16)', text: '#ffb8e9' },
+};
+
+const identityPanel = (tone = 'purple') => {
+  const config = IDENTITY_TONES[tone] || IDENTITY_TONES.purple;
+  return {
+    backgroundImage: `repeating-linear-gradient(to bottom, rgba(210,255,250,0.14) 0px, rgba(210,255,250,0.14) 1px, rgba(0,0,0,0.22) 1px, rgba(0,0,0,0.22) 3px, transparent 3px, transparent 5px), linear-gradient(160deg, ${config.border.replace('0.34', '0.14')}, rgba(10,18,34,0.98))`,
+    backgroundSize: '100% 5px, 100% 100%',
+    border: `2px solid ${config.border.replace('0.34', '0.62')}`,
+    boxShadow: `0 0 24px ${config.glow}, 0 0 34px ${config.glow}, inset 0 0 16px rgba(255,255,255,0.04)`,
+  };
+};
+
+const identityButton = (tone = 'purple') => {
+  const config = IDENTITY_TONES[tone] || IDENTITY_TONES.purple;
+  return {
+    backgroundImage: `repeating-linear-gradient(to bottom, rgba(210,255,250,0.12) 0px, rgba(210,255,250,0.12) 1px, rgba(0,0,0,0.18) 1px, rgba(0,0,0,0.18) 3px, transparent 3px, transparent 5px), linear-gradient(135deg, ${config.border.replace('0.34', '0.22')}, rgba(255,255,255,0.04))`,
+    backgroundSize: '100% 5px, 100% 100%',
+    border: `2px solid ${config.border.replace('0.34', '0.68')}`,
+    color: config.text,
+    boxShadow: `0 0 18px ${config.glow}, 0 0 28px ${config.glow}, inset 0 0 10px rgba(255,255,255,0.04)`,
+  };
+};
+
+const identityBadge = (tone = 'purple') => {
+  const config = IDENTITY_TONES[tone] || IDENTITY_TONES.purple;
+  return {
+    backgroundImage: `repeating-linear-gradient(to bottom, rgba(210,255,250,0.1) 0px, rgba(210,255,250,0.1) 1px, rgba(0,0,0,0.16) 1px, rgba(0,0,0,0.16) 3px, transparent 3px, transparent 5px), linear-gradient(135deg, ${config.border.replace('0.34', '0.2')}, rgba(255,255,255,0.06))`,
+    backgroundSize: '100% 5px, 100% 100%',
+    border: `2px solid ${config.border.replace('0.34', '0.68')}`,
+    color: config.text,
+    boxShadow: `0 0 16px ${config.glow}, 0 0 24px ${config.glow}`,
+  };
+};
+
+const identityRow = (index) => ({
+  background: index % 2 === 0
+    ? 'linear-gradient(90deg, rgba(188,19,254,0.06), rgba(0,240,255,0.03))'
+    : 'linear-gradient(90deg, rgba(255,176,32,0.04), rgba(255,43,214,0.03))',
+});
 
 const IdentityProtectionPage = () => {
   const { getAuthHeaders } = useAuth();
@@ -220,25 +269,25 @@ const IdentityProtectionPage = () => {
   // Get severity badge
   const getSeverityBadge = (severity) => {
     const config = {
-      critical: { color: 'bg-red-500/20 text-red-400', icon: AlertOctagon },
-      high: { color: 'bg-orange-500/20 text-orange-400', icon: AlertTriangle },
-      medium: { color: 'bg-yellow-500/20 text-yellow-400', icon: ShieldAlert },
-      low: { color: 'bg-blue-500/20 text-blue-400', icon: Shield }
+      critical: { tone: 'red', icon: AlertOctagon },
+      high: { tone: 'orange', icon: AlertTriangle },
+      medium: { tone: 'yellow', icon: ShieldAlert },
+      low: { tone: 'cyan', icon: Shield }
     };
     const cfg = config[severity] || config.medium;
-    return <Badge className={cfg.color}>{severity}</Badge>;
+    return <Badge className="border-0 uppercase tracking-[0.22em] text-[10px]" style={identityBadge(cfg.tone)}>{severity}</Badge>;
   };
 
   // Get status badge
   const getStatusBadge = (status) => {
     const config = {
-      active: { color: 'bg-red-500/20 text-red-400' },
-      contained: { color: 'bg-orange-500/20 text-orange-400' },
-      blocked: { color: 'bg-green-500/20 text-green-400' },
-      investigating: { color: 'bg-blue-500/20 text-blue-400' }
+      active: { tone: 'red' },
+      contained: { tone: 'orange' },
+      blocked: { tone: 'green' },
+      investigating: { tone: 'cyan' }
     };
     const cfg = config[status] || config.investigating;
-    return <Badge className={cfg.color}>{status}</Badge>;
+    return <Badge className="border-0 uppercase tracking-[0.22em] text-[10px]" style={identityBadge(cfg.tone)}>{status}</Badge>;
   };
 
   useEffect(() => {
@@ -246,116 +295,110 @@ const IdentityProtectionPage = () => {
   }, [fetchData]);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-gray-100 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-500/20 rounded-lg">
-            <Fingerprint className="h-6 w-6 text-indigo-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Identity Protection</h1>
-            <p className="text-gray-400 text-sm">AD • Kerberos • LDAP • Credential Threats</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            onClick={fetchData}
-            disabled={loading}
-            className="border-gray-700"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          <Button 
-            onClick={runScan}
-            disabled={scanning}
-            className="bg-indigo-600 hover:bg-indigo-700"
-          >
-            <Play className={`h-4 w-4 mr-2 ${scanning ? 'animate-pulse' : ''}`} />
-            {scanning ? 'Scanning...' : 'Run Scan'}
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="identity-protection-page">
+      <SeraphPageHeader
+        eyebrow="seraph · identity · ad · kerberos · ldap"
+        title="Identity Protection"
+        tagline="> credential threats · kerberos & ldap analytics · directory hardening"
+        accent="green"
+        status={scanning ? 'SCANNING' : loading ? 'REFRESHING' : 'MONITORED'}
+        actions={
+          <>
+            <Button variant="outline" onClick={fetchData} disabled={loading} className="border-0" style={identityButton('cyan')}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button onClick={runScan} disabled={scanning} className="border-0" style={identityButton('purple')}>
+              <Play className={`h-4 w-4 mr-2 ${scanning ? 'animate-pulse' : ''}`} />
+              {scanning ? 'Scanning...' : 'Run Scan'}
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-6 gap-4 mb-6">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-gray-900/50 border border-gray-800 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={identityPanel('cyan')}
         >
           <div className="flex items-center gap-2 mb-2">
             <Users className="h-4 w-4 text-blue-400" />
-            <span className="text-gray-400 text-sm">Total Users</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#aef7ff' }}>Total Users</span>
           </div>
-          <p className="text-2xl font-bold">{stats.total_users?.toLocaleString()}</p>
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold">{stats.total_users?.toLocaleString()}</p>
         </motion.div>
         
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-gray-900/50 border border-orange-900/50 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={identityPanel('orange')}
         >
           <div className="flex items-center gap-2 mb-2">
             <Key className="h-4 w-4 text-orange-400" />
-            <span className="text-gray-400 text-sm">Privileged</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#ffd78a' }}>Privileged</span>
           </div>
-          <p className="text-2xl font-bold text-orange-400">{stats.privileged_accounts}</p>
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold text-orange-400">{stats.privileged_accounts}</p>
         </motion.div>
         
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-gray-900/50 border border-red-900/50 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={identityPanel('red')}
         >
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="h-4 w-4 text-red-400" />
-            <span className="text-gray-400 text-sm">Active Threats</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#ffd4d4' }}>Active Threats</span>
           </div>
-          <p className="text-2xl font-bold text-red-400">{stats.active_threats}</p>
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold text-red-400">{stats.active_threats}</p>
         </motion.div>
         
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="bg-gray-900/50 border border-green-900/50 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={identityPanel('green')}
         >
           <div className="flex items-center gap-2 mb-2">
             <Shield className="h-4 w-4 text-green-400" />
-            <span className="text-gray-400 text-sm">Blocked</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#b8ffca' }}>Blocked</span>
           </div>
-          <p className="text-2xl font-bold text-green-400">{stats.blocked_attacks}</p>
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold text-green-400">{stats.blocked_attacks}</p>
         </motion.div>
         
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="bg-gray-900/50 border border-yellow-900/50 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={identityPanel('yellow')}
         >
           <div className="flex items-center gap-2 mb-2">
             <Ticket className="h-4 w-4 text-yellow-400" />
-            <span className="text-gray-400 text-sm">Kerberos Anomalies</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#fff2d2' }}>Kerberos Anomalies</span>
           </div>
-          <p className="text-2xl font-bold text-yellow-400">{stats.kerberos_anomalies}</p>
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold text-yellow-400">{stats.kerberos_anomalies}</p>
         </motion.div>
         
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
-          className="bg-gray-900/50 border border-purple-900/50 rounded-xl p-4"
+          className="rounded-xl p-4"
+          style={identityPanel('purple')}
         >
           <div className="flex items-center gap-2 mb-2">
             <UserX className="h-4 w-4 text-purple-400" />
-            <span className="text-gray-400 text-sm">Credential Dumps</span>
+            <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#f3d3ff' }}>Credential Dumps</span>
           </div>
-          <p className="text-2xl font-bold text-purple-400">{stats.credential_dumps}</p>
+          <p className="sophia-flicker sophia-terminal-value text-2xl font-bold text-purple-400">{stats.credential_dumps}</p>
         </motion.div>
       </div>
 
@@ -371,7 +414,8 @@ const IdentityProtectionPage = () => {
             key={tab.id}
             variant={viewMode === tab.id ? 'default' : 'outline'}
             onClick={() => setViewMode(tab.id)}
-            className={viewMode === tab.id ? 'bg-indigo-600' : 'border-gray-700'}
+            className="border-0"
+            style={viewMode === tab.id ? identityButton(tab.id === 'alerts' ? 'red' : tab.id === 'ldap' ? 'cyan' : tab.id === 'kerberos' ? 'yellow' : 'purple') : identityPanel(tab.id === 'alerts' ? 'red' : tab.id === 'ldap' ? 'cyan' : tab.id === 'kerberos' ? 'yellow' : 'purple')}
           >
             <tab.icon className="h-4 w-4 mr-2" />
             {tab.label}
@@ -390,7 +434,7 @@ const IdentityProtectionPage = () => {
                 Identity Threats
               </h3>
               {threats.length === 0 && (
-                <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 text-center text-gray-400">
+                <div className="rounded-xl p-6 text-center" style={{ ...identityPanel('purple'), color: '#d7edff' }}>
                   No identity threats found yet. Run a scan or ingest AD/Kerberos/LDAP telemetry to populate this view.
                 </div>
               )}
@@ -402,11 +446,8 @@ const IdentityProtectionPage = () => {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 }}
-                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                      selectedThreat?.id === threat.id 
-                        ? 'bg-indigo-500/20 border-indigo-500' 
-                        : 'bg-gray-800/50 border-gray-700 hover:border-gray-600'
-                    }`}
+                    className="p-4 rounded-lg border cursor-pointer transition-all"
+                    style={selectedThreat?.id === threat.id ? identityPanel('purple') : identityPanel(idx % 2 === 0 ? 'magenta' : 'cyan')}
                     onClick={() => setSelectedThreat(threat)}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -423,8 +464,8 @@ const IdentityProtectionPage = () => {
                           }`} />
                         </div>
                         <div>
-                          <p className="font-medium capitalize">{threat.type.replace(/_/g, ' ')}</p>
-                          <p className="text-xs text-gray-400">{threat.source_user} → {threat.target}</p>
+                          <p className="sophia-scan sophia-terminal-label font-medium capitalize" style={{ color: '#f3d3ff' }}>{threat.type.replace(/_/g, ' ')}</p>
+                          <p className="sophia-flicker sophia-terminal-meta text-xs" style={{ color: '#d7edff', opacity: 0.96 }}>{threat.source_user} → {threat.target}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -433,8 +474,8 @@ const IdentityProtectionPage = () => {
                       </div>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-400">{threat.details}</span>
-                      <Badge variant="outline" className="border-gray-600 text-xs font-mono">
+                      <span className="sophia-flicker sophia-terminal-meta" style={{ color: '#ecfeff' }}>{threat.details}</span>
+                      <Badge variant="outline" className="text-xs font-mono border-0" style={identityBadge('orange')}>
                         {threat.mitre}
                       </Badge>
                     </div>
@@ -446,7 +487,7 @@ const IdentityProtectionPage = () => {
 
           {/* Kerberos Events */}
           {viewMode === 'kerberos' && (
-            <div className="bg-gray-900/50 border border-gray-800 rounded-xl overflow-hidden">
+            <div className="rounded-xl overflow-hidden" style={identityPanel('yellow')}>
               <div className="p-4 border-b border-gray-800">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <Ticket className="h-5 w-5 text-yellow-400" />
@@ -454,14 +495,14 @@ const IdentityProtectionPage = () => {
                 </h3>
               </div>
               <table className="w-full">
-                <thead className="bg-gray-800/50">
+                <thead style={{ background: 'linear-gradient(90deg, rgba(255,211,122,0.1), rgba(188,19,254,0.08))' }}>
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Event ID</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">User</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Target SPN</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Encryption</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Time</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#fff2d2' }}>Event ID</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#aef7ff' }}>User</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#f3d3ff' }}>Target SPN</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#ffd78a' }}>Encryption</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#b8ffca' }}>Status</th>
+                    <th className="sophia-scan sophia-terminal-label px-4 py-3 text-left text-sm font-medium" style={{ color: '#ffb8e9' }}>Time</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -471,11 +512,12 @@ const IdentityProtectionPage = () => {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: idx * 0.05 }}
-                      className="border-t border-gray-800 hover:bg-gray-800/30"
+                      className="border-t border-gray-800"
+                      style={identityRow(idx)}
                     >
-                      <td className="px-4 py-3 font-mono text-sm">{event.event_id}</td>
-                      <td className="px-4 py-3 text-sm">{event.user}</td>
-                      <td className="px-4 py-3 text-sm font-mono text-gray-400 max-w-[200px] truncate">
+                      <td className="sophia-flicker sophia-terminal-value px-4 py-3 font-mono text-sm" style={{ color: '#fff2d2' }}>{event.event_id}</td>
+                      <td className="sophia-flicker sophia-terminal-meta px-4 py-3 text-sm" style={{ color: '#ecfeff' }}>{event.user}</td>
+                      <td className="sophia-flicker sophia-terminal-value px-4 py-3 text-sm font-mono max-w-[200px] truncate" style={{ color: '#f3d3ff' }}>
                         {event.target_spn}
                       </td>
                       <td className="px-4 py-3">
@@ -500,7 +542,7 @@ const IdentityProtectionPage = () => {
                           </Badge>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-400">
+                      <td className="px-4 py-3 text-sm" style={{ color: '#ffb8e9' }}>
                         {new Date(event.timestamp).toLocaleTimeString()}
                       </td>
                     </motion.tr>
@@ -512,7 +554,7 @@ const IdentityProtectionPage = () => {
 
           {/* LDAP Events */}
           {viewMode === 'ldap' && (
-            <div className="bg-gray-900/50 border border-gray-800 rounded-xl overflow-hidden">
+            <div className="rounded-xl overflow-hidden" style={identityPanel('cyan')}>
               <div className="p-4 border-b border-gray-800">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <Search className="h-5 w-5 text-blue-400" />
@@ -526,7 +568,8 @@ const IdentityProtectionPage = () => {
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.05 }}
-                    className="p-4 hover:bg-gray-800/30"
+                    className="p-4"
+                    style={identityRow(idx)}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
@@ -537,13 +580,13 @@ const IdentityProtectionPage = () => {
                         }>
                           {event.type}
                         </Badge>
-                        <span className="text-sm font-mono text-gray-400">{event.source}</span>
+                        <span className="sophia-flicker sophia-terminal-value text-sm font-mono" style={{ color: '#aef7ff' }}>{event.source}</span>
                       </div>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs" style={{ color: '#d7edff', opacity: 0.82 }}>
                         {new Date(event.timestamp).toLocaleString()}
                       </span>
                     </div>
-                    <code className="text-sm text-gray-300 bg-gray-800/50 p-2 rounded block font-mono">
+                    <code className="text-sm p-2 rounded block font-mono" style={{ ...identityPanel('purple'), color: '#ecfeff' }}>
                       {event.query}
                     </code>
                   </motion.div>
@@ -554,7 +597,7 @@ const IdentityProtectionPage = () => {
 
           {/* Alerts View */}
           {viewMode === 'alerts' && (
-            <div className="bg-gray-900/50 border border-gray-800 rounded-xl overflow-hidden">
+            <div className="rounded-xl overflow-hidden" style={identityPanel('red')}>
               <div className="p-4 border-b border-gray-800">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <AlertOctagon className="h-5 w-5 text-orange-400" />
@@ -563,7 +606,7 @@ const IdentityProtectionPage = () => {
               </div>
               <div className="divide-y divide-gray-800">
                 {alerts.length === 0 && (
-                  <div className="p-6 text-center text-gray-400">
+                  <div className="p-6 text-center" style={{ color: '#ffd4d4' }}>
                     No identity alerts currently active.
                   </div>
                 )}
@@ -573,16 +616,17 @@ const IdentityProtectionPage = () => {
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.05 }}
-                    className="p-4 hover:bg-gray-800/30"
+                    className="p-4"
+                    style={identityRow(idx)}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         {getSeverityBadge(alert.severity)}
-                        <span className="text-sm text-gray-400">{alert.user}</span>
+                        <span className="sophia-flicker sophia-terminal-meta text-sm" style={{ color: '#ffd4d4' }}>{alert.user}</span>
                         <span className="text-gray-600">•</span>
-                        <span className="text-sm font-mono text-gray-400">{alert.endpoint}</span>
+                        <span className="sophia-flicker sophia-terminal-value text-sm font-mono" style={{ color: '#fff2d2' }}>{alert.endpoint}</span>
                       </div>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs" style={{ color: '#d7edff', opacity: 0.82 }}>
                         {new Date(alert.timestamp).toLocaleString()}
                       </span>
                     </div>
@@ -603,7 +647,8 @@ const IdentityProtectionPage = () => {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
-                className="bg-gray-900/50 border border-indigo-900/50 rounded-xl p-4"
+                className="rounded-xl p-4"
+                style={identityPanel('purple')}
               >
                 <h3 className="font-semibold mb-3 flex items-center gap-2">
                   <Target className="h-4 w-4 text-indigo-400" />
@@ -611,39 +656,39 @@ const IdentityProtectionPage = () => {
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <p className="text-xs text-gray-400">Attack Type</p>
-                    <p className="font-medium capitalize">{selectedThreat.type.replace(/_/g, ' ')}</p>
+                    <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#ffb8e9' }}>Attack Type</p>
+                    <p className="sophia-flicker sophia-terminal-value font-medium capitalize" style={{ color: '#fff0fb' }}>{selectedThreat.type.replace(/_/g, ' ')}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <p className="text-xs text-gray-400">Severity</p>
+                      <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#ffd78a' }}>Severity</p>
                       {getSeverityBadge(selectedThreat.severity)}
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Status</p>
+                      <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#b8ffca' }}>Status</p>
                       {getStatusBadge(selectedThreat.status)}
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400">Source</p>
-                    <p className="font-mono text-sm">{selectedThreat.source_user}</p>
+                    <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#aef7ff' }}>Source</p>
+                    <p className="sophia-flicker sophia-terminal-value font-mono text-sm" style={{ color: '#ecfeff' }}>{selectedThreat.source_user}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400">Target</p>
-                    <p className="font-mono text-sm">{selectedThreat.target}</p>
+                    <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#f3d3ff' }}>Target</p>
+                    <p className="sophia-flicker sophia-terminal-value font-mono text-sm" style={{ color: '#fff0fb' }}>{selectedThreat.target}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400">MITRE Technique</p>
-                    <Badge variant="outline" className="border-gray-600 font-mono">
+                    <p className="sophia-scan sophia-terminal-label text-xs" style={{ color: '#ffd78a' }}>MITRE Technique</p>
+                    <Badge variant="outline" className="font-mono border-0" style={identityBadge('orange')}>
                       {selectedThreat.mitre}
                     </Badge>
                   </div>
                   <div className="pt-2 flex gap-2">
-                    <Button size="sm" className="flex-1 bg-red-600 hover:bg-red-700">
+                    <Button size="sm" className="flex-1 border-0" style={identityButton('red')}>
                       <Lock className="h-3 w-3 mr-1" />
                       Block
                     </Button>
-                    <Button size="sm" variant="outline" className="flex-1 border-gray-700">
+                    <Button size="sm" variant="outline" className="flex-1 border-0" style={identityButton('cyan')}>
                       <Eye className="h-3 w-3 mr-1" />
                       Investigate
                     </Button>
@@ -654,7 +699,7 @@ const IdentityProtectionPage = () => {
           </AnimatePresence>
 
           {/* Attack Types Legend */}
-          <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4">
+          <div className="rounded-xl p-4" style={identityPanel('magenta')}>
             <h3 className="font-semibold mb-3">Attack Types Monitored</h3>
             <div className="space-y-2">
               {[
@@ -667,9 +712,9 @@ const IdentityProtectionPage = () => {
                 { type: 'AS-REP Roasting', mitre: 'T1558.004' },
                 { type: 'Password Spraying', mitre: 'T1110.003' }
               ].map(attack => (
-                <div key={attack.mitre} className="flex items-center justify-between p-2 bg-gray-800/30 rounded-lg">
-                  <span className="text-sm">{attack.type}</span>
-                  <Badge variant="outline" className="border-gray-600 text-xs font-mono">
+                <div key={attack.mitre} className="flex items-center justify-between p-2 rounded-lg" style={identityPanel(attack.mitre === 'T1003.006' ? 'red' : attack.mitre === 'T1110.003' ? 'orange' : 'purple')}>
+                  <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#ecfeff' }}>{attack.type}</span>
+                  <Badge variant="outline" className="text-xs font-mono border-0" style={identityBadge('cyan')}>
                     {attack.mitre}
                   </Badge>
                 </div>
@@ -678,18 +723,18 @@ const IdentityProtectionPage = () => {
           </div>
 
           {/* Quick Actions */}
-          <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4">
+          <div className="rounded-xl p-4" style={identityPanel('cyan')}>
             <h3 className="font-semibold mb-3">Quick Actions</h3>
             <div className="space-y-2">
-              <Button variant="outline" className="w-full justify-start border-gray-700">
+              <Button variant="outline" className="w-full justify-start border-0" style={identityButton('purple')}>
                 <Key className="h-4 w-4 mr-2" />
                 Rotate Credentials
               </Button>
-              <Button variant="outline" className="w-full justify-start border-gray-700">
+              <Button variant="outline" className="w-full justify-start border-0" style={identityButton('orange')}>
                 <Users className="h-4 w-4 mr-2" />
                 Review Privileged
               </Button>
-              <Button variant="outline" className="w-full justify-start border-gray-700">
+              <Button variant="outline" className="w-full justify-start border-0" style={identityButton('cyan')}>
                 <BarChart3 className="h-4 w-4 mr-2" />
                 Export Report
               </Button>
@@ -697,26 +742,26 @@ const IdentityProtectionPage = () => {
           </div>
 
           {/* AD Health */}
-          <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4">
+          <div className="rounded-xl p-4" style={identityPanel('green')}>
             <h3 className="font-semibold mb-3 flex items-center gap-2">
               <Server className="h-4 w-4 text-blue-400" />
               AD Health
             </h3>
             <div className="space-y-2">
-              <div className="flex items-center justify-between p-2 bg-gray-800/30 rounded-lg">
-                <span className="text-sm">DC Replication</span>
+              <div className="flex items-center justify-between p-2 rounded-lg" style={identityPanel('green')}>
+                <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#ecfeff' }}>DC Replication</span>
                 <CheckCircle2 className="h-4 w-4 text-green-400" />
               </div>
-              <div className="flex items-center justify-between p-2 bg-gray-800/30 rounded-lg">
-                <span className="text-sm">SYSVOL Integrity</span>
+              <div className="flex items-center justify-between p-2 rounded-lg" style={identityPanel('cyan')}>
+                <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#ecfeff' }}>SYSVOL Integrity</span>
                 <CheckCircle2 className="h-4 w-4 text-green-400" />
               </div>
-              <div className="flex items-center justify-between p-2 bg-gray-800/30 rounded-lg">
-                <span className="text-sm">Kerberos Services</span>
+              <div className="flex items-center justify-between p-2 rounded-lg" style={identityPanel('yellow')}>
+                <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#fff2d2' }}>Kerberos Services</span>
                 <CheckCircle2 className="h-4 w-4 text-green-400" />
               </div>
-              <div className="flex items-center justify-between p-2 bg-gray-800/30 rounded-lg">
-                <span className="text-sm">LDAPS Enabled</span>
+              <div className="flex items-center justify-between p-2 rounded-lg" style={identityPanel('purple')}>
+                <span className="sophia-scan sophia-terminal-label text-sm" style={{ color: '#f3d3ff' }}>LDAPS Enabled</span>
                 <CheckCircle2 className="h-4 w-4 text-green-400" />
               </div>
             </div>

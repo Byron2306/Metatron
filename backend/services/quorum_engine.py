@@ -8,6 +8,7 @@ from backend.schemas.phase4_models import QuorumPolicy, QuorumDecision, QuorumSt
 
 from backend.arda.ainur import AinurChoir
 from backend.services.constitutional_projection import project_choir_truth
+from backend.services.runtime_environment import is_production_like
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ class QuorumEngineService:
         
         # Constitutional Veto based on environment
         if status in {QuorumStatus.VETOED, QuorumStatus.FRACTURED}:
-            if os.environ.get("ARDA_ENV") == "production":
+            if is_production_like():
                 logger.error(f"PHASE IV: QUORUM VETO! Consensus: {consensus_score*100:.1f}% | Nodes: {resonant_nodes}/{total_cluster_nodes}")
             else:
                 logger.warning(f"PHASE IV: Quorum strained ({consensus_score*100:.1f}%), but proceeding for Infallible Audit (non-production).")

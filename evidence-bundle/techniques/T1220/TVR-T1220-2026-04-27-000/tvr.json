@@ -1,0 +1,1234 @@
+{
+  "record_type": "technique_validation_record",
+  "schema_version": "1.0.0",
+  "validation_id": "TVR-T1220-2026-04-27-000",
+  "technique": {
+    "attack_id": "T1220",
+    "name": "T1220",
+    "tactics": [
+      "defense-evasion"
+    ],
+    "platforms": [
+      "Linux"
+    ]
+  },
+  "procedure": {
+    "source": "atomic_red_team",
+    "procedure_id": "ART-T1220-1",
+    "name": "Atomic Red Team validation for T1220",
+    "description": "Automated emulation procedure for T1220 executed via Invoke-AtomicRedTeam inside the Metatron lab environment.",
+    "test_ref": "atomics/T1220/T1220.yaml#test-1"
+  },
+  "environment": {
+    "lab_id": "metatron-lab-a",
+    "hostname": "debian-node-01",
+    "asset_id": "asset-001",
+    "os": {
+      "family": "linux",
+      "name": "Debian",
+      "version": "12"
+    },
+    "kernel_version": "6.12.74+deb12-amd64",
+    "sensor_stack": [
+      {
+        "name": "sigma-engine",
+        "version": "2026.04.27",
+        "rules_loaded": 505
+      },
+      {
+        "name": "osquery",
+        "version": "5.15.0"
+      },
+      {
+        "name": "atomic_red_team",
+        "version": "2025.01"
+      }
+    ]
+  },
+  "execution": {
+    "started_at": "2026-04-27T17:54:47.910883+00:00",
+    "ended_at": "2026-04-27T17:54:47.910883+00:00",
+    "executor": "atomic_red_team",
+    "operator": "Byron Bunt",
+    "status": "not_run",
+    "exit_code": -1,
+    "real_execution": false,
+    "execution_mode": "none",
+    "execution_trust_level": "none",
+    "sandbox_verified": false,
+    "evidence_inheritance": "none",
+    "expected_outcome": "detect",
+    "command_line": "N/A \u2014 no successful execution recorded",
+    "run_count": 0,
+    "direct_run_count": 0,
+    "run_ids": [],
+    "job_ids": [],
+    "runs": []
+  },
+  "telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "c792e934f88d9e42c86e4d55c0b1d688a32f4dad5018b716ebabe30873480046"
+      }
+    ],
+    "key_events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1776166996-pack_seraph_processe",
+        "timestamp": "Tue Apr 14 06:43:16 AM CDT 2026",
+        "query_name": "pack_seraph_processes",
+        "action": "added",
+        "columns": {
+          "pid": "1",
+          "name": "uvicorn",
+          "cmdline": "uvicorn server:app --host 0.0.0.0 --port 8001",
+          "cwd": "/app",
+          "root": "/"
+        },
+        "host_identifier": "seraph-backend"
+      }
+    ]
+  },
+  "execution_evidence": {
+    "observed": false,
+    "command_line": "",
+    "exit_code": -1,
+    "run_ids": [],
+    "process_ids": [
+      1,
+      4242
+    ],
+    "timestamps": [
+      "Tue Apr 14 06:43:16 AM CDT 2026",
+      "2026-04-22T21:08:44.591439+00:00",
+      "2026-04-22T21:08:44.592963+00:00",
+      "1777300771.484556",
+      "1777300772.319617",
+      "1777300775.565468",
+      "1777300775.577756",
+      "1777300775.586769"
+    ]
+  },
+  "host_telemetry_evidence": {
+    "observed": true,
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "c792e934f88d9e42c86e4d55c0b1d688a32f4dad5018b716ebabe30873480046"
+      }
+    ],
+    "events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1776166996-pack_seraph_processe",
+        "timestamp": "Tue Apr 14 06:43:16 AM CDT 2026",
+        "query_name": "pack_seraph_processes",
+        "action": "added",
+        "columns": {
+          "pid": "1",
+          "name": "uvicorn",
+          "cmdline": "uvicorn server:app --host 0.0.0.0 --port 8001",
+          "cwd": "/app",
+          "root": "/"
+        },
+        "host_identifier": "seraph-backend"
+      }
+    ]
+  },
+  "network_telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "zeek_conn",
+        "file": "conn.log",
+        "match_methods": [
+          "ip_match"
+        ]
+      }
+    ],
+    "key_events": [
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300771.484556",
+        "src_ip": "172.28.0.11",
+        "src_port": "57246",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "-",
+        "connection_uid": "CnuBP03o3FUojgdLC3"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300772.319617",
+        "src_ip": "172.28.0.11",
+        "src_port": "55552",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "-",
+        "connection_uid": "CWPjYr5bkquDG6lne"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.565468",
+        "src_ip": "172.28.0.11",
+        "src_port": "49256",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "Cw93bS3Xc6VUHkBa6e"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.577756",
+        "src_ip": "172.28.0.11",
+        "src_port": "49266",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "C25vqNvFkihNl16rc"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.586769",
+        "src_ip": "172.28.0.11",
+        "src_port": "49282",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CF8hGg3O2dEEEBCE0f"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.596450",
+        "src_ip": "172.28.0.11",
+        "src_port": "49288",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CKdwKd43ly3dxh1itb"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.602740",
+        "src_ip": "172.28.0.11",
+        "src_port": "49304",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "C4O2qA4fPHe7xcSzT6"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.618019",
+        "src_ip": "172.28.0.11",
+        "src_port": "49308",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "Cd38AF1Gt77JZuS0z1"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300774.467546",
+        "src_ip": "172.28.0.15",
+        "src_port": "55050",
+        "dest_ip": "34.95.113.255",
+        "dest_port": "443",
+        "proto": "tcp",
+        "service": "ssl",
+        "connection_uid": "C3I2Df3PAJw0Xqc2s2"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300772.892133",
+        "src_ip": "172.28.0.1",
+        "src_port": "47408",
+        "dest_ip": "172.28.0.4",
+        "dest_port": "80",
+        "proto": "tcp",
+        "service": "-",
+        "connection_uid": "CfhmMn21fOSCp6wMgb"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.914923",
+        "src_ip": "172.28.0.4",
+        "src_port": "48966",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CJXm972OtNd9DxjPDh"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.921487",
+        "src_ip": "172.28.0.4",
+        "src_port": "48986",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CVP9rt2j6MEW2Ab4p4"
+      }
+    ],
+    "observed": true
+  },
+  "analytic_evidence": {
+    "sigma": [
+      {
+        "analytic_id": "SIG-06ce37c2-61ab-4f05-9ff5-b1a96d18ae32",
+        "rule_id": "06ce37c2-61ab-4f05-9ff5-b1a96d18ae32",
+        "source_id": "06ce37c2-61ab-4f05-9ff5-b1a96d18ae32",
+        "title": "WMIC Loading Scripting Libraries",
+        "rule_file": "image_load_wmic_remote_xsl_scripting_dlls.yml",
+        "rule_sha256": "70c482ca178afd147802d3f4be5bb4b48f6dac9d10a5aff72f16cb0a5e1860bd",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-9e50a8b3-dd05-4eb8-9153-bdb6b79d50b0",
+        "rule_id": "9e50a8b3-dd05-4eb8-9153-bdb6b79d50b0",
+        "source_id": "9e50a8b3-dd05-4eb8-9153-bdb6b79d50b0",
+        "title": "Msxsl.EXE Execution",
+        "rule_file": "proc_creation_win_msxsl_execution.yml",
+        "rule_sha256": "a2689c143ab1f2c54860f87b1ec62ba3001dafd4f7bed984eb8ce59aeafe0145",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-75d0a94e-6252-448d-a7be-d953dff527bb",
+        "rule_id": "75d0a94e-6252-448d-a7be-d953dff527bb",
+        "source_id": "75d0a94e-6252-448d-a7be-d953dff527bb",
+        "title": "Remote XSL Execution Via Msxsl.EXE",
+        "rule_file": "proc_creation_win_msxsl_remote_execution.yml",
+        "rule_sha256": "e8b6ee81a2b6d79d154a68b4df73f9bf0ab2e99fe1d00a0e3ad598bdf97d7484",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-8d63dadf-b91b-4187-87b6-34a1114577ea",
+        "rule_id": "8d63dadf-b91b-4187-87b6-34a1114577ea",
+        "source_id": "8d63dadf-b91b-4187-87b6-34a1114577ea",
+        "title": "Potential Remote SquiblyTwo Technique Execution",
+        "rule_file": "proc_creation_win_wmic_squiblytwo_bypass.yml",
+        "rule_sha256": "dd720e3e390c65f1edead7213aa6ffb6a3c82e2f5d7428d4eb69b6b549a54f6b",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-05c36dd6-79d6-4a9a-97da-3db20298ab2d",
+        "rule_id": "05c36dd6-79d6-4a9a-97da-3db20298ab2d",
+        "source_id": "05c36dd6-79d6-4a9a-97da-3db20298ab2d",
+        "title": "XSL Script Execution Via WMIC.EXE",
+        "rule_file": "proc_creation_win_wmic_xsl_script_processing.yml",
+        "rule_sha256": "6340f0afe6a0873e6fc2e5972cba5204269756d1ae627d1e78d656232657cf63",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      }
+    ],
+    "osquery": [
+      {
+        "query_id": "OSQ-T1220_PROC_HIDDEN",
+        "name": "t1220_proc_hidden",
+        "query_text": "SELECT pid, name, path, cmdline, on_disk, cwd FROM processes WHERE on_disk = 0 OR path = '' ORDER BY start_time DESC LIMIT 100;",
+        "matched": true,
+        "result_count": 1,
+        "supporting_event_ids": [
+          "osq-1776166996-pack_seraph_processe"
+        ],
+        "osquery_evidence_type": "direct_match"
+      },
+      {
+        "query_id": "OSQ-T1220_FILE_MOD",
+        "name": "t1220_file_mod",
+        "query_text": "SELECT path, filename, size, uid, gid, mode, mtime, atime FROM file WHERE (path LIKE '/tmp/%' OR path LIKE '/dev/shm/%' OR path LIKE '/var/tmp/%') AND mtime > (strftime('%s','now') - 3600) LIMIT 100;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": [],
+        "osquery_evidence_type": "mapped_query_only"
+      }
+    ],
+    "custom": []
+  },
+  "detection_evidence": {
+    "observed": true,
+    "sigma_matches": [],
+    "osquery_matches": [
+      {
+        "query_id": "OSQ-T1220_PROC_HIDDEN",
+        "name": "t1220_proc_hidden",
+        "query_text": "SELECT pid, name, path, cmdline, on_disk, cwd FROM processes WHERE on_disk = 0 OR path = '' ORDER BY start_time DESC LIMIT 100;",
+        "matched": true,
+        "result_count": 1,
+        "supporting_event_ids": [
+          "osq-1776166996-pack_seraph_processe"
+        ],
+        "osquery_evidence_type": "direct_match"
+      }
+    ]
+  },
+  "artifact_evidence": {
+    "files": [
+      {
+        "path": "/app",
+        "hashes": []
+      },
+      {
+        "path": "/tmp/T1220.bin",
+        "hashes": []
+      },
+      {
+        "path": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json",
+        "hashes": []
+      }
+    ],
+    "hashes": [],
+    "observed": true
+  },
+  "response_evidence": {
+    "executions": [
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:08:44.591439+00:00",
+        "completed_at": "2026-04-22T21:08:44.592963+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1220",
+        "pid": 4242,
+        "file_path": "/tmp/T1220.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:08:44.591577+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.591629+00:00",
+              "session_id": "mitre-session-T1220",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:08:44.591935+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:08:44.591974+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592013+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:08:44.592148+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:08:44.592182+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592219+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:08:44.592312+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:08:44.592341+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592373+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:08:44.592476+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:08:44.592510+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592544+00:00",
+              "forensics_id": "forensics_f9e36b5f841c",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:08:44.592639+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:08:44.592667+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592698+00:00",
+              "ticket_id": "TKT-110817DA",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:08:44.592790+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:08:44.592817+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592847+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:08:44.592926+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:08:44.591439+00:00",
+        "completed_at": "2026-04-22T21:08:44.592963+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1220",
+        "pid": 4242,
+        "file_path": "/tmp/T1220.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:08:44.591577+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.591629+00:00",
+              "session_id": "mitre-session-T1220",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:08:44.591935+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:08:44.591974+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592013+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:08:44.592148+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:08:44.592182+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592219+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:08:44.592312+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:08:44.592341+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592373+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:08:44.592476+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:08:44.592510+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592544+00:00",
+              "forensics_id": "forensics_f9e36b5f841c",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:08:44.592639+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:08:44.592667+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592698+00:00",
+              "ticket_id": "TKT-110817DA",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:08:44.592790+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:08:44.592817+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592847+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:08:44.592926+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:08:44.591439+00:00",
+        "completed_at": "2026-04-22T21:08:44.592963+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1220",
+        "pid": 4242,
+        "file_path": "/tmp/T1220.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:08:44.591577+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.591629+00:00",
+              "session_id": "mitre-session-T1220",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:08:44.591935+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:08:44.591974+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592013+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:08:44.592148+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:08:44.592182+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592219+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:08:44.592312+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:08:44.592341+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592373+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:08:44.592476+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:08:44.592510+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592544+00:00",
+              "forensics_id": "forensics_f9e36b5f841c",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:08:44.592639+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:08:44.592667+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592698+00:00",
+              "ticket_id": "TKT-110817DA",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:08:44.592790+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:08:44.592817+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:08:44.592847+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:08:44.592926+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      }
+    ],
+    "actions": [
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.591935+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592148+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592312+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592476+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592639+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592790+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592926+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.591935+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592148+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592312+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592476+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592639+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592790+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592926+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.591935+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592148+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592312+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592476+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592639+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592790+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      },
+      {
+        "execution_id": "exec_2b0edd75956c",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:08:44.592926+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1220"
+      }
+    ],
+    "observed": true
+  },
+  "integration_evidence_summary": {
+    "arda_bpf_status": "simulated_backend_event",
+    "arda_substrate_proof": "none",
+    "arda_event_count": 1,
+    "live_osquery_row_count": 20,
+    "live_osquery_direct_match": true,
+    "deception_event_count": 0,
+    "deception_chain_of_custody_status": "absent"
+  },
+  "correlation": {
+    "direct_detection": false,
+    "correlated_detection": true,
+    "evidence_chain": [
+      "telemetry_evidence.key_events[0]",
+      "network_telemetry_evidence.key_events[0]",
+      "analytic_evidence.osquery[0]",
+      "artifact_evidence.files[0]",
+      "response_evidence.actions[0]"
+    ],
+    "anchors": {
+      "timestamp_window": {
+        "first_seen": "Tue Apr 14 06:43:16 AM CDT 2026",
+        "last_seen": "1777300775.921487",
+        "samples": [
+          "Tue Apr 14 06:43:16 AM CDT 2026",
+          "2026-04-22T21:08:44.591439+00:00",
+          "2026-04-22T21:08:44.592963+00:00",
+          "1777300771.484556",
+          "1777300772.319617",
+          "1777300775.565468",
+          "1777300775.577756",
+          "1777300775.586769"
+        ]
+      },
+      "host_ids": [
+        "seraph-backend",
+        "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2"
+      ],
+      "process_ids": [
+        1,
+        4242
+      ],
+      "ip_addresses": [
+        "0.0.0.0",
+        "203.0.113.10",
+        "172.28.0.11",
+        "172.28.0.7",
+        "172.28.0.15",
+        "34.95.113.255",
+        "172.28.0.1",
+        "172.28.0.4"
+      ],
+      "file_paths": [
+        "/app",
+        "/tmp/T1220.bin",
+        "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      ],
+      "hashes": [],
+      "event_ids": [
+        "osq-1776166996-pack_seraph_processe"
+      ]
+    },
+    "story_assessment": {
+      "present_layers": [
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [
+        "execution"
+      ],
+      "layer_count": 5,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 2,
+        "ip_addresses": 8,
+        "file_paths": 3,
+        "hashes": 0,
+        "event_ids": 1
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": false
+    }
+  },
+  "quality": {
+    "repeated_runs": 0,
+    "successful_detections": 0,
+    "effective_runs": 0,
+    "unique_successful_direct_run_ids": [],
+    "clean_run_count": 0,
+    "quality_run_count": 0,
+    "run_validity_summary": {},
+    "has_fatal_stdout_markers": false,
+    "has_vns_or_simulation_only": false,
+    "evidence_inheritance": "direct",
+    "execution_source": "none",
+    "osquery_status": "matched",
+    "baseline_window_minutes": 60,
+    "baseline_false_positives": 0,
+    "analyst_reviewed": false,
+    "reviewer": "Byron Bunt",
+    "review_class": "internal_author_reviewed",
+    "reviewed_at": "2026-04-27T17:54:47.910883+00:00"
+  },
+  "story": {
+    "goal": "one_event_many_witnesses_one_story",
+    "layered_presence": {
+      "execution": false,
+      "host_telemetry": true,
+      "network_telemetry": true,
+      "detection": true,
+      "artifact": true,
+      "response": true
+    },
+    "assessment": {
+      "present_layers": [
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [
+        "execution"
+      ],
+      "layer_count": 5,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 2,
+        "ip_addresses": 8,
+        "file_paths": 3,
+        "hashes": 0,
+        "event_ids": 1
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": false
+    },
+    "narrative": "Execution, telemetry, detections, artifacts, network observations, and SOAR response are tracked as separate witnesses and tied together through shared anchors."
+  },
+  "promotion": {
+    "score": 2,
+    "tier": "S2",
+    "tier_name": "bronze",
+    "certification_tier": "S2",
+    "certification_label": "bronze",
+    "status": "partial",
+    "reason": "S2 Bronze \u2014 mapping only: 5 Sigma rules + 2 osquery queries exist for this technique; no successful execution evidence."
+  },
+  "integrity": {
+    "record_sha256": "bdd2da6dfd332e9e74d0b009aa4168442ea97acaf10ef1f30ac39306647e1c05",
+    "hash_method": "SHA-256 of canonical JSON (sort_keys=True, default=str) excluding the integrity block itself",
+    "created_at": "2026-04-27T17:54:47.910883+00:00"
+  }
+}

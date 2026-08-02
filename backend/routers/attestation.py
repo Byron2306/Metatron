@@ -16,6 +16,22 @@ from typing import Any, Dict, List, Optional
 
 from .dependencies import get_current_user, check_permission
 
+# Optional boot attestation services
+try:
+    from backend.services.boot_attestation import get_boot_attestation_service
+except ImportError:
+    get_boot_attestation_service = None
+
+try:
+    from backend.services.boot_measurement import BootMeasurementService
+except ImportError:
+    BootMeasurementService = None
+
+try:
+    from backend.services.boot_eventlog_reader import get_boot_eventlog_reader
+except ImportError:
+    get_boot_eventlog_reader = None
+
 router = APIRouter(prefix="/attestation", tags=["Attestation"])
 
 
@@ -52,7 +68,7 @@ async def create_envelope(
 ):
     """Create a signed DSSE attestation envelope for a decision."""
     try:
-        from services.attestation_service import create_envelope as _create
+        from backend.services.attestation_service import create_envelope as _create
         envelope = _create(
             command=req.command,
             principal=req.principal,
@@ -79,7 +95,7 @@ async def verify_envelope(
 ):
     """Verify the signature on a DSSE attestation envelope."""
     try:
-        from services.attestation_service import verify_envelope as _verify
+        from backend.services.attestation_service import verify_envelope as _verify
         valid = _verify(req.envelope)
         return {"valid": valid, "algorithm": req.envelope.get("signing_algorithm")}
     except Exception as e:
@@ -93,7 +109,7 @@ async def get_tpm_quote(
 ):
     """Get a TPM PCR quote (hardware or high-fidelity mock)."""
     try:
-        from services.tpm_attestation_service import get_tpm_service
+        from backend.services.tpm_attestation_service import get_tpm_service
         tpm = get_tpm_service()
         quote = await tpm.get_attestation_quote(req.pcr_indices, req.nonce)
         return {
@@ -110,7 +126,7 @@ async def get_pcr_snapshot(
 ):
     """Read current PCR values from TPM."""
     try:
-        from services.tpm_attestation_service import get_tpm_service
+        from backend.services.tpm_attestation_service import get_tpm_service
         tpm = get_tpm_service()
         pcrs = await tpm.get_pcr_snapshot([0, 1, 7, 11])
         return {
@@ -127,7 +143,7 @@ async def verify_formation(
 ):
     """Run full boot formation verification (TPM PCRs + Secure Boot + manifest)."""
     try:
-        from services.formation_verifier import get_formation_verifier
+        from backend.services.formation_verifier import get_formation_verifier
         verifier = get_formation_verifier()
         bundle = await verifier.verify_formation()
         return bundle.model_dump() if hasattr(bundle, "model_dump") else vars(bundle)
@@ -139,7 +155,7 @@ async def verify_formation(
 async def attestation_status(current_user: dict = Depends(get_current_user)):
     """Return current attestation subsystem status."""
     try:
-        from services.tpm_attestation_service import get_tpm_service
+        from backend.services.tpm_attestation_service import get_tpm_service
         import os as _os
         tpm = get_tpm_service()
         tpm_override = _os.environ.get("SERAPH_TPM_OVERRIDE", "").strip().lower() in ("1", "true", "yes")
@@ -160,7 +176,7 @@ async def attestation_status(current_user: dict = Depends(get_current_user)):
         # Pull secure boot status (best-effort)
         secure_boot_enabled = False
         try:
-            from services.secure_boot_state_service import get_secure_boot_state_service
+            from backend.services.secure_boot_state_service import get_secure_boot_state_service
             sb = await get_secure_boot_state_service().get_secure_boot_state()
             secure_boot_enabled = bool(getattr(sb, "enabled", False))
         except Exception:
@@ -180,3 +196,63 @@ async def attestation_status(current_user: dict = Depends(get_current_user)):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.get("/boot/measurement")
+async def get_boot_measurement(
+    current_user: dict = Depends(get_current_user),
+):
+    """Get system boot measurement (IMA/PCR state at boot time)."""
+    if not BootMeasurementService:
+        raise HTTPException(status_code=501, detail="Boot measurement service not available")
+    
+    try:
+        service = BootMeasurementService()
+        measurement = await service.get_measurement()
+        return {
+            "success": True,
+            "measurement": measurement,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get boot measurement: {str(e)}")
+
+
+@router.get("/boot/eventlog")
+async def get_boot_eventlog(
+    max_entries: int = 100,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get boot event log (IMA log or Measured Boot log)."""
+    if not get_boot_eventlog_reader:
+        raise HTTPException(status_code=501, detail="Boot eventlog reader not available")
+    
+    try:
+        reader = get_boot_eventlog_reader()
+        events = await reader.get_events(limit=max_entries)
+        return {
+            "success": True,
+            "events": events,
+            "count": len(events),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read boot eventlog: {str(e)}")
+
+
+@router.post("/boot/verify")
+async def verify_boot_integrity(
+    current_user: dict = Depends(check_permission("read")),
+):
+    """Verify boot integrity using attestation evidence."""
+    if not get_boot_attestation_service:
+        raise HTTPException(status_code=501, detail="Boot attestation service not available")
+    
+    try:
+        service = get_boot_attestation_service()
+        verification = await service.verify_boot_integrity()
+        return {
+            "success": True,
+            "verified": verification.get("verified", False),
+            "evidence": verification,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Boot integrity verification failed: {str(e)}")

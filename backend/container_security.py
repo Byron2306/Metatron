@@ -227,6 +227,9 @@ class TrivyScanner:
                 continue
         logger.warning("Trivy not found - container scanning disabled")
         return None
+
+    def is_available(self) -> bool:
+        return bool(self.trivy_path)
     
     async def scan_image(self, image_name: str, force: bool = False) -> ImageScanResult:
         """
@@ -1602,6 +1605,26 @@ class EnhancedContainerSecurityManager:
         
         self._initialized = True
         logger.info("EnhancedContainerSecurityManager initialized")
+
+    @staticmethod
+    def _docker_container_running(name: str) -> bool:
+        try:
+            out = subprocess.check_output(
+                ["docker", "inspect", "--format", "{{.State.Running}}", name],
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            ).decode().strip()
+            return out.lower() == "true"
+        except Exception:
+            return False
+
+    @staticmethod
+    def _trivy_server_reachable(host: str = "127.0.0.1", port: int = 4954) -> bool:
+        try:
+            with socket.create_connection((host, port), timeout=2):
+                return True
+        except Exception:
+            return False
     
     @classmethod
     def set_database(cls, db):
@@ -1612,6 +1635,21 @@ class EnhancedContainerSecurityManager:
             cls._instance.falco.set_database(db)
             cls._instance.cis_benchmark.set_database(db)
             cls._instance.k8s_security.set_database(db)
+
+    async def scan_image(self, image_name: str, force: bool = False) -> Dict[str, Any]:
+        result = await self.scanner.scan_image(image_name, force)
+        return asdict(result)
+
+    async def scan_all_images(self) -> List[Dict[str, Any]]:
+        results = await self.scanner.scan_all_images()
+        return [asdict(r) for r in results]
+
+    async def get_containers(self) -> List[Dict[str, Any]]:
+        containers = await self.runtime_monitor.get_running_containers()
+        return [asdict(c) for c in containers]
+
+    async def check_container(self, container_id: str) -> Dict[str, Any]:
+        return await self.runtime_monitor.check_container_security(container_id)
     
     async def full_security_scan(self, image_name: str) -> Dict[str, Any]:
         """Run comprehensive security scan on an image"""
@@ -1699,8 +1737,13 @@ class EnhancedContainerSecurityManager:
     
     def get_comprehensive_stats(self) -> Dict[str, Any]:
         """Get comprehensive security statistics"""
+        trivy_available = (
+            bool(config.trivy_enabled and self.scanner.is_available())
+            or self._docker_container_running("seraph-trivy")
+            or self._trivy_server_reachable()
+        )
         return {
-            "trivy_enabled": config.trivy_enabled,
+            "trivy_enabled": trivy_available,
             "falco_enabled": config.falco_enabled,
             "secret_scanning": config.secret_scanning,
             "cosign_verify": config.cosign_verify,
@@ -1713,6 +1756,19 @@ class EnhancedContainerSecurityManager:
             "signing_cache": len(self.signing_verifier.verification_cache)
         }
 
+    def get_stats(self) -> Dict[str, Any]:
+        stats = self.get_comprehensive_stats()
+        return {
+            "trivy_enabled": bool(stats.get("trivy_enabled")),
+            "falco_enabled": bool(stats.get("falco_enabled")),
+            "auto_scan": config.auto_scan_new_images,
+            "cached_scans": int(stats.get("cached_scans", 0)),
+            "runtime_events": int(stats.get("runtime_events", 0)),
+            "trivy_binary_available": self.scanner.is_available(),
+            "trivy_server_running": self._docker_container_running("seraph-trivy"),
+            "trivy_server_reachable": self._trivy_server_reachable(),
+        }
+
 
 # Global instance
-container_security = ContainerSecurityManager()
+container_security = EnhancedContainerSecurityManager()

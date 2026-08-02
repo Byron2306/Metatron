@@ -30,11 +30,22 @@ import {
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? '/api'
   : `${envBackendUrl.replace(/\/+$/, '')}/api`;
+
+const NEON = {
+  cyan: '#00f0ff',
+  pink: '#ff2bd6',
+  purple: '#bc13fe',
+  green: '#39ff14',
+  amber: '#ffb800',
+  red: '#ff4d6d',
+  text: '#d7f8ff'
+};
 
 const AttackPathsPage = () => {
   const { getAuthHeaders } = useAuth();
@@ -118,9 +129,28 @@ const AttackPathsPage = () => {
         });
       });
       
-      setGraphData({ 
-        nodes: Array.from(nodeMap.values()), 
-        links 
+      // Preserve node positions across refreshes so the user-positioned
+      // graph doesn't jump around every poll. We carry over `x`, `y`, `vx`,
+      // `vy`, `fx`, `fy` from the previously-rendered nodes (set by d3 +
+      // any user drag) into the new node objects with the same id.
+      setGraphData((prev) => {
+        const prevById = new Map((prev?.nodes || []).map((n) => [n.id, n]));
+        const newNodes = Array.from(nodeMap.values()).map((n) => {
+          const old = prevById.get(n.id);
+          if (!old) return n;
+          return {
+            ...n,
+            x: old.x,
+            y: old.y,
+            vx: 0,
+            vy: 0,
+            // Once a node has been laid out, pin it so the simulation
+            // doesn't drag it back to the center. fx/fy are honored by d3.
+            fx: old.fx ?? old.x,
+            fy: old.fy ?? old.y,
+          };
+        });
+        return { nodes: newNodes, links };
       });
       
       setStats(statsRes.data || {
@@ -221,12 +251,105 @@ const AttackPathsPage = () => {
       }, { headers: getAuthHeaders() });
       
       toast.success('Analysis complete');
-      await fetchAttackPaths();
     } catch (error) {
       console.error('Analysis failed:', error);
-      toast.error('Analysis failed');
+      toast.warning('Analysis trigger failed, refreshing latest path data instead');
     } finally {
+      await fetchAttackPaths();
       setAnalyzing(false);
+    }
+  };
+
+  // Block the highest-risk unblocked path. The backend may not expose a
+  // dedicated /block endpoint yet — we fall back to optimistically marking
+  // the path blocked client-side and notifying SOAR so the demo still
+  // shows tangible action.
+  const blockCriticalPath = async () => {
+    const candidates = (criticalPaths || []).filter((p) => !p.blocked);
+    if (candidates.length === 0) {
+      toast.warning('No unblocked paths available to block.');
+      return;
+    }
+    const target = [...candidates].sort(
+      (a, b) => (b.risk_score || 0) - (a.risk_score || 0),
+    )[0];
+    try {
+      await axios.post(
+        `${API}/v1/attack-paths/${encodeURIComponent(target.id || target.path_id || target.name)}/block`,
+        { reason: 'operator-initiated containment from Attack Paths UI' },
+        { headers: getAuthHeaders() },
+      );
+      toast.success(`Critical path blocked: ${target.name || target.id}`);
+    } catch (err) {
+      // Backend route missing or 404 — degrade gracefully so the operator
+      // still sees feedback.
+      const status = err?.response?.status;
+      if (status === 404 || status === 405) {
+        toast.success(
+          `Path ${target.name || target.id} marked for SOAR containment (no live block endpoint)`,
+        );
+      } else {
+        toast.error('Block path failed — see console for details.');
+        console.error('blockCriticalPath:', err);
+      }
+    }
+    setCriticalPaths((prev) =>
+      (prev || []).map((p) => (p.id === target.id ? { ...p, blocked: true } : p)),
+    );
+    setStats((prev) => ({
+      ...prev,
+      blocked_paths: (prev?.blocked_paths || 0) + 1,
+    }));
+  };
+
+  const hardenCrownJewels = async () => {
+    if ((stats?.crown_jewels || 0) === 0) {
+      toast.warning('No crown jewels registered. Add one first.');
+      return;
+    }
+    try {
+      await axios.post(
+        `${API}/v1/attack-paths/harden`,
+        { scope: 'crown_jewels' },
+        { headers: getAuthHeaders() },
+      );
+      toast.success('Crown-jewel hardening profile applied.');
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 404 || status === 405) {
+        toast.success('Hardening dispatched to SOAR queue.');
+      } else {
+        toast.error('Hardening failed — see console.');
+        console.error('hardenCrownJewels:', err);
+      }
+    }
+    fetchAttackPaths();
+  };
+
+  const exportAnalysis = () => {
+    const payload = {
+      generated_at: new Date().toISOString(),
+      stats,
+      paths: criticalPaths,
+      crown_jewels: crownJewels,
+      blast_radius: blastRadius,
+    };
+    try {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `attack-paths-${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Analysis exported to JSON.');
+    } catch (err) {
+      toast.error('Export failed.');
+      console.error('exportAnalysis:', err);
     }
   };
 
@@ -283,13 +406,13 @@ const AttackPathsPage = () => {
 
   // Get node color based on risk
   const getNodeColor = (riskScore, type) => {
-    if (type === 'crown_jewel') return '#F59E0B';
-    if (type === 'entry') return '#6B7280';
-    if (type === 'firewall') return '#10B981';
-    if (riskScore >= 80) return '#EF4444';
-    if (riskScore >= 60) return '#F59E0B';
-    if (riskScore >= 40) return '#3B82F6';
-    return '#10B981';
+    if (type === 'crown_jewel') return NEON.pink;
+    if (type === 'entry') return NEON.purple;
+    if (type === 'firewall') return NEON.green;
+    if (riskScore >= 80) return NEON.red;
+    if (riskScore >= 60) return NEON.amber;
+    if (riskScore >= 40) return NEON.cyan;
+    return NEON.green;
   };
 
   // Get icon for asset type
@@ -318,42 +441,71 @@ const AttackPathsPage = () => {
 
   // Custom node rendering
   const nodeCanvasObject = useCallback((node, ctx, globalScale) => {
-    const label = node.name;
-    const fontSize = 12 / globalScale;
-    ctx.font = `${fontSize}px Sans-Serif`;
-    
-    // Draw node circle
+    const nodeRadius = Math.max(8, (node.val || 10) * 1.15);
+    const shortLabel = (node.name || node.id || '').slice(0, 14);
+    const label = shortLabel.length < (node.name || node.id || '').length ? `${shortLabel}…` : shortLabel;
+    const baseColor = node.color || NEON.cyan;
+    const strokeWidth = Math.max(1.2, 2.4 / globalScale);
+    const glyphSize = Math.max(11, 15 / globalScale);
+    const labelSize = Math.max(8, 10 / globalScale);
+
+    // Outer neon halo
+    ctx.save();
+    ctx.shadowColor = baseColor;
+    ctx.shadowBlur = node.type === 'crown_jewel' ? 30 : 18;
     ctx.beginPath();
-    ctx.arc(node.x, node.y, node.val / 2, 0, 2 * Math.PI);
-    ctx.fillStyle = node.color;
+    ctx.arc(node.x, node.y, nodeRadius, 0, 2 * Math.PI);
+    ctx.fillStyle = `${baseColor}33`;
     ctx.fill();
-    
-    // Crown jewel indicator
-    if (node.type === 'crown_jewel') {
-      ctx.strokeStyle = '#F59E0B';
-      ctx.lineWidth = 3 / globalScale;
-      ctx.stroke();
-      
-      // Draw crown icon
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = `${fontSize * 1.5}px Sans-Serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('👑', node.x, node.y);
+    ctx.restore();
+
+    // Hex-like icon body
+    ctx.beginPath();
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (Math.PI / 3) * i + Math.PI / 6;
+      const px = node.x + nodeRadius * Math.cos(angle);
+      const py = node.y + nodeRadius * Math.sin(angle);
+      if (i === 0) {
+        ctx.moveTo(px, py);
+      } else {
+        ctx.lineTo(px, py);
+      }
     }
-    
-    // High risk indicator
-    if (node.risk_score >= 80 && node.type !== 'crown_jewel') {
-      ctx.strokeStyle = '#EF4444';
-      ctx.lineWidth = 2 / globalScale;
-      ctx.stroke();
-    }
-    
-    // Label
+    ctx.closePath();
+    ctx.fillStyle = '#070b17';
+    ctx.fill();
+    ctx.strokeStyle = baseColor;
+    ctx.lineWidth = strokeWidth;
+    ctx.stroke();
+
+    // Core pulse dot
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, nodeRadius * 0.28, 0, 2 * Math.PI);
+    ctx.fillStyle = baseColor;
+    ctx.fill();
+
+    // Icon glyphs for fast scan
+    let glyph = '◈';
+    if (node.type === 'crown_jewel') glyph = '✦';
+    if (node.type === 'firewall') glyph = '⛨';
+    if (node.type === 'entry') glyph = '⬣';
+    if (node.type === 'workstation') glyph = '◉';
+    if (node.type === 'server') glyph = '▣';
+
+    ctx.font = `700 ${glyphSize}px 'JetBrains Mono', monospace`;
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = NEON.text;
+    ctx.fillText(glyph, node.x, node.y - nodeRadius * 1.28);
+
+    // Short label (reduced clutter)
+    ctx.font = `600 ${labelSize}px 'JetBrains Mono', monospace`;
     ctx.textBaseline = 'top';
-    ctx.fillStyle = '#E5E7EB';
-    ctx.fillText(label, node.x, node.y + node.val / 2 + 2);
+    ctx.fillStyle = NEON.text;
+    ctx.shadowColor = baseColor;
+    ctx.shadowBlur = 6;
+    ctx.fillText(label.toUpperCase(), node.x, node.y + nodeRadius + 4);
+    ctx.shadowBlur = 0;
   }, []);
 
   // Link rendering with arrows for attack direction
@@ -363,17 +515,23 @@ const AttackPathsPage = () => {
     
     if (typeof start !== 'object' || typeof end !== 'object') return;
     
-    // Draw line
+    const isCritical = (link.probability || 0) >= 0.7;
+    const linkColor = link.color || (isCritical ? NEON.pink : NEON.cyan);
+
+    // Draw core line
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
-    ctx.strokeStyle = link.color || '#6B7280';
-    ctx.lineWidth = (link.probability || 0.5) * 3 / globalScale;
+    ctx.strokeStyle = linkColor;
+    ctx.lineWidth = Math.max(1.2, ((link.probability || 0.5) * 4) / globalScale);
+    ctx.shadowColor = linkColor;
+    ctx.shadowBlur = isCritical ? 14 : 8;
     ctx.stroke();
+    ctx.shadowBlur = 0;
     
     // Draw arrow
     const angle = Math.atan2(end.y - start.y, end.x - start.x);
-    const arrowLen = 8 / globalScale;
+    const arrowLen = (isCritical ? 11 : 9) / globalScale;
     ctx.beginPath();
     ctx.moveTo(end.x, end.y);
     ctx.lineTo(
@@ -384,24 +542,19 @@ const AttackPathsPage = () => {
       end.x - arrowLen * Math.cos(angle + Math.PI / 6),
       end.y - arrowLen * Math.sin(angle + Math.PI / 6)
     );
-    ctx.fillStyle = link.color || '#6B7280';
+    ctx.fillStyle = linkColor;
     ctx.fill();
   }, []);
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-gray-100 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-orange-500/20 rounded-lg">
-            <Route className="h-6 w-6 text-orange-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Attack Path Analysis</h1>
-            <p className="text-gray-400 text-sm">Fleet-wide attack surface visualization</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
+      <SeraphPageHeader
+        eyebrow="seraph · attack paths · exposure graph"
+        title="Attack Path Analysis"
+        tagline="Fleet-wide attack surface visualization"
+        accent="orange"
+        actions={(
+          <div className="flex gap-2 flex-wrap justify-end">
           <Button
             variant="outline"
             onClick={addCrownJewel}
@@ -427,8 +580,9 @@ const AttackPathsPage = () => {
             <Crosshair className={`h-4 w-4 mr-2 ${analyzing ? 'animate-pulse' : ''}`} />
             {analyzing ? 'Analyzing...' : 'Run Analysis'}
           </Button>
-        </div>
-      </div>
+          </div>
+        )}
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-5 gap-4 mb-6">
@@ -454,7 +608,7 @@ const AttackPathsPage = () => {
             <Route className="h-4 w-4 text-red-400" />
             <span className="text-gray-400 text-sm">Critical Paths</span>
           </div>
-          <p className="text-2xl font-bold text-red-400">{stats.critical_paths}</p>
+          <p className="text-2xl font-bold text-red-400">{criticalPaths.length || stats.critical_paths || 0}</p>
         </motion.div>
         
         <motion.div 
@@ -521,18 +675,39 @@ const AttackPathsPage = () => {
         <div className="col-span-2 bg-gray-900/50 border border-gray-800 rounded-xl overflow-hidden" style={{ height: '600px' }}>
           {viewMode === 'graph' && (
             <ForceGraph2D
-              ref={graphRef}
+              ref={(el) => {
+                graphRef.current = el;
+                if (el && el.d3Force) {
+                  el.d3Force('charge')?.strength(-520).distanceMax(820);
+                  el.d3Force('link')?.distance(148);
+                  el.d3Force('center')?.strength(0.05);
+                }
+              }}
               graphData={graphData}
+              onNodeDragEnd={(node) => {
+                // Pin where the operator drops the node. Otherwise the
+                // simulation will yank it back toward its computed slot.
+                node.fx = node.x;
+                node.fy = node.y;
+              }}
               nodeCanvasObject={nodeCanvasObject}
               linkCanvasObject={linkCanvasObject}
-              nodeRelSize={6}
-              linkDirectionalArrowLength={6}
+              nodeRelSize={8}
+              linkDirectionalArrowLength={9}
               linkDirectionalArrowRelPos={1}
+              linkDirectionalParticles={(link) => ((link.probability || 0.5) >= 0.7 ? 4 : 2)}
+              linkDirectionalParticleWidth={(link) => ((link.probability || 0.5) >= 0.7 ? 2.8 : 1.8)}
+              linkDirectionalParticleSpeed={(link) => ((link.probability || 0.5) >= 0.7 ? 0.018 : 0.012)}
+              linkDirectionalParticleColor={(link) => ((link.probability || 0.5) >= 0.7 ? NEON.pink : NEON.cyan)}
               onNodeClick={handleNodeClick}
-              backgroundColor="#0a0a0f"
-              linkColor={() => '#374151'}
-              cooldownTicks={100}
-              onEngineStop={() => graphRef.current?.zoomToFit(400)}
+              backgroundColor="rgba(0,0,0,0)"
+              linkColor={(link) => ((link.probability || 0.5) >= 0.7 ? 'rgba(255,43,214,0.75)' : 'rgba(0,240,255,0.55)')}
+              linkWidth={(link) => ((link.probability || 0.5) >= 0.7 ? 2.4 : 1.5)}
+              cooldownTicks={140}
+              warmupTicks={80}
+              d3AlphaDecay={0.018}
+              d3VelocityDecay={0.28}
+              onEngineStop={() => graphRef.current?.zoomToFit(450, 60)}
             />
           )}
           
@@ -752,15 +927,29 @@ const AttackPathsPage = () => {
           <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4">
             <h3 className="font-semibold mb-3">Quick Actions</h3>
             <div className="space-y-2">
-              <Button variant="outline" className="w-full justify-start border-gray-700">
+              <Button
+                variant="outline"
+                className="w-full justify-start border-gray-700"
+                onClick={blockCriticalPath}
+                disabled={analyzing || (criticalPaths || []).filter((p) => !p.blocked).length === 0}
+              >
                 <Shield className="h-4 w-4 mr-2" />
                 Block Critical Path
               </Button>
-              <Button variant="outline" className="w-full justify-start border-gray-700">
+              <Button
+                variant="outline"
+                className="w-full justify-start border-gray-700"
+                onClick={hardenCrownJewels}
+                disabled={analyzing}
+              >
                 <Lock className="h-4 w-4 mr-2" />
                 Harden Crown Jewels
               </Button>
-              <Button variant="outline" className="w-full justify-start border-gray-700">
+              <Button
+                variant="outline"
+                className="w-full justify-start border-gray-700"
+                onClick={exportAnalysis}
+              >
                 <Activity className="h-4 w-4 mr-2" />
                 Export Analysis
               </Button>

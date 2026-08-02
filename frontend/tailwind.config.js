@@ -7,8 +7,9 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['IBM Plex Sans', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        sans: ['JetBrains Mono', 'IBM Plex Sans', 'sans-serif'],
+        mono: ['Orbitron', 'JetBrains Mono', 'monospace'],
+        display: ['Orbitron', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",

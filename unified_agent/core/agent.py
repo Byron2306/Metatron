@@ -455,15 +455,29 @@ class ThreatIntelligence:
 # DATA MODELS
 # =============================================================================
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)) or default)
+    except Exception:
+        return default
+
+
 @dataclass
 class AgentConfig:
     """Agent configuration"""
     server_url: str = ""
     agent_id: str = ""
     agent_name: str = ""
-    update_interval: int = 30
-    heartbeat_interval: int = 60
-    auto_remediate: bool = True
+    update_interval: int = field(default_factory=lambda: _env_int("SERAPH_AGENT_UPDATE_INTERVAL", 300))
+    heartbeat_interval: int = field(default_factory=lambda: _env_int("SERAPH_AGENT_HEARTBEAT_INTERVAL", 300))
+    auto_remediate: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_AUTO_REMEDIATE", True))
     severity_auto_kill: List[str] = field(default_factory=lambda: ["critical", "high"])
     
     # Authentication
@@ -481,11 +495,11 @@ class AgentConfig:
     auto_block_ips: bool = True  # Block malicious IPs (requires admin)
     
     # Feature toggles
-    network_scanning: bool = True
-    process_monitoring: bool = True
-    file_scanning: bool = True
-    wireless_scanning: bool = True
-    bluetooth_scanning: bool = True
+    network_scanning: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_NETWORK_SCANNING", True))
+    process_monitoring: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_PROCESS_MONITORING", True))
+    file_scanning: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_FILE_SCANNING", True))
+    wireless_scanning: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_WIRELESS_SCANNING", True))
+    bluetooth_scanning: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_BLUETOOTH_SCANNING", True))
 
     # Data protection / EDM
     dlp_edm_enabled: bool = True
@@ -502,14 +516,14 @@ class AgentConfig:
     ])
     dlp_edm_require_signed: bool = True
     dlp_edm_signing_secret: str = ""
-    usb_monitoring: bool = True
+    usb_monitoring: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_USB_MONITORING", True))
     
     # Advanced features
-    vns_sync: bool = True
-    ai_analysis: bool = True
+    vns_sync: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_VNS_SYNC", True))
+    ai_analysis: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_AI_ANALYSIS", True))
     siem_integration: bool = False
     quantum_secure: bool = False
-    threat_hunting: bool = True
+    threat_hunting: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_THREAT_HUNTING", True))
     
     # SIEM Configuration
     elasticsearch_url: str = ""
@@ -523,7 +537,7 @@ class AgentConfig:
     local_ui_port: int = 5000
 
     # VPN
-    vpn_auto_configure: bool = False
+    vpn_auto_configure: bool = field(default_factory=lambda: _env_bool("SERAPH_AGENT_VPN_AUTO_CONFIGURE", True))
 
     @classmethod
     def from_file(cls, path: str) -> 'AgentConfig':
@@ -7582,11 +7596,17 @@ class WireGuardAutoSetup:
         
         # Config paths
         if PLATFORM == "windows":
-            self.config_dir = Path(os.environ.get('LOCALAPPDATA', 'C:/')) / "WireGuard" / "Metatron"
+            self.config_dir = Path(os.environ.get('PROGRAMDATA') or os.environ.get('LOCALAPPDATA', 'C:/')) / "SeraphAgent" / "WireGuard"
+        elif PLATFORM == "darwin":
+            self.config_dir = Path.home() / "Library" / "Application Support" / "SeraphAgent" / "WireGuard"
         else:
-            self.config_dir = Path("/etc/wireguard")
+            if hasattr(os, "geteuid") and os.geteuid() == 0:
+                self.config_dir = Path(os.environ.get("SERAPH_WIREGUARD_DIR", "/var/lib/seraph-agent/wireguard"))
+            else:
+                self.config_dir = Path(os.environ.get("SERAPH_WIREGUARD_DIR", str(Path.home() / ".config" / "seraph-agent" / "wireguard")))
         
         self.config_file = self.config_dir / "metatron-vpn.conf"
+        self.system_config_file = Path("/etc/wireguard/metatron-vpn.conf")
     
     def auto_configure(self) -> bool:
         """
@@ -7766,6 +7786,15 @@ PersistentKeepalive = 25
             # Set proper permissions on Linux/macOS
             if PLATFORM != "windows":
                 os.chmod(self.config_file, 0o600)
+                if hasattr(os, "geteuid") and os.geteuid() == 0:
+                    try:
+                        self.system_config_file.parent.mkdir(parents=True, exist_ok=True)
+                        with open(self.system_config_file, "w") as system_file:
+                            system_file.write(config_content)
+                        os.chmod(self.system_config_file, 0o600)
+                        logger.info(f"Mirrored WireGuard config: {self.system_config_file}")
+                    except Exception as mirror_error:
+                        logger.warning(f"Could not mirror WireGuard config to /etc/wireguard: {mirror_error}")
             
             logger.info(f"Created WireGuard config: {self.config_file}")
             return True
@@ -7778,21 +7807,39 @@ PersistentKeepalive = 25
         """Start the WireGuard VPN connection"""
         try:
             if PLATFORM == "windows":
-                # Windows: Use WireGuard service
-                subprocess.run(
-                    ['wireguard', '/installtunnelservice', str(self.config_file)],
-                    check=True, capture_output=True
-                )
+                # Windows: Use WireGuard service; support both PATH and default install location.
+                wg_candidates = [
+                    "wireguard",
+                    r"C:\\Program Files\\WireGuard\\wireguard.exe",
+                    r"C:\\Program Files (x86)\\WireGuard\\wireguard.exe",
+                ]
+                last_err = None
+                started = False
+                for wg_cmd in wg_candidates:
+                    try:
+                        subprocess.run(
+                            [wg_cmd, '/installtunnelservice', str(self.config_file)],
+                            check=True,
+                            capture_output=True,
+                        )
+                        started = True
+                        break
+                    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                        last_err = e
+                if not started:
+                    if last_err:
+                        raise last_err
+                    raise FileNotFoundError("WireGuard executable not found")
             elif PLATFORM == "darwin":
                 # macOS: Use wg-quick
                 subprocess.run(
-                    ['wg-quick', 'up', 'metatron-vpn'],
+                    ['wg-quick', 'up', str(self.config_file)],
                     check=True, capture_output=True
                 )
             else:
                 # Linux: Use wg-quick
                 subprocess.run(
-                    ['wg-quick', 'up', 'metatron-vpn'],
+                    ['wg-quick', 'up', str(self.system_config_file if self.system_config_file.exists() else self.config_file)],
                     check=True, capture_output=True
                 )
             
@@ -7815,7 +7862,7 @@ PersistentKeepalive = 25
                     capture_output=True
                 )
             else:
-                subprocess.run(['wg-quick', 'down', 'metatron-vpn'], capture_output=True)
+                subprocess.run(['wg-quick', 'down', str(self.system_config_file if self.system_config_file.exists() else self.config_file)], capture_output=True)
             
             self.is_connected = False
             return True
@@ -7828,7 +7875,9 @@ PersistentKeepalive = 25
             'configured': self.is_configured,
             'connected': self.is_connected,
             'address': self.address,
-            'config_file': str(self.config_file) if self.is_configured else None
+            'config_file': str(self.config_file) if self.is_configured else None,
+            'system_config_file': str(self.system_config_file) if self.system_config_file.exists() else None,
+            'config_dir': str(self.config_dir),
         }
 
 
@@ -13913,6 +13962,533 @@ setInterval(refresh, 5000);
 </body>
 </html>"""
 
+    DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Seraph Agent Nexus // Port 5000</title>
+<style>
+    :root {
+        --bg-0: #02050d;
+        --bg-1: #061022;
+        --bg-2: #0b1730;
+        --panel: rgba(8, 18, 40, 0.74);
+        --panel-strong: rgba(4, 12, 28, 0.92);
+        --line: rgba(0, 240, 255, 0.25);
+        --line-strong: rgba(0, 240, 255, 0.55);
+        --cyan: #00f0ff;
+        --pink: #ff2bd6;
+        --violet: #bc13fe;
+        --green: #39ff14;
+        --amber: #ffb020;
+        --text: #d8f7ff;
+        --text-soft: #92bfd2;
+        --danger: #ff5e8b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Rajdhani", "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+            radial-gradient(circle at 16% 14%, rgba(0, 240, 255, 0.18), transparent 28%),
+            radial-gradient(circle at 84% 8%, rgba(188, 19, 254, 0.16), transparent 32%),
+            linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 55%, var(--bg-0) 100%);
+        overflow-x: hidden;
+    }
+
+    body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-image:
+            linear-gradient(rgba(0, 240, 255, 0.045) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0, 240, 255, 0.045) 1px, transparent 1px);
+        background-size: 34px 34px;
+        mask-image: radial-gradient(ellipse at 50% 38%, rgba(0, 0, 0, 1) 30%, rgba(0, 0, 0, 0.35) 70%, rgba(0, 0, 0, 0) 100%);
+    }
+
+    .scanline {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1;
+        background: repeating-linear-gradient(
+            to bottom,
+            rgba(0, 240, 255, 0.035) 0px,
+            rgba(0, 240, 255, 0.035) 1px,
+            transparent 1px,
+            transparent 4px
+        );
+        opacity: 0.4;
+    }
+
+    .shell {
+        position: relative;
+        z-index: 2;
+        width: min(1320px, 96vw);
+        margin: 1.2rem auto 1.6rem;
+        display: grid;
+        gap: 1rem;
+    }
+
+    .hud {
+        position: relative;
+        background: linear-gradient(160deg, var(--panel), var(--panel-strong));
+        border: 1px solid var(--line);
+        clip-path: polygon(0 12px, 12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px));
+        box-shadow: 0 0 22px rgba(0, 240, 255, 0.12), inset 0 0 24px rgba(0, 240, 255, 0.05);
+        overflow: hidden;
+    }
+
+    .hud::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -120%;
+        width: 70%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--cyan), var(--pink), transparent);
+        animation: edgeSweep 5.5s linear infinite;
+    }
+
+    .topbar {
+        padding: 1.1rem 1.2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.8rem;
+        flex-wrap: wrap;
+    }
+
+    .kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.25rem 0.7rem;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.64rem;
+        text-transform: uppercase;
+        letter-spacing: 0.24em;
+        border: 1px solid rgba(0, 240, 255, 0.3);
+        color: #acefff;
+        background: linear-gradient(90deg, rgba(0, 240, 255, 0.1), rgba(188, 19, 254, 0.1));
+    }
+
+    .pip {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--cyan);
+        box-shadow: 0 0 10px var(--cyan), 0 0 24px var(--cyan);
+        animation: pulse 1.8s ease-in-out infinite;
+    }
+
+    h1 {
+        margin: 0.35rem 0 0;
+        font-family: "Orbitron", "JetBrains Mono", monospace;
+        font-size: clamp(1.35rem, 3vw, 2.25rem);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        background: linear-gradient(90deg, #effdff 0%, #79dbff 30%, #00f0ff 54%, #bc13fe 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.35));
+    }
+
+    .subline {
+        margin: 0.35rem 0 0;
+        color: var(--text-soft);
+        font-size: 0.92rem;
+        letter-spacing: 0.04em;
+    }
+
+    .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.35rem 0.7rem;
+        border: 1px solid var(--line);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: #e7fbff;
+        background: rgba(0, 240, 255, 0.08);
+    }
+
+    .status.online { border-color: rgba(57, 255, 20, 0.5); color: #c9ffb9; background: rgba(57, 255, 20, 0.12); }
+    .status.offline { border-color: rgba(255, 94, 139, 0.5); color: #ffb7cb; background: rgba(255, 94, 139, 0.13); }
+    .status.error { border-color: rgba(255, 176, 32, 0.6); color: #ffe0ad; background: rgba(255, 176, 32, 0.15); }
+
+    .time {
+        margin-top: 0.45rem;
+        text-align: right;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.69rem;
+        letter-spacing: 0.12em;
+        color: var(--text-soft);
+    }
+
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 1rem;
+    }
+
+    .col-3 { grid-column: span 3; }
+    .col-4 { grid-column: span 4; }
+    .col-6 { grid-column: span 6; }
+    .col-8 { grid-column: span 8; }
+
+    .panel {
+        padding: 1rem;
+        position: relative;
+    }
+
+    .label {
+        margin: 0;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.62rem;
+        text-transform: uppercase;
+        letter-spacing: 0.24em;
+        color: var(--text-soft);
+    }
+
+    .metric {
+        margin-top: 0.35rem;
+        font-size: clamp(1.25rem, 2.7vw, 1.9rem);
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        color: #f2fdff;
+    }
+
+    .metric.cyan { color: #89ecff; }
+    .metric.violet { color: #ddacff; }
+    .metric.green { color: #b4ff9f; }
+    .metric.pink { color: #ffb0ec; }
+    .metric.amber { color: #ffd49a; }
+
+    .bar {
+        margin-top: 0.6rem;
+        width: 100%;
+        height: 9px;
+        border: 1px solid rgba(0, 240, 255, 0.28);
+        background: rgba(0, 0, 0, 0.35);
+        overflow: hidden;
+    }
+
+    .bar > span {
+        display: block;
+        height: 100%;
+        width: 0%;
+        transition: width 0.45s ease;
+        background: linear-gradient(90deg, rgba(0, 240, 255, 0.65), rgba(188, 19, 254, 0.88));
+        box-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+    }
+
+    .split {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.65rem;
+        margin-top: 0.8rem;
+    }
+
+    .chip {
+        border: 1px solid rgba(0, 240, 255, 0.2);
+        background: rgba(0, 240, 255, 0.06);
+        padding: 0.45rem 0.55rem;
+    }
+
+    .chip-title {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.58rem;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+    }
+
+    .chip-value {
+        margin-top: 0.32rem;
+        word-break: break-all;
+        color: #e8fbff;
+        font-size: 0.88rem;
+    }
+
+    .list {
+        margin-top: 0.65rem;
+        max-height: 280px;
+        overflow: auto;
+        border: 1px solid rgba(0, 240, 255, 0.18);
+        background: rgba(0, 0, 0, 0.28);
+    }
+
+    .list-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.8rem;
+        padding: 0.56rem 0.72rem;
+        border-bottom: 1px solid rgba(0, 240, 255, 0.1);
+        font-size: 0.87rem;
+    }
+
+    .list-row:last-child { border-bottom: 0; }
+    .list-main { color: #d8faff; }
+    .list-meta { color: var(--text-soft); font-size: 0.73rem; white-space: nowrap; }
+    .ok { color: #acffb8; }
+    .bad { color: #ff9ec0; }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 0.7; box-shadow: 0 0 8px var(--cyan), 0 0 18px var(--cyan); }
+        50% { opacity: 1; box-shadow: 0 0 16px var(--cyan), 0 0 34px var(--cyan); }
+    }
+
+    @keyframes edgeSweep {
+        0% { left: -120%; }
+        100% { left: 120%; }
+    }
+
+    @media (max-width: 1080px) {
+        .col-3, .col-4, .col-6, .col-8 { grid-column: span 6; }
+    }
+
+    @media (max-width: 720px) {
+        .shell { width: 95vw; margin: 0.8rem auto 1rem; }
+        .col-3, .col-4, .col-6, .col-8 { grid-column: span 12; }
+        .split { grid-template-columns: 1fr; }
+    }
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+<main class="shell">
+    <section class="hud topbar">
+        <div>
+            <span class="kicker"><span class="pip"></span> Local Agent Console // Port 5000</span>
+            <h1>Seraph Cyber Dashboard</h1>
+            <p class="subline" id="subtitle">Awaiting telemetry stream...</p>
+        </div>
+        <div>
+            <div class="status online" id="status-badge"><span class="pip"></span> Loading</div>
+            <p class="time" id="last-hb">No heartbeat yet</p>
+        </div>
+    </section>
+
+    <section class="grid">
+        <article class="hud panel col-3">
+            <p class="label">CPU Utilization</p>
+            <p class="metric cyan" id="cpu">--</p>
+            <div class="bar"><span id="cpu-bar"></span></div>
+        </article>
+        <article class="hud panel col-3">
+            <p class="label">Memory Usage</p>
+            <p class="metric violet" id="mem">--</p>
+            <div class="bar"><span id="mem-bar"></span></div>
+        </article>
+        <article class="hud panel col-3">
+            <p class="label">Disk Usage</p>
+            <p class="metric green" id="dsk">--</p>
+            <div class="bar"><span id="dsk-bar"></span></div>
+        </article>
+        <article class="hud panel col-3">
+            <p class="label">Network Connections</p>
+            <p class="metric amber" id="conns">0</p>
+            <div class="bar"><span id="conn-bar"></span></div>
+        </article>
+
+        <article class="hud panel col-4">
+            <p class="label">Threat Detections</p>
+            <p class="metric pink" id="threats">0</p>
+            <p class="subline">Open incidents from local monitor engines</p>
+        </article>
+        <article class="hud panel col-4">
+            <p class="label">Auto Remediations</p>
+            <p class="metric green" id="kills">0</p>
+            <p class="subline">Host-level kill/quarantine actions executed</p>
+        </article>
+        <article class="hud panel col-4">
+            <p class="label">Event Volume</p>
+            <p class="metric cyan" id="events">0</p>
+            <p class="subline">Total telemetry and detection events in memory</p>
+        </article>
+
+        <article class="hud panel col-6">
+            <p class="label">Agent Identity Matrix</p>
+            <div class="split">
+                <div class="chip"><p class="chip-title">Agent ID</p><p class="chip-value" id="agent-id">--</p></div>
+                <div class="chip"><p class="chip-title">Agent Name</p><p class="chip-value" id="agent-name">--</p></div>
+                <div class="chip"><p class="chip-title">Platform</p><p class="chip-value" id="platform">--</p></div>
+                <div class="chip"><p class="chip-title">Version</p><p class="chip-value" id="version">--</p></div>
+                <div class="chip"><p class="chip-title">Control Server</p><p class="chip-value" id="server">--</p></div>
+                <div class="chip"><p class="chip-title">Registration</p><p class="chip-value" id="registered">--</p></div>
+            </div>
+        </article>
+
+        <article class="hud panel col-6">
+            <p class="label">Monitor Enablement</p>
+            <div class="list" id="monitor-list">
+                <div class="list-row"><span class="list-main">Loading monitor inventory...</span></div>
+            </div>
+        </article>
+
+        <article class="hud panel col-6">
+            <p class="label">Recent Threat Queue</p>
+            <div class="list" id="threat-list">
+                <div class="list-row"><span class="list-main">No threats loaded yet.</span></div>
+            </div>
+        </article>
+
+        <article class="hud panel col-6">
+            <p class="label">Recent Event Queue</p>
+            <div class="list" id="event-list">
+                <div class="list-row"><span class="list-main">No events loaded yet.</span></div>
+            </div>
+        </article>
+    </section>
+</main>
+
+<script>
+function pct(value) {
+    const num = Number(value || 0);
+    if (!Number.isFinite(num)) return 0;
+    if (num < 0) return 0;
+    if (num > 100) return 100;
+    return num;
+}
+
+function safeText(value, fallback) {
+    const v = String(value || "").trim();
+    return v || fallback;
+}
+
+function setMetric(id, value, suffix) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const n = Number(value || 0);
+    el.textContent = Number.isFinite(n) ? n.toFixed(1) + (suffix || "") : "0" + (suffix || "");
+}
+
+function renderRows(containerId, rows) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    if (!rows.length) {
+        container.innerHTML = '<div class="list-row"><span class="list-main">No records.</span></div>';
+        return;
+    }
+    container.innerHTML = "";
+    rows.forEach(function(row) {
+        const wrap = document.createElement("div");
+        wrap.className = "list-row";
+
+        const main = document.createElement("span");
+        main.className = "list-main";
+        main.textContent = row.main;
+
+        const meta = document.createElement("span");
+        meta.className = "list-meta" + (row.metaClass ? " " + row.metaClass : "");
+        meta.textContent = row.meta;
+
+        wrap.appendChild(main);
+        wrap.appendChild(meta);
+        container.appendChild(wrap);
+    });
+}
+
+async function refresh() {
+    try {
+        const response = await fetch('/api/data');
+        const data = await response.json();
+        const agent = data.agent || {};
+        const telem = data.telemetry || {};
+        const threats = Array.isArray(data.threats) ? data.threats : [];
+        const events = Array.isArray(data.events) ? data.events : [];
+        const monitors = agent.monitors || {};
+        const conns = Array.isArray(telem.connections) ? telem.connections.length : 0;
+
+        document.getElementById('subtitle').textContent = safeText(agent.hostname, 'unknown-host') + ' // ' + safeText(agent.agent_id, 'unregistered-agent');
+
+        const badge = document.getElementById('status-badge');
+        const up = !!agent.running;
+        badge.className = 'status ' + (up ? 'online' : 'offline');
+        badge.innerHTML = '<span class="pip"></span> ' + (up ? 'Online' : 'Stopped');
+
+        const hb = document.getElementById('last-hb');
+        hb.textContent = agent.last_heartbeat ? ('Last heartbeat: ' + new Date(agent.last_heartbeat).toLocaleTimeString()) : 'No heartbeat yet';
+
+        setMetric('cpu', telem.cpu_usage, '%');
+        setMetric('mem', telem.memory_usage, '%');
+        setMetric('dsk', telem.disk_usage, '%');
+
+        document.getElementById('cpu-bar').style.width = pct(telem.cpu_usage) + '%';
+        document.getElementById('mem-bar').style.width = pct(telem.memory_usage) + '%';
+        document.getElementById('dsk-bar').style.width = pct(telem.disk_usage) + '%';
+
+        document.getElementById('conns').textContent = String(conns);
+        document.getElementById('conn-bar').style.width = pct(conns * 5) + '%';
+
+        document.getElementById('threats').textContent = String(agent.threat_count || threats.length || 0);
+        document.getElementById('kills').textContent = String(agent.auto_kills || 0);
+        document.getElementById('events').textContent = String(agent.event_count || events.length || 0);
+
+        document.getElementById('agent-id').textContent = safeText(agent.agent_id, 'N/A');
+        document.getElementById('agent-name').textContent = safeText(agent.agent_name, 'N/A');
+        document.getElementById('platform').textContent = safeText(agent.platform, 'N/A');
+        document.getElementById('version').textContent = safeText(agent.version, 'N/A');
+        document.getElementById('server').textContent = safeText(agent.server_url, 'Not configured');
+        document.getElementById('registered').textContent = agent.registered ? 'Registered' : 'Pending';
+
+        const monitorRows = Object.keys(monitors).sort().map(function(name) {
+            const enabled = !!monitors[name];
+            return {
+                main: name,
+                meta: enabled ? 'enabled' : 'disabled',
+                metaClass: enabled ? 'ok' : 'bad'
+            };
+        });
+        renderRows('monitor-list', monitorRows);
+
+        const threatRows = threats.slice(-20).reverse().map(function(item) {
+            const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : (item.detected_at ? new Date(item.detected_at).toLocaleTimeString() : '--:--:--');
+            return {
+                main: safeText(item.title || item.threat_id || item.description, 'Unknown threat'),
+                meta: safeText(item.severity, 'severity?') + ' // ' + ts,
+                metaClass: String(item.severity || '').toLowerCase() === 'critical' ? 'bad' : ''
+            };
+        });
+        renderRows('threat-list', threatRows);
+
+        const eventRows = events.slice(-20).reverse().map(function(item) {
+            const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '--:--:--';
+            const name = safeText(item.event_type || item.type || item.message || item.title, 'Event');
+            const sev = safeText(item.severity || item.level, 'info');
+            return {
+                main: name,
+                meta: sev + ' // ' + ts,
+                metaClass: (sev === 'critical' || sev === 'high' || sev === 'error') ? 'bad' : ''
+            };
+        });
+        renderRows('event-list', eventRows);
+    } catch (err) {
+        const badge = document.getElementById('status-badge');
+        badge.className = 'status error';
+        badge.innerHTML = '<span class="pip"></span> Data Error';
+        document.getElementById('last-hb').textContent = 'Unable to pull /api/data';
+    }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>"""
+
     def __init__(self, agent: 'UnifiedAgent', port: int = 5000):
         self.agent = agent
         self.port = port
@@ -14218,13 +14794,17 @@ class UnifiedAgent:
                 logger.info(f"Registered with server: {self.config.server_url}")
                 
                 # Auto-configure WireGuard VPN after registration
-                if self.config.server_url:
+                if self.config.server_url and self.config.vpn_auto_configure:
                     logger.info("Auto-configuring WireGuard VPN...")
                     self.vpn.auto_configure()
                 
-                # Perform initial LAN discovery and report to server
-                logger.info("Running initial LAN discovery scan...")
-                self.discover_lan_devices(report=True)
+                # Keep LAN discovery opt-in. On dense networks this can fan out into
+                # ARP, nmap, and port probes immediately after registration.
+                if self.config.network_scanning and _env_bool("SERAPH_AGENT_INITIAL_LAN_DISCOVERY", True):
+                    logger.info("Running initial LAN discovery scan...")
+                    self.discover_lan_devices(report=True)
+                else:
+                    logger.info("Initial LAN discovery skipped by throttle configuration")
                 
                 return True
             elif response.status_code == 401:
@@ -15083,9 +15663,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Metatron/Seraph Unified Security Agent")
     parser.add_argument("--server", "-s", help="Server URL", default="")
+    parser.add_argument("--enrollment-key", help="Enrollment key for first registration", default="")
     parser.add_argument("--config", "-c", help="Config file path")
     parser.add_argument("--name", "-n", help="Agent name")
-    parser.add_argument("--interval", "-i", type=int, default=30, help="Update interval")
+    parser.add_argument("--interval", "-i", type=int, default=_env_int("SERAPH_AGENT_UPDATE_INTERVAL", 300), help="Update interval")
     parser.add_argument("--no-auto-kill", action="store_true", help="Disable auto-kill")
     parser.add_argument("--ui-port", type=int, default=5000,
                         help="Port for the built-in local web UI (default: 5000)")
@@ -15096,6 +15677,8 @@ if __name__ == "__main__":
 
     if args.config:
         agent = UnifiedAgent(config_path=args.config)
+        if args.enrollment_key:
+            agent.config.enrollment_key = args.enrollment_key
         if args.ui_port != 5000:
             agent.config.local_ui_port = args.ui_port
         if args.no_ui:
@@ -15103,6 +15686,7 @@ if __name__ == "__main__":
     else:
         config = AgentConfig(
             server_url=args.server,
+            enrollment_key=args.enrollment_key,
             agent_name=args.name or f"Metatron-{HOSTNAME}",
             update_interval=args.interval,
             auto_remediate=not args.no_auto_kill,

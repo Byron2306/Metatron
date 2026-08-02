@@ -137,6 +137,23 @@ def classify_evidence(tech_id: str, evidence_dir: Path) -> Dict[str, Any]:
                 })
                 hard_positives.append("L1")
 
+    cloud_audit_file = evidence_dir / "cloud_audit_events.json"
+    if cloud_audit_file.exists():
+        with open(cloud_audit_file) as f:
+            cloud_audit = json.load(f)
+        if cloud_audit.get("evidence_mode") == "L1" and cloud_audit.get("evidence_strength") == "HARD_POSITIVE":
+            evidence_items = cloud_audit.get("summary", {}).get("evidence_items", len(cloud_audit.get("data", [])))
+            if evidence_items > 0:
+                evidence_modes.append({
+                    "mode": "L1",
+                    "description": "Lab API audit log — real AWS CloudTrail management events (HARD_POSITIVE)",
+                    "provider": cloud_audit.get("provider", "AWS CloudTrail"),
+                    "actor": cloud_audit.get("actor", ""),
+                    "successful_calls": cloud_audit.get("summary", {}).get("successful_calls", evidence_items),
+                    "can_certify": True,
+                })
+                hard_positives.append("L1")
+
     # Check Mobile/MDM
     mdm_file = evidence_dir / "mdm_mobile_evidence.json"
     if mdm_file.exists():

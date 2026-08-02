@@ -80,6 +80,7 @@ FEATURE_MIXED_INTENT_ROUTER = _env_flag("SOPHIA_ENABLE_MIXED_INTENT_ROUTER", Tru
 # response is returned unmodified. Used for baseline runs that measure model-only
 # behaviour without runtime contribution. response_source will be "model" always.
 FEATURE_PASSTHROUGH_MODE = _env_flag("SOPHIA_PASSTHROUGH_MODE", False)
+FEATURE_LEGACY_PRESENCE_TRIUNE_FALLBACK = _env_flag("SOPHIA_ENABLE_LEGACY_PRESENCE_TRIUNE_FALLBACK", False)
 
 # ── SESSION SOURCE POOL ──────────────────────────────────────────
 # Accumulates academic retrieval fragments + document evidence sources
@@ -490,14 +491,48 @@ def _triune_check(
             ))
             return result
         except Exception as e:
-            log(f"TriuneOrchestrator failed, falling back to legacy: {e}")
-            
-    return legacy_triune_check(encounter_id, text, choir_result)
+            log(f"TriuneOrchestrator failed: {e}")
+            if FEATURE_LEGACY_PRESENCE_TRIUNE_FALLBACK:
+                log("Presence legacy Triune fallback explicitly enabled for compatibility mode")
+                return legacy_triune_check(encounter_id, text, choir_result)
+            return _bounded_triune_compatibility_response(encounter_id=encounter_id, error=str(e))
+
+    if FEATURE_LEGACY_PRESENCE_TRIUNE_FALLBACK:
+        log("TriuneOrchestrator unavailable; using explicit compatibility fallback")
+        return legacy_triune_check(encounter_id, text, choir_result)
+    return _bounded_triune_compatibility_response(
+        encounter_id=encounter_id,
+        error="TriuneOrchestrator unavailable",
+    )
+
+
+def _bounded_triune_compatibility_response(encounter_id: str, error: str) -> dict:
+    """Return a bounded non-canonical response when full Triune authority is unavailable."""
+    calibration_mode = encounter_id.startswith("enc-CALIBRATION-")
+    return {
+        "metatron": {
+            "verdict": "RESONANT" if calibration_mode else "SCRUTINIZE",
+            "reason": "calibration_mode_active" if calibration_mode else "canonical_triune_unavailable",
+        },
+        "michael": {
+            "verdict": "LAWFUL" if calibration_mode else "ATTACH_SCHEMA",
+            "reason": "calibration_mode_active" if calibration_mode else "bounded_compatibility_response",
+        },
+        "loki": {
+            "verdict": "UNCHALLENGED",
+            "reason": "calibration_mode_active" if calibration_mode else "fallback_response_bounded",
+        },
+        "harmony_score": 1.0 if calibration_mode else 0.5,
+        "final_verdict": "GRANT" if calibration_mode else "SCRUTINIZE",
+        "compatibility_mode": True,
+        "canonical_triune_available": False,
+        "error": error,
+    }
 
 def legacy_triune_check(encounter_id: str, text: str, choir_result: dict) -> dict:
     """
-    Simplified Triune Council evaluation for the Presence.
-    No MongoDB required — uses the choir spectrum as world state.
+    Legacy compatibility-only Triune evaluation for Presence.
+    This is not a canonical governance authority path and must remain opt-in.
     """
     try:
         spectrum = choir_result.get("spectrum", {})
@@ -778,6 +813,46 @@ def _load_recent_encounter_payloads(limit: int = 5) -> list[dict]:
         except Exception as e:
             log(f"Encounter fallback read failed for {path.name}: {e}")
     return payloads
+
+
+def _count_mandos_encounters() -> int:
+    """Count persisted Mandos encounter records on disk."""
+    encounter_dir = _mandos_data_root() / "encounters"
+    if not encounter_dir.exists():
+        return 0
+    try:
+        return sum(1 for _ in encounter_dir.glob("*.json"))
+    except Exception:
+        return 0
+
+
+def _get_live_sophia_snapshot() -> Optional[Any]:
+    """Load Sophia snapshot, recomputing from ledger when snapshot is missing/stale-empty."""
+    evidence_dir = PROJECT_ROOT / "evidence"
+    snapshot_path = evidence_dir / "sophia_calibration_snapshot.json"
+    ledger_path = evidence_dir / "ipsative_growth_ledger.jsonl"
+
+    gate = _curriculum_gate
+    if gate is None:
+        try:
+            from backend.services.sophia_curriculum_gate import get_curriculum_gate as _gate_factory
+            gate = _gate_factory(evidence_dir=evidence_dir)
+        except Exception:
+            return None
+
+    try:
+        snapshot = gate.get_sophia_snapshot()
+    except Exception:
+        return None
+
+    try:
+        if ledger_path.exists() and (not snapshot_path.exists() or getattr(snapshot, "total_encounters", 0) == 0):
+            snapshot = gate.compute_snapshot_from_ledger()
+    except Exception as e:
+        log(f"Sophia snapshot refresh failed: {e}")
+
+    return snapshot
+
 
 def _get_covenant_manifest() -> dict:
     """Read the covenant manifest from disk (cached for 60 s)."""
@@ -4113,6 +4188,9 @@ class PresenceHandler(SimpleHTTPRequestHandler):
             "recent_encounters": [],
             "unresolved_threads": [],
             "response_parameters": {},
+            "calibration_snapshot": {},
+            "resonance_profile": {},
+            "sophia_snapshot": None,
         }
 
         # Try Mandos for additional context
@@ -4124,15 +4202,72 @@ class PresenceHandler(SimpleHTTPRequestHandler):
                 ctx["recent_encounters"] = mandos_data.get("recent_encounters", [])
                 ctx["unresolved_threads"] = mandos_data.get("unresolved_threads", [])
                 ctx["response_parameters"] = mandos_data.get("response_parameters", {})
+                ctx["calibration_snapshot"] = mandos_data.get("calibration_snapshot", {})
+                ctx["resonance_profile"] = mandos_data.get("resonance_profile", {})
+                sophia = mandos_data.get("sophia_snapshot")
+                if sophia is not None:
+                    ctx["sophia_snapshot"] = sophia.to_dict() if hasattr(sophia, "to_dict") else sophia
             except Exception:
                 pass
+
+        if not ctx["recent_encounters"]:
+            ctx["recent_encounters"] = _load_recent_encounter_payloads(limit=5)
+
+        if ctx["sophia_snapshot"] is None:
+            snapshot = _get_live_sophia_snapshot()
+            if snapshot is not None:
+                ctx["sophia_snapshot"] = snapshot.to_dict() if hasattr(snapshot, "to_dict") else snapshot
 
         self._json_response(ctx, serializer=_json_serializer)
 
     def _handle_inspect(self):
-        """Article VIII: absolute inspection right — read from disk."""
+        """Article VIII: absolute inspection right — read from disk and live memory planes."""
         manifest = _get_covenant_manifest()
         principal = _get_principal_context()
+
+        calibration: Dict[str, Any] = {}
+        resonance: Dict[str, Any] = {}
+        recent_encounters: list = []
+
+        mandos = _get_mandos()
+        if mandos:
+            try:
+                mandos_ctx = run_async(mandos.build_context(current_topic="covenant_inspect"))
+                mandos_data = mandos_ctx.model_dump()
+                calibration = mandos_data.get("calibration_snapshot") or {}
+                resonance = mandos_data.get("resonance_profile") or {}
+                recent_encounters = mandos_data.get("recent_encounters") or []
+            except Exception:
+                pass
+
+        sophia_snapshot = _get_live_sophia_snapshot()
+        sophia_snapshot_payload = None
+        if sophia_snapshot is not None:
+            sophia_snapshot_payload = sophia_snapshot.to_dict() if hasattr(sophia_snapshot, "to_dict") else sophia_snapshot
+
+        total_encounters = getattr(sophia_snapshot, "total_encounters", 0) if sophia_snapshot else 0
+        if total_encounters == 0:
+            total_encounters = _count_mandos_encounters()
+
+        calibration_total = calibration.get("total_observations") if isinstance(calibration, dict) else None
+        if calibration_total is None:
+            calibration_total = total_encounters
+
+        calibration_payload = {
+            "total_observations": int(calibration_total or 0),
+            "recent_encounter_window": len(recent_encounters),
+            "source": "mandos_context" if mandos else "disk_fallback",
+            "note": "Live calibration view from Mandos/Curriculum Gate.",
+        }
+        if isinstance(calibration, dict) and calibration:
+            calibration_payload["snapshot"] = calibration
+
+        resonance_payload = {
+            "status": "active" if resonance else "initial",
+            "note": "Live resonance profile when available.",
+        }
+        if isinstance(resonance, dict) and resonance:
+            resonance_payload["profile"] = resonance
 
         self._json_response({
             "article_viii": "absolute inspection right",
@@ -4144,9 +4279,14 @@ class PresenceHandler(SimpleHTTPRequestHandler):
             "principal_identity_hash": manifest.get("_principal_identity", "none"),
             "sealed_at": manifest.get("_sealed_at", "not sealed"),
             "tpm_status": manifest.get("_status", "unknown"),
-            "calibration": {"total_observations": 0, "note": "calibration begins after first encounters"},
-            "resonance": {"status": "initial", "note": "resonance builds through lawful interaction"},
-        })
+            "encounters": {
+                "total": total_encounters,
+                "recent_window": len(recent_encounters),
+            },
+            "calibration": calibration_payload,
+            "resonance": resonance_payload,
+            "sophia_snapshot": sophia_snapshot_payload,
+        }, serializer=_json_serializer)
 
     def _handle_plagiarism_check(self, body: dict):
         """

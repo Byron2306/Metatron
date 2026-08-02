@@ -562,6 +562,8 @@ class ThreatCorrelationEngine:
         )
         
         try:
+            signal_context = await self._collect_signal_context(threat)
+
             # Step 1: Check threat intel feeds for IOC matches
             matched_indicators = await self._check_threat_intel(threat)
             result.matched_indicators = matched_indicators
@@ -583,7 +585,7 @@ class ThreatCorrelationEngine:
             result.historical_context = historical
             
             # Step 6: Enrichment data
-            enrichment = self._generate_enrichment(threat, attribution, matched_indicators)
+            enrichment = self._generate_enrichment(threat, attribution, matched_indicators, signal_context)
             result.enrichment_data = enrichment
             
             # Step 7: Calculate confidence
@@ -918,11 +920,156 @@ class ThreatCorrelationEngine:
                 logger.debug(f"Historical context error: {e}")
         
         return context
+
+    async def _collect_signal_context(self, threat: Dict) -> Dict[str, Any]:
+        """Collect AI-agenticity and CCE session signals for scoring and prioritization."""
+        context: Dict[str, Any] = {
+            "session_id": None,
+            "machine_likelihood": 0.0,
+            "tool_switch_latency_ms": 0,
+            "goal_persistence": 0.0,
+            "agenticity_score": 0.0,
+            "command_velocity": 0.0,
+            "cbr": 0.0,
+            "tbcr": 0.0,
+            "cdi": 0.0,
+            "autonomous_confidence": 0.0,
+            "cognitive_pressure": 0.0,
+            "ml_threat_score": 0.0,
+            "ml_confidence": 0.0,
+            "ml_category": None,
+            "triune_policy_tier": None,
+            "triune_recommended_actions": [],
+        }
+
+        metadata = threat.get("metadata") if isinstance(threat.get("metadata"), dict) else {}
+        session_id = threat.get("session_id") or metadata.get("session_id")
+        context["session_id"] = session_id
+
+        # Explicit threat payload values take precedence when present.
+        for key in [
+            "machine_likelihood",
+            "tool_switch_latency_ms",
+            "goal_persistence",
+            "agenticity_score",
+            "command_velocity",
+            "cbr",
+            "tbcr",
+            "cdi",
+            "autonomous_confidence",
+            "cognitive_pressure",
+        ]:
+            value = threat.get(key, metadata.get(key))
+            if value is not None:
+                try:
+                    context[key] = float(value)
+                except (TypeError, ValueError):
+                    pass
+
+        if session_id:
+            try:
+                from threat_response import AIDefenseEngine
+
+                metrics = AIDefenseEngine.get_session_metrics(str(session_id))
+                agenticity = metrics.get("agenticity") or {}
+                exhaustion = metrics.get("exhaustion") or {}
+
+                context["agenticity_score"] = max(context["agenticity_score"], float(agenticity.get("score") or 0.0))
+                feature_vector = agenticity.get("feature_vector") or {}
+                context["command_velocity"] = max(context["command_velocity"], float(feature_vector.get("command_velocity") or 0.0))
+                context["autonomous_confidence"] = max(context["autonomous_confidence"], float(agenticity.get("score") or 0.0))
+                context["cbr"] = max(context["cbr"], float(exhaustion.get("cbr") or 0.0))
+                context["tbcr"] = max(context["tbcr"], float(exhaustion.get("tbcr") or 0.0))
+                context["cdi"] = max(context["cdi"], float(exhaustion.get("cdi") or 0.0))
+            except Exception:
+                pass
+
+            if self._db is not None:
+                try:
+                    summary = await self._db.cli_session_summaries.find_one(
+                        {"session_id": str(session_id)},
+                        sort=[("window_end", -1)]
+                    )
+                    if summary:
+                        context["machine_likelihood"] = max(context["machine_likelihood"], float(summary.get("machine_likelihood") or 0.0))
+                        context["tool_switch_latency_ms"] = float(summary.get("tool_switch_latency_ms") or context["tool_switch_latency_ms"])
+                        context["goal_persistence"] = max(context["goal_persistence"], float(summary.get("goal_persistence") or 0.0))
+                except Exception:
+                    pass
+
+        # ML predictor enrichment (best effort).
+        try:
+            from ml_threat_prediction import ml_predictor
+
+            ml_payload = {
+                "source_ip": threat.get("source_ip") or metadata.get("source_ip") or "unknown",
+                "bytes_in": int(threat.get("bytes_in") or metadata.get("bytes_in") or 0),
+                "bytes_out": int(threat.get("bytes_out") or metadata.get("bytes_out") or 0),
+                "packets_in": int(threat.get("packets_in") or metadata.get("packets_in") or 0),
+                "packets_out": int(threat.get("packets_out") or metadata.get("packets_out") or 0),
+                "unique_destinations": int(threat.get("unique_destinations") or metadata.get("unique_destinations") or 0),
+                "unique_ports": int(threat.get("unique_ports") or metadata.get("unique_ports") or 0),
+                "dns_queries": int(threat.get("dns_queries") or metadata.get("dns_queries") or 0),
+                "failed_connections": int(threat.get("failed_connections") or metadata.get("failed_connections") or 0),
+                "encrypted_ratio": float(threat.get("encrypted_ratio") or metadata.get("encrypted_ratio") or 0.0),
+                "avg_packet_size": float(threat.get("avg_packet_size") or metadata.get("avg_packet_size") or 0.0),
+                "connection_duration": float(threat.get("connection_duration") or metadata.get("connection_duration") or 0.0),
+                "port_scan_score": float(threat.get("port_scan_score") or metadata.get("port_scan_score") or 0.0),
+            }
+            ml_prediction = await ml_predictor.predict_network_threat(ml_payload)
+            context["ml_threat_score"] = max(context["ml_threat_score"], float(getattr(ml_prediction, "threat_score", 0.0)) / 100.0)
+            context["ml_confidence"] = max(context["ml_confidence"], float(getattr(ml_prediction, "confidence", 0.0)))
+            context["ml_category"] = str(getattr(ml_prediction, "predicted_category", None))
+        except Exception:
+            pass
+
+        # Triune/Cognition Fabric fused signal enrichment (best effort).
+        if self._db is not None:
+            try:
+                from services.cognition_fabric import CognitionFabricService
+
+                fabric = CognitionFabricService(self._db)
+                world_snapshot = {
+                    "entities": [{"id": str(threat.get("source_ip") or "unknown"), "type": "host"}],
+                    "attack_path_graph": {"nodes": [], "edges": []},
+                    "trust_state": {},
+                    "recent_world_events": [],
+                }
+                cognition = await fabric.build_cognition_snapshot(
+                    world_snapshot=world_snapshot,
+                    event_type="threat_correlation",
+                    entity_ids=[str(threat.get("source_ip") or "unknown")],
+                    context={
+                        "behavior": {
+                            "command_velocity": context.get("command_velocity", 0.0),
+                            "tool_switch_latency": context.get("tool_switch_latency_ms", 0.0),
+                        }
+                    },
+                )
+                fused = (cognition or {}).get("fused_signal") or {}
+                context["cognitive_pressure"] = max(context["cognitive_pressure"], float(fused.get("cognitive_pressure") or 0.0))
+                context["autonomous_confidence"] = max(context["autonomous_confidence"], float(fused.get("autonomous_confidence") or 0.0))
+                context["triune_policy_tier"] = fused.get("recommended_policy_tier")
+                context["triune_recommended_actions"] = fused.get("recommended_actions") or []
+            except Exception:
+                pass
+
+        context["cognitive_pressure"] = max(
+            context["cognitive_pressure"],
+            (context["cbr"] * 0.4) + (context["tbcr"] * 0.35) + (context["cdi"] * 0.25)
+        )
+        return context
     
-    def _generate_enrichment(self, threat: Dict, attribution: ThreatAttribution, matched: List[Dict]) -> Dict[str, Any]:
+    def _generate_enrichment(
+        self,
+        threat: Dict,
+        attribution: ThreatAttribution,
+        matched: List[Dict],
+        signal_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Generate enriched threat data"""
         enrichment = {
-            "threat_score": self._calculate_threat_score(threat, attribution, matched),
+            "threat_score": self._calculate_threat_score(threat, attribution, matched, signal_context),
             "kill_chain_phase": self._identify_kill_chain_phase(threat),
             "mitre_tactics": self._map_to_mitre(threat),
             "recommended_actions": [],
@@ -930,7 +1077,8 @@ class ThreatCorrelationEngine:
                 "total_matched": len(matched),
                 "sources": list(set(m.get("source", "") for m in matched)),
                 "types": list(set(m.get("type", "") for m in matched))
-            }
+            },
+            "ai_pressure": signal_context or {},
         }
         
         # Add recommended actions based on threat score
@@ -943,7 +1091,13 @@ class ThreatCorrelationEngine:
         
         return enrichment
     
-    def _calculate_threat_score(self, threat: Dict, attribution: ThreatAttribution, matched: List[Dict]) -> int:
+    def _calculate_threat_score(
+        self,
+        threat: Dict,
+        attribution: ThreatAttribution,
+        matched: List[Dict],
+        signal_context: Optional[Dict[str, Any]] = None,
+    ) -> int:
         """Calculate overall threat score (0-100)"""
         score = 0
         
@@ -963,6 +1117,21 @@ class ThreatCorrelationEngine:
         
         # Matched indicators bonus
         score += min(len(matched) * 5, 25)
+
+        # Agenticity + logic-budget pressure bonuses
+        signal_context = signal_context or {}
+        if float(signal_context.get("agenticity_score") or 0.0) >= 0.70:
+            score += 12
+        if float(signal_context.get("cdi") or 0.0) >= 0.60:
+            score += 10
+        if float(signal_context.get("machine_likelihood") or 0.0) >= 0.70:
+            score += 8
+        if float(signal_context.get("cognitive_pressure") or 0.0) >= 0.70:
+            score += 8
+        if float(signal_context.get("ml_threat_score") or 0.0) >= 0.70:
+            score += 8
+        if float(signal_context.get("ml_confidence") or 0.0) >= 0.70:
+            score += 6
         
         return min(100, score)
     
@@ -1036,6 +1205,20 @@ class ThreatCorrelationEngine:
         # Historical context
         if result.historical_context.get("previous_occurrences", 0) > 0:
             score += 10
+
+        # Confidence lift from autonomous campaign pressure signals.
+        ai_pressure = result.enrichment_data.get("ai_pressure") if isinstance(result.enrichment_data, dict) else {}
+        if isinstance(ai_pressure, dict):
+            if float(ai_pressure.get("agenticity_score") or 0.0) >= 0.70:
+                score += 8
+            if float(ai_pressure.get("cdi") or 0.0) >= 0.60:
+                score += 8
+            if float(ai_pressure.get("machine_likelihood") or 0.0) >= 0.70:
+                score += 6
+            if float(ai_pressure.get("ml_threat_score") or 0.0) >= 0.70:
+                score += 6
+            if float(ai_pressure.get("ml_confidence") or 0.0) >= 0.70:
+                score += 4
         
         if score >= 50:
             return CorrelationConfidence.HIGH.value

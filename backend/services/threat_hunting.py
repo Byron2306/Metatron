@@ -1078,8 +1078,43 @@ class ThreatHuntingEngine:
     def add_rule(self, rule: HuntingRule):
         """Add a hunting rule"""
         self.rules[rule.rule_id] = rule
+
+    def _context_confidence_boost(self, behavior_context: Optional[Dict[str, Any]]) -> float:
+        """Return confidence boost based on autonomous pressure context."""
+        if not behavior_context:
+            return 0.0
+
+        try:
+            agenticity = float(behavior_context.get("agenticity_score") or 0.0)
+            cdi = float(behavior_context.get("cdi") or 0.0)
+            machine_likelihood = float(behavior_context.get("machine_likelihood") or 0.0)
+            cognitive_pressure = float(behavior_context.get("cognitive_pressure") or 0.0)
+            ml_threat_score = float(behavior_context.get("ml_threat_score") or 0.0)
+            ml_confidence = float(behavior_context.get("ml_confidence") or 0.0)
+            triune_policy = str(behavior_context.get("triune_policy_tier") or "").strip().lower()
+        except (TypeError, ValueError):
+            return 0.0
+
+        boost = 0.0
+        if agenticity >= 0.70:
+            boost += 0.15
+        if cdi >= 0.60:
+            boost += 0.12
+        if machine_likelihood >= 0.70:
+            boost += 0.10
+        if cognitive_pressure >= 0.70:
+            boost += 0.10
+        if ml_threat_score >= 0.70:
+            boost += 0.10
+        if ml_confidence >= 0.70:
+            boost += 0.08
+        if triune_policy == "critical":
+            boost += 0.08
+        elif triune_policy == "high":
+            boost += 0.05
+        return min(0.30, boost)
     
-    def hunt_process(self, process_data: Dict) -> List[HuntingMatch]:
+    def hunt_process(self, process_data: Dict, behavior_context: Optional[Dict[str, Any]] = None) -> List[HuntingMatch]:
         """Hunt through process data"""
         matches = []
         
@@ -1113,7 +1148,7 @@ class ThreatHuntingEngine:
             
             # Create match if indicators found
             if matched_indicators:
-                confidence = min(1.0, confidence)
+                confidence = min(1.0, confidence + self._context_confidence_boost(behavior_context))
                 match = HuntingMatch(
                     rule_id=rule.rule_id,
                     rule_name=rule.name,
@@ -1127,14 +1162,17 @@ class ThreatHuntingEngine:
                     },
                     matched_indicators=matched_indicators,
                     confidence=confidence,
-                    context={"data_source": "process"}
+                    context={
+                        "data_source": "process",
+                        "behavior_context": behavior_context or {},
+                    }
                 )
                 matches.append(match)
                 self.matches.append(match)
         
         return matches
     
-    def hunt_network(self, connection_data: Dict) -> List[HuntingMatch]:
+    def hunt_network(self, connection_data: Dict, behavior_context: Optional[Dict[str, Any]] = None) -> List[HuntingMatch]:
         """Hunt through network connection data"""
         matches = []
         
@@ -1165,7 +1203,7 @@ class ThreatHuntingEngine:
             
             # Create match if indicators found
             if matched_indicators:
-                confidence = min(1.0, confidence)
+                confidence = min(1.0, confidence + self._context_confidence_boost(behavior_context))
                 match = HuntingMatch(
                     rule_id=rule.rule_id,
                     rule_name=rule.name,
@@ -1179,7 +1217,10 @@ class ThreatHuntingEngine:
                     },
                     matched_indicators=matched_indicators,
                     confidence=confidence,
-                    context={"data_source": "network"}
+                    context={
+                        "data_source": "network",
+                        "behavior_context": behavior_context or {},
+                    }
                 )
                 matches.append(match)
                 self.matches.append(match)
@@ -1190,15 +1231,16 @@ class ThreatHuntingEngine:
         """Hunt through all telemetry data"""
         self.stats["hunts_executed"] += 1
         all_matches = []
+        behavior_context = telemetry.get("behavior_context") if isinstance(telemetry, dict) else None
         
         # Hunt processes
         for process in telemetry.get('processes', []):
-            matches = self.hunt_process(process)
+            matches = self.hunt_process(process, behavior_context)
             all_matches.extend(matches)
         
         # Hunt network connections
         for connection in telemetry.get('connections', []):
-            matches = self.hunt_network(connection)
+            matches = self.hunt_network(connection, behavior_context)
             all_matches.extend(matches)
         
         self.stats["matches_found"] += len(all_matches)

@@ -1468,6 +1468,12 @@ class MCPServer:
             "is_ai_threat": assessment.machine_likelihood >= 0.5,
             "ai_confidence": assessment.machine_likelihood,
             "confidence_level": assessment.confidence_level,
+            "agenticity_score": assessment.agenticity_score,
+            "agenticity_classification": assessment.agenticity_classification,
+            "agenticity_feature_vector": assessment.agenticity_feature_vector,
+            "cbr": assessment.cbr,
+            "tbcr": assessment.tbcr,
+            "cdi": assessment.cdi,
             "threat_indicators": assessment.dominant_intents,
             "recommended_action": assessment.recommended_escalation.value,
             "assessed_at": datetime.now(timezone.utc).isoformat()

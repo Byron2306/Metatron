@@ -19,6 +19,7 @@ import json
 import os
 import socket
 import ipaddress
+from pathlib import Path
 
 
 class EDMHitTelemetryModel(BaseModel):
@@ -64,6 +65,67 @@ logger = logging.getLogger('seraph.unified_agent')
 
 router = APIRouter(prefix="/unified", tags=["Unified Agent"])
 ALERT_STATUSES = {"unacknowledged", "acknowledged"}
+
+
+def _serialize_agent_command_for_delivery(command_doc: Dict[str, Any]) -> Dict[str, Any]:
+    decision_context = {
+        "decision_id": command_doc.get("decision_id"),
+        "queue_id": command_doc.get("queue_id"),
+    }
+    decision_context = {key: value for key, value in decision_context.items() if value}
+    return {
+        "command_id": command_doc["command_id"],
+        "command_type": command_doc["command_type"],
+        "parameters": command_doc.get("parameters", {}),
+        "priority": command_doc.get("priority", "normal"),
+        "timestamp": command_doc.get("timestamp") or command_doc.get("created_at"),
+        "decision_context": decision_context,
+        "authority_context": {
+            "principal": command_doc.get("issued_by") or command_doc.get("created_by") or "system",
+            "capability": command_doc.get("command_type"),
+            "requires_decision_context": bool(decision_context),
+        },
+    }
+
+
+def _normalize_boundary_crossing_outcome(raw_outcome: Any) -> str:
+    normalized = str(raw_outcome or "").strip().lower()
+    if normalized in {"deny", "denied", "blocked", "reject", "rejected"}:
+        return "denied"
+    if normalized in {"queue", "queued", "throttle", "throttled", "pending"}:
+        return "queued"
+    if normalized in {"allow", "allowed", "success", "completed"}:
+        return "allowed"
+    return "queued"
+
+
+def _extract_boundary_crossing_from_command_result(
+    *,
+    agent_id: str,
+    command_id: str,
+    result: Dict[str, Any],
+) -> Dict[str, Any]:
+    fortress = result.get("fortress") if isinstance(result, dict) else {}
+    fortress = fortress if isinstance(fortress, dict) else {}
+    boundary = fortress.get("boundary") if isinstance(fortress.get("boundary"), dict) else {}
+    gate = fortress.get("gate") if isinstance(fortress.get("gate"), dict) else {}
+    post = fortress.get("post") if isinstance(fortress.get("post"), dict) else {}
+    beacon = post.get("beacon") or result.get("beacon") or {}
+    outcome = _normalize_boundary_crossing_outcome(
+        post.get("gate_outcome") or gate.get("decision") or result.get("outcome")
+    )
+    beacon_state = str((beacon or {}).get("state") or "").strip().lower()
+    return {
+        "event_type": "boundary_crossing",
+        "trigger_triune": outcome in {"denied", "queued"} or beacon_state in {"red", "amber"},
+        "payload": {
+            "agent_id": agent_id,
+            "command_id": command_id,
+            "crossing_outcome": outcome,
+            "decision_context": boundary.get("decision_context") or result.get("decision_context") or {},
+            "beacon": beacon,
+        },
+    }
 
 
 def _alert_transition_entry(
@@ -178,6 +240,8 @@ EDM_ROLLOUT_COLLECTION = "edm_rollouts"
 _edm_indexes_ready = False
 EDM_CONTROL_PLANE_CONTRACT_VERSION = "2026-03-07.1"
 UNIFIED_DEPLOYMENT_TERMINAL_STATUSES = {"completed", "failed"}
+ENROLLMENT_COLLECTION = "unified_agent_enrollments"
+ENROLLMENT_EVENT_COLLECTION = "unified_agent_enrollment_events"
 
 # EDM publish-time quality gates
 EDM_MAX_RECORDS_PER_PUBLISH = max(1000, int(os.environ.get("EDM_MAX_RECORDS_PER_PUBLISH", "20000")))
@@ -245,6 +309,135 @@ def _generate_agent_token(agent_id: str) -> str:
         hashlib.sha256
     ).hexdigest()
     return f"{timestamp}:{signature}"
+
+
+def _infer_public_base_url(request: Request, server_url: Optional[str] = None) -> str:
+    """Resolve a browser/device reachable base URL for installers."""
+    explicit = (server_url or os.environ.get("SERAPH_PUBLIC_URL") or os.environ.get("PUBLIC_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost:8000"
+    forwarded_proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    # Public tunnel hosts are HTTPS even when proxy headers are incomplete.
+    if forwarded_host and ("ngrok-free.dev" in forwarded_host or "ngrok.io" in forwarded_host or "seraphai.com" in forwarded_host):
+        forwarded_proto = "https"
+    return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
+
+
+def _agent_source_dir() -> Path:
+    """Find the checked-out unified_agent directory in container and local dev layouts."""
+    candidates = [
+        Path(os.environ.get("UNIFIED_AGENT_DIR", "")),
+        Path("/app/unified_agent"),
+        Path(__file__).resolve().parents[2] / "unified_agent",
+        Path.cwd() / "unified_agent",
+    ]
+    for candidate in candidates:
+        if candidate and (candidate / "core").exists():
+            return candidate
+    raise HTTPException(status_code=503, detail="Unified agent source directory not found")
+
+
+def _artifact_paths(*relative_parts: str) -> List[Path]:
+    root = Path(__file__).resolve().parents[2]
+    source = _agent_source_dir()
+    return [
+        source.joinpath(*relative_parts),
+        root.joinpath("unified_agent", *relative_parts),
+        Path("/app/unified_agent").joinpath(*relative_parts),
+    ]
+
+
+async def _record_enrollment_event(event: Dict[str, Any]) -> None:
+    payload = {
+        "event_id": event.get("event_id") or f"enroll-{secrets.token_hex(8)}",
+        "timestamp": event.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+        **event,
+    }
+    try:
+        await db[ENROLLMENT_EVENT_COLLECTION].insert_one(payload)
+    except Exception as exc:
+        logger.warning("Failed to persist enrollment event: %s", exc)
+
+
+def _sync_enrollment_to_email_and_mobile(name: str, email: str, platform: str, device_label: str, device_id: str) -> Dict[str, bool]:
+    """Best-effort propagate pre-enrollment into email protection, mobile security, and MDM surfaces."""
+    results = {"email": False, "mobile": False, "mdm": False}
+
+    # --- Email Protection: add user as protected executive for ALL platforms ---
+    try:
+        from email_protection import email_protection_service
+        email_key = email.strip().lower()
+        if email_key:
+            existing_exec = email_protection_service.protected_executives.get(email_key)
+            if not existing_exec:
+                email_protection_service.add_protected_executive(email_key, name, device_label or platform)
+            results["email"] = True
+    except Exception as exc:
+        logger.debug("Email protection sync skipped: %s", exc)
+
+    # --- Mobile Security: register Android / iOS devices in mobile surface ---
+    try:
+        if platform in {"android", "ios"}:
+            from mobile_security import mobile_security_service, DevicePlatform
+            try:
+                mobile_platform = DevicePlatform(platform)
+            except Exception:
+                mobile_platform = None
+            if mobile_platform is not None:
+                user_device = mobile_security_service.register_device(
+                    device_name=device_label or f"{platform}-{device_id}",
+                    platform=mobile_platform.value if hasattr(mobile_platform, "value") else str(mobile_platform),
+                    os_version="unknown",
+                    model=device_label or platform,
+                    serial_number=device_id,
+                    user_id=email.strip().lower(),
+                    user_email=email.strip().lower(),
+                    imei="",
+                )
+                mobile_security_service.update_device_status(
+                    device_id=user_device.device_id,
+                    mdm_enrolled=True,
+                    has_passcode=True,
+                    is_encrypted=(platform == "ios"),
+                    network_info={"source": "unified_enrollment"},
+                )
+                results["mobile"] = True
+    except Exception as exc:
+        logger.debug("Mobile security sync skipped: %s", exc)
+
+    # --- MDM: register desktop / server platforms directly into MDM device inventory ---
+    try:
+        if platform in {"windows", "linux", "macos", "docker", "unknown"}:
+            from mdm_connectors import mdm_manager, MDMDevice, MDMPlatform, ComplianceState
+            now_iso = datetime.now(timezone.utc).isoformat()
+            mdm_dev = MDMDevice(
+                device_id=device_id,
+                mdm_device_id=device_id,
+                platform=platform,
+                device_name=device_label or f"{platform}-{device_id}",
+                model=platform,
+                os_version="unknown",
+                serial_number=device_id,
+                imei="",
+                user_principal_name=email.strip().lower(),
+                user_display_name=name,
+                enrollment_date=now_iso,
+                last_sync=now_iso,
+                compliance_state=ComplianceState.UNKNOWN,
+                is_managed=True,
+                is_supervised=False,
+                is_encrypted=(platform != "docker"),
+                is_jailbroken=False,
+                management_agent_version="seraph-enrollment/1.0",
+                mdm_platform=MDMPlatform.INTUNE,
+            )
+            mdm_manager.all_devices[device_id] = mdm_dev
+            results["mdm"] = True
+    except Exception as exc:
+        logger.debug("MDM desktop sync skipped: %s", exc)
+
+    return results
 
 
 def _verify_agent_token(agent_id: str, token: str) -> bool:
@@ -335,6 +528,13 @@ class AgentRegistrationModel(BaseModel):
     node_id: Optional[str] = None
     executable_path: Optional[str] = None
     workload_hash: Optional[str] = None
+
+
+class EnrollmentRegistrationModel(BaseModel):
+    name: str
+    email: str
+    device_label: Optional[str] = ""
+    platform: Optional[str] = "unknown"
 
 
 # Monitor-specific telemetry models
@@ -633,6 +833,134 @@ agent_ws_manager = AgentConnectionManager()
 
 
 # ============================================================
+# ENROLLMENT ENDPOINTS (CANONICAL :3000/:8000 SURFACE)
+# ============================================================
+
+@router.post("/enrollment/register")
+async def register_enrollment_device(
+    enrollment: EnrollmentRegistrationModel,
+    request: Request,
+    server_url: Optional[str] = None,
+):
+    """Public pre-enrollment used by the React enrollment page before agent install."""
+    import re
+    import urllib.parse
+
+    name = enrollment.name.strip()[:80]
+    email = enrollment.email.strip()[:120]
+    platform = (enrollment.platform or "unknown").strip().lower()[:32]
+    device_label = (enrollment.device_label or platform or "unknown").strip()[:80]
+
+    if not name or not email:
+        raise HTTPException(status_code=400, detail="Name and email are required")
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+
+    base_url = _infer_public_base_url(request, server_url)
+    backend_url = os.environ.get("SERAPH_BACKEND_URL", "").strip().rstrip("/") or base_url
+    enrollment_key = os.environ.get("SERAPH_ENROLLMENT_KEY") or os.environ.get("ENROLLMENT_KEY") or AGENT_SECRET
+    encoded_key = urllib.parse.quote(enrollment_key, safe="")
+    device_id = f"enroll-{secrets.token_hex(4)}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    doc = {
+        "device_id": device_id,
+        "name": name,
+        "email": email,
+        "device_label": device_label,
+        "platform": platform,
+        "ip": request.client.host if request.client else "unknown",
+        "user_agent": request.headers.get("user-agent", ""),
+        "status": "installer_issued",
+        "enrolled_at": now,
+        "updated_at": now,
+    }
+    await db[ENROLLMENT_COLLECTION].insert_one(doc)
+    sync_results = _sync_enrollment_to_email_and_mobile(name, email, platform, device_label, device_id)
+    await _record_enrollment_event({
+        "event_type": "device_pre_enrolled",
+        "severity": "info",
+        "device_id": device_id,
+        "platform": platform,
+        "message": f"Enrollment registered for {device_label} ({platform})",
+        "details": {
+            "email": email,
+            "name": name,
+            "source": "react_enrollment",
+            "synced_email_protection": sync_results.get("email", False),
+            "synced_mobile_security": sync_results.get("mobile", False),
+            "synced_mdm": sync_results.get("mdm", False),
+        },
+    })
+
+    install = {
+        "linux": {
+            "cmd": f"curl -fsSL {backend_url}/api/unified/agent/install-script?server_url={urllib.parse.quote(backend_url, safe='')}&enrollment_key={encoded_key} | sudo bash",
+            "download_url": f"{backend_url}/api/unified/agent/download",
+            "requirements": ["Linux with systemd", "sudo/root", "python3", "curl", "wireguard-tools for VPN"],
+        },
+        "macos": {
+            "cmd": f"curl -fsSL {backend_url}/api/unified/agent/install-macos?server_url={urllib.parse.quote(backend_url, safe='')}&enrollment_key={encoded_key} | bash",
+            "download_url": f"{backend_url}/api/unified/agent/download",
+            "requirements": ["macOS", "python3 or Homebrew", "curl", "WireGuard app/tools for VPN"],
+        },
+        "windows": {
+            "cmd": f"powershell -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -Uri '{backend_url}/api/unified/agent/install-windows?server_url={urllib.parse.quote(backend_url, safe='')}&enrollment_key={encoded_key}' -Headers @{{'ngrok-skip-browser-warning'='1'}} | Invoke-Expression\"",
+            "download_url": f"{backend_url}/api/unified/agent/download/windows",
+            "requirements": ["Windows 10/11 or Server", "Administrator PowerShell", "Python 3", "WireGuard for Windows for VPN"],
+        },
+        "android": {
+            "apk_url": f"{backend_url}/api/unified/agent/download/android",
+            "termux_cmd": f"curl -fsSL {backend_url}/api/unified/agent/install-android?server_url={urllib.parse.quote(backend_url, safe='')}&enrollment_key={encoded_key} | bash",
+            "requirements": ["Termux from F-Droid for the canonical port-5000 dashboard", "Termux:Boot for autostart", "WireGuard app for VPN", "APK is a native preview shell and does not match the canonical dashboard"],
+        },
+        "ios": {
+            "download_url": f"{backend_url}/api/unified/agent/install-ios?format=py&server_url={urllib.parse.quote(backend_url, safe='')}&enrollment_key={encoded_key}",
+            "message": "Open the downloaded .py file in Pythonista 3 and tap Run. No extra installs needed.",
+            "requirements": [
+                "Pythonista 3 (App Store) - bundles requests + keychain modules",
+                "Or TestFlight build of the native SwiftUI app",
+                "Apple VPN profile for MDM-enforced VPN",
+            ],
+        },
+        "docker": {
+            "cmd": (
+                "docker run -d --name seraph-agent --restart unless-stopped "
+                f"-e BACKEND_URL={base_url} -e SERAPH_ENROLLMENT_KEY={enrollment_key} "
+                f"-e AGENT_HOSTNAME={device_label!r} -p 5000:5000 "
+                f"{os.environ.get('SERAPH_DOCKER_IMAGE', 'metatron-triune-outbound-gate-unified-agent:latest')}"
+            ),
+            "requirements": ["Docker engine 20.10+", "Outbound HTTPS to the Seraph backend"],
+        },
+    }
+    return {
+        "success": True,
+        "device_id": device_id,
+        "platform": platform,
+        "install": install,
+        "dashboard_url": f"{base_url}/unified-agent",
+        "email": email,
+        "name": name,
+        "device_label": device_label,
+        "synced": sync_results,
+    }
+
+
+@router.get("/enrollment/events")
+async def get_enrollment_events(limit: int = 50, current_user: dict = Depends(get_current_user)):
+    safe_limit = max(1, min(limit, 200))
+    events = await db[ENROLLMENT_EVENT_COLLECTION].find({}, {"_id": 0}).sort("timestamp", -1).to_list(safe_limit)
+    return {"events": events, "count": len(events)}
+
+
+@router.get("/enrollment/devices")
+async def get_enrollment_devices(limit: int = 100, current_user: dict = Depends(get_current_user)):
+    safe_limit = max(1, min(limit, 500))
+    devices = await db[ENROLLMENT_COLLECTION].find({}, {"_id": 0}).sort("enrolled_at", -1).to_list(safe_limit)
+    return {"devices": devices, "count": len(devices)}
+
+
+# ============================================================
 # AGENT MANAGEMENT ENDPOINTS
 # ============================================================
 
@@ -674,6 +1002,14 @@ async def register_agent(
             }}
         )
         logger.info(f"Agent re-registered: {agent.agent_id} ({agent.platform})")
+        await _record_enrollment_event({
+            "event_type": "agent_reregistered",
+            "severity": "info",
+            "agent_id": agent.agent_id,
+            "platform": agent.platform,
+            "message": f"Agent re-registered: {agent.hostname} ({agent.platform})",
+            "details": {"ip_address": agent.ip_address, "auth_type": auth["type"]},
+        })
 
         # Best-effort coronation into the Arda Fabric registry.
         try:
@@ -719,6 +1055,14 @@ async def register_agent(
     
     await db.unified_agents.insert_one(agent_doc)
     logger.info(f"New agent registered: {agent.agent_id} ({agent.platform}) from {agent.ip_address}")
+    await _record_enrollment_event({
+        "event_type": "agent_registered",
+        "severity": "success",
+        "agent_id": agent.agent_id,
+        "platform": agent.platform,
+        "message": f"New agent registered: {agent.hostname} ({agent.platform})",
+        "details": {"ip_address": agent.ip_address, "auth_type": auth["type"]},
+    })
 
     # Best-effort coronation into the Arda Fabric registry.
     try:
@@ -2438,13 +2782,7 @@ async def get_agent_commands(
         )
     
     # Combine and return
-    all_commands = queued + [{
-        "command_id": c["command_id"],
-        "command_type": c["command_type"],
-        "parameters": c.get("parameters", {}),
-        "priority": c.get("priority", "normal"),
-        "timestamp": c["timestamp"]
-    } for c in db_commands]
+    all_commands = queued + [_serialize_agent_command_for_delivery(c) for c in db_commands]
     
     return {"commands": all_commands, "count": len(all_commands)}
 
@@ -2896,19 +3234,18 @@ async def download_agent_package():
     """Download the unified agent package as a tarball"""
     import tarfile
     import io
-    import os
     from fastapi.responses import StreamingResponse
     
-    agent_dir = "/app/unified_agent"
+    agent_dir = _agent_source_dir()
     
     # Create tarball in memory
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode='w:gz') as tar:
-        # Add core agent files
-        for item in ['core', 'requirements.txt']:
-            item_path = os.path.join(agent_dir, item)
-            if os.path.exists(item_path):
-                tar.add(item_path, arcname=item)
+        # The web dashboard imports ui/desktop/main.py to load the canonical agent core.
+        for item in ['core', 'ui/web', 'ui/desktop', 'requirements.txt']:
+            item_path = agent_dir / item
+            if item_path.exists():
+                tar.add(str(item_path), arcname=item)
     
     buffer.seek(0)
     
@@ -2923,24 +3260,23 @@ async def download_agent_package():
 async def download_agent_package_windows():
     """Download the unified agent package as a ZIP archive for Windows installers."""
     import io
-    import os
     import zipfile
     from fastapi.responses import StreamingResponse
 
-    agent_dir = "/app/unified_agent"
+    agent_dir = _agent_source_dir()
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-        for item in ['core', 'requirements.txt']:
-            item_path = os.path.join(agent_dir, item)
-            if not os.path.exists(item_path):
+        for item in ['core', 'ui/web', 'ui/desktop', 'requirements.txt']:
+            item_path = agent_dir / item
+            if not item_path.exists():
                 continue
 
-            if os.path.isdir(item_path):
-                for root, _, files in os.walk(item_path):
+            if item_path.is_dir():
+                for root, _, files in os.walk(str(item_path)):
                     for file_name in files:
-                        full_path = os.path.join(root, file_name)
-                        arcname = os.path.relpath(full_path, agent_dir)
+                        full_path = Path(root) / file_name
+                        arcname = str(full_path.relative_to(agent_dir))
                         zf.write(full_path, arcname=arcname)
             else:
                 zf.write(item_path, arcname=item)
@@ -2953,14 +3289,33 @@ async def download_agent_package_windows():
     )
 
 
+@router.get("/agent/download/android")
+async def download_android_apk():
+    """Download the built Android APK."""
+    from fastapi.responses import FileResponse
+
+    for apk_path in _artifact_paths("ui", "android", "seraph-agent-20260505.apk"):
+        if apk_path.exists():
+            return FileResponse(str(apk_path), media_type="application/vnd.android.package-archive", filename="seraph-agent-20260505.apk")
+    for apk_path in _artifact_paths("ui", "android", "seraph-agent.apk"):
+        if apk_path.exists():
+            return FileResponse(str(apk_path), media_type="application/vnd.android.package-archive", filename="seraph-agent.apk")
+    for apk_path in _artifact_paths("ui", "android", "app", "build", "outputs", "apk", "release", "app-release.apk"):
+        if apk_path.exists():
+            return FileResponse(str(apk_path), media_type="application/vnd.android.package-archive", filename="MetatronAgent.apk")
+    for apk_path in _artifact_paths("ui", "android", "app", "build", "outputs", "apk", "debug", "app-debug.apk"):
+        if apk_path.exists():
+            return FileResponse(str(apk_path), media_type="application/vnd.android.package-archive", filename="MetatronAgent.apk")
+    raise HTTPException(status_code=404, detail="Android APK not built. Run: cd unified_agent/ui/android && ./gradlew assembleDebug")
+
+
 @router.get("/agent/install-script")
-async def get_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
+async def get_install_script(request: Request, server_url: Optional[str] = None, enrollment_key: Optional[str] = None, format: Optional[str] = None):
     """Get the agent installation script"""
     
     # Use explicit query param first; otherwise infer from request/proxy headers
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    proto = forwarded_proto or request.url.scheme or "http"
-    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    base_url = _infer_public_base_url(request, server_url)
+    enrollment_arg = f' --enrollment-key "{enrollment_key}"' if enrollment_key else ""
     
     script = f'''#!/bin/bash
 # Seraph AI Unified Agent Installer
@@ -2970,6 +3325,7 @@ set -e
 
 SERAPH_SERVER="{base_url}"
 INSTALL_DIR="/opt/seraph-agent"
+ENROLLMENT_KEY="{enrollment_key or ''}"
 
 echo "================================================================"
 echo "  SERAPH AI UNIFIED AGENT INSTALLER"
@@ -2986,24 +3342,68 @@ fi
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Install Python dependencies
-echo "Installing Python and dependencies..."
-apt-get update
-apt-get install -y python3 python3-pip python3-venv curl
+# -----------------------------------------------------------------
+# Detect distro family and install Python + build deps for psutil,
+# cryptography, scapy, netifaces (these need a C compiler + headers).
+# -----------------------------------------------------------------
+LINUX_DEPS_APT=(python3 python3-pip python3-venv python3-dev build-essential libssl-dev libffi-dev curl openssl wireguard-tools nmap iproute2 net-tools libpcap-dev ca-certificates)
+LINUX_DEPS_DNF=(python3 python3-pip python3-devel @"Development Tools" openssl-devel libffi-devel curl openssl wireguard-tools nmap iproute net-tools libpcap-devel ca-certificates)
+LINUX_DEPS_PACMAN=(python python-pip base-devel openssl libffi curl wireguard-tools nmap iproute2 net-tools libpcap ca-certificates)
+LINUX_DEPS_ZYPPER=(python3 python3-pip python3-devel gcc make openssl-devel libffi-devel curl openssl wireguard-tools nmap iproute2 net-tools libpcap-devel ca-certificates)
+LINUX_DEPS_APK=(python3 py3-pip python3-dev build-base openssl-dev libffi-dev curl openssl wireguard-tools nmap iproute2 net-tools libpcap-dev ca-certificates)
+
+echo "Installing Python and OS-level dependencies..."
+if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get update -y
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${{LINUX_DEPS_APT[@]}}"
+elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y "${{LINUX_DEPS_DNF[@]}}" || dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make openssl-devel libffi-devel curl openssl nmap libpcap-devel
+elif command -v yum >/dev/null 2>&1; then
+    yum install -y python3 python3-pip python3-devel gcc gcc-c++ make openssl-devel libffi-devel curl openssl nmap libpcap-devel
+elif command -v pacman >/dev/null 2>&1; then
+    pacman -Sy --noconfirm "${{LINUX_DEPS_PACMAN[@]}}"
+elif command -v zypper >/dev/null 2>&1; then
+    zypper --non-interactive install "${{LINUX_DEPS_ZYPPER[@]}}"
+elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache "${{LINUX_DEPS_APK[@]}}"
+else
+    echo "[WARN] Unrecognized package manager. Continuing assuming Python 3 + build tools are present."
+fi
 
 # Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
-# Install required packages
-pip install --upgrade pip
-pip install psutil requests netifaces scapy watchdog python-nmap aiohttp pyyaml
+# Install required packages with build-from-source fallbacks
+pip install --upgrade pip wheel setuptools
+pip install psutil requests netifaces watchdog python-nmap aiohttp pyyaml flask flask-cors websockets cryptography || {{
+    echo "[WARN] Falling back to --no-binary build for psutil/netifaces"
+    pip install --no-binary :all: psutil netifaces || true
+    pip install requests watchdog python-nmap aiohttp pyyaml flask flask-cors websockets cryptography
+}}
+# scapy is optional (raw sockets); skip silently if it fails to build.
+pip install scapy || echo "[WARN] scapy install skipped"
 
 # Download agent package
 echo "Downloading agent from server..."
-curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
+curl -fsSL -H "ngrok-skip-browser-warning: 1" "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
 tar -xzf agent.tar.gz
 rm agent.tar.gz
+
+# Best-effort install of the agent's bundled requirements.txt
+if [[ -f requirements.txt ]]; then
+    pip install -r requirements.txt || echo "[WARN] requirements.txt had partial failures; agent will still start"
+fi
+
+# Create a local self-signed agent identity certificate for the local dashboard.
+mkdir -p "$INSTALL_DIR/certs"
+if [[ ! -f "$INSTALL_DIR/certs/agent.crt" ]]; then
+    openssl req -x509 -newkey rsa:4096 -sha256 -days 825 -nodes \
+      -keyout "$INSTALL_DIR/certs/agent.key" \
+      -out "$INSTALL_DIR/certs/agent.crt" \
+      -subj "/CN=$(hostname)-seraph-agent/O=SeraphAI/OU=UnifiedAgent" >/dev/null 2>&1 || true
+    chmod 600 "$INSTALL_DIR/certs/agent.key" 2>/dev/null || true
+fi
 
 # Create systemd service
 cat > /etc/systemd/system/seraph-agent.service << EOF
@@ -3016,7 +3416,12 @@ Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
 Environment="PATH=$INSTALL_DIR/venv/bin"
-ExecStart=$INSTALL_DIR/venv/bin/python core/agent.py --server $SERAPH_SERVER
+Environment="REMOTE_SERVER_URL=$SERAPH_SERVER"
+Environment="BACKEND_URL=$SERAPH_SERVER"
+Environment="SERAPH_ENROLLMENT_KEY={enrollment_key or ''}"
+Environment="SERAPH_AGENT_CERT=$INSTALL_DIR/certs/agent.crt"
+Environment="SERAPH_AGENT_KEY=$INSTALL_DIR/certs/agent.key"
+ExecStart=$INSTALL_DIR/venv/bin/python ui/web/app.py --host 0.0.0.0 --port 5000
 Restart=always
 RestartSec=10
 
@@ -3034,6 +3439,7 @@ echo "================================================================"
 echo "  INSTALLATION COMPLETE"
 echo "================================================================"
 echo "Agent installed to: $INSTALL_DIR"
+echo "Local dashboard: http://localhost:5000"
 echo "Service status: systemctl status seraph-agent"
 echo "Service logs: journalctl -u seraph-agent -f"
 echo ""
@@ -3052,12 +3458,11 @@ echo ""
 
 
 @router.get("/agent/install-windows")
-async def get_windows_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
+async def get_windows_install_script(request: Request, server_url: Optional[str] = None, enrollment_key: Optional[str] = None, format: Optional[str] = None):
     """Get the Windows agent installation script (PowerShell)"""
     
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    proto = forwarded_proto or request.url.scheme or "http"
-    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    base_url = _infer_public_base_url(request, server_url)
+    enrollment_arg = f' --enrollment-key "{enrollment_key}"' if enrollment_key else ""
     
     script = f'''# Seraph AI Unified Agent - Windows Installer
 # Run as Administrator
@@ -3099,6 +3504,73 @@ function Get-PythonExecutable {{
     return $null
 }}
 
+function Ensure-PythonInstalled {{
+    $existing = Get-PythonExecutable
+    if ($existing) {{ return $existing }}
+
+    Write-Host "Python 3 not found. Attempting installation..." -ForegroundColor Yellow
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {{
+        try {{
+            winget install -e --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements --scope machine | Out-Null
+        }} catch {{
+            Write-Warning "winget Python install failed: $($_.Exception.Message)"
+        }}
+    }} elseif (Get-Command choco -ErrorAction SilentlyContinue) {{
+        try {{ choco install -y python | Out-Null }} catch {{ Write-Warning "choco Python install failed: $($_.Exception.Message)" }}
+    }} else {{
+        # Fall back to direct Python.org installer download.
+        try {{
+            $pyInstaller = Join-Path $env:TEMP "python-3.12.6-amd64.exe"
+            Invoke-WebRequest -UseBasicParsing -Uri "https://www.python.org/ftp/python/3.12.6/python-3.12.6-amd64.exe" -OutFile $pyInstaller
+            Start-Process -FilePath $pyInstaller -ArgumentList "/quiet","InstallAllUsers=1","PrependPath=1","Include_pip=1","Include_launcher=1" -Wait
+        }} catch {{
+            Write-Warning "Direct Python installer download failed: $($_.Exception.Message)"
+        }}
+    }}
+
+    # Refresh PATH for the current session so newly-installed py/python is visible.
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("Path","User")
+
+    $resolved = Get-PythonExecutable
+    if (-not $resolved) {{
+        throw "Python 3 install did not complete. Please install Python 3 manually from https://www.python.org/downloads/ and re-run."
+    }}
+    return $resolved
+}}
+
+function Ensure-WireGuardInstalled {{
+    $wgExe = "C:\\Program Files\\WireGuard\\wireguard.exe"
+    if (Test-Path $wgExe) {{
+        return $true
+    }}
+
+    Write-Host "WireGuard not found. Attempting installation via winget..." -ForegroundColor Yellow
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {{
+        Write-Warning "winget not available; install WireGuard manually from https://www.wireguard.com/install/"
+        return $false
+    }}
+
+    try {{
+        winget install -e --id WireGuard.WireGuard --silent --accept-package-agreements --accept-source-agreements | Out-Null
+    }} catch {{
+        Write-Warning "Automatic WireGuard install failed: $($_.Exception.Message)"
+        return $false
+    }}
+
+    Start-Sleep -Seconds 2
+    if (Test-Path $wgExe) {{
+        Write-Host "WireGuard installed successfully." -ForegroundColor Green
+        return $true
+    }}
+
+    Write-Warning "WireGuard install completed but executable not found yet; VPN auto-start may require manual install verification."
+    return $false
+}}
+
+$ngrokHeaders = @{{ "ngrok-skip-browser-warning" = "1" }}
+
 try {{
     Assert-Admin
 
@@ -3111,30 +3583,125 @@ try {{
 
     # Download agent (Windows ZIP variant)
     Write-Host "Downloading agent package..."
-    Invoke-WebRequest -UseBasicParsing -Uri "$SERAPH_SERVER/api/unified/agent/download/windows" -OutFile $ZIP_PATH
+    Invoke-WebRequest -UseBasicParsing -Headers $ngrokHeaders -Uri "$SERAPH_SERVER/api/unified/agent/download/windows" -OutFile $ZIP_PATH
 
     # Extract
     Write-Host "Extracting package..."
     Expand-Archive -Path $ZIP_PATH -DestinationPath $INSTALL_DIR -Force
     Remove-Item $ZIP_PATH -Force
 
-    # Resolve Python executable
-    $pythonCmd = Get-PythonExecutable
-    if (-not $pythonCmd) {{
-        throw "Python 3 not found. Install Python 3 (with PATH enabled) and re-run installer."
+    $requiredFiles = @(
+        [System.IO.Path]::Combine($INSTALL_DIR, "ui", "web", "app.py"),
+        [System.IO.Path]::Combine($INSTALL_DIR, "ui", "desktop", "main.py"),
+        [System.IO.Path]::Combine($INSTALL_DIR, "core", "agent.py")
+    )
+    foreach ($requiredFile in $requiredFiles) {{
+        if (-not (Test-Path $requiredFile)) {{
+            throw "Installer package is incomplete. Missing required file: $requiredFile"
+        }}
     }}
 
+    # Resolve Python executable, installing it via winget if absent.
+    $pythonCmd = Ensure-PythonInstalled
+
     Write-Host "Installing Python dependencies..."
-    cmd /c "$pythonCmd -m pip install --upgrade pip"
-    cmd /c "$pythonCmd -m pip install psutil requests netifaces watchdog pyyaml"
+    cmd /c "$pythonCmd -m pip install --upgrade pip wheel setuptools"
+    cmd /c "$pythonCmd -m pip install psutil requests netifaces watchdog pyyaml flask flask-cors aiohttp websockets cryptography pywin32"
+    if (Test-Path (Join-Path $INSTALL_DIR "requirements.txt")) {{
+        cmd /c "$pythonCmd -m pip install -r `"$INSTALL_DIR\\requirements.txt`""
+    }}
+
+    # Ensure WireGuard is available so the agent can auto-configure VPN on first registration.
+    Ensure-WireGuardInstalled | Out-Null
+
+    # ----------------------------------------------------------------
+    # STEP: Register device with server NOW (before scheduled task).
+    # This gives us agent_id + auth_token which are persisted so
+    # the agent never needs an enrollment key again on restart.
+    # ----------------------------------------------------------------
+    $enrollmentKey = "{enrollment_key or ''}"
+    $agentId = ("seraph-" + $env:COMPUTERNAME + "-" + [System.Guid]::NewGuid().ToString("N").Substring(0,8)).ToLower() -replace '[^a-z0-9-]','-'
+    $primaryIp = try {{
+        $s = [System.Net.Sockets.TcpClient]::new(); $s.Connect("8.8.8.8", 53); $s.Client.LocalEndPoint.Address.ToString()
+    }} catch {{ "127.0.0.1" }}
+
+    $regHeaders = @{{
+        "ngrok-skip-browser-warning" = "1"
+        "X-Enrollment-Key"           = $enrollmentKey
+        "Content-Type"               = "application/json"
+    }}
+    $regBody = @{{
+        agent_id     = $agentId
+        node_id      = $agentId
+        platform     = "windows"
+        hostname     = $env:COMPUTERNAME
+        ip_address   = $primaryIp
+        version      = "1.0.0"
+        capabilities = @("process_monitor","network_monitor","file_monitor","vpn")
+        config       = @{{ auto_remediate = $false; is_admin = $true }}
+    }} | ConvertTo-Json -Depth 4
+
+    $authToken = ""
+    Write-Host "Registering device with Seraph server..."
+    try {{
+        $regResp = Invoke-RestMethod -Uri "$SERAPH_SERVER/api/unified/agents/register" -Method POST -Headers $regHeaders -Body $regBody -ContentType "application/json"
+        $authToken = $regResp.auth_token
+        Write-Host "Device registered. Agent ID: $agentId" -ForegroundColor Green
+    }} catch {{
+        Write-Warning "Registration request failed: $($_.Exception.Message) -- agent will retry on first start."
+    }}
+
+    # Persist credentials so the agent reuses the same identity on every restart.
+    $authJson = @{{ agent_id = $agentId; auth_token = $authToken }} | ConvertTo-Json
+    $authJson | Set-Content -Path (Join-Path $INSTALL_DIR "agent_auth.json") -Encoding UTF8
+
+    # ----------------------------------------------------------------
+    # Create launcher: runs core/agent.py (register + heartbeat loop)
+    # and the web dashboard (port 5000) in the same session.
+    # ----------------------------------------------------------------
+    $agentPy  = [System.IO.Path]::Combine($INSTALL_DIR, "core", "agent.py")
+    $uiPy     = [System.IO.Path]::Combine($INSTALL_DIR, "ui", "web", "app.py")
+    $launcher = Join-Path $INSTALL_DIR "start-seraph-agent.ps1"
+
+    # NOTE: we write a plain literal here -- NO f-string interpolation inside the heredoc
+    # for the variable names the launcher itself uses at runtime.
+    $launcherContent = @"
+`$ErrorActionPreference = "Continue"
+`$env:REMOTE_SERVER_URL  = "$SERAPH_SERVER"
+`$env:BACKEND_URL        = "$SERAPH_SERVER"
+`$env:SERAPH_ENROLLMENT_KEY = "$enrollmentKey"
+Set-Location "$INSTALL_DIR"
+
+# Load persisted agent_id so the same identity is reused on every boot.
+`$authFile = Join-Path "$INSTALL_DIR" "agent_auth.json"
+`$savedId  = ""
+if (Test-Path `$authFile) {{
+    try {{
+        `$savedData = Get-Content `$authFile -Raw | ConvertFrom-Json
+        `$savedId   = `$savedData.agent_id
+    }} catch {{ }}
+}}
+`$resolvedId = if (`$savedId) {{ `$savedId }} else {{ "seraph-`$env:COMPUTERNAME" }}
+
+# Start web dashboard in a hidden background process.
+`$uiProc = Start-Process -FilePath "powershell.exe" ``
+    -ArgumentList "-ExecutionPolicy","Bypass","-NonInteractive","-Command",
+                  "`& $pythonCmd ``"$uiPy``" --host 0.0.0.0 --port 5000" ``
+    -WindowStyle Hidden -PassThru
+
+# Run the core agent (registers with server + heartbeat/monitoring loop).
+# This call blocks until the agent is stopped, keeping the scheduled task alive.
+& $pythonCmd "$agentPy" --server "$SERAPH_SERVER" --enrollment-key "$enrollmentKey" --no-ui
+"@
+    $launcherContent | Set-Content -Path $launcher -Encoding UTF8
 
     # Create scheduled task to run at startup
-    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c $pythonCmd core\\agent.py --server $SERAPH_SERVER" -WorkingDirectory $INSTALL_DIR
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$launcher`"" -WorkingDirectory $INSTALL_DIR
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount
     Register-ScheduledTask -TaskName "SeraphAgent" -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
 
-    # Start agent
+    # Start agent immediately (don't wait for next reboot).
     Write-Host "Starting agent..."
     Start-ScheduledTask -TaskName "SeraphAgent"
 
@@ -3142,6 +3709,12 @@ try {{
 }} catch {{
     try {{ Stop-Transcript | Out-Null }} catch {{ }}
     Write-Host "INSTALL FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.InvocationInfo) {{
+        Write-Host "FAILED AT: $($_.InvocationInfo.PositionMessage)" -ForegroundColor Yellow
+    }}
+    if ($_.Exception.StackTrace) {{
+        Write-Host "STACK: $($_.Exception.StackTrace)" -ForegroundColor DarkYellow
+    }}
     Write-Host "See log: $LOG_PATH" -ForegroundColor Yellow
     Read-Host "Press Enter to close"
     exit 1
@@ -3151,13 +3724,18 @@ Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host "  INSTALLATION COMPLETE" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green
-Write-Host "Agent installed to: $INSTALL_DIR"
-Write-Host "Check status: Get-ScheduledTask -TaskName SeraphAgent"
-Write-Host "Install log: $LOG_PATH"
+Write-Host "Agent installed to : $INSTALL_DIR"
+Write-Host "Agent ID           : $agentId"
+Write-Host "Registered with    : $SERAPH_SERVER"
+Write-Host "Local dashboard    : http://localhost:5000"
+Write-Host "Credentials saved  : " + [System.IO.Path]::Combine($INSTALL_DIR, "agent_auth.json")
+Write-Host ""
+Write-Host "Check status  : Get-ScheduledTask -TaskName SeraphAgent | Format-List *"
+Write-Host "Install log   : $LOG_PATH"
 Read-Host "Press Enter to close"
 '''
     
-    usage = f"irm {base_url}/api/unified/agent/install-windows | iex"
+    usage = f"irm {base_url}/api/unified/agent/install-windows -Headers @{{'ngrok-skip-browser-warning'='1'}} | iex"
     if (format or "").lower() == "json":
         return {"script": script, "usage": usage}
 
@@ -3170,12 +3748,10 @@ Read-Host "Press Enter to close"
 
 
 @router.get("/agent/install-macos")
-async def get_macos_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
+async def get_macos_install_script(request: Request, server_url: Optional[str] = None, enrollment_key: Optional[str] = None, format: Optional[str] = None):
     """Get the macOS agent installation script"""
     
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    proto = forwarded_proto or request.url.scheme or "http"
-    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    base_url = _infer_public_base_url(request, server_url)
     
     script = f'''#!/bin/bash
 # Seraph AI Unified Agent - macOS Installer
@@ -3185,6 +3761,7 @@ set -e
 SERAPH_SERVER="{base_url}"
 INSTALL_DIR="$HOME/Library/Application Support/SeraphAgent"
 LAUNCH_AGENT_PATH="$HOME/Library/LaunchAgents/com.seraph.agent.plist"
+ENROLLMENT_KEY="{enrollment_key or ''}"
 
 echo "================================================================"
 echo "  SERAPH AI UNIFIED AGENT INSTALLER (macOS)"
@@ -3195,30 +3772,70 @@ echo "================================================================"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
+# Resolve Homebrew prefix (Apple Silicon defaults to /opt/homebrew, Intel to /usr/local).
+if [[ -x /opt/homebrew/bin/brew ]]; then
+    BREW_BIN="/opt/homebrew/bin/brew"
+elif [[ -x /usr/local/bin/brew ]]; then
+    BREW_BIN="/usr/local/bin/brew"
+else
+    BREW_BIN="$(command -v brew || true)"
+fi
+
+# Ensure Xcode CLT (provides clang + headers needed for psutil/cryptography wheels).
+if ! xcode-select -p >/dev/null 2>&1; then
+    echo "Installing Xcode Command Line Tools (a dialog may appear; accept it and re-run if needed)..."
+    xcode-select --install 2>/dev/null || true
+fi
+
 # Check for Python 3
-if ! command -v python3 &> /dev/null; then
+if ! command -v python3 >/dev/null 2>&1; then
     echo "Python 3 not found. Installing via Homebrew..."
-    if ! command -v brew &> /dev/null; then
-        echo "Homebrew not found. Please install it first:"
-        echo '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-        exit 1
+    if [[ -z "$BREW_BIN" ]]; then
+        echo "Homebrew not found. Installing Homebrew first..."
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        if [[ -x /opt/homebrew/bin/brew ]]; then
+            BREW_BIN="/opt/homebrew/bin/brew"
+        elif [[ -x /usr/local/bin/brew ]]; then
+            BREW_BIN="/usr/local/bin/brew"
+        fi
     fi
-    brew install python3
+    "$BREW_BIN" install python@3.12 || "$BREW_BIN" install python3
+fi
+
+# Optional: install WireGuard tools so the agent can bring up its policy VPN.
+if [[ -n "$BREW_BIN" ]] && ! command -v wg >/dev/null 2>&1; then
+    "$BREW_BIN" install wireguard-tools || echo "[WARN] wireguard-tools install skipped"
 fi
 
 # Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
-# Install dependencies
-pip install --upgrade pip
-pip install psutil requests netifaces watchdog pyyaml scapy
+# Install dependencies (cryptography wheel requires Xcode CLT which we ensured above).
+pip install --upgrade pip wheel setuptools
+pip install psutil requests netifaces watchdog pyyaml flask flask-cors aiohttp websockets cryptography
+pip install scapy || echo "[WARN] scapy install skipped (raw sockets need root)"
 
 # Download agent
 echo "Downloading agent from server..."
-curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
+curl -fsSL -H "ngrok-skip-browser-warning: 1" "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
 tar -xzf agent.tar.gz
 rm agent.tar.gz
+
+# Best-effort install of the agent's bundled requirements.txt
+if [[ -f requirements.txt ]]; then
+    pip install -r requirements.txt || echo "[WARN] requirements.txt had partial failures"
+fi
+
+# Create a local self-signed agent identity certificate for the local dashboard.
+mkdir -p "$INSTALL_DIR/certs"
+if [[ ! -f "$INSTALL_DIR/certs/agent.crt" ]]; then
+    openssl req -x509 -newkey rsa:4096 -sha256 -days 825 -nodes \
+      -keyout "$INSTALL_DIR/certs/agent.key" \
+      -out "$INSTALL_DIR/certs/agent.crt" \
+      -subj "/CN=$(hostname)-seraph-agent/O=SeraphAI/OU=UnifiedAgent" >/dev/null 2>&1 || true
+    chmod 600 "$INSTALL_DIR/certs/agent.key" 2>/dev/null || true
+fi
 
 # Create LaunchAgent plist for auto-start
 mkdir -p "$HOME/Library/LaunchAgents"
@@ -3232,10 +3849,25 @@ cat > "$LAUNCH_AGENT_PATH" << EOF
     <key>ProgramArguments</key>
     <array>
         <string>$INSTALL_DIR/venv/bin/python</string>
-        <string>$INSTALL_DIR/core/agent.py</string>
-        <string>--server</string>
-        <string>$SERAPH_SERVER</string>
+        <string>$INSTALL_DIR/ui/web/app.py</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>5000</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>REMOTE_SERVER_URL</key>
+        <string>$SERAPH_SERVER</string>
+        <key>BACKEND_URL</key>
+        <string>$SERAPH_SERVER</string>
+        <key>SERAPH_ENROLLMENT_KEY</key>
+        <string>{enrollment_key or ''}</string>
+        <key>SERAPH_AGENT_CERT</key>
+        <string>$INSTALL_DIR/certs/agent.crt</string>
+        <key>SERAPH_AGENT_KEY</key>
+        <string>$INSTALL_DIR/certs/agent.key</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -3256,6 +3888,7 @@ echo "================================================================"
 echo "  INSTALLATION COMPLETE"
 echo "================================================================"
 echo "Agent installed to: $INSTALL_DIR"
+echo "Local dashboard: http://localhost:5000"
 echo "Logs: $INSTALL_DIR/agent.log"
 echo "Stop: launchctl unload $LAUNCH_AGENT_PATH"
 echo "Start: launchctl load $LAUNCH_AGENT_PATH"
@@ -3274,12 +3907,11 @@ echo "Start: launchctl load $LAUNCH_AGENT_PATH"
 
 
 @router.get("/agent/install-android")
-async def get_android_install_script(request: Request, server_url: Optional[str] = None, format: Optional[str] = None):
+async def get_android_install_script(request: Request, server_url: Optional[str] = None, enrollment_key: Optional[str] = None, format: Optional[str] = None):
     """Get the Android agent installation script (Termux)"""
     
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    proto = forwarded_proto or request.url.scheme or "http"
-    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
+    base_url = _infer_public_base_url(request, server_url)
+    enrollment_arg = f' --enrollment-key "{enrollment_key}"' if enrollment_key else ""
     
     script = f'''#!/data/data/com.termux/files/usr/bin/bash
 # Seraph AI Unified Agent - Android Installer (Termux)
@@ -3289,65 +3921,144 @@ set -e
 
 SERAPH_SERVER="{base_url}"
 INSTALL_DIR="$HOME/seraph-agent"
+ENROLLMENT_KEY="{enrollment_key or ''}"
 
 echo "================================================================"
 echo "  SERAPH AI UNIFIED AGENT INSTALLER (Android/Termux)"
 echo "  Target Server: $SERAPH_SERVER"
 echo "================================================================"
 
+# -----------------------------------------------------------------
+# Storage permission so the agent can write logs/certs to a stable
+# path. termux-setup-storage is a no-op if already granted.
+# -----------------------------------------------------------------
+if command -v termux-setup-storage >/dev/null 2>&1; then
+    termux-setup-storage 2>/dev/null || true
+fi
+
+# Wake-lock so monitoring keeps running when the screen is off.
+if command -v termux-wake-lock >/dev/null 2>&1; then
+    termux-wake-lock 2>/dev/null || true
+fi
+
 # Update packages
 pkg update -y
 pkg upgrade -y
 
-# Install Python and dependencies
-pkg install -y python python-pip curl openssl
+# -----------------------------------------------------------------
+# Install everything needed BEFORE pip wheel builds run.
+# psutil + cryptography + netifaces + scapy all need: clang, make,
+# libffi, openssl, rust (for cryptography), libxml2 (for some deps).
+# python-psutil from the Termux repo is the safe fallback.
+# -----------------------------------------------------------------
+PKG_DEPS=(
+    python python-pip
+    clang make pkg-config
+    libffi openssl libcrypt
+    rust
+    curl wget tar
+    libjpeg-turbo
+    nmap
+    wireguard-tools
+    termux-api
+    python-cryptography
+    python-psutil
+)
+for pkg in "${{PKG_DEPS[@]}}"; do
+    pkg install -y "$pkg" || echo "[WARN] Optional Termux package '$pkg' could not be installed; continuing"
+done
 
 # Create installation directory
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Create virtual environment
-python -m venv venv
+# Create virtual environment that can see Termux's pre-built python-psutil/cryptography wheels.
+python -m venv --system-site-packages venv
 source venv/bin/activate
 
+# Build env so cryptography/cffi locate Termux's openssl/libffi headers.
+export OPENSSL_DIR="$PREFIX"
+export OPENSSL_LIB_DIR="$PREFIX/lib"
+export OPENSSL_INCLUDE_DIR="$PREFIX/include"
+export CARGO_BUILD_TARGET="$(uname -m)-linux-android"
+export RUSTFLAGS="-C link-arg=-Wl,-rpath,$PREFIX/lib"
+export LDFLAGS="-L$PREFIX/lib"
+export CFLAGS="-I$PREFIX/include"
+
 # Install Python packages
-pip install --upgrade pip
-pip install psutil requests watchdog aiohttp pyyaml
+pip install --upgrade pip wheel setuptools
+
+# psutil wheel build can fail on some Termux/Android combinations.
+# Try pip first; if it fails, fall back to the Termux-provided python-psutil
+# (already visible thanks to --system-site-packages).
+if ! pip install psutil; then
+    echo "[WARN] psutil pip wheel build failed; using Termux python-psutil fallback"
+fi
+
+# cryptography from pip can be slow because it builds Rust. Prefer the
+# Termux package, only fall back to pip if importing fails.
+python -c "import cryptography" 2>/dev/null || pip install cryptography || echo "[WARN] cryptography unavailable; some features will degrade"
+
+pip install requests watchdog aiohttp pyyaml flask flask-cors websockets
 
 # Download agent
 echo "Downloading agent from server..."
-curl -sSL "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
+curl -fsSL -H "ngrok-skip-browser-warning: 1" "$SERAPH_SERVER/api/unified/agent/download" -o agent.tar.gz
 tar -xzf agent.tar.gz
 rm agent.tar.gz
 
+# Best-effort install of bundled requirements (skip lines we already covered).
+if [ -f requirements.txt ]; then
+    pip install -r requirements.txt || echo "[WARN] requirements.txt had partial failures; agent will still start"
+fi
+
+# Create a local self-signed agent identity certificate for the local dashboard.
+mkdir -p "$INSTALL_DIR/certs"
+if [ ! -f "$INSTALL_DIR/certs/agent.crt" ]; then
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 825 -nodes \
+    -keyout "$INSTALL_DIR/certs/agent.key" \
+    -out "$INSTALL_DIR/certs/agent.crt" \
+    -subj "/CN=android-seraph-agent/O=SeraphAI/OU=UnifiedAgent" >/dev/null 2>&1 || true
+  chmod 600 "$INSTALL_DIR/certs/agent.key" 2>/dev/null || true
+fi
+
 # Create startup script
-cat > "$HOME/.termux/boot/start-seraph.sh" << EOF
+BOOT_DIR="$HOME/.termux/boot"
+BOOT_SCRIPT="$BOOT_DIR/start-seraph.sh"
+mkdir -p "$BOOT_DIR"
+cat > "$BOOT_SCRIPT" << EOF
 #!/data/data/com.termux/files/usr/bin/bash
-cd $INSTALL_DIR
+cd "$INSTALL_DIR"
 source venv/bin/activate
-python core/agent.py --server $SERAPH_SERVER &
+export REMOTE_SERVER_URL="$SERAPH_SERVER"
+export BACKEND_URL="$SERAPH_SERVER"
+export SERAPH_ENROLLMENT_KEY="{enrollment_key or ''}"
+nohup python ui/web/app.py --host 0.0.0.0 --port 5000 > agent.log 2>&1 &
 EOF
-chmod +x "$HOME/.termux/boot/start-seraph.sh"
+chmod +x "$BOOT_SCRIPT"
 
 # Create handy control script
 cat > "$INSTALL_DIR/seraph-control.sh" << EOF
 #!/data/data/com.termux/files/usr/bin/bash
 case "\\$1" in
     start)
-        cd $INSTALL_DIR
+        cd "$INSTALL_DIR"
         source venv/bin/activate
-        nohup python core/agent.py --server $SERAPH_SERVER > agent.log 2>&1 &
+        export REMOTE_SERVER_URL="$SERAPH_SERVER"
+        export BACKEND_URL="$SERAPH_SERVER"
+        export SERAPH_ENROLLMENT_KEY="{enrollment_key or ''}"
+        nohup python ui/web/app.py --host 0.0.0.0 --port 5000 > agent.log 2>&1 &
         echo "Agent started"
         ;;
     stop)
-        pkill -f "agent.py"
+        pkill -f "ui/web/app.py --host 0.0.0.0 --port 5000" || true
         echo "Agent stopped"
         ;;
     status)
-        pgrep -f "agent.py" > /dev/null && echo "Running" || echo "Stopped"
+        pgrep -f "ui/web/app.py --host 0.0.0.0 --port 5000" > /dev/null && echo "Running" || echo "Stopped"
         ;;
     logs)
-        tail -f $INSTALL_DIR/agent.log
+        tail -f "$INSTALL_DIR/agent.log"
         ;;
     *)
         echo "Usage: seraph-control.sh {{start|stop|status|logs}}"
@@ -3358,13 +4069,17 @@ chmod +x "$INSTALL_DIR/seraph-control.sh"
 
 # Start agent
 source venv/bin/activate
-nohup python core/agent.py --server "$SERAPH_SERVER" > agent.log 2>&1 &
+export REMOTE_SERVER_URL="$SERAPH_SERVER"
+export BACKEND_URL="$SERAPH_SERVER"
+export SERAPH_ENROLLMENT_KEY="{enrollment_key or ''}"
+nohup python ui/web/app.py --host 0.0.0.0 --port 5000 > agent.log 2>&1 &
 
 echo ""
 echo "================================================================"
 echo "  INSTALLATION COMPLETE"
 echo "================================================================"
 echo "Agent installed to: $INSTALL_DIR"
+echo "Local dashboard: http://127.0.0.1:5000"
 echo "Control: $INSTALL_DIR/seraph-control.sh {{start|stop|status|logs}}"
 echo ""
 echo "NOTE: Enable Termux:Boot app for auto-start on device boot"
@@ -3383,57 +4098,124 @@ echo "NOTE: Enable Termux:Boot app for auto-start on device boot"
 
 
 @router.get("/agent/install-ios")
-async def get_ios_install_instructions(request: Request, server_url: Optional[str] = None):
+async def get_ios_install_instructions(request: Request, server_url: Optional[str] = None, enrollment_key: Optional[str] = None, format: Optional[str] = None):
     """Get iOS agent installation instructions (Pythonista or native app)"""
-    
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    proto = forwarded_proto or request.url.scheme or "http"
-    base_url = server_url or f"{proto}://{request.headers.get('host', 'localhost:8001')}"
-    
-    pythonista_script = f'''# Seraph AI Agent for iOS (Pythonista 3)
-# Copy this script to Pythonista and run it
 
-import requests
+    base_url = _infer_public_base_url(request, server_url)
+    enrollment_token = enrollment_key or os.environ.get("SERAPH_ENROLLMENT_KEY") or os.environ.get("ENROLLMENT_KEY") or AGENT_SECRET or ""
+
+    pythonista_script = f'''# Seraph AI Agent for iOS (Pythonista 3)
+# Pythonista 3 ships with: requests, json, uuid, platform, socket, time, threading,
+# datetime, and `keychain` so this script needs ZERO additional installs.
+#
+# To run:
+#   1. Open Pythonista 3 -> tap + -> Empty Script
+#   2. Paste this entire file
+#   3. Tap the play button
+#
+# The agent registers with the Seraph backend, sends a heartbeat every 60s,
+# and polls for commands. Pythonista keeps the script alive while the app is
+# in the foreground; for background heartbeat use the "Always Run" feature
+# under "iOS Background Modes" in Pythonista's settings.
+
 import json
-import uuid
 import platform
 import socket
-import time
 import threading
+import time
+import uuid
 from datetime import datetime
 
+try:
+    import requests  # bundled in Pythonista 3
+except ImportError as exc:  # pragma: no cover
+    raise SystemExit("This script must be run inside Pythonista 3 (requests is bundled).") from exc
+
+# Pythonista has a `keychain` module for persistent secret storage.
+try:
+    import keychain  # type: ignore
+except ImportError:  # pragma: no cover - non-Pythonista runtime
+    keychain = None
+
 SERAPH_SERVER = "{base_url}"
-AGENT_ID = f"ios-{{uuid.uuid4().hex[:8]}}"
+ENROLLMENT_KEY = "{enrollment_token}"
 UPDATE_INTERVAL = 60
 
+def _persist_agent_id(new_id: str) -> None:
+    if keychain is None:
+        return
+    try:
+        keychain.set_password("seraph_agent", "agent_id", new_id)
+    except Exception:  # pragma: no cover
+        pass
+
+def _load_agent_id() -> str:
+    if keychain is not None:
+        try:
+            existing = keychain.get_password("seraph_agent", "agent_id")
+            if existing:
+                return existing
+        except Exception:  # pragma: no cover
+            pass
+    return f"ios-{{uuid.uuid4().hex[:8]}}"
+
+AGENT_ID = _load_agent_id()
+_persist_agent_id(AGENT_ID)
+AUTH_TOKEN = ""
+
+def _local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 53))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
 class iOSAgent:
-    def __init__(self):
+    def __init__(self) -> None:
         self.running = False
         self.agent_id = AGENT_ID
-    
+
+    def _headers(self):
+        headers = {{"ngrok-skip-browser-warning": "1", "Content-Type": "application/json"}}
+        if ENROLLMENT_KEY:
+            headers["X-Enrollment-Key"] = ENROLLMENT_KEY
+        if AUTH_TOKEN:
+            headers["X-Agent-Token"] = AUTH_TOKEN
+        return headers
+
     def get_system_info(self):
         return {{
             "hostname": socket.gethostname(),
             "platform": "ios",
             "version": platform.version(),
-            "python": platform.python_version()
+            "python": platform.python_version(),
         }}
-    
-    def register(self):
+
+    def register(self) -> bool:
+        global AUTH_TOKEN
         try:
             response = requests.post(
                 f"{{SERAPH_SERVER}}/api/unified/agents/register",
                 json={{
                     "agent_id": self.agent_id,
+                    "node_id": self.agent_id,
                     "platform": "ios",
                     "hostname": socket.gethostname(),
-                    "ip_address": socket.gethostbyname(socket.gethostname()),
+                    "ip_address": _local_ip(),
                     "version": "1.0.0",
-                    "capabilities": ["monitor", "scan"]
+                    "capabilities": ["monitor", "scan", "heartbeat", "command_poll"],
+                    "config": {{"is_admin": False, "auto_remediate": False}},
                 }},
-                timeout=10
+                headers=self._headers(),
+                timeout=15,
             )
-            print(f"Registered: {{response.json()}}")
+            response.raise_for_status()
+            data = response.json()
+            AUTH_TOKEN = data.get("auth_token", "") or AUTH_TOKEN
+            print(f"Registered: agent_id={{self.agent_id}} status={{data.get('status')}}")
             return True
         except Exception as e:
             print(f"Registration failed: {{e}}")
@@ -3441,26 +4223,28 @@ class iOSAgent:
     
     def heartbeat(self):
         try:
-            response = requests.post(
+            requests.post(
                 f"{{SERAPH_SERVER}}/api/unified/agents/{{self.agent_id}}/heartbeat",
                 json={{
                     "status": "online",
                     "cpu_usage": 0,
                     "memory_usage": 0,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 }},
-                timeout=10
+                headers=self._headers(),
+                timeout=10,
             )
             return True
         except Exception as e:
             print(f"Heartbeat failed: {{e}}")
             return False
-    
+
     def poll_commands(self):
         try:
             response = requests.get(
                 f"{{SERAPH_SERVER}}/api/unified/agents/{{self.agent_id}}/commands",
-                timeout=10
+                headers=self._headers(),
+                timeout=10,
             )
             if response.status_code == 200:
                 data = response.json()
@@ -3468,24 +4252,24 @@ class iOSAgent:
                     self.execute_command(cmd)
         except Exception as e:
             print(f"Command poll failed: {{e}}")
-    
+
     def execute_command(self, cmd):
         cmd_type = cmd.get("command_type", "")
         print(f"Executing: {{cmd_type}}")
-        
+
         result = {{"command_id": cmd.get("command_id"), "status": "completed", "result": {{}}}}
-        
+
         if cmd_type == "get_status":
             result["result"] = self.get_system_info()
-        
-        # Report result
+
         try:
             requests.post(
                 f"{{SERAPH_SERVER}}/api/unified/agents/{{self.agent_id}}/command-result",
                 json=result,
-                timeout=10
+                headers=self._headers(),
+                timeout=10,
             )
-        except:
+        except Exception:
             pass
     
     def run(self):
@@ -3519,20 +4303,35 @@ def start_background():
 # Start agent
 start_background()
 '''
-    
+
+    usage = "Open in Pythonista 3 -> tap Run. The script needs ZERO additional installs."
+
+    if (format or "").lower() in {"py", "script", "pythonista"}:
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(
+            content=pythonista_script,
+            media_type="text/x-python",
+            headers={
+                "Content-Disposition": "attachment; filename=seraph-agent-ios-pythonista.py",
+                "X-Install-Usage": usage,
+            },
+        )
+
     return {
         "platform": "ios",
+        "download_url": f"{base_url}/api/unified/agent/install-ios?format=py",
         "methods": [
             {
                 "name": "Pythonista 3 App",
-                "description": "Run agent as Python script in Pythonista 3",
+                "description": "Run agent as Python script in Pythonista 3 (no extra installs needed; requests + keychain are bundled)",
                 "script": pythonista_script,
+                "download_url": f"{base_url}/api/unified/agent/install-ios?format=py",
                 "steps": [
-                    "1. Download Pythonista 3 from App Store",
-                    "2. Create new script and paste the code below",
-                    "3. Run the script",
-                    "4. Agent will register and start monitoring"
-                ]
+                    "1. Install Pythonista 3 from the App Store",
+                    "2. Tap the download link to save seraph-agent-ios-pythonista.py",
+                    "3. Open it in Pythonista and tap the play button",
+                    "4. Agent registers and begins heartbeating",
+                ],
             },
             {
                 "name": "Native SwiftUI App",
@@ -3541,11 +4340,11 @@ start_background()
                     "1. Clone the repository",
                     "2. Open unified_agent/ui/ios/MetatronAgentApp.xcodeproj",
                     "3. Configure server URL in settings",
-                    "4. Build and install on device (requires Apple Developer account)"
+                    "4. Build and install on device (requires Apple Developer account)",
                 ],
-                "download_url": f"{base_url}/api/unified/agent/ios-source"
-            }
-        ]
+                "download_url": f"{base_url}/api/unified/agent/ios-source",
+            },
+        ],
     }
 
 
@@ -3571,7 +4370,7 @@ async def get_all_installers(request: Request, server_url: Optional[str] = None)
                 "name": "Windows",
                 "icon": "🪟",
                 "endpoint": f"{base_url}/api/unified/agent/install-windows",
-                "install_command": f"Invoke-WebRequest -Uri {base_url}/api/unified/agent/install-windows | Invoke-Expression",
+                "install_command": f"Invoke-WebRequest -Headers @{{'ngrok-skip-browser-warning'='1'}} -Uri {base_url}/api/unified/agent/install-windows | Invoke-Expression",
                 "requirements": ["Python 3.8+", "Administrator access", "PowerShell 5+"]
             },
             "macos": {

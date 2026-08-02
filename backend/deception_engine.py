@@ -43,6 +43,7 @@ class DeceptionConfig:
     
     def __init__(self):
         # Pebbles (Campaign Tracking)
+        self.correlation_enabled = os.environ.get("CORRELATION_ENABLED", "true").lower() == "true"
         self.campaign_window_minutes = int(os.environ.get("DECEPTION_CAMPAIGN_WINDOW", "120"))
         self.campaign_salt = os.environ.get("DECEPTION_CAMPAIGN_SALT", "SERAPH_DECEPTION_SALT")
         self.fingerprint_fields = ["user_agent", "accept", "accept_language", "accept_encoding"]
@@ -85,6 +86,10 @@ class DeceptionConfig:
         self.trap_sink_enabled = os.environ.get("TRAP_SINK_ENABLED", "true").lower() == "true"
         self.trap_sink_min_score = int(os.environ.get("TRAP_SINK_MIN_SCORE", "70"))
         self.trap_tarpit_delay_ms = int(os.environ.get("TRAP_TARPIT_DELAY", "3000"))
+
+        # Disinformation (DISINFORMATION route)
+        self.disinformation_enabled = os.environ.get("DISINFORMATION_ENABLED", "true").lower() == "true"
+        self.disinformation_min_score = int(os.environ.get("DISINFORMATION_MIN_SCORE", "50"))
         
         # Trap paths that indicate malicious behavior
         self.trap_paths_prefix = [
@@ -92,6 +97,23 @@ class DeceptionConfig:
             "/admin", "/.aws", "/.ssh", "/config", "/backup",
             "/etc/passwd", "/etc/shadow", "/.htaccess", "/web.config"
         ]
+
+        # Logic-budget exhaustion controller (CBR/TBCR/CDI + agenticity signals)
+        self.logic_budget_controller_enabled = (
+            os.environ.get("LOGIC_BUDGET_CONTROLLER_ENABLED", "true").lower() == "true"
+        )
+        self.logic_budget_target_cbr = float(os.environ.get("LOGIC_BUDGET_TARGET_CBR", "800.0"))
+        self.logic_budget_target_tbcr = float(os.environ.get("LOGIC_BUDGET_TARGET_TBCR", "12.0"))
+        self.logic_budget_target_cdi = float(os.environ.get("LOGIC_BUDGET_TARGET_CDI", "0.35"))
+        self.logic_budget_force_trap_threshold = float(
+            os.environ.get("LOGIC_BUDGET_FORCE_TRAP_THRESHOLD", "0.92")
+        )
+        self.logic_budget_weights = {
+            "cbr": float(os.environ.get("LOGIC_BUDGET_WEIGHT_CBR", "0.30")),
+            "tbcr": float(os.environ.get("LOGIC_BUDGET_WEIGHT_TBCR", "0.25")),
+            "cdi": float(os.environ.get("LOGIC_BUDGET_WEIGHT_CDI", "0.25")),
+            "agenticity": float(os.environ.get("LOGIC_BUDGET_WEIGHT_AGENTICITY", "0.20")),
+        }
 
 
 config = DeceptionConfig()
@@ -152,6 +174,7 @@ class AttackCampaign:
     friction_events: int = 0
     pass_events: int = 0
     decoy_interactions: int = 0
+    disinfo_events: int = 0        # times this campaign was served disinformation
     
     # Mystique adaptive parameters
     friction_multiplier: float = 1.0
@@ -391,6 +414,8 @@ class DeceptionEngine:
         Compute campaign ID for correlating related attacks.
         Time-windowed to group attacks within campaign_window_minutes.
         """
+        if not self.config.correlation_enabled:
+            return self._hash(f"nocorr|{time.time_ns()}|{ip}|{fingerprint_id}|{path}")[:16]
         window_min = self.config.campaign_window_minutes
         time_bucket = int(time.time() // (window_min * 60))
         salt = self.config.campaign_salt
@@ -431,7 +456,7 @@ class DeceptionEngine:
                     headers: Optional[Dict[str, str]] = None,
                     session_id: Optional[str] = None,
                     timing_data: Optional[Dict] = None,
-                    behavior_flags: Optional[Dict[str, bool]] = None) -> RiskAssessment:
+                    behavior_flags: Optional[Dict[str, Any]] = None) -> RiskAssessment:
         """
         Comprehensive risk assessment combining multiple signals.
         Returns routing decision with delay if applicable.
@@ -520,6 +545,13 @@ class DeceptionEngine:
         if fingerprint.total_events > 50 and campaign.trap_events > 10:
             score += weights["known_bad_fingerprint"]
             reasons.append("known_bad_fingerprint")
+
+        logic_budget = self._logic_budget_control(behavior_flags, campaign)
+        if logic_budget["enabled"] and logic_budget["pressure"] > 0:
+            score += logic_budget["score_boost"]
+            reasons.append(f"logic_budget_pressure:{logic_budget['pressure']:.2f}")
+            if logic_budget["high_pressure"]:
+                reasons.append("logic_budget_high_pressure")
         
         # Apply Mystique campaign overrides
         if self.config.mystique_enabled and campaign.sink_score_override is not None:
@@ -532,10 +564,21 @@ class DeceptionEngine:
         # Determine route
         route = RouteDecision.PASS_THROUGH
         delay_ms = 0
-        
-        if self.config.trap_sink_enabled and score >= self.config.trap_sink_min_score:
+
+        if logic_budget["force_trap"] and self.config.trap_sink_enabled:
             route = RouteDecision.TRAP_SINK
             delay_ms = self._calculate_tarpit_delay(campaign)
+        elif self.config.trap_sink_enabled and score >= self.config.trap_sink_min_score:
+            route = RouteDecision.TRAP_SINK
+            delay_ms = self._calculate_tarpit_delay(campaign)
+        elif self.config.disinformation_enabled and score >= self.config.disinformation_min_score and (
+            "suspicious_path" in reasons
+            or "ai_behavior_detected" in reasons
+            or "decoy_touched" in reasons
+            or logic_budget.get("high_pressure", False)
+        ):
+            # DISINFORMATION: medium-confidence probe — feed plausible-but-wrong data
+            route = RouteDecision.DISINFORMATION
         elif self.config.friction_enabled and score >= self.config.friction_challenge_score:
             route = RouteDecision.FRICTION
             delay_ms = self._calculate_friction_delay(score, campaign)
@@ -549,6 +592,62 @@ class DeceptionEngine:
             fingerprint_id=fingerprint.fingerprint_id,
             escalation_level=campaign.escalation_level
         )
+
+    def _logic_budget_control(self, behavior_flags: Dict[str, Any], campaign: AttackCampaign) -> Dict[str, Any]:
+        """Apply logic-budget exhaustion signals to routing pressure."""
+        if not self.config.logic_budget_controller_enabled:
+            return {
+                "enabled": False,
+                "pressure": 0.0,
+                "score_boost": 0,
+                "high_pressure": False,
+                "force_trap": False,
+            }
+
+        cbr = float(behavior_flags.get("cbr") or 0.0)
+        tbcr = float(behavior_flags.get("tbcr") or 0.0)
+        cdi = float(behavior_flags.get("cdi") or 0.0)
+        agenticity = float(behavior_flags.get("agenticity_score") or 0.0)
+        autonomous_confidence = float(behavior_flags.get("autonomous_confidence") or 0.0)
+        cognitive_pressure = float(behavior_flags.get("cognitive_pressure") or 0.0)
+
+        # Normalize primary metrics into 0..1 pressure components.
+        cbr_norm = min(1.0, cbr / max(1.0, self.config.logic_budget_target_cbr))
+        tbcr_norm = min(1.0, tbcr / max(1.0, self.config.logic_budget_target_tbcr))
+        cdi_norm = min(1.0, cdi / max(0.01, self.config.logic_budget_target_cdi))
+        agenticity_norm = min(1.0, max(agenticity, autonomous_confidence, cognitive_pressure))
+
+        w = self.config.logic_budget_weights
+        pressure = (
+            cbr_norm * w["cbr"]
+            + tbcr_norm * w["tbcr"]
+            + cdi_norm * w["cdi"]
+            + agenticity_norm * w["agenticity"]
+        )
+        pressure = max(0.0, min(1.0, pressure))
+
+        # Directly bias campaign dynamics when pressure remains elevated.
+        if pressure >= 0.75:
+            campaign.friction_multiplier = min(
+                self.config.max_friction_multiplier,
+                campaign.friction_multiplier + 0.10,
+            )
+            campaign.tarpit_multiplier = min(
+                self.config.max_tarpit_multiplier,
+                campaign.tarpit_multiplier + 0.05,
+            )
+
+        score_boost = int(min(30, round(pressure * 30)))
+        high_pressure = pressure >= 0.7
+        force_trap = pressure >= self.config.logic_budget_force_trap_threshold
+
+        return {
+            "enabled": True,
+            "pressure": pressure,
+            "score_boost": score_boost,
+            "high_pressure": high_pressure,
+            "force_trap": force_trap,
+        }
     
     def _calculate_friction_delay(self, score: int, campaign: AttackCampaign) -> int:
         """Calculate friction delay based on score and Mystique multiplier"""
@@ -654,6 +753,8 @@ class DeceptionEngine:
             campaign.trap_events += 1
         elif route == RouteDecision.FRICTION:
             campaign.friction_events += 1
+        elif route == RouteDecision.DISINFORMATION:
+            campaign.disinfo_events += 1
         else:
             campaign.pass_events += 1
         
@@ -684,6 +785,29 @@ class DeceptionEngine:
             logger.critical(f"Stonewall: {ip} BLOCKLISTED after {traps} trap hits (campaign {campaign_id})")
         
         campaign.escalation_level = new_level
+
+        # Gap B: Fire alert callback on meaningful escalation so SOAR gets notified
+        # (soft-ban is routine; hard-ban and blocklist warrant SOAR playbook activation)
+        if new_level in (EscalationLevel.HARD_BANNED, EscalationLevel.BLOCKLISTED) and self._alert_callback:
+            stonewall_event = {
+                "event_id": hashlib.md5(f"stonewall{ip}{time.time()}".encode()).hexdigest()[:16],
+                "event_type": "stonewall.escalation",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "campaign_id": campaign_id,
+                "source_ip": ip,
+                "session_id": None,
+                "route_decision": RouteDecision.TRAP_SINK.value,
+                "risk_score": 100,
+                "escalation_level": new_level.value,
+                "details": {
+                    "decoy_type": "stonewall",
+                    "decoy_id": f"stonewall_{campaign_id}",
+                    "campaign_events": count,
+                    "trap_hits": traps,
+                },
+            }
+            self._alert_callback(stonewall_event)
+
         return new_level
     
     # =========================================================================
@@ -746,7 +870,38 @@ class DeceptionEngine:
         if assessment.route in (RouteDecision.TRAP_SINK, RouteDecision.HONEYPOT):
             if self._alert_callback:
                 self._alert_callback(event.to_dict())
-        
+
+        # Emit a DISINFORMATION persistence alert when a campaign crosses the
+        # threshold — signals that someone is probing systematically through
+        # the poisoned-data layer and SOAR should escalate.
+        if (assessment.route == RouteDecision.DISINFORMATION
+                and assessment.campaign_id
+                and self._alert_callback):
+            camp = self.campaigns.get(assessment.campaign_id)
+            _DISINFO_PERSIST_THRESHOLD = int(
+                os.environ.get("DISINFO_PERSIST_THRESHOLD", "5")
+            )
+            if camp and camp.disinfo_events >= _DISINFO_PERSIST_THRESHOLD:
+                disinfo_alert = {
+                    "event_id": hashlib.md5(
+                        f"disinfo_persist{assessment.campaign_id}{camp.disinfo_events}".encode()
+                    ).hexdigest()[:16],
+                    "event_type": "deception.disinfo",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "campaign_id": assessment.campaign_id,
+                    "source_ip": ip,
+                    "session_id": session_id,
+                    "route_decision": RouteDecision.DISINFORMATION.value,
+                    "risk_score": assessment.score,
+                    "disinfo_events": camp.disinfo_events,
+                    "details": {
+                        "path": path,
+                        "disinfo_events": camp.disinfo_events,
+                        "total_events": camp.total_events,
+                    },
+                }
+                self._alert_callback(disinfo_alert)
+
         return assessment
     
     async def record_decoy_interaction(self,
@@ -965,6 +1120,9 @@ def integrate_with_honey_tokens(honey_token_manager):
     
     def wrapped_record_access(token_id, source_ip, **kwargs):
         result = original_record_access(token_id, source_ip, **kwargs)
+
+        if os.environ.get("HONEY_TOKENS_ENABLED", "true").lower() != "true":
+            return result
         
         # Notify deception engine
         asyncio.create_task(

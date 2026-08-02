@@ -134,16 +134,28 @@ class ExpressionPlan(BaseModel):
 
 class WorldModelService:
     """Simple service for managing the canonical world model."""
-    _governance_state: Dict[str, Optional[str]] = {
-        "current_genre_mode": None,
-        "current_score_id": None,
-        "current_governance_epoch": None,
-        "current_world_state_hash": None,
-        "strictness_level": None,
-    }
+
+    @staticmethod
+    def _empty_governance_state() -> Dict[str, Optional[str]]:
+        return {
+            "current_genre_mode": None,
+            "current_score_id": None,
+            "current_governance_epoch": None,
+            "current_world_state_hash": None,
+            "strictness_level": None,
+            "boot_truth_ref": None,
+            "herald_state_ref": None,
+            "order_state_ref": None,
+            "manifold_ref": None,
+            "formation_truth_ref": None,
+            "formation_order_ref": None,
+            "genesis_score_ref": None,
+            "covenant_ref": None,
+        }
 
     def __init__(self, db: Any = None):
         self.db = db
+        self._governance_state: Dict[str, Optional[str]] = self._empty_governance_state()
         # Phase 1 constitutional dimensions (The Three Trees)
         self.current_boot_truth_bundle_id: Optional[str] = None
         self.current_herald_state_id: Optional[str] = None

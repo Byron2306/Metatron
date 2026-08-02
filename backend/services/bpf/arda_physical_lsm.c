@@ -3,10 +3,38 @@
 #include <bpf/bpf_tracing.h>
 
 #define OVERLAYFS_SUPER_MAGIC 0x794C764F
+#define ARDA_MAX_VERITY_DIGEST_SIZE 64
+
+#define ARDA_MODE_AUDIT 0
+#define ARDA_MODE_LEGACY_INODE 1
+#define ARDA_MODE_FSVERITY_STRICT 2
 
 struct arda_identity {
     unsigned long inode;
     unsigned int dev;
+};
+
+/*
+ * Sovereign executable identity.  The algorithm is part of the identity:
+ * digest bytes are not meaningful without it.  The layout intentionally
+ * matches a fixed-size struct fsverity_digest buffer so
+ * bpf_get_fsverity_digest() can fill it directly.
+ */
+struct arda_verity_identity {
+    __u16 digest_algorithm;
+    __u16 digest_size;
+    __u8 digest[ARDA_MAX_VERITY_DIGEST_SIZE];
+};
+
+/*
+ * A content identity is authorized only inside the appraised cgroup and only
+ * for its currently active generation.  Staged generations are unreachable
+ * until the single active-generation map value is flipped.
+ */
+struct arda_verity_generation_identity {
+    __u64 cgroup_id;
+    __u64 generation;
+    struct arda_verity_identity identity;
 };
 
 // Exec allowlist: keyed by {inode, dev}, value 1 = harmonic (permitted).
@@ -17,7 +45,32 @@ struct {
     __type(value, __u32);
 } arda_harmony_map SEC(".maps");
 
-// Global enforcement toggle: index 0 = 0 (audit/pass) or 1 (enforce).
+/* Legacy non-generation map retained for audit/compatibility inspection. */
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 10240);
+    __type(key, struct arda_verity_identity);
+    __type(value, __u32);
+} arda_verity_harmony_map SEC(".maps");
+
+/* Production content allowlist: cgroup + generation + fs-verity identity. */
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 65536);
+    __type(key, struct arda_verity_generation_identity);
+    __type(value, __u32);
+} arda_verity_generation_map SEC(".maps");
+
+/* Per-cgroup activation pointer. A missing/zero generation fails closed. */
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 4096);
+    __type(key, __u64);
+    __type(value, __u64);
+} arda_active_generation_map SEC(".maps");
+
+// Global enforcement mode: 0=audit, 1=legacy inode compatibility,
+// 2=strict fs-verity digest enforcement.
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
@@ -62,8 +115,47 @@ int BPF_PROG(arda_sovereign_ignition, struct linux_binprm *bprm, int ret)
         return 0;
     }
 
-    __u32 *harmonic = bpf_map_lookup_elem(&arda_harmony_map, &key);
-    if (!harmonic || *harmonic == 0) {
+    __u32 *harmonic = NULL;
+
+    if (*state == ARDA_MODE_FSVERITY_STRICT) {
+        struct arda_verity_identity verity = {0};
+        struct arda_verity_generation_identity generation_key = {0};
+        struct bpf_dynptr digest_ptr;
+
+        if (bpf_dynptr_from_mem(&verity, sizeof(verity), 0, &digest_ptr) != 0) {
+            goto veto;
+        }
+        if (bpf_get_fsverity_digest(bprm->file, &digest_ptr) != 0) {
+            /* A non-verity executable has no sovereign content identity. */
+            goto veto;
+        }
+        if (verity.digest_size == 0 ||
+            verity.digest_size > ARDA_MAX_VERITY_DIGEST_SIZE) {
+            goto veto;
+        }
+        generation_key.cgroup_id = bpf_get_current_cgroup_id();
+        __u64 *active_generation = bpf_map_lookup_elem(
+            &arda_active_generation_map, &generation_key.cgroup_id
+        );
+        if (!active_generation || *active_generation == 0) {
+            goto veto;
+        }
+        generation_key.generation = *active_generation;
+        __builtin_memcpy(&generation_key.identity, &verity, sizeof(verity));
+        harmonic = bpf_map_lookup_elem(&arda_verity_generation_map, &generation_key);
+    } else if (*state == ARDA_MODE_LEGACY_INODE) {
+        harmonic = bpf_map_lookup_elem(&arda_harmony_map, &key);
+    } else {
+        /* Unknown modes fail closed instead of accidentally becoming audit. */
+        goto veto;
+    }
+
+    if (harmonic && *harmonic != 0) {
+        return 0;
+    }
+
+veto:
+    {
         __u32 cidx = 0;
         __u64 *cnt = bpf_map_lookup_elem(&arda_deny_count, &cidx);
         if (cnt) {
@@ -72,8 +164,6 @@ int BPF_PROG(arda_sovereign_ignition, struct linux_binprm *bprm, int ret)
         bpf_printk("ARDA_VETO: execve denied ino=%lu dev=%u\n", key.inode, key.dev);
         return -1; /* -EPERM */
     }
-
-    return 0;
 }
 
 // ── Network gate (socket_connect) ───────────────────────────────────────────

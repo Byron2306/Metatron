@@ -70,6 +70,7 @@ SCORE_TO_TIER: Dict[int, str] = {
 # S3            : Executed with telemetry, detection weak/absent
 # S2            : Mapped only — no execution evidence
 CERT_TIER_LABELS: Dict[str, str] = {
+    "S5-C-Arda-K-Strict": "platinum_kernel_prevented_strict",
     "S5-C-Arda-K-Observed":  "platinum_kernel_prevented_observed",
     "S5-C-Arda-K-Deductive": "platinum_kernel_prevented_deductive",
     "S5-C-Docker-D": "platinum_certifiable_docker_direct",

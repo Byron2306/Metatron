@@ -293,7 +293,7 @@ class AutonomousAgentThreatLayer:
         "exfil": ["tar", "zip", "curl", "scp", "ftp", "nc"]
     }
     
-    def __init__(self, db):
+    def __init__(self, db=None):
         self.db = db
         self.active_sessions: Dict[str, AATLAssessment] = {}
         self.session_commands: Dict[str, List[Dict]] = defaultdict(list)
@@ -700,6 +700,84 @@ class AutonomousAgentThreatLayer:
         ).sort("threat_score", -1)
         return await cursor.to_list(100)
     
+    def score_http_request(
+        self,
+        behavior_flags: Dict[str, Any],
+        timing_data: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Derive AATL machine_plausibility from HTTP request signals.
+
+        This is the synchronous counterpart to process_cli_event() for HTTP
+        traffic entering via the deception router.  It applies the same
+        machine-timing thresholds that _calculate_plausibility() uses for CLI
+        streams, but operates on per-request behavioral flags and optional
+        timing telemetry supplied by the caller.
+
+        Returns a dict with:
+            machine_plausibility  float  0-1 (higher = more machine-like)
+            actor_type            str    ThreatActorType value
+            indicators            list   Human-readable detection reasons
+        """
+        machine_score = 0.0
+        indicators: List[str] = []
+
+        # ── Timing signals ────────────────────────────────────────────────────
+        if timing_data:
+            inter_request_ms = float(timing_data.get("inter_request_ms", 9999))
+            timing_variance_ms = float(timing_data.get("timing_variance_ms", 9999))
+            request_velocity = float(timing_data.get("request_velocity", 0.0))
+
+            if inter_request_ms < self.MACHINE_TIMING["min_human_delay"]:
+                machine_score += 0.25
+                indicators.append(f"fast_request_cadence:{inter_request_ms:.0f}ms")
+
+            if timing_variance_ms < self.MACHINE_TIMING["max_machine_variance"]:
+                machine_score += 0.20
+                indicators.append(f"low_timing_variance:{timing_variance_ms:.0f}ms")
+
+            if request_velocity > 0.5:  # >1 req per 2 seconds
+                machine_score += 0.15
+                indicators.append(f"high_request_velocity:{request_velocity:.2f}req/s")
+
+        # ── Behavioral signals ────────────────────────────────────────────────
+        agenticity_score = float(behavior_flags.get("agenticity_score", 0.0))
+        if agenticity_score >= 0.65:
+            machine_score += 0.25
+            indicators.append(f"agenticity_high:{agenticity_score:.3f}")
+        elif agenticity_score >= 0.50:
+            machine_score += 0.15
+            indicators.append(f"agenticity_moderate:{agenticity_score:.3f}")
+
+        if behavior_flags.get("decoy_touched"):
+            machine_score += 0.10
+            indicators.append("decoy_pebble_triggered")
+
+        # ── AATL actor-type override ──────────────────────────────────────────
+        # The caller (harness) may already supply aatl_actor_type; use it as a
+        # tiebreaker — if it already says autonomous_ai, floor machine_score at
+        # 0.5 so it's always above the routing threshold.
+        if behavior_flags.get("aatl_actor_type") == "autonomous_ai":
+            machine_score = max(machine_score, 0.50)
+
+        machine_plausibility = min(machine_score, 1.0)
+
+        # Classify using the same thresholds as _classify_actor()
+        if machine_plausibility >= 0.85:
+            actor_type = ThreatActorType.AUTONOMOUS_AGENT.value
+        elif machine_plausibility >= 0.60:
+            actor_type = ThreatActorType.AI_ASSISTED.value
+        elif machine_plausibility >= 0.40:
+            actor_type = ThreatActorType.AUTOMATED_SCRIPT.value
+        else:
+            actor_type = ThreatActorType.HUMAN.value
+
+        return {
+            "machine_plausibility": machine_plausibility,
+            "actor_type": actor_type,
+            "indicators": indicators,
+        }
+
     async def get_threat_summary(self) -> Dict:
         """Get summary of current threats"""
         pipeline = [
@@ -745,6 +823,17 @@ _aatl_engine: AutonomousAgentThreatLayer = None
 
 
 def get_aatl_engine() -> AutonomousAgentThreatLayer:
+    """Return the global AATL engine, lazy-initialising with db=None when needed.
+
+    score_http_request() is fully stateless (no DB reads/writes) so a db=None
+    instance is sufficient for all per-request AATL scoring paths.  A real DB
+    connection is only required for process_cli_event() / get_threat_summary()
+    which need persistence — those callers must call init_aatl_engine(db) before
+    using those methods.
+    """
+    global _aatl_engine
+    if _aatl_engine is None:
+        _aatl_engine = AutonomousAgentThreatLayer(db=None)
     return _aatl_engine
 
 

@@ -134,13 +134,14 @@ def map_alert_to_techniques(rule_name: str, alert_text: str) -> list[str]:
 
 def parse_falco_logs(raw_log: str, since_dt: datetime | None = None) -> list[dict]:
     """
-    Parse Falco log lines (one alert per line) into structured records.
+    Parse Falco log lines into structured records.
 
-    Format: TIMESTAMP: PRIORITY RULE_NAME | field=value ...
-    e.g.   2026-04-27T06:54:36.940693802+0000: Warning Sensitive file opened for reading by non-trusted program | file=/etc/shadow ...
+    Handles both formats:
+    - JSON (when json_output=true):  {"time":"...","rule":"...","priority":"...","output_fields":{...},...}
+    - Text (when json_output=false): TIMESTAMP: PRIORITY RULE_NAME | field=value ...
     """
     records = []
-    line_pattern = re.compile(
+    text_pattern = re.compile(
         r"^(?P<ts>\d{4}-\d{2}-\d{2}T[\d:.]+[+\-]\d{4}):\s+"
         r"(?P<priority>Emergency|Alert|Critical|Error|Warning|Notice|Informational|Debug)\s+"
         r"(?P<rule>.+?)\s*\|(?P<fields>.*)$"
@@ -150,34 +151,69 @@ def parse_falco_logs(raw_log: str, since_dt: datetime | None = None) -> list[dic
         line = line.strip()
         if not line:
             continue
-        m = line_pattern.match(line)
-        if not m:
-            continue
 
-        ts_str = m.group("ts")
-        try:
-            ts = datetime.fromisoformat(ts_str)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-        except Exception:
+        ts: datetime | None = None
+        rule = ""
+        priority = ""
+        fields: dict[str, str] = {}
+        container_name = "host"
+        container_id = "host"
+
+        # Try JSON format first
+        if line.startswith("{"):
+            try:
+                obj = json.loads(line)
+                rule = obj.get("rule", "")
+                priority = obj.get("priority", "")
+                ts_str = obj.get("time", "")
+                try:
+                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                except Exception:
+                    ts = datetime.now(timezone.utc)
+                of = obj.get("output_fields", {}) or {}
+                container_name = of.get("container.name") or "host"
+                container_id = of.get("container.id") or "host"
+                # Flatten output_fields for compatibility
+                for k, v in of.items():
+                    safe_key = k.replace(".", "_")
+                    fields[safe_key] = str(v) if v is not None else ""
+                # Also extract MITRE tags from the alert
+                tags = obj.get("tags", [])
+                tag_techniques = [t for t in tags if re.match(r"T\d{4}", t)]
+            except (json.JSONDecodeError, Exception):
+                continue
+        else:
+            # Text format
+            m = text_pattern.match(line)
+            if not m:
+                continue
+            ts_str = m.group("ts")
+            try:
+                ts = datetime.fromisoformat(ts_str)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+            except Exception:
+                ts = datetime.now(timezone.utc)
+            rule = m.group("rule").strip()
+            priority = m.group("priority")
+            fields_raw = m.group("fields").strip()
+            for fmatch in re.finditer(r"(\w+)=([^\s]+)", fields_raw):
+                fields[fmatch.group(1)] = fmatch.group(2)
+            container_name = fields.get("container_name", "host")
+            container_id = fields.get("container_id", "host")
+            tag_techniques = []
+
+        if ts is None:
             ts = datetime.now(timezone.utc)
 
         if since_dt and ts < since_dt:
             continue
 
-        rule = m.group("rule").strip()
-        priority = m.group("priority")
-        fields_raw = m.group("fields").strip()
-
-        # Parse key=value fields
-        fields: dict[str, str] = {}
-        for fmatch in re.finditer(r"(\w+)=([^\s]+)", fields_raw):
-            fields[fmatch.group(1)] = fmatch.group(2)
-
-        container_name = fields.get("container_name", "host")
-        container_id = fields.get("container_id", "host")
-
+        # Map rule name to techniques, then merge any tag-based techniques
         techniques = map_alert_to_techniques(rule, line)
+        for tt in tag_techniques:
+            if tt not in techniques:
+                techniques.append(tt)
 
         records.append({
             "ts": ts,
@@ -276,11 +312,21 @@ def build_run_record(technique: str, session: str, alerts: list[dict]) -> dict:
 
 
 def fetch_falco_logs(container: str = "seraph-falco", since: str | None = None) -> str:
+    """Read Falco JSON alerts from the container's alert file (preferred) or docker logs."""
+    # Prefer reading from the JSON alert file written by Falco
+    FALCO_ALERT_FILE = "/var/log/falco/falco_alerts.json"
+    result = subprocess.run(
+        ["docker", "exec", container, "cat", FALCO_ALERT_FILE],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout
+
+    # Fallback: docker logs (text-format output)
     cmd = ["docker", "logs", container]
     if since:
         cmd += ["--since", since]
     result = subprocess.run(cmd, capture_output=True, text=True)
-    # Falco writes to stderr
     return (result.stdout or "") + (result.stderr or "")
 
 

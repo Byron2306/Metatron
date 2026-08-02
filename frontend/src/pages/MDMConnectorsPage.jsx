@@ -28,11 +28,26 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? ''
   : envBackendUrl.replace(/\/+$/, '');
+
+const MDM_ACCENTS = {
+  violet: { border: 'rgba(197,162,235,0.32)', glow: 'rgba(197,162,235,0.12)' },
+  green: { border: 'rgba(124,226,163,0.28)', glow: 'rgba(124,226,163,0.1)' },
+  magenta: { border: 'rgba(255,138,217,0.34)', glow: 'rgba(255,138,217,0.12)' },
+  gold: { border: 'rgba(255,209,102,0.3)', glow: 'rgba(255,209,102,0.1)' },
+};
+
+const mdmPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
 
 const MDMConnectorsPage = () => {
   const { token } = useAuth();
@@ -59,6 +74,7 @@ const MDMConnectorsPage = () => {
   useEffect(() => {
     fetchData();
     fetchPlatforms();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const demoMdmData = {
@@ -357,24 +373,24 @@ const MDMConnectorsPage = () => {
 
   return (
     <div className="p-6 space-y-6" data-testid="mdm-connectors-page">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Smartphone className="w-8 h-8 text-cyan-400" />
-            MDM Connectors
-          </h1>
-          <p className="text-slate-400 mt-1">Enterprise Mobile Device Management Integration</p>
-        </div>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <SeraphPageHeader
+          eyebrow="seraph · mdm-connectors · enterprise sync"
+          title="MDM Connectors"
+          tagline="> enterprise mobile device management integration"
+          accent="cyan"
+          status={activeTab.toUpperCase()}
+        />
         <div className="flex gap-2">
-          <Button onClick={syncDevices} variant="outline" className="border-green-500/30 text-green-400">
+          <Button onClick={syncDevices} variant="outline" style={{ borderColor: 'rgba(124,226,163,0.28)', color: '#dcffe8' }}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Sync All
           </Button>
-          <Button onClick={connectAll} variant="outline" className="border-cyan-500/30 text-cyan-400">
+          <Button onClick={connectAll} variant="outline" style={{ borderColor: 'rgba(197,162,235,0.32)', color: '#f0ddff' }}>
             <Link className="w-4 h-4 mr-2" />
             Connect All
           </Button>
-          <Button onClick={fetchData} variant="outline" className="border-slate-500/30 text-slate-400">
+          <Button onClick={fetchData} variant="outline" style={{ borderColor: 'rgba(255,209,102,0.24)', color: '#fff0c9' }}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
@@ -388,7 +404,8 @@ const MDMConnectorsPage = () => {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             variant={activeTab === tab.id ? 'default' : 'ghost'}
-            className={activeTab === tab.id ? 'bg-cyan-600' : 'text-slate-400'}
+            className={activeTab === tab.id ? '' : 'text-slate-400'}
+            style={activeTab === tab.id ? { background: 'linear-gradient(135deg, #c5a2eb, #7ce2a3)', color: '#071018' } : { border: '1px solid rgba(115,163,185,0.12)' }}
             data-testid={`tab-${tab.id}`}
           >
             <tab.icon className="w-4 h-4 mr-2" />
@@ -401,19 +418,19 @@ const MDMConnectorsPage = () => {
       {activeTab === 'overview' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={mdmPanelStyle(MDM_ACCENTS.violet)}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-slate-400 text-sm">Total Devices</p>
                     <p className="text-3xl font-bold text-white">{displayStatus.total_devices}</p>
                   </div>
-                  <Smartphone className="w-10 h-10 text-cyan-400" />
+                  <Smartphone className="w-10 h-10" style={{ color: '#c5a2eb' }} />
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={mdmPanelStyle(MDM_ACCENTS.green)}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -427,7 +444,7 @@ const MDMConnectorsPage = () => {
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={mdmPanelStyle(MDM_ACCENTS.green)}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -441,7 +458,7 @@ const MDMConnectorsPage = () => {
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={mdmPanelStyle(MDM_ACCENTS.magenta)}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -457,7 +474,7 @@ const MDMConnectorsPage = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card style={mdmPanelStyle(MDM_ACCENTS.violet)}>
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <Link className="w-5 h-5 text-cyan-400" />

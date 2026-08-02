@@ -11,6 +11,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API_URL = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -46,6 +47,7 @@ const CSPMPage = () => {
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 60000); // Refresh every minute
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchDashboardData = async () => {
@@ -288,57 +290,40 @@ const CSPMPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
+      <div className="min-h-[60vh] flex items-center justify-center px-4">
+        <div className="seraph-hud-frame sophia-border-cyan rounded-xl px-6 py-5 flex flex-col items-center gap-3">
           <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
-          <span className="text-gray-400">Loading Cloud Security Posture...</span>
+          <span className="sophia-scan text-cyan-200 text-sm tracking-wide">Loading Cloud Security Posture...</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Cloud className="w-8 h-8 text-cyan-400" />
-          <div>
-            <h1 className="text-2xl font-bold text-white">Cloud Security Posture Management</h1>
-            <p className="text-gray-400 text-sm">Fleet-wide multi-cloud security visibility</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            onClick={configureProvider}
-            className="border-gray-600 text-gray-300 hover:bg-gray-800"
-          >
-            <Settings className="w-4 h-4 mr-2" />
-            Configure Provider
-          </Button>
-          <Button
-            variant="outline"
-            onClick={exportFindings}
-            className="border-gray-600 text-gray-300 hover:bg-gray-800"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
-          <Button
-            onClick={startScan}
-            disabled={scanning}
-            className="bg-cyan-600 hover:bg-cyan-700"
-          >
-            {scanning ? (
-              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Play className="w-4 h-4 mr-2" />
-            )}
-            {scanning ? 'Scanning...' : 'Start Scan'}
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="cspm-page">
+      <SeraphPageHeader
+        eyebrow="seraph · cspm · multi-cloud posture"
+        title="Cloud Security Posture Management"
+        tagline="> aws · azure · gcp · fleet-wide misconfiguration & compliance"
+        accent="gold"
+        status={scanning ? 'SCANNING' : 'MONITORED'}
+        actions={
+          <>
+            <Button className="sophia-btn sophia-btn-refresh" variant="outline" onClick={configureProvider} style={{ borderColor: 'rgba(251,191,36,0.5)', color: '#fde68a' }}>
+              <Settings className="w-4 h-4 mr-2" />
+              Configure Provider
+            </Button>
+            <Button className="sophia-btn sophia-btn-refresh" variant="outline" onClick={exportFindings} style={{ borderColor: 'rgba(255,43,214,0.54)', color: '#ffb5f4' }}>
+              <Download className="w-4 h-4 mr-2" />
+              Export
+            </Button>
+            <Button className="sophia-btn arm-button" onClick={startScan} disabled={scanning} style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,43,214,0.95), rgba(251,191,36,0.9))', color: '#041018', border: '1px solid rgba(255,43,214,0.35)' }}>
+              {scanning ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
+              {scanning ? 'Scanning...' : 'Start Scan'}
+            </Button>
+          </>
+        }
+      />
 
       {latestFailedScan && (
         <Card className="bg-red-950/20 border-red-900/40 mb-6">
@@ -364,7 +349,7 @@ const CSPMPage = () => {
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 rounded-t-lg capitalize transition-colors ${
               activeTab === tab
-                ? 'bg-cyan-600/20 text-cyan-400 border-b-2 border-cyan-400'
+                ? 'bg-fuchsia-500/12 text-[#ffe6fb] border-b-2 border-[#ff2bd6] sophia-scan'
                 : 'text-gray-400 hover:text-white hover:bg-gray-800'
             }`}
           >

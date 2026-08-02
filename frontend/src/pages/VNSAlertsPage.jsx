@@ -51,6 +51,7 @@ export default function VNSAlertsPage() {
 
   useEffect(() => {
     fetchStatus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchStatus = async () => {
@@ -142,7 +143,7 @@ export default function VNSAlertsPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-6" data-testid="vns-alerts-page">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">

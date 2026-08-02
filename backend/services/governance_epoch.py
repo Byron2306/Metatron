@@ -6,28 +6,10 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-try:
-    from schemas.polyphonic_models import GovernanceEpoch
-except Exception:
-    from backend.schemas.polyphonic_models import GovernanceEpoch
-
-try:
-    from services.quantum_security import quantum_security
-except Exception:
-    from backend.services.quantum_security import quantum_security
-
-try:
-    from services.world_events import emit_world_event
-except Exception:
-    try:
-        from backend.services.world_events import emit_world_event
-    except Exception:
-        emit_world_event = None
-
-try:
-    from services.world_model import WorldModelService
-except Exception:
-    from backend.services.world_model import WorldModelService
+from backend.schemas.polyphonic_models import GovernanceEpoch
+from backend.services.quantum_security import quantum_security
+from backend.services.world_events import emit_world_event
+from backend.services.world_model import WorldModelService
 
 
 def _utc_now() -> datetime:

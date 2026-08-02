@@ -23,6 +23,10 @@ from backend.services.harmonic_engine import get_harmonic_engine
 from backend.services.chorus_engine import get_chorus_engine
 from backend.services.vns import vns
 from backend.services.vns_alerts import vns_alert_service
+from backend.services.authority_binding import canonical_action_digest, canonical_target_digest
+from backend.services.capability_authority import get_capability_lease_store
+from backend.services.governance_context import assert_canonical_execution_context
+from backend.services.runtime_environment import current_environment, is_production_like
 
 try:
     from backend.services.world_events import emit_world_event
@@ -98,7 +102,7 @@ class GovernanceExecutorService:
         self.world_model = WorldModelService(db)
         self.tulkas = TulkasExecutor(self.world_model)
         self.fabric = get_arda_fabric()
-        self.environment = str(os.environ.get("ENVIRONMENT") or "local").lower()
+        self.environment = current_environment()
 
     @staticmethod
     def _governance_context_for_execution(
@@ -106,12 +110,32 @@ class GovernanceExecutorService:
         decision_id: str,
         queue_id: str,
         action_type: str,
+        queue_doc: Optional[Dict[str, Any]] = None,
+        payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        queue_doc = queue_doc or {}
+        payload = payload or {}
+        polyphonic_context = queue_doc.get("polyphonic_context") or payload.get("polyphonic_context") or {}
+        if not isinstance(polyphonic_context, dict):
+            polyphonic_context = {}
         return {
             "approved": True,
             "decision_id": decision_id,
             "queue_id": queue_id,
             "action_type": action_type,
+            "world_state_hash": queue_doc.get("world_state_hash")
+            or payload.get("world_state_hash")
+            or polyphonic_context.get("world_state_hash"),
+            "notation_token_id": queue_doc.get("notation_token_id")
+            or payload.get("notation_token_id")
+            or polyphonic_context.get("notation_token_id"),
+            "canonical_action_digest": queue_doc.get("canonical_action_digest")
+            or payload.get("canonical_action_digest"),
+            "canonical_target_digest": queue_doc.get("canonical_target_digest")
+            or payload.get("canonical_target_digest"),
+            "governance_epoch": queue_doc.get("governance_epoch")
+            or payload.get("governance_epoch")
+            or polyphonic_context.get("governance_epoch"),
         }
 
     @staticmethod
@@ -159,6 +183,49 @@ class GovernanceExecutorService:
             return int(dt.timestamp() * 1000)
         except Exception:
             return None
+
+    @staticmethod
+    def _apply_runtime_harmonic_controls(
+        *,
+        queue_doc: Dict[str, Any],
+        payload: Dict[str, Any],
+        polyphonic_context: Dict[str, Any],
+    ) -> Tuple[Optional[str], Dict[str, Any]]:
+        obligations = list(queue_doc.get("harmonic_obligations") or [])
+        enforcement = dict(queue_doc.get("harmonic_enforcement") or {})
+        controls_applied: Dict[str, Any] = {
+            "obligations_seen": obligations,
+            "enforcement": enforcement,
+        }
+        constraints = payload.get("execution_constraints")
+        if not isinstance(constraints, dict):
+            constraints = {}
+            payload["execution_constraints"] = constraints
+
+        if enforcement.get("elevated_scrutiny"):
+            constraints["scrutiny_level"] = "elevated"
+            polyphonic_context["scrutiny_level"] = "elevated"
+            controls_applied["scrutiny_level"] = "elevated"
+        if enforcement.get("token_narrowing_required"):
+            constraints["token_scope"] = "narrowed"
+            controls_applied["token_scope"] = "narrowed"
+        if enforcement.get("stronger_audit_required"):
+            constraints["audit_level"] = "full"
+            controls_applied["audit_level"] = "full"
+        if enforcement.get("deception_preferred_routing"):
+            constraints["route_preference"] = "deception_preferred"
+            controls_applied["route_preference"] = "deception_preferred"
+
+        if enforcement.get("corroboration_required") and not queue_doc.get("harmonic_corroboration"):
+            controls_applied["blocked_by"] = "corroboration_required"
+            return "awaiting_corroboration", controls_applied
+        if enforcement.get("sandbox_required") and not queue_doc.get("harmonic_sandbox_ready"):
+            controls_applied["blocked_by"] = "sandbox_required"
+            return "awaiting_sandbox", controls_applied
+        if enforcement.get("additional_approval_required") and not queue_doc.get("harmonic_additional_approval"):
+            controls_applied["blocked_by"] = "additional_approval_required"
+            return "awaiting_additional_approval", controls_applied
+        return None, controls_applied
 
     def _attach_execution_timing_observation(
         self,
@@ -745,6 +812,21 @@ class GovernanceExecutorService:
                 or queue_doc.get("strictness_level")
             ),
         )
+        capability_required = bool(
+            self.environment == "production"
+            and str(queue_doc.get("impact_level") or "").lower() in {"high", "critical"}
+        )
+        expected_action_digest = canonical_action_digest(
+            action_type=str(queue_doc.get("action_type") or ""),
+            actor=str(queue_doc.get("actor") or ""),
+            subject_id=queue_doc.get("subject_id"),
+            impact_level=str(queue_doc.get("impact_level") or ""),
+            payload=payload,
+        )
+        expected_target_digest = canonical_target_digest(
+            subject_id=queue_doc.get("subject_id"),
+            payload=payload,
+        )
         return await self.notation_tokens.validate_notation_token(
             token=notation_ctx.get("token") or notation_ctx.get("token_id"),
             active_epoch=active_epoch_doc,
@@ -759,6 +841,12 @@ class GovernanceExecutorService:
                 "enforce_required_companions": profile.get("enforce_required_companions")
                 if enforce_required_companions is None
                 else bool(enforce_required_companions),
+                "require_capability": capability_required,
+                "capability_lease_id": payload.get("capability_lease_id"),
+                "authority_request_digest": payload.get("authority_request_digest"),
+                "action_digest": expected_action_digest,
+                "target_digest": expected_target_digest,
+                "audience": "metatron-outbound-gate",
             },
         )
 
@@ -1323,7 +1411,13 @@ class GovernanceExecutorService:
             decision_id=decision_id,
             queue_id=related_queue_id,
             action_type="tool_execution",
+            queue_doc=queue_doc,
+            payload=payload,
         )
+        is_high_impact = str(queue_doc.get("impact_level") or "").lower() in {"high", "critical"}
+        is_mcp_runtime = tool.startswith("mcp.") or str(queue_doc.get("action_type") or "").lower() == "mcp_tool_execution"
+        if is_high_impact or is_mcp_runtime:
+            assert_canonical_execution_context(governance_context, action=f"tool_execution:{tool}")
         try:
             from integrations_manager import run_runtime_tool
 
@@ -1485,7 +1579,7 @@ class GovernanceExecutorService:
             outcome = result.get("outcome")
             if outcome == "executed":
                 executed += 1
-            elif outcome == "skipped":
+            elif outcome in {"skipped", "deferred"}:
                 skipped += 1
             else:
                 failed += 1
@@ -1499,7 +1593,12 @@ class GovernanceExecutorService:
 
     async def _verify_constitutional_compliance(self, action_type: str, context_id: Optional[str] = None) -> Tuple[bool, str]:
         """Verify the constitutional health (Phase I) before any execution."""
-        is_dev = os.environ.get("ARDA_ENV") != "production"
+        is_dev = not is_production_like()
+        allow_dev_override = os.environ.get("ARDA_ALLOW_DEV_CONSTITUTIONAL_OVERRIDE", "0").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         
         # 1. Check Tree of Truth (Boot)
         bundle = boot_attestation.get_current_bundle() if boot_attestation else None
@@ -1515,24 +1614,30 @@ class GovernanceExecutorService:
             except Exception as exc:
                 logger.warning("Governance executor failed to initialize boot attestation bundle: %s", exc)
         if not bundle or bundle.status != "lawful":
-             msg = f"Constitutional failure: Boot state is {bundle.status if bundle else 'none'}"
-             if is_dev: logger.warning(f"{msg} (Overridden in development)")
-             else: return False, msg
+                        msg = f"Constitutional failure: Boot state is {bundle.status if bundle else 'none'}"
+                        if is_dev and allow_dev_override:
+                                logger.warning(f"{msg} (Overridden in development)")
+                        else:
+                                return False, msg
              
         # 2. Check Herald (Identity)
         herald = manwe_herald.get_state() if manwe_herald else None
         if not herald or herald.status != "active":
-             msg = "Constitutional failure: Manwë Herald is inactive"
-             if is_dev: logger.warning(f"{msg} (Overridden in development)")
-             else: return False, msg
+                        msg = "Constitutional failure: Manwë Herald is inactive"
+                        if is_dev and allow_dev_override:
+                                logger.warning(f"{msg} (Overridden in development)")
+                        else:
+                                return False, msg
              
         # 3. Check Arda Fabric (Workload Integrity - Phase D)
         node_id = herald.attested_state_ref or herald.device_id if herald else "local-substrate"
         fabric_state = self.fabric.get_subject_state(node_id)
         if fabric_state in {"fallen", "dissonant"}:
-             msg = f"Constitutional blockade: node '{node_id}' is in {fabric_state.upper()} state"
-             if is_dev: logger.warning(f"{msg} (Overridden in development)")
-             else: return False, msg
+                        msg = f"Constitutional blockade: node '{node_id}' is in {fabric_state.upper()} state"
+                        if is_dev and allow_dev_override:
+                                logger.warning(f"{msg} (Overridden in development)")
+                        else:
+                                return False, msg
 
         # 4. Consult Ainur Choir
         from backend.services.secret_fire import get_secret_fire_forge
@@ -1548,12 +1653,14 @@ class GovernanceExecutorService:
         })
         await project_choir_truth(choir_verdict)
         if not choir_verdict.heralding_allowed:
-             # Phase VII: Engage Tulkas for enforcement
-             await self.tulkas.execute_enforcement(choir_verdict, node_id)
-             msg = f"Ainur Choir {choir_verdict.overall_state.upper()}: {'; '.join(choir_verdict.reasons)}"
-             if is_dev: logger.warning(f"{msg} (Overridden in development)")
-             else: return False, msg
-             
+            # Phase VII: Engage Tulkas for enforcement
+            await self.tulkas.execute_enforcement(choir_verdict, node_id)
+            msg = f"Ainur Choir {choir_verdict.overall_state.upper()}: {'; '.join(choir_verdict.reasons)}"
+            if is_dev and allow_dev_override:
+                logger.warning(f"{msg} (Overridden in development)")
+            else:
+                return False, msg
+
         return True, "Constitutional compliance verified"
 
     async def _execute_response_operation(
@@ -1808,6 +1915,38 @@ class GovernanceExecutorService:
         polyphonic_context = queue_doc.get("polyphonic_context") or payload.get("polyphonic_context") or {}
         if not isinstance(polyphonic_context, dict):
             polyphonic_context = {}
+        blocked_status, harmonic_runtime_controls = self._apply_runtime_harmonic_controls(
+            queue_doc=queue_doc,
+            payload=payload,
+            polyphonic_context=polyphonic_context,
+        )
+        if blocked_status:
+            queue_doc["payload"] = payload
+            queue_doc["polyphonic_context"] = polyphonic_context
+            await self.db.triune_decisions.update_one(
+                {"decision_id": decision_id},
+                {
+                    "$set": {
+                        "execution_status": blocked_status,
+                        "harmonic_runtime_controls": harmonic_runtime_controls,
+                        "updated_at": now,
+                    }
+                },
+            )
+            await self.db.triune_outbound_queue.update_one(
+                {"queue_id": related_queue_id},
+                {
+                    "$set": {
+                        "status": "approved_pending_harmonic_controls",
+                        "execution_status": blocked_status,
+                        "payload": payload,
+                        "polyphonic_context": polyphonic_context,
+                        "harmonic_runtime_controls": harmonic_runtime_controls,
+                        "updated_at": now,
+                    }
+                },
+            )
+            return {"outcome": "deferred", "reason": blocked_status}
         actor = queue_doc.get("actor") or "governance_executor"
         executor_start_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         harmonic_pre: Dict[str, Any] = {}
@@ -1872,6 +2011,27 @@ class GovernanceExecutorService:
         notation_valid = bool(notation_validation.get("valid"))
         notation_checks = notation_validation.get("checks") or {}
         notation_failure_reason = ";".join(notation_validation.get("reasons") or []) or None
+        capability_required = bool(
+            self.environment == "production"
+            and str(queue_doc.get("impact_level") or "").lower() in {"high", "critical"}
+        )
+        if notation_valid and capability_required:
+            verified_token = notation_validation.get("token") or {}
+            try:
+                get_capability_lease_store().consume_bound(
+                    str(verified_token.get("capability_lease_id") or ""),
+                    notation_token_id=str(verified_token.get("token_id") or ""),
+                    expected_audience="metatron-outbound-gate",
+                    authority_request_digest=str(
+                        verified_token.get("authority_request_digest") or ""
+                    ),
+                    action_digest=str(verified_token.get("action_digest") or ""),
+                )
+                notation_checks["capability_consumed"] = True
+            except Exception as exc:
+                notation_valid = False
+                notation_checks["capability_consumed"] = False
+                notation_failure_reason = f"capability_consumption_failed:{type(exc).__name__}"
         resolved_action_id = str(
             payload.get("command_id")
             or queue_doc.get("action_id")

@@ -31,7 +31,7 @@ class HypothesisGenerateRequest(BaseModel):
 @router.get("/status")
 async def get_hunting_status(current_user: dict = Depends(get_current_user)):
     """Get threat hunting engine status"""
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.threat_hunting import threat_hunting_engine
     
     return {
         "status": "operational",
@@ -46,7 +46,7 @@ async def get_hunting_rules(
     current_user: dict = Depends(get_current_user)
 ):
     """Get all hunting rules"""
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.threat_hunting import threat_hunting_engine
     
     if tactic:
         rules = threat_hunting_engine.get_rules_by_tactic(tactic)
@@ -80,7 +80,7 @@ async def get_hunting_rule(
     current_user: dict = Depends(get_current_user)
 ):
     """Get a specific hunting rule"""
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.threat_hunting import threat_hunting_engine
     from dataclasses import asdict
     
     rule = threat_hunting_engine.rules.get(rule_id)
@@ -97,7 +97,7 @@ async def toggle_rule(
     current_user: dict = Depends(check_permission("write"))
 ):
     """Enable or disable a hunting rule"""
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.threat_hunting import threat_hunting_engine
     
     rule = threat_hunting_engine.rules.get(rule_id)
     if not rule:
@@ -114,10 +114,116 @@ async def execute_hunt(
     current_user: dict = Depends(get_current_user)
 ):
     """Execute threat hunting on provided telemetry"""
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.threat_hunting import threat_hunting_engine
     from dataclasses import asdict
-    
-    matches = threat_hunting_engine.hunt_all(request.telemetry)
+
+    telemetry = dict(request.telemetry or {})
+    behavior_context: Dict[str, Any] = dict(telemetry.get("behavior_context") or {})
+    session_id = telemetry.get("session_id")
+
+    # Auto-enrich behavior context from AI defense + CCE session summaries.
+    if session_id:
+        try:
+            from threat_response import AIDefenseEngine
+
+            metrics = AIDefenseEngine.get_session_metrics(str(session_id))
+            agenticity = metrics.get("agenticity") or {}
+            exhaustion = metrics.get("exhaustion") or {}
+            feature_vector = agenticity.get("feature_vector") or {}
+
+            behavior_context.setdefault("agenticity_score", float(agenticity.get("score") or 0.0))
+            behavior_context.setdefault("command_velocity", float(feature_vector.get("command_velocity") or 0.0))
+            behavior_context.setdefault("cbr", float(exhaustion.get("cbr") or 0.0))
+            behavior_context.setdefault("tbcr", float(exhaustion.get("tbcr") or 0.0))
+            behavior_context.setdefault("cdi", float(exhaustion.get("cdi") or 0.0))
+        except Exception:
+            pass
+
+        db = get_db()
+        if db is not None:
+            try:
+                summary = await db.cli_session_summaries.find_one(
+                    {"session_id": str(session_id)},
+                    sort=[("window_end", -1)]
+                )
+                if summary:
+                    behavior_context.setdefault("machine_likelihood", float(summary.get("machine_likelihood") or 0.0))
+                    behavior_context.setdefault("tool_switch_latency_ms", float(summary.get("tool_switch_latency_ms") or 0.0))
+                    behavior_context.setdefault("goal_persistence", float(summary.get("goal_persistence") or 0.0))
+            except Exception:
+                pass
+
+    # Add ML prediction context for the provided telemetry (best effort).
+    try:
+        from ml_threat_prediction import ml_predictor
+
+        net_rows = telemetry.get("connections") or []
+        if net_rows:
+            sample = net_rows[0]
+            ml_payload = {
+                "source_ip": sample.get("remote_ip") or sample.get("source_ip") or "unknown",
+                "bytes_in": int(sample.get("bytes_in") or 0),
+                "bytes_out": int(sample.get("bytes_out") or 0),
+                "packets_in": int(sample.get("packets_in") or 0),
+                "packets_out": int(sample.get("packets_out") or 0),
+                "unique_destinations": int(sample.get("unique_destinations") or 0),
+                "unique_ports": int(sample.get("unique_ports") or 0),
+                "dns_queries": int(sample.get("dns_queries") or 0),
+                "failed_connections": int(sample.get("failed_connections") or 0),
+                "encrypted_ratio": float(sample.get("encrypted_ratio") or 0.0),
+                "avg_packet_size": float(sample.get("avg_packet_size") or 0.0),
+                "connection_duration": float(sample.get("connection_duration") or 0.0),
+                "port_scan_score": float(sample.get("port_scan_score") or 0.0),
+            }
+            ml_prediction = await ml_predictor.predict_network_threat(ml_payload)
+            behavior_context.setdefault("ml_threat_score", float(getattr(ml_prediction, "threat_score", 0.0)) / 100.0)
+            behavior_context.setdefault("ml_confidence", float(getattr(ml_prediction, "confidence", 0.0)))
+            behavior_context.setdefault("ml_category", str(getattr(ml_prediction, "predicted_category", "")))
+    except Exception:
+        pass
+
+    # Add Triune/Cognition fused context (best effort).
+    try:
+        db = get_db()
+        if db is not None:
+            from backend.services.cognition_fabric import CognitionFabricService
+
+            fabric = CognitionFabricService(db)
+            world_snapshot = {
+                "entities": [{"id": str(session_id or "hunt"), "type": "session"}],
+                "attack_path_graph": {"nodes": [], "edges": []},
+                "trust_state": {},
+                "recent_world_events": [],
+            }
+            cognition = await fabric.build_cognition_snapshot(
+                world_snapshot=world_snapshot,
+                event_type="threat_hunt",
+                entity_ids=[str(session_id)] if session_id else [],
+                context={
+                    "behavior": {
+                        "command_velocity": float(behavior_context.get("command_velocity") or 0.0),
+                        "tool_switch_latency": float(behavior_context.get("tool_switch_latency_ms") or 0.0),
+                    }
+                },
+            )
+            fused = (cognition or {}).get("fused_signal") or {}
+            behavior_context.setdefault("cognitive_pressure", float(fused.get("cognitive_pressure") or 0.0))
+            behavior_context.setdefault("autonomous_confidence", float(fused.get("autonomous_confidence") or 0.0))
+            behavior_context.setdefault("triune_policy_tier", fused.get("recommended_policy_tier"))
+            behavior_context.setdefault("triune_recommended_actions", fused.get("recommended_actions") or [])
+    except Exception:
+        pass
+
+    if "cognitive_pressure" not in behavior_context:
+        behavior_context["cognitive_pressure"] = (
+            (float(behavior_context.get("cbr") or 0.0) * 0.4)
+            + (float(behavior_context.get("tbcr") or 0.0) * 0.35)
+            + (float(behavior_context.get("cdi") or 0.0) * 0.25)
+        )
+
+    telemetry["behavior_context"] = behavior_context
+
+    matches = threat_hunting_engine.hunt_all(telemetry)
     
     # Store matches in MongoDB
     db = get_db()
@@ -127,7 +233,8 @@ async def execute_hunt(
     return {
         "matches": [asdict(m) for m in matches],
         "total_matches": len(matches),
-        "high_severity": len([m for m in matches if m.severity in ['critical', 'high']])
+        "high_severity": len([m for m in matches if m.severity in ['critical', 'high']]),
+        "behavior_context": behavior_context,
     }
 
 
@@ -139,7 +246,7 @@ async def get_recent_matches(
     current_user: dict = Depends(get_current_user)
 ):
     """Get recent hunting matches"""
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.threat_hunting import threat_hunting_engine
     from dataclasses import asdict
     
     # Get from in-memory first
@@ -162,7 +269,7 @@ async def get_high_severity_matches(
     current_user: dict = Depends(get_current_user)
 ):
     """Get critical and high severity matches"""
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.threat_hunting import threat_hunting_engine
     from dataclasses import asdict
     
     matches = threat_hunting_engine.get_high_severity_matches()
@@ -176,7 +283,7 @@ async def get_high_severity_matches(
 @router.get("/tactics")
 async def get_mitre_tactics(current_user: dict = Depends(get_current_user)):
     """Get covered MITRE ATT&CK tactics"""
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.threat_hunting import threat_hunting_engine
     
     tactics = {}
     for rule in threat_hunting_engine.rules.values():
@@ -196,7 +303,7 @@ async def get_mitre_tactics(current_user: dict = Depends(get_current_user)):
 @router.get("/techniques")
 async def get_mitre_techniques(current_user: dict = Depends(get_current_user)):
     """Get all covered MITRE ATT&CK techniques"""
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.threat_hunting import threat_hunting_engine
     
     techniques = {}
     for rule in threat_hunting_engine.rules.values():
@@ -220,8 +327,8 @@ async def generate_hunting_hypotheses(
     current_user: dict = Depends(get_current_user)
 ):
     """Generate threat hunting hypotheses using Ollama when available, with safe fallback."""
-    from services.ai_reasoning import ai_reasoning
-    from services.threat_hunting import threat_hunting_engine
+    from backend.services.ai_reasoning import ai_reasoning
+    from backend.services.threat_hunting import threat_hunting_engine
 
     focus = request.focus or "general threat hunting"
     recent_matches = request.recent_matches or []
@@ -234,7 +341,7 @@ async def generate_hunting_hypotheses(
                 "severity": m.severity,
                 "mitre_tactic": m.mitre_tactic,
                 "mitre_technique": m.mitre_technique,
-                "description": m.description
+                "description": m.rule_name
             }
             for m in in_memory_matches
         ]

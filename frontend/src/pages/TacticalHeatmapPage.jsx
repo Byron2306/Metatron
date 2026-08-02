@@ -5,6 +5,7 @@ import { Badge } from "../components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
+import SeraphPageHeader from "../components/SeraphPageHeader";
 import {
   Activity,
   AlertTriangle,
@@ -43,12 +44,14 @@ export default function TacticalHeatmapPage() {
     fetchThreats();
     const interval = setInterval(fetchThreats, 30000);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRange, filterSeverity]);
 
   useEffect(() => {
     if (heatmapData.length > 0) {
       drawHeatmap();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heatmapData]);
 
   const fetchThreats = async () => {
@@ -120,85 +123,142 @@ export default function TacticalHeatmapPage() {
   const drawHeatmap = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
+
     const ctx = canvas.getContext("2d");
     const width = canvas.width;
     const height = canvas.height;
-    
-    // Clear canvas
-    ctx.fillStyle = "#0f172a";
+    const t = Date.now() / 1000;
+
+    // Deep space gradient background
+    const bg = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, Math.max(width, height) / 1.2);
+    bg.addColorStop(0, "rgba(7, 16, 28, 1)");
+    bg.addColorStop(0.6, "rgba(2, 8, 19, 1)");
+    bg.addColorStop(1, "rgba(0, 0, 4, 1)");
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
-    
-    // Draw grid
-    ctx.strokeStyle = "#1e293b";
+
+    // Subtle aurora glow zones
+    const aurora1 = ctx.createRadialGradient(width * 0.18, height * 0.22, 0, width * 0.18, height * 0.22, width * 0.5);
+    aurora1.addColorStop(0, "rgba(0, 240, 255, 0.10)");
+    aurora1.addColorStop(1, "rgba(0, 240, 255, 0)");
+    ctx.fillStyle = aurora1;
+    ctx.fillRect(0, 0, width, height);
+
+    const aurora2 = ctx.createRadialGradient(width * 0.84, height * 0.78, 0, width * 0.84, height * 0.78, width * 0.5);
+    aurora2.addColorStop(0, "rgba(188, 19, 254, 0.10)");
+    aurora2.addColorStop(1, "rgba(188, 19, 254, 0)");
+    ctx.fillStyle = aurora2;
+    ctx.fillRect(0, 0, width, height);
+
+    // Cyan grid
+    ctx.strokeStyle = "rgba(0, 240, 255, 0.07)";
     ctx.lineWidth = 1;
-    for (let i = 0; i <= 10; i++) {
+    const cell = 40;
+    for (let x = 0; x <= width; x += cell) {
       ctx.beginPath();
-      ctx.moveTo(i * (width / 10), 0);
-      ctx.lineTo(i * (width / 10), height);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, i * (height / 10));
-      ctx.lineTo(width, i * (height / 10));
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
       ctx.stroke();
     }
-    
-    // Draw heat spots for each threat type
-    heatmapData.forEach((data) => {
+    for (let y = 0; y <= height; y += cell) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+
+    // Animated scanline
+    const scanY = ((t * 80) % height) | 0;
+    const scanGrad = ctx.createLinearGradient(0, scanY - 60, 0, scanY + 60);
+    scanGrad.addColorStop(0, "rgba(0, 240, 255, 0)");
+    scanGrad.addColorStop(0.5, "rgba(0, 240, 255, 0.18)");
+    scanGrad.addColorStop(1, "rgba(0, 240, 255, 0)");
+    ctx.fillStyle = scanGrad;
+    ctx.fillRect(0, scanY - 60, width, 120);
+
+    // Heat spots — neon palette by intensity
+    heatmapData.forEach((data, idx) => {
       const x = (data.x / 100) * width;
       const y = (data.y / 100) * height;
-      const radius = Math.max(30, data.total * 5);
-      
-      // Create radial gradient
-      const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
-      
-      // Color based on intensity
+      const baseRadius = Math.max(34, data.total * 5);
+      const pulse = 1 + Math.sin(t * 2 + idx) * 0.08;
+      const radius = baseRadius * pulse;
+
+      let core, mid;
       if (data.intensity > 0.7) {
-        gradient.addColorStop(0, "rgba(239, 68, 68, 0.9)"); // Red
-        gradient.addColorStop(0.5, "rgba(239, 68, 68, 0.5)");
-        gradient.addColorStop(1, "rgba(239, 68, 68, 0)");
+        core = "#ff3838"; mid = "rgba(255, 56, 56,";
       } else if (data.intensity > 0.4) {
-        gradient.addColorStop(0, "rgba(249, 115, 22, 0.9)"); // Orange
-        gradient.addColorStop(0.5, "rgba(249, 115, 22, 0.5)");
-        gradient.addColorStop(1, "rgba(249, 115, 22, 0)");
+        core = "#ffb020"; mid = "rgba(255, 176, 32,";
       } else {
-        gradient.addColorStop(0, "rgba(34, 197, 94, 0.9)"); // Green
-        gradient.addColorStop(0.5, "rgba(34, 197, 94, 0.5)");
-        gradient.addColorStop(1, "rgba(34, 197, 94, 0)");
+        core = "#39ff14"; mid = "rgba(57, 255, 20,";
       }
-      
-      ctx.fillStyle = gradient;
+
+      // Outer halo
+      const halo = ctx.createRadialGradient(x, y, 0, x, y, radius);
+      halo.addColorStop(0, `${mid}0.85)`);
+      halo.addColorStop(0.5, `${mid}0.32)`);
+      halo.addColorStop(1, `${mid}0)`);
+      ctx.fillStyle = halo;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
-      
-      // Draw label
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "12px Inter, sans-serif";
+
+      // Inner ring
+      ctx.strokeStyle = core;
+      ctx.shadowColor = core;
+      ctx.shadowBlur = 14;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, radius * 0.55, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Bright core dot
+      ctx.fillStyle = core;
+      ctx.shadowColor = core;
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Label
+      ctx.fillStyle = "#e6fbff";
+      ctx.font = "bold 11px 'JetBrains Mono', monospace";
       ctx.textAlign = "center";
-      ctx.fillText(data.type.slice(0, 15), x, y + radius + 15);
-      ctx.fillText(`(${data.total})`, x, y + radius + 28);
+      ctx.shadowColor = core;
+      ctx.shadowBlur = 4;
+      ctx.fillText((data.type || "threat").toUpperCase().slice(0, 18), x, y + radius + 14);
+      ctx.fillText(`◆ ${data.total}`, x, y + radius + 28);
+      ctx.shadowBlur = 0;
     });
-    
-    // Draw legend
-    ctx.fillStyle = "#94a3b8";
-    ctx.font = "11px Inter, sans-serif";
+
+    // Legend
+    ctx.font = "10px 'JetBrains Mono', monospace";
     ctx.textAlign = "left";
-    ctx.fillText("Threat Intensity:", 10, height - 40);
-    
-    // Legend colors
-    const legendColors = [
-      { color: "#22c55e", label: "Low" },
-      { color: "#f97316", label: "Medium" },
-      { color: "#ef4444", label: "High/Critical" }
-    ];
-    
-    legendColors.forEach((item, i) => {
+    ctx.fillStyle = "#9ed3e6";
+    ctx.fillText("THREAT · INTENSITY", 14, height - 44);
+
+    [
+      { color: "#39ff14", label: "LOW" },
+      { color: "#ffb020", label: "MEDIUM" },
+      { color: "#ff3838", label: "HIGH / CRITICAL" }
+    ].forEach((item, i) => {
       ctx.fillStyle = item.color;
-      ctx.fillRect(10 + i * 80, height - 30, 15, 15);
-      ctx.fillStyle = "#94a3b8";
-      ctx.fillText(item.label, 30 + i * 80, height - 18);
+      ctx.shadowColor = item.color;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(20 + i * 110, height - 24, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#aef0ff";
+      ctx.fillText(item.label, 32 + i * 110, height - 20);
     });
+
+    // Continue animating while mounted
+    if (canvasRef.current === canvas) {
+      requestAnimationFrame(() => drawHeatmap());
+    }
   };
 
   const exportHeatmap = () => {
@@ -221,16 +281,15 @@ export default function TacticalHeatmapPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Map className="w-6 h-6 text-red-500" />
-            Tactical Threat Heatmap
-          </h1>
-          <p className="text-slate-400">AI-prioritized threat visualization</p>
-        </div>
-        <div className="flex gap-2">
+    <div className="space-y-6 p-6 lg:p-8" data-testid="tactical-heatmap-page" data-accent="green">
+      <SeraphPageHeader
+        eyebrow="seraph · threats · tactical heatmap"
+        title="Tactical Threat Heatmap"
+        tagline="> AI-prioritized threat visualization · severity distribution · live export"
+        accent="green"
+        status={`${stats.total} SIGNALS`}
+        actions={
+          <div className="flex gap-2 flex-wrap justify-end">
           <Select value={timeRange} onValueChange={setTimeRange}>
             <SelectTrigger className="w-32 bg-slate-800 border-slate-700">
               <SelectValue />
@@ -260,8 +319,9 @@ export default function TacticalHeatmapPage() {
           <Button onClick={exportHeatmap} variant="outline" size="icon">
             <Download className="w-4 h-4" />
           </Button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">

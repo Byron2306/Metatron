@@ -1,0 +1,2468 @@
+{
+  "record_type": "technique_validation_record",
+  "schema_version": "1.0.0",
+  "validation_id": "TVR-T1070.002-2026-04-27-001",
+  "technique": {
+    "attack_id": "T1070.002",
+    "name": "T1070.002",
+    "tactics": [],
+    "platforms": [
+      "Linux"
+    ]
+  },
+  "procedure": {
+    "source": "atomic_red_team",
+    "procedure_id": "ART-T1070.002-1",
+    "name": "Atomic Red Team validation for T1070.002",
+    "description": "Automated emulation procedure for T1070.002 executed via Invoke-AtomicRedTeam inside the Metatron lab environment.",
+    "test_ref": "atomics/T1070.002/T1070.002.yaml#test-1"
+  },
+  "environment": {
+    "lab_id": "metatron-lab-a",
+    "hostname": "debian-node-01",
+    "asset_id": "asset-001",
+    "os": {
+      "family": "linux",
+      "name": "Debian",
+      "version": "12"
+    },
+    "kernel_version": "6.12.74+deb12-amd64",
+    "sensor_stack": [
+      {
+        "name": "sigma-engine",
+        "version": "2026.04.27",
+        "rules_loaded": 507
+      },
+      {
+        "name": "osquery",
+        "version": "5.15.0"
+      },
+      {
+        "name": "atomic_red_team",
+        "version": "2025.01"
+      }
+    ]
+  },
+  "execution": {
+    "started_at": "2026-04-27T06:55:04.571699+00:00",
+    "ended_at": "2026-04-27T06:55:04.571699+00:00",
+    "executor": "atomic_red_team",
+    "operator": "Byron Bunt",
+    "status": "completed",
+    "exit_code": 0,
+    "real_execution": true,
+    "execution_mode": "docker_sandbox",
+    "execution_trust_level": "docker_sandbox_verified",
+    "sandbox_verified": true,
+    "evidence_inheritance": "direct",
+    "expected_outcome": "detect",
+    "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-31831a87d97a', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--cap-add', 'NET_RAW', '--security-opt', 'no-new-privileges:false', '--tmpfs', '/tmp:exec,size=512m', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro', 'seraph-sandbox-tools:latest', '/opt/pwsh/pwsh', '-NonInteractive', '-NoProfile', '-Command', 'Import-Module \\'/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1\\' -ErrorAction Stop; $env:PathToAtomicsFolder=\\'/opt/atomic-red-team/atomics\\'; try { bash -lc \"if command -v apt-get >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null 2>&1 || true; apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; fi; if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then printf \\'#!/usr/bin/env bash\\\\nbase64 \"$@\"\\\\n\\' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; fi\" } catch { Write-Host \\'[WARN] dependency bootstrap failed\\'; }; try { Invoke-AtomicTest T1070.002 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 1 -GetPrereqs -ErrorAction Continue } catch { Write-Host \\'[WARN] GetPrereqs failed for T1070.002\\'; }; Invoke-AtomicTest T1070.002 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 1']",
+    "run_count": 1,
+    "direct_run_count": 1,
+    "run_ids": [
+      "31831a87d97a4111a4755a51546be285"
+    ],
+    "job_ids": [
+      "sandbox-real-sweep"
+    ],
+    "runs": [
+      {
+        "run_id": "31831a87d97a4111a4755a51546be285",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-27T06:55:04.571699+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-31831a87d97a",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--cap-add",
+          "NET_RAW",
+          "--security-opt",
+          "no-new-privileges:false",
+          "--tmpfs",
+          "/tmp:exec,size=512m",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro",
+          "seraph-sandbox-tools:latest",
+          "/opt/pwsh/pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; try { bash -lc \"if command -v apt-get >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null 2>&1 || true; apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; fi; if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then printf '#!/usr/bin/env bash\\nbase64 \"$@\"\\n' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; fi\" } catch { Write-Host '[WARN] dependency bootstrap failed'; }; try { Invoke-AtomicTest T1070.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TestNumbers 1 -GetPrereqs -ErrorAction Continue } catch { Write-Host '[WARN] GetPrereqs failed for T1070.002'; }; Invoke-AtomicTest T1070.002 -PathToAtomicsFolder '/opt/atomic-red-team/atomics' -TestNumbers 1"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nGetPrereq's for: T1070.002-1 rm -rf\nAttempting to satisfy prereq: target files must exist\n  File: /var/log/system.log\n  Size: 0         \tBlocks: 0          IO Block: 4096   regular empty file\nDevice: 0,366\tInode: 10102361    Links: 1\nAccess: (0644/-rw-r--r--)  Uid: (    0/    root)   Gid: (    0/    root)\nAccess: 2026-04-27 06:54:58.495747397 +0000\nModify: 2026-04-27 06:54:58.495747397 +0000\nChange: 2026-04-27 06:54:58.495747397 +0000\n Birth: 2026-04-27 06:54:58.495747397 +0000\nPrereq successfully met: target files must exist\nPathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1070.002-1 rm -rf\nsudo: unable to resolve host 15b510e6f392: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1070.002-1 rm -rf\n",
+        "stdout_sha256": "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+        "stderr_sha256": "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+        "real_execution": true,
+        "network_anchors": {
+          "stdout_paths": [
+            "/opt/atomic-red-team/atomics",
+            "/var/log/system.log"
+          ]
+        }
+      }
+    ]
+  },
+  "telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "0c4498a9163aa450cdd44eb079bcd7eada1290fd347c4f1503c3b59dddfd47b4"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6"
+      }
+    ],
+    "key_events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1777272905-atomic_t1070_002_b1",
+        "timestamp": "2026-04-27T06:55:04.571699+00:00",
+        "query_name": "atomic_t1070_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-1 rm -rf",
+          "technique_id": "T1070.002",
+          "run_id": "31831a87d97a4111a4755a51546be285",
+          "CommandLine": "sudo: unable to resolve host 15b510e6f392: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1070.002-1 rm -rf",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-1 rm -rf\nsudo: unable to resolve host 15b510e6f392: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1070.002-1 rm -rf\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927769-atomic_t1070_002_b1",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-1 rm -rf",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "sudo: unable to resolve host 7b73d4169ea7: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1070.002-1 rm -rf",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-1 rm -rf\nsudo: unable to resolve host 7b73d4169ea7: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1070.002-1 rm -rf\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927770-atomic_t1070_002_b2",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-2 rm -rf",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-2 rm -rf",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-2 rm -rf\nExit code: 0\nDone executing test: T1070.002-2 rm -rf\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927771-atomic_t1070_002_b3",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-5 Truncate system log files via truncate utility (freebsd)",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-5 Truncate system log files via truncate utility (freebsd)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-5 Truncate system log files via truncate utility (freebsd)\nExit code: 0\nDone executing test: T1070.002-5 Truncate system log files via truncate utility (freebsd)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927772-atomic_t1070_002_b4",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-7 Delete log files via cat utility by appending /dev/null or /dev/zero (freebsd)",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-7 Delete log files via cat utility by appending /dev/null or /dev/zero (freebsd)",
+          "Image": "/dev/null",
+          "TargetFilename": "/dev/null",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/dev/null\", \"/dev/zero\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-7 Delete log files via cat utility by appending /dev/null or /dev/zero (freebsd)\nExit code: 0\nDone executing test: T1070.002-7 Delete log files via cat utility by appending /dev/null or /dev/zero (freebsd)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927773-atomic_t1070_002_b5",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-10 Overwrite FreeBSD system log via echo utility",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-10 Overwrite FreeBSD system log via echo utility",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-10 Overwrite FreeBSD system log via echo utility\nExit code: 0\nDone executing test: T1070.002-10 Overwrite FreeBSD system log via echo utility\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927774-atomic_t1070_002_b6",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-13 Delete system log files via unlink utility (freebsd)",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-13 Delete system log files via unlink utility (freebsd)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-13 Delete system log files via unlink utility (freebsd)\nExit code: 0\nDone executing test: T1070.002-13 Delete system log files via unlink utility (freebsd)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927775-atomic_t1070_002_b7",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b7",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-18 Delete system journal logs via rm and journalctl utilities",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "sudo: unable to resolve host 7b73d4169ea7: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nrm: cannot remove '/var/log/journal/*': No such file or directory\nExit code: 1\nDone executing test: T1070.002-18 Delete system journal logs via rm and journalctl utilities",
+          "Image": "/var/log/journal",
+          "TargetFilename": "/var/log/journal",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/var/log/journal\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-18 Delete system journal logs via rm and journalctl utilities\nsudo: unable to resolve host 7b73d4169ea7: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nrm: cannot remove '/var/log/journal/*': No such file or directory\nExit code: 1\nDone executing test: T1070.002-18 Delete system journal logs via rm and journalctl utilities\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927776-atomic_t1070_002_b8",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b8",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-19 Overwrite Linux Mail Spool",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-19 Overwrite Linux Mail Spool",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-19 Overwrite Linux Mail Spool\nExit code: 0\nDone executing test: T1070.002-19 Overwrite Linux Mail Spool\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927777-atomic_t1070_002_b9",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b9",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-20 Overwrite Linux Log",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-20 Overwrite Linux Log",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-20 Overwrite Linux Log\nExit code: 0\nDone executing test: T1070.002-20 Overwrite Linux Log\n"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "execution_evidence": {
+    "observed": true,
+    "command_line": "['docker', 'run', '--rm', '--name', 'seraph-sandbox-31831a87d97a', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SYS_PTRACE', '--cap-add', 'NET_RAW', '--security-opt', 'no-new-privileges:false', '--tmpfs', '/tmp:exec,size=512m', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro', '-v', '/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro', 'seraph-sandbox-tools:latest', '/opt/pwsh/pwsh', '-NonInteractive', '-NoProfile', '-Command', 'Import-Module \\'/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1\\' -ErrorAction Stop; $env:PathToAtomicsFolder=\\'/opt/atomic-red-team/atomics\\'; try { bash -lc \"if command -v apt-get >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null 2>&1 || true; apt-get install -y inetutils-telnet ldap-utils lsof mlocate smbclient samba-common-bin dnsutils >/dev/null 2>&1 || true; fi; if ! command -v b64encode >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then printf \\'#!/usr/bin/env bash\\\\nbase64 \"$@\"\\\\n\\' > /usr/local/bin/b64encode && chmod +x /usr/local/bin/b64encode; fi\" } catch { Write-Host \\'[WARN] dependency bootstrap failed\\'; }; try { Invoke-AtomicTest T1070.002 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 1 -GetPrereqs -ErrorAction Continue } catch { Write-Host \\'[WARN] GetPrereqs failed for T1070.002\\'; }; Invoke-AtomicTest T1070.002 -PathToAtomicsFolder \\'/opt/atomic-red-team/atomics\\' -TestNumbers 1']",
+    "exit_code": 0,
+    "run_ids": [
+      "31831a87d97a4111a4755a51546be285"
+    ],
+    "process_ids": [
+      4242
+    ],
+    "timestamps": [
+      "2026-04-27T06:55:04.571699+00:00",
+      "2026-04-23T07:02:48.359790+00:00",
+      "2026-04-22T21:04:24.688966+00:00",
+      "2026-04-19T02:31:58.980576+00:00",
+      "2026-04-22T21:04:24.689836+00:00",
+      "2026-04-19T02:31:58.980809+00:00",
+      "1777301599.898278",
+      "1777301599.903208"
+    ]
+  },
+  "host_telemetry_evidence": {
+    "observed": true,
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "0c4498a9163aa450cdd44eb079bcd7eada1290fd347c4f1503c3b59dddfd47b4"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6"
+      }
+    ],
+    "events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1777272905-atomic_t1070_002_b1",
+        "timestamp": "2026-04-27T06:55:04.571699+00:00",
+        "query_name": "atomic_t1070_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-1 rm -rf",
+          "technique_id": "T1070.002",
+          "run_id": "31831a87d97a4111a4755a51546be285",
+          "CommandLine": "sudo: unable to resolve host 15b510e6f392: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1070.002-1 rm -rf",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-1 rm -rf\nsudo: unable to resolve host 15b510e6f392: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1070.002-1 rm -rf\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927769-atomic_t1070_002_b1",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b1",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-1 rm -rf",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "sudo: unable to resolve host 7b73d4169ea7: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1070.002-1 rm -rf",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-1 rm -rf\nsudo: unable to resolve host 7b73d4169ea7: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nExit code: 0\nDone executing test: T1070.002-1 rm -rf\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927770-atomic_t1070_002_b2",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b2",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-2 rm -rf",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-2 rm -rf",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-2 rm -rf\nExit code: 0\nDone executing test: T1070.002-2 rm -rf\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927771-atomic_t1070_002_b3",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b3",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-5 Truncate system log files via truncate utility (freebsd)",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-5 Truncate system log files via truncate utility (freebsd)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-5 Truncate system log files via truncate utility (freebsd)\nExit code: 0\nDone executing test: T1070.002-5 Truncate system log files via truncate utility (freebsd)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927772-atomic_t1070_002_b4",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b4",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-7 Delete log files via cat utility by appending /dev/null or /dev/zero (freebsd)",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-7 Delete log files via cat utility by appending /dev/null or /dev/zero (freebsd)",
+          "Image": "/dev/null",
+          "TargetFilename": "/dev/null",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/dev/null\", \"/dev/zero\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-7 Delete log files via cat utility by appending /dev/null or /dev/zero (freebsd)\nExit code: 0\nDone executing test: T1070.002-7 Delete log files via cat utility by appending /dev/null or /dev/zero (freebsd)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927773-atomic_t1070_002_b5",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b5",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-10 Overwrite FreeBSD system log via echo utility",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-10 Overwrite FreeBSD system log via echo utility",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-10 Overwrite FreeBSD system log via echo utility\nExit code: 0\nDone executing test: T1070.002-10 Overwrite FreeBSD system log via echo utility\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927774-atomic_t1070_002_b6",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b6",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-13 Delete system log files via unlink utility (freebsd)",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-13 Delete system log files via unlink utility (freebsd)",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-13 Delete system log files via unlink utility (freebsd)\nExit code: 0\nDone executing test: T1070.002-13 Delete system log files via unlink utility (freebsd)\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927775-atomic_t1070_002_b7",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b7",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-18 Delete system journal logs via rm and journalctl utilities",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "sudo: unable to resolve host 7b73d4169ea7: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nrm: cannot remove '/var/log/journal/*': No such file or directory\nExit code: 1\nDone executing test: T1070.002-18 Delete system journal logs via rm and journalctl utilities",
+          "Image": "/var/log/journal",
+          "TargetFilename": "/var/log/journal",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[\"/var/log/journal\"]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-18 Delete system journal logs via rm and journalctl utilities\nsudo: unable to resolve host 7b73d4169ea7: Temporary failure in name resolution\nsudo: unable to send audit message: Operation not permitted\nrm: cannot remove '/var/log/journal/*': No such file or directory\nExit code: 1\nDone executing test: T1070.002-18 Delete system journal logs via rm and journalctl utilities\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927776-atomic_t1070_002_b8",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b8",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-19 Overwrite Linux Mail Spool",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-19 Overwrite Linux Mail Spool",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-19 Overwrite Linux Mail Spool\nExit code: 0\nDone executing test: T1070.002-19 Overwrite Linux Mail Spool\n"
+        },
+        "host_identifier": "debian-node-01"
+      },
+      {
+        "source": "osquery",
+        "event_id": "osq-1776927777-atomic_t1070_002_b9",
+        "timestamp": "2026-04-23T07:02:48.359790+00:00",
+        "query_name": "atomic_t1070_002_b9",
+        "action": "added",
+        "columns": {
+          "test_name": "T1070.002-20 Overwrite Linux Log",
+          "technique_id": "T1070.002",
+          "run_id": "5d18852f841d47e8b9e58c54a91dbee4",
+          "CommandLine": "Exit code: 0\nDone executing test: T1070.002-20 Overwrite Linux Log",
+          "Image": "",
+          "TargetFilename": "",
+          "DestinationIp": "",
+          "SourceIp": "",
+          "extracted_paths": "[]",
+          "extracted_ips": "[]",
+          "extracted_hashes": "[]",
+          "extracted_pids": "[]",
+          "stdout_block": "Executing test: T1070.002-20 Overwrite Linux Log\nExit code: 0\nDone executing test: T1070.002-20 Overwrite Linux Log\n"
+        },
+        "host_identifier": "debian-node-01"
+      }
+    ]
+  },
+  "network_telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "zeek_conn",
+        "file": "conn.log",
+        "match_methods": [
+          "ip_match"
+        ]
+      }
+    ],
+    "key_events": [
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301599.898278",
+        "src_ip": "172.28.0.1",
+        "src_port": "60978",
+        "dest_ip": "172.28.0.11",
+        "dest_port": "5000",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CmI7tA2i2GzkmvA1B2"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301599.903208",
+        "src_ip": "172.28.0.1",
+        "src_port": "60994",
+        "dest_ip": "172.28.0.11",
+        "dest_port": "5000",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CsfIoU1LMDjXcwyuzk"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301600.406056",
+        "src_ip": "172.28.0.1",
+        "src_port": "32768",
+        "dest_ip": "172.28.0.11",
+        "dest_port": "5000",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "ChzG5F3X9ZsTSyCc1g"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301600.593301",
+        "src_ip": "172.28.0.1",
+        "src_port": "32772",
+        "dest_ip": "172.28.0.11",
+        "dest_port": "5000",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CEBYZGwx3zDfsD8Sh"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301600.730698",
+        "src_ip": "172.28.0.1",
+        "src_port": "32788",
+        "dest_ip": "172.28.0.11",
+        "dest_port": "5000",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CqLM9e2Z9SNtIDErM9"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301600.742749",
+        "src_ip": "172.28.0.1",
+        "src_port": "32794",
+        "dest_ip": "172.28.0.11",
+        "dest_port": "5000",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CiI3VW1Tr7yGYiTFGi"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301600.791833",
+        "src_ip": "172.28.0.1",
+        "src_port": "32798",
+        "dest_ip": "172.28.0.11",
+        "dest_port": "5000",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CmIKoj3fdSU9DiBXE5"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301600.898465",
+        "src_ip": "172.28.0.1",
+        "src_port": "32804",
+        "dest_ip": "172.28.0.11",
+        "dest_port": "5000",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CmoJez4ogDAq3w3PY1"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301600.939445",
+        "src_ip": "172.28.0.1",
+        "src_port": "32808",
+        "dest_ip": "172.28.0.11",
+        "dest_port": "5000",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CIQrXF3hOeIeAYAdJ8"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301603.244957",
+        "src_ip": "172.28.0.11",
+        "src_port": "40122",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CAnwIw1pqrfah1rST1"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301603.290826",
+        "src_ip": "172.28.0.11",
+        "src_port": "40124",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CmzeeC24BC78DnAe51"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777301603.313888",
+        "src_ip": "172.28.0.11",
+        "src_port": "40126",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "C84Xyp3jeNngNqkVOg"
+      }
+    ],
+    "observed": true
+  },
+  "analytic_evidence": {
+    "sigma": [
+      {
+        "analytic_id": "SIG-eca5e022-d368-4043-98e5-9736fb01f72f",
+        "rule_id": "eca5e022-d368-4043-98e5-9736fb01f72f",
+        "source_id": "eca5e022-d368-4043-98e5-9736fb01f72f",
+        "title": "Clear or Disable Kernel Ring Buffer Logs via Syslog Syscall",
+        "rule_file": "lnx_auditd_clean_disable_dmesg_logs_via_syslog.yml",
+        "rule_sha256": "7c299efbaa952eba595838fa67e5b629e196bede6f029ad693226210928e1465",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-80915f59-9b56-4616-9de0-fd0dea6c12fe",
+        "rule_id": "80915f59-9b56-4616-9de0-fd0dea6c12fe",
+        "source_id": "80915f59-9b56-4616-9de0-fd0dea6c12fe",
+        "title": "Clear Linux Logs",
+        "rule_file": "proc_creation_lnx_clear_logs.yml",
+        "rule_sha256": "72303baf094bd3a8eba53b1d16f1b51428012837f4de727c4b1c313a05e6b9d2",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-3fcc9b35-39e4-44c0-a2ad-9e82b6902b31",
+        "rule_id": "3fcc9b35-39e4-44c0-a2ad-9e82b6902b31",
+        "source_id": "3fcc9b35-39e4-44c0-a2ad-9e82b6902b31",
+        "title": "Syslog Clearing or Removal Via System Utilities",
+        "rule_file": "proc_creation_lnx_clear_syslog.yml",
+        "rule_sha256": "acf84eac456e6bff1524d6d28351bb4a689b44fbc6ae9ef8aeb923ecb2428801",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-acf61bd8-d814-4272-81f0-a7a269aa69aa",
+        "rule_id": "acf61bd8-d814-4272-81f0-a7a269aa69aa",
+        "source_id": "acf61bd8-d814-4272-81f0-a7a269aa69aa",
+        "title": "Indicator Removal on Host - Clear Mac System Logs",
+        "rule_file": "proc_creation_macos_clear_system_logs.yml",
+        "rule_sha256": "62d5b16ad504cf8d23182df0e0e7390bd917cb36ba4f61adea54fa08ef77d4b4",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-3132570d-cab2-4561-9ea6-1743644b2290",
+        "rule_id": "3132570d-cab2-4561-9ea6-1743644b2290",
+        "source_id": "3132570d-cab2-4561-9ea6-1743644b2290",
+        "title": "Kubernetes Events Deleted",
+        "rule_file": "kubernetes_audit_events_deleted.yml",
+        "rule_sha256": "33cf0ce939d8905bb53420fd71d621a443d9eb9f79be6db28c3402d9bb0dceb3",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-20f754db-d025-4a8f-9d74-e0037e999a9a",
+        "rule_id": "20f754db-d025-4a8f-9d74-e0037e999a9a",
+        "source_id": "20f754db-d025-4a8f-9d74-e0037e999a9a",
+        "title": "SES Identity Has Been Deleted",
+        "rule_file": "aws_delete_identity.yml",
+        "rule_sha256": "440cf3d2a8ad475bf1bb373a8915f4b5e2307059433ac1b74d6947a5585b0984",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-95d61234-7f56-465c-6f2d-b562c6fedbc4",
+        "rule_id": "95d61234-7f56-465c-6f2d-b562c6fedbc4",
+        "source_id": "95d61234-7f56-465c-6f2d-b562c6fedbc4",
+        "title": "Linux Package Uninstall",
+        "rule_file": "proc_creation_lnx_remove_package.yml",
+        "rule_sha256": "0f6f84bb5a2de228d26b1944437b3e91370efe5fcbe830ba6a8eda126e15ac8d",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-bde47d4b-9987-405c-94c7-b080410e8ea7",
+        "rule_id": "bde47d4b-9987-405c-94c7-b080410e8ea7",
+        "source_id": "bde47d4b-9987-405c-94c7-b080410e8ea7",
+        "title": "Clearing Windows Console History",
+        "rule_file": "posh_ps_clearing_windows_console_history.yml",
+        "rule_sha256": "702660053b43638179c572de80b84c371e32cd15863e565457362aa69fd40e6d",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      }
+    ],
+    "osquery": [
+      {
+        "query_id": "OSQ-T1070_002_PROC_HIDDEN",
+        "name": "t1070_002_proc_hidden",
+        "query_text": "SELECT pid, name, path, cmdline, on_disk, cwd FROM processes WHERE on_disk = 0 OR path = '' ORDER BY start_time DESC LIMIT 100;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": [],
+        "osquery_evidence_type": "mapped_query_only"
+      },
+      {
+        "query_id": "OSQ-T1070_002_FILE_MOD",
+        "name": "t1070_002_file_mod",
+        "query_text": "SELECT path, filename, size, uid, gid, mode, mtime, atime FROM file WHERE (path LIKE '/tmp/%' OR path LIKE '/dev/shm/%' OR path LIKE '/var/tmp/%') AND mtime > (strftime('%s','now') - 3600) LIMIT 100;",
+        "matched": false,
+        "result_count": 0,
+        "supporting_event_ids": [],
+        "osquery_evidence_type": "mapped_query_only"
+      }
+    ],
+    "custom": []
+  },
+  "detection_evidence": {
+    "observed": true,
+    "sigma_matches": [
+      {
+        "analytic_id": "SIG-eca5e022-d368-4043-98e5-9736fb01f72f",
+        "rule_id": "eca5e022-d368-4043-98e5-9736fb01f72f",
+        "source_id": "eca5e022-d368-4043-98e5-9736fb01f72f",
+        "title": "Clear or Disable Kernel Ring Buffer Logs via Syslog Syscall",
+        "rule_file": "lnx_auditd_clean_disable_dmesg_logs_via_syslog.yml",
+        "rule_sha256": "7c299efbaa952eba595838fa67e5b629e196bede6f029ad693226210928e1465",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-80915f59-9b56-4616-9de0-fd0dea6c12fe",
+        "rule_id": "80915f59-9b56-4616-9de0-fd0dea6c12fe",
+        "source_id": "80915f59-9b56-4616-9de0-fd0dea6c12fe",
+        "title": "Clear Linux Logs",
+        "rule_file": "proc_creation_lnx_clear_logs.yml",
+        "rule_sha256": "72303baf094bd3a8eba53b1d16f1b51428012837f4de727c4b1c313a05e6b9d2",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-3fcc9b35-39e4-44c0-a2ad-9e82b6902b31",
+        "rule_id": "3fcc9b35-39e4-44c0-a2ad-9e82b6902b31",
+        "source_id": "3fcc9b35-39e4-44c0-a2ad-9e82b6902b31",
+        "title": "Syslog Clearing or Removal Via System Utilities",
+        "rule_file": "proc_creation_lnx_clear_syslog.yml",
+        "rule_sha256": "acf84eac456e6bff1524d6d28351bb4a689b44fbc6ae9ef8aeb923ecb2428801",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-acf61bd8-d814-4272-81f0-a7a269aa69aa",
+        "rule_id": "acf61bd8-d814-4272-81f0-a7a269aa69aa",
+        "source_id": "acf61bd8-d814-4272-81f0-a7a269aa69aa",
+        "title": "Indicator Removal on Host - Clear Mac System Logs",
+        "rule_file": "proc_creation_macos_clear_system_logs.yml",
+        "rule_sha256": "62d5b16ad504cf8d23182df0e0e7390bd917cb36ba4f61adea54fa08ef77d4b4",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-3132570d-cab2-4561-9ea6-1743644b2290",
+        "rule_id": "3132570d-cab2-4561-9ea6-1743644b2290",
+        "source_id": "3132570d-cab2-4561-9ea6-1743644b2290",
+        "title": "Kubernetes Events Deleted",
+        "rule_file": "kubernetes_audit_events_deleted.yml",
+        "rule_sha256": "33cf0ce939d8905bb53420fd71d621a443d9eb9f79be6db28c3402d9bb0dceb3",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-20f754db-d025-4a8f-9d74-e0037e999a9a",
+        "rule_id": "20f754db-d025-4a8f-9d74-e0037e999a9a",
+        "source_id": "20f754db-d025-4a8f-9d74-e0037e999a9a",
+        "title": "SES Identity Has Been Deleted",
+        "rule_file": "aws_delete_identity.yml",
+        "rule_sha256": "440cf3d2a8ad475bf1bb373a8915f4b5e2307059433ac1b74d6947a5585b0984",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-95d61234-7f56-465c-6f2d-b562c6fedbc4",
+        "rule_id": "95d61234-7f56-465c-6f2d-b562c6fedbc4",
+        "source_id": "95d61234-7f56-465c-6f2d-b562c6fedbc4",
+        "title": "Linux Package Uninstall",
+        "rule_file": "proc_creation_lnx_remove_package.yml",
+        "rule_sha256": "0f6f84bb5a2de228d26b1944437b3e91370efe5fcbe830ba6a8eda126e15ac8d",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-bde47d4b-9987-405c-94c7-b080410e8ea7",
+        "rule_id": "bde47d4b-9987-405c-94c7-b080410e8ea7",
+        "source_id": "bde47d4b-9987-405c-94c7-b080410e8ea7",
+        "title": "Clearing Windows Console History",
+        "rule_file": "posh_ps_clearing_windows_console_history.yml",
+        "rule_sha256": "702660053b43638179c572de80b84c371e32cd15863e565457362aa69fd40e6d",
+        "matched": true,
+        "match_count": 10,
+        "supporting_event_ids": [
+          "osq-1777272905-atomic_t1070_002_b1",
+          "osq-1776927769-atomic_t1070_002_b1",
+          "osq-1776927770-atomic_t1070_002_b2",
+          "osq-1776927771-atomic_t1070_002_b3",
+          "osq-1776927772-atomic_t1070_002_b4",
+          "osq-1776927773-atomic_t1070_002_b5",
+          "osq-1776927774-atomic_t1070_002_b6",
+          "osq-1776927775-atomic_t1070_002_b7",
+          "osq-1776927776-atomic_t1070_002_b8",
+          "osq-1776927777-atomic_t1070_002_b9"
+        ],
+        "match_type": "heuristic_telemetry",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      }
+    ],
+    "osquery_matches": []
+  },
+  "artifact_evidence": {
+    "files": [
+      {
+        "path": "/tmp:exec,size=512m",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/opt/pwsh/pwsh",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/dev/null",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/usr/bin/env",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/usr/local/bin/b64encode",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/var/log/system.log",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      },
+      {
+        "path": "/-rw-r--r--",
+        "hashes": [
+          "31831a87d97a4111a4755a51546be285",
+          "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+          "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+          "5d18852f841d47e8b9e58c54a91dbee4"
+        ]
+      }
+    ],
+    "hashes": [
+      "31831a87d97a4111a4755a51546be285",
+      "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+      "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19",
+      "5d18852f841d47e8b9e58c54a91dbee4"
+    ],
+    "observed": true
+  },
+  "response_evidence": {
+    "executions": [
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:04:24.688966+00:00",
+        "completed_at": "2026-04-22T21:04:24.689836+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1070.002",
+        "pid": 4242,
+        "file_path": "/tmp/T1070.002.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:04:24.689015+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689039+00:00",
+              "session_id": "mitre-session-T1070.002",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:04:24.689171+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:04:24.689196+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689220+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:04:24.689303+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:04:24.689324+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689348+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:04:24.689412+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:04:24.689431+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689453+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:04:24.689521+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:04:24.689539+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689560+00:00",
+              "forensics_id": "forensics_39f0bef447e7",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:04:24.689620+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:04:24.689638+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689658+00:00",
+              "ticket_id": "TKT-55CBE2C6",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:04:24.689719+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:04:24.689736+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689756+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:04:24.689811+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:04:24.688966+00:00",
+        "completed_at": "2026-04-22T21:04:24.689836+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1070.002",
+        "pid": 4242,
+        "file_path": "/tmp/T1070.002.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:04:24.689015+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689039+00:00",
+              "session_id": "mitre-session-T1070.002",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:04:24.689171+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:04:24.689196+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689220+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:04:24.689303+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:04:24.689324+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689348+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:04:24.689412+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:04:24.689431+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689453+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:04:24.689521+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:04:24.689539+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689560+00:00",
+              "forensics_id": "forensics_39f0bef447e7",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:04:24.689620+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:04:24.689638+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689658+00:00",
+              "ticket_id": "TKT-55CBE2C6",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:04:24.689719+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:04:24.689736+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689756+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:04:24.689811+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:04:24.688966+00:00",
+        "completed_at": "2026-04-22T21:04:24.689836+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1070.002",
+        "pid": 4242,
+        "file_path": "/tmp/T1070.002.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:04:24.689015+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689039+00:00",
+              "session_id": "mitre-session-T1070.002",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:04:24.689171+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:04:24.689196+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689220+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:04:24.689303+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:04:24.689324+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689348+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:04:24.689412+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:04:24.689431+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689453+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:04:24.689521+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:04:24.689539+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689560+00:00",
+              "forensics_id": "forensics_39f0bef447e7",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:04:24.689620+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:04:24.689638+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689658+00:00",
+              "ticket_id": "TKT-55CBE2C6",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:04:24.689719+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:04:24.689736+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:24.689756+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:04:24.689811+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_f3efd40ca9eb",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "status": "completed",
+        "started_at": "2026-04-19T02:31:58.980576+00:00",
+        "completed_at": "2026-04-19T02:31:58.980809+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "collect_forensics",
+            "started_at": "2026-04-19T02:31:58.980634+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980644+00:00",
+              "forensics_id": "forensics_d64940318a01",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "loaded_modules": true,
+                "registry_artifacts": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-19T02:31:58.980679+00:00"
+          },
+          {
+            "step": 2,
+            "action": "kill_process",
+            "started_at": "2026-04-19T02:31:58.980685+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980690+00:00",
+              "killed_pid": null,
+              "force": false,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-19T02:31:58.980702+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-19T02:31:58.980706+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980711+00:00",
+              "firewall_updated": true,
+              "rule_type": "block",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-19T02:31:58.980721+00:00"
+          },
+          {
+            "step": 4,
+            "action": "sync_threat_intel",
+            "started_at": "2026-04-19T02:31:58.980724+00:00",
+            "status": "completed",
+            "result": {
+              "action": "sync_threat_intel",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980728+00:00",
+              "share_iocs": false,
+              "query_ttps": true,
+              "communities": [
+                "internal"
+              ],
+              "urgent": false,
+              "status": "syncing"
+            },
+            "completed_at": "2026-04-19T02:31:58.980747+00:00"
+          },
+          {
+            "step": 5,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:31:58.980751+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980755+00:00",
+              "channels_notified": [
+                "slack",
+                "email"
+              ],
+              "priority": "high",
+              "template": "sys_evasion",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:31:58.980764+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-19T02:31:58.980768+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980772+00:00",
+              "ticket_id": "TKT-90CED8E5",
+              "ticket_created": true,
+              "category": "defense_evasion",
+              "priority": "P1",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-19T02:31:58.980791+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/generated_soar_executions.json"
+      },
+      {
+        "execution_id": "exec_f3efd40ca9eb",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "status": "completed",
+        "started_at": "2026-04-19T02:31:58.980576+00:00",
+        "completed_at": "2026-04-19T02:31:58.980809+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "collect_forensics",
+            "started_at": "2026-04-19T02:31:58.980634+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980644+00:00",
+              "forensics_id": "forensics_d64940318a01",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "loaded_modules": true,
+                "registry_artifacts": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-19T02:31:58.980679+00:00"
+          },
+          {
+            "step": 2,
+            "action": "kill_process",
+            "started_at": "2026-04-19T02:31:58.980685+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980690+00:00",
+              "killed_pid": null,
+              "force": false,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-19T02:31:58.980702+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-19T02:31:58.980706+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980711+00:00",
+              "firewall_updated": true,
+              "rule_type": "block",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-19T02:31:58.980721+00:00"
+          },
+          {
+            "step": 4,
+            "action": "sync_threat_intel",
+            "started_at": "2026-04-19T02:31:58.980724+00:00",
+            "status": "completed",
+            "result": {
+              "action": "sync_threat_intel",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980728+00:00",
+              "share_iocs": false,
+              "query_ttps": true,
+              "communities": [
+                "internal"
+              ],
+              "urgent": false,
+              "status": "syncing"
+            },
+            "completed_at": "2026-04-19T02:31:58.980747+00:00"
+          },
+          {
+            "step": 5,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:31:58.980751+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980755+00:00",
+              "channels_notified": [
+                "slack",
+                "email"
+              ],
+              "priority": "high",
+              "template": "sys_evasion",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:31:58.980764+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-19T02:31:58.980768+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:58.980772+00:00",
+              "ticket_id": "TKT-90CED8E5",
+              "ticket_created": true,
+              "category": "defense_evasion",
+              "priority": "P1",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-19T02:31:58.980791+00:00"
+          }
+        ],
+        "source_file": "/app/backend/data/soar_executions_archive.json"
+      }
+    ],
+    "actions": [
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689171+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689303+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689412+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689521+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689620+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689719+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689811+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689171+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689303+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689412+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689521+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689620+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689719+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689811+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689171+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689303+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689412+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689521+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689620+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689719+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_286324a784d4",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:24.689811+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1070.002"
+      },
+      {
+        "execution_id": "exec_f3efd40ca9eb",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:31:58.980679+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_f3efd40ca9eb",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "action": "kill_process",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:31:58.980702+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_f3efd40ca9eb",
+        "playbook_id": "ai_sys_evasion_response",
+        "playbook_name": "System Evasion & Credential Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:31:58.980721+00:00",
+        "host_id": "",
+        "session_id": ""
+      }
+    ],
+    "observed": true
+  },
+  "integration_evidence_summary": {
+    "arda_bpf_status": "simulated_backend_event",
+    "arda_substrate_proof": "none",
+    "arda_event_count": 1,
+    "live_osquery_row_count": 30,
+    "live_osquery_direct_match": false,
+    "deception_event_count": 0,
+    "deception_chain_of_custody_status": "absent"
+  },
+  "correlation": {
+    "direct_detection": true,
+    "correlated_detection": true,
+    "evidence_chain": [
+      "execution.command_line",
+      "telemetry_evidence.key_events[0]",
+      "network_telemetry_evidence.key_events[0]",
+      "analytic_evidence.sigma[0]",
+      "artifact_evidence.files[0]",
+      "response_evidence.actions[0]"
+    ],
+    "anchors": {
+      "timestamp_window": {
+        "first_seen": "2026-04-27T06:55:04.571699+00:00",
+        "last_seen": "1777301603.313888",
+        "samples": [
+          "2026-04-27T06:55:04.571699+00:00",
+          "2026-04-23T07:02:48.359790+00:00",
+          "2026-04-22T21:04:24.688966+00:00",
+          "2026-04-19T02:31:58.980576+00:00",
+          "2026-04-22T21:04:24.689836+00:00",
+          "2026-04-19T02:31:58.980809+00:00",
+          "1777301599.898278",
+          "1777301599.903208"
+        ]
+      },
+      "host_ids": [
+        "debian-node-01",
+        "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2"
+      ],
+      "process_ids": [
+        4242
+      ],
+      "ip_addresses": [
+        "203.0.113.10",
+        "172.28.0.1",
+        "172.28.0.11",
+        "172.28.0.7"
+      ],
+      "file_paths": [
+        "/dev/null",
+        "/dev/zero",
+        "/var/log/journal",
+        "/tmp:exec,size=512m",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/powershell:/opt/pwsh:ro",
+        "/opt/pwsh/pwsh",
+        "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "/opt/atomic-red-team/atomics",
+        "/usr/bin/env",
+        "/usr/local/bin/b64encode"
+      ],
+      "hashes": [
+        "31831a87d97a4111a4755a51546be285",
+        "3e4be5626dd7d76069812495d54702174e1534744cccc91f5c03d0177ae516d6",
+        "486ebe6b3830e77514fd6c7c7c6e4a8dd790e451fc06f2e1217a0a8a5fe92d19"
+      ],
+      "event_ids": [
+        "osq-1777272905-atomic_t1070_002_b1",
+        "osq-1776927769-atomic_t1070_002_b1",
+        "osq-1776927770-atomic_t1070_002_b2",
+        "osq-1776927771-atomic_t1070_002_b3",
+        "osq-1776927772-atomic_t1070_002_b4",
+        "osq-1776927773-atomic_t1070_002_b5",
+        "osq-1776927774-atomic_t1070_002_b6",
+        "osq-1776927775-atomic_t1070_002_b7",
+        "osq-1776927776-atomic_t1070_002_b8",
+        "osq-1776927777-atomic_t1070_002_b9"
+      ]
+    },
+    "story_assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 1,
+        "ip_addresses": 4,
+        "file_paths": 12,
+        "hashes": 3,
+        "event_ids": 10
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    }
+  },
+  "quality": {
+    "repeated_runs": 1,
+    "successful_detections": 1,
+    "effective_runs": 1,
+    "unique_successful_direct_run_ids": [
+      "31831a87d97a4111a4755a51546be285"
+    ],
+    "clean_run_count": 1,
+    "quality_run_count": 1,
+    "run_validity_summary": {
+      "success_clean": 1
+    },
+    "has_fatal_stdout_markers": false,
+    "has_vns_or_simulation_only": false,
+    "evidence_inheritance": "direct",
+    "execution_source": "docker_sandbox",
+    "osquery_status": "executed_no_match",
+    "baseline_window_minutes": 60,
+    "baseline_false_positives": 0,
+    "analyst_reviewed": true,
+    "reviewer": "Byron Bunt",
+    "review_class": "internal_author_reviewed",
+    "reviewed_at": "2026-04-27T19:32:28.682446+00:00"
+  },
+  "story": {
+    "goal": "one_event_many_witnesses_one_story",
+    "layered_presence": {
+      "execution": true,
+      "host_telemetry": true,
+      "network_telemetry": true,
+      "detection": true,
+      "artifact": true,
+      "response": true
+    },
+    "assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 1,
+        "ip_addresses": 4,
+        "file_paths": 12,
+        "hashes": 3,
+        "event_ids": 10
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    },
+    "narrative": "Execution, telemetry, detections, artifacts, network observations, and SOAR response are tracked as separate witnesses and tied together through shared anchors."
+  },
+  "promotion": {
+    "score": 5,
+    "tier": "S5",
+    "tier_name": "platinum",
+    "certification_tier": "S5-P",
+    "certification_label": "platinum_provisional",
+    "status": "validated",
+    "reason": "Full S5 validation (Linux Docker sandbox): 1 direct run(s), 8/8 Sigma rules matched with event linkage, 0 osquery correlations confirmed, raw telemetry preserved, analyst reviewed, clean baseline."
+  },
+  "integrity": {
+    "record_sha256": "31d0dee5e206b89c827c4a09df944c2b0237819d4588d8d96cc7279dadacbec2",
+    "hash_method": "SHA-256 of canonical JSON (sort_keys=True, default=str) excluding the integrity block itself",
+    "created_at": "2026-04-27T19:32:28.682446+00:00"
+  }
+}

@@ -1,0 +1,889 @@
+diff --git a/backend/deception_engine.py b/backend/deception_engine.py
+index 6d6397cbb..1480a1422 100644
+--- a/backend/deception_engine.py
++++ b/backend/deception_engine.py
+@@ -43,6 +43,7 @@ class DeceptionConfig:
+     
+     def __init__(self):
+         # Pebbles (Campaign Tracking)
++        self.correlation_enabled = os.environ.get("CORRELATION_ENABLED", "true").lower() == "true"
+         self.campaign_window_minutes = int(os.environ.get("DECEPTION_CAMPAIGN_WINDOW", "120"))
+         self.campaign_salt = os.environ.get("DECEPTION_CAMPAIGN_SALT", "SERAPH_DECEPTION_SALT")
+         self.fingerprint_fields = ["user_agent", "accept", "accept_language", "accept_encoding"]
+@@ -85,6 +86,10 @@ class DeceptionConfig:
+         self.trap_sink_enabled = os.environ.get("TRAP_SINK_ENABLED", "true").lower() == "true"
+         self.trap_sink_min_score = int(os.environ.get("TRAP_SINK_MIN_SCORE", "70"))
+         self.trap_tarpit_delay_ms = int(os.environ.get("TRAP_TARPIT_DELAY", "3000"))
++
++        # Disinformation (DISINFORMATION route)
++        self.disinformation_enabled = os.environ.get("DISINFORMATION_ENABLED", "true").lower() == "true"
++        self.disinformation_min_score = int(os.environ.get("DISINFORMATION_MIN_SCORE", "50"))
+         
+         # Trap paths that indicate malicious behavior
+         self.trap_paths_prefix = [
+@@ -93,6 +98,23 @@ class DeceptionConfig:
+             "/etc/passwd", "/etc/shadow", "/.htaccess", "/web.config"
+         ]
+ 
++        # Logic-budget exhaustion controller (CBR/TBCR/CDI + agenticity signals)
++        self.logic_budget_controller_enabled = (
++            os.environ.get("LOGIC_BUDGET_CONTROLLER_ENABLED", "true").lower() == "true"
++        )
++        self.logic_budget_target_cbr = float(os.environ.get("LOGIC_BUDGET_TARGET_CBR", "800.0"))
++        self.logic_budget_target_tbcr = float(os.environ.get("LOGIC_BUDGET_TARGET_TBCR", "12.0"))
++        self.logic_budget_target_cdi = float(os.environ.get("LOGIC_BUDGET_TARGET_CDI", "0.35"))
++        self.logic_budget_force_trap_threshold = float(
++            os.environ.get("LOGIC_BUDGET_FORCE_TRAP_THRESHOLD", "0.92")
++        )
++        self.logic_budget_weights = {
++            "cbr": float(os.environ.get("LOGIC_BUDGET_WEIGHT_CBR", "0.30")),
++            "tbcr": float(os.environ.get("LOGIC_BUDGET_WEIGHT_TBCR", "0.25")),
++            "cdi": float(os.environ.get("LOGIC_BUDGET_WEIGHT_CDI", "0.25")),
++            "agenticity": float(os.environ.get("LOGIC_BUDGET_WEIGHT_AGENTICITY", "0.20")),
++        }
++
+ 
+ config = DeceptionConfig()
+ 
+@@ -152,6 +174,7 @@ class AttackCampaign:
+     friction_events: int = 0
+     pass_events: int = 0
+     decoy_interactions: int = 0
++    disinfo_events: int = 0        # times this campaign was served disinformation
+     
+     # Mystique adaptive parameters
+     friction_multiplier: float = 1.0
+@@ -391,6 +414,8 @@ class DeceptionEngine:
+         Compute campaign ID for correlating related attacks.
+         Time-windowed to group attacks within campaign_window_minutes.
+         """
++        if not self.config.correlation_enabled:
++            return self._hash(f"nocorr|{time.time_ns()}|{ip}|{fingerprint_id}|{path}")[:16]
+         window_min = self.config.campaign_window_minutes
+         time_bucket = int(time.time() // (window_min * 60))
+         salt = self.config.campaign_salt
+@@ -431,7 +456,7 @@ class DeceptionEngine:
+                     headers: Optional[Dict[str, str]] = None,
+                     session_id: Optional[str] = None,
+                     timing_data: Optional[Dict] = None,
+-                    behavior_flags: Optional[Dict[str, bool]] = None) -> RiskAssessment:
++                    behavior_flags: Optional[Dict[str, Any]] = None) -> RiskAssessment:
+         """
+         Comprehensive risk assessment combining multiple signals.
+         Returns routing decision with delay if applicable.
+@@ -520,6 +545,13 @@ class DeceptionEngine:
+         if fingerprint.total_events > 50 and campaign.trap_events > 10:
+             score += weights["known_bad_fingerprint"]
+             reasons.append("known_bad_fingerprint")
++
++        logic_budget = self._logic_budget_control(behavior_flags, campaign)
++        if logic_budget["enabled"] and logic_budget["pressure"] > 0:
++            score += logic_budget["score_boost"]
++            reasons.append(f"logic_budget_pressure:{logic_budget['pressure']:.2f}")
++            if logic_budget["high_pressure"]:
++                reasons.append("logic_budget_high_pressure")
+         
+         # Apply Mystique campaign overrides
+         if self.config.mystique_enabled and campaign.sink_score_override is not None:
+@@ -532,10 +564,21 @@ class DeceptionEngine:
+         # Determine route
+         route = RouteDecision.PASS_THROUGH
+         delay_ms = 0
+-        
+-        if self.config.trap_sink_enabled and score >= self.config.trap_sink_min_score:
++
++        if logic_budget["force_trap"] and self.config.trap_sink_enabled:
++            route = RouteDecision.TRAP_SINK
++            delay_ms = self._calculate_tarpit_delay(campaign)
++        elif self.config.trap_sink_enabled and score >= self.config.trap_sink_min_score:
+             route = RouteDecision.TRAP_SINK
+             delay_ms = self._calculate_tarpit_delay(campaign)
++        elif self.config.disinformation_enabled and score >= self.config.disinformation_min_score and (
++            "suspicious_path" in reasons
++            or "ai_behavior_detected" in reasons
++            or "decoy_touched" in reasons
++            or logic_budget.get("high_pressure", False)
++        ):
++            # DISINFORMATION: medium-confidence probe — feed plausible-but-wrong data
++            route = RouteDecision.DISINFORMATION
+         elif self.config.friction_enabled and score >= self.config.friction_challenge_score:
+             route = RouteDecision.FRICTION
+             delay_ms = self._calculate_friction_delay(score, campaign)
+@@ -549,6 +592,62 @@ class DeceptionEngine:
+             fingerprint_id=fingerprint.fingerprint_id,
+             escalation_level=campaign.escalation_level
+         )
++
++    def _logic_budget_control(self, behavior_flags: Dict[str, Any], campaign: AttackCampaign) -> Dict[str, Any]:
++        """Apply logic-budget exhaustion signals to routing pressure."""
++        if not self.config.logic_budget_controller_enabled:
++            return {
++                "enabled": False,
++                "pressure": 0.0,
++                "score_boost": 0,
++                "high_pressure": False,
++                "force_trap": False,
++            }
++
++        cbr = float(behavior_flags.get("cbr") or 0.0)
++        tbcr = float(behavior_flags.get("tbcr") or 0.0)
++        cdi = float(behavior_flags.get("cdi") or 0.0)
++        agenticity = float(behavior_flags.get("agenticity_score") or 0.0)
++        autonomous_confidence = float(behavior_flags.get("autonomous_confidence") or 0.0)
++        cognitive_pressure = float(behavior_flags.get("cognitive_pressure") or 0.0)
++
++        # Normalize primary metrics into 0..1 pressure components.
++        cbr_norm = min(1.0, cbr / max(1.0, self.config.logic_budget_target_cbr))
++        tbcr_norm = min(1.0, tbcr / max(1.0, self.config.logic_budget_target_tbcr))
++        cdi_norm = min(1.0, cdi / max(0.01, self.config.logic_budget_target_cdi))
++        agenticity_norm = min(1.0, max(agenticity, autonomous_confidence, cognitive_pressure))
++
++        w = self.config.logic_budget_weights
++        pressure = (
++            cbr_norm * w["cbr"]
++            + tbcr_norm * w["tbcr"]
++            + cdi_norm * w["cdi"]
++            + agenticity_norm * w["agenticity"]
++        )
++        pressure = max(0.0, min(1.0, pressure))
++
++        # Directly bias campaign dynamics when pressure remains elevated.
++        if pressure >= 0.75:
++            campaign.friction_multiplier = min(
++                self.config.max_friction_multiplier,
++                campaign.friction_multiplier + 0.10,
++            )
++            campaign.tarpit_multiplier = min(
++                self.config.max_tarpit_multiplier,
++                campaign.tarpit_multiplier + 0.05,
++            )
++
++        score_boost = int(min(30, round(pressure * 30)))
++        high_pressure = pressure >= 0.7
++        force_trap = pressure >= self.config.logic_budget_force_trap_threshold
++
++        return {
++            "enabled": True,
++            "pressure": pressure,
++            "score_boost": score_boost,
++            "high_pressure": high_pressure,
++            "force_trap": force_trap,
++        }
+     
+     def _calculate_friction_delay(self, score: int, campaign: AttackCampaign) -> int:
+         """Calculate friction delay based on score and Mystique multiplier"""
+@@ -654,6 +753,8 @@ class DeceptionEngine:
+             campaign.trap_events += 1
+         elif route == RouteDecision.FRICTION:
+             campaign.friction_events += 1
++        elif route == RouteDecision.DISINFORMATION:
++            campaign.disinfo_events += 1
+         else:
+             campaign.pass_events += 1
+         
+@@ -684,6 +785,29 @@ class DeceptionEngine:
+             logger.critical(f"Stonewall: {ip} BLOCKLISTED after {traps} trap hits (campaign {campaign_id})")
+         
+         campaign.escalation_level = new_level
++
++        # Gap B: Fire alert callback on meaningful escalation so SOAR gets notified
++        # (soft-ban is routine; hard-ban and blocklist warrant SOAR playbook activation)
++        if new_level in (EscalationLevel.HARD_BANNED, EscalationLevel.BLOCKLISTED) and self._alert_callback:
++            stonewall_event = {
++                "event_id": hashlib.md5(f"stonewall{ip}{time.time()}".encode()).hexdigest()[:16],
++                "event_type": "stonewall.escalation",
++                "timestamp": datetime.now(timezone.utc).isoformat(),
++                "campaign_id": campaign_id,
++                "source_ip": ip,
++                "session_id": None,
++                "route_decision": RouteDecision.TRAP_SINK.value,
++                "risk_score": 100,
++                "escalation_level": new_level.value,
++                "details": {
++                    "decoy_type": "stonewall",
++                    "decoy_id": f"stonewall_{campaign_id}",
++                    "campaign_events": count,
++                    "trap_hits": traps,
++                },
++            }
++            self._alert_callback(stonewall_event)
++
+         return new_level
+     
+     # =========================================================================
+@@ -746,7 +870,38 @@ class DeceptionEngine:
+         if assessment.route in (RouteDecision.TRAP_SINK, RouteDecision.HONEYPOT):
+             if self._alert_callback:
+                 self._alert_callback(event.to_dict())
+-        
++
++        # Emit a DISINFORMATION persistence alert when a campaign crosses the
++        # threshold — signals that someone is probing systematically through
++        # the poisoned-data layer and SOAR should escalate.
++        if (assessment.route == RouteDecision.DISINFORMATION
++                and assessment.campaign_id
++                and self._alert_callback):
++            camp = self.campaigns.get(assessment.campaign_id)
++            _DISINFO_PERSIST_THRESHOLD = int(
++                os.environ.get("DISINFO_PERSIST_THRESHOLD", "5")
++            )
++            if camp and camp.disinfo_events >= _DISINFO_PERSIST_THRESHOLD:
++                disinfo_alert = {
++                    "event_id": hashlib.md5(
++                        f"disinfo_persist{assessment.campaign_id}{camp.disinfo_events}".encode()
++                    ).hexdigest()[:16],
++                    "event_type": "deception.disinfo",
++                    "timestamp": datetime.now(timezone.utc).isoformat(),
++                    "campaign_id": assessment.campaign_id,
++                    "source_ip": ip,
++                    "session_id": session_id,
++                    "route_decision": RouteDecision.DISINFORMATION.value,
++                    "risk_score": assessment.score,
++                    "disinfo_events": camp.disinfo_events,
++                    "details": {
++                        "path": path,
++                        "disinfo_events": camp.disinfo_events,
++                        "total_events": camp.total_events,
++                    },
++                }
++                self._alert_callback(disinfo_alert)
++
+         return assessment
+     
+     async def record_decoy_interaction(self,
+@@ -965,6 +1120,9 @@ def integrate_with_honey_tokens(honey_token_manager):
+     
+     def wrapped_record_access(token_id, source_ip, **kwargs):
+         result = original_record_access(token_id, source_ip, **kwargs)
++
++        if os.environ.get("HONEY_TOKENS_ENABLED", "true").lower() != "true":
++            return result
+         
+         # Notify deception engine
+         asyncio.create_task(
+diff --git a/backend/routers/deception.py b/backend/routers/deception.py
+index f01f0d792..105e1f777 100644
+--- a/backend/routers/deception.py
++++ b/backend/routers/deception.py
+@@ -13,12 +13,39 @@ from pydantic import BaseModel, Field
+ from typing import Dict, List, Optional, Any
+ from enum import Enum
+ import logging
++import os
+ 
+ from deception_engine import deception_engine, RouteDecision, EscalationLevel
+ from .dependencies import get_current_user, get_db
+ 
+ logger = logging.getLogger(__name__)
+ 
++
++def _feature_enabled(name: str, default: str = "true") -> bool:
++    return os.environ.get(name, default).lower() == "true"
++
++try:
++    from services.world_events import emit_world_event
++    from services.token_broker import token_broker
++except Exception:
++    emit_world_event = None
++    token_broker = None
++
++try:
++    from services.mystique_maze import get_mystique_maze
++except Exception:
++    get_mystique_maze = None
++
++try:
++    from services.aatl import get_aatl_engine
++except Exception:
++    get_aatl_engine = None
++
++try:
++    from services.disinformation_engine import get_disinfo_engine
++except Exception:
++    get_disinfo_engine = None
++
+ router = APIRouter(prefix="/deception", tags=["Deception Engine"])
+ 
+ def _severity_to_risk(severity: str) -> int:
+@@ -52,7 +79,7 @@ class RiskAssessmentRequest(BaseModel):
+     headers: Dict[str, str] = Field(default_factory=dict)
+     session_id: Optional[str] = None
+     timing_data: Optional[Dict[str, Any]] = None
+-    behavior_flags: Optional[Dict[str, bool]] = None
++    behavior_flags: Optional[Dict[str, Any]] = None
+ 
+ 
+ class RiskAssessmentResponse(BaseModel):
+@@ -63,6 +90,15 @@ class RiskAssessmentResponse(BaseModel):
+     campaign_id: Optional[str]
+     fingerprint_id: Optional[str]
+     escalation_level: str
++    maze_id: Optional[str] = None
++    maze_surface_nodes: Optional[List[Dict[str, Any]]] = None
++    disinformation_payload: Optional[Dict[str, Any]] = None
++    # AATL timing-enriched fields — returned so the harness can record the
++    # router-computed values rather than the caller-supplied floor values.
++    machine_plausibility: Optional[float] = None
++    aatl_actor_type: Optional[str] = None
++    aatl_indicators: List[str] = Field(default_factory=list)
++    agenticity_score: Optional[float] = None
+ 
+ 
+ class DecoyInteractionRequest(BaseModel):
+@@ -152,6 +188,11 @@ async def get_capabilities():
+                 "name": "Trap Sink",
+                 "description": "Tarpit + containment for high-risk traffic",
+                 "features": ["tarpit_delay", "deny_access", "campaign_tracking"]
++            },
++            {
++                "name": "Logic-Budget Exhaustion Controller",
++                "description": "Adapts deception routing using CBR/TBCR/CDI and agenticity pressure",
++                "features": ["context_burn_rate", "tool_budget_pressure", "confidence_degradation", "forced_sink_routing"]
+             }
+         ],
+         "decisions": [d.value for d in RouteDecision],
+@@ -169,15 +210,209 @@ async def assess_risk(request: RiskAssessmentRequest):
+     Perform risk assessment on an incoming request.
+     Returns routing decision with delay if applicable.
+     """
++    merged_behavior_flags: Dict[str, Any] = dict(request.behavior_flags or {})
++
++    # Enrich with formal AI metrics when a session is present.
++    if request.session_id:
++        try:
++            from threat_response import AIDefenseEngine
++
++            metrics = AIDefenseEngine.get_session_metrics(request.session_id)
++            agenticity = metrics.get("agenticity") or {}
++            exhaustion = metrics.get("exhaustion") or {}
++
++            if "agenticity_score" not in merged_behavior_flags:
++                merged_behavior_flags["agenticity_score"] = float(agenticity.get("score") or 0.0)
++            if "autonomous_confidence" not in merged_behavior_flags:
++                merged_behavior_flags["autonomous_confidence"] = float(agenticity.get("score") or 0.0)
++            if "cbr" not in merged_behavior_flags:
++                merged_behavior_flags["cbr"] = float(exhaustion.get("cbr") or 0.0)
++            if "tbcr" not in merged_behavior_flags:
++                merged_behavior_flags["tbcr"] = float(exhaustion.get("tbcr") or 0.0)
++            if "cdi" not in merged_behavior_flags:
++                merged_behavior_flags["cdi"] = float(exhaustion.get("cdi") or 0.0)
++        except Exception:
++            # Keep assessment resilient when AI defense services are unavailable.
++            pass
++
++    # ── AATL machine-tempo enrichment ─────────────────────────────────────────
++    # The AATL engine computes machine_plausibility from real timing signals
++    # (inter-request cadence, timing variance, request velocity) and from
++    # agenticity pressure already in merged_behavior_flags.  We always run this
++    # — even without a session — because the timing path is stateless.
++    try:
++        _aatl = get_aatl_engine() if get_aatl_engine is not None else None
++        if _feature_enabled("AATL_TIMING_ENABLED") and _aatl is not None:
++            aatl_result = _aatl.score_http_request(
++                behavior_flags=merged_behavior_flags,
++                timing_data=request.timing_data,
++            )
++            # Overwrite only when AATL derives a stronger signal than the
++            # caller-supplied value (harness sets it = agenticity_score, which
++            # is the behavioral-vector score, not a timing-derived score).
++            if aatl_result["machine_plausibility"] > float(
++                merged_behavior_flags.get("machine_plausibility", 0.0)
++            ):
++                merged_behavior_flags["machine_plausibility"] = aatl_result["machine_plausibility"]
++                merged_behavior_flags["aatl_actor_type"] = aatl_result["actor_type"]
++                merged_behavior_flags["aatl_indicators"] = aatl_result["indicators"]
++    except Exception:
++        pass  # AATL enrichment is best-effort; never break the routing path
++
+     assessment = await deception_engine.process_request(
+         ip=request.ip,
+         path=request.path,
+         headers=request.headers,
+         session_id=request.session_id,
+         timing_data=request.timing_data,
+-        behavior_flags=request.behavior_flags
++        behavior_flags=merged_behavior_flags
+     )
+-    
++    soar_enabled = _feature_enabled("SOAR_ENABLED")
++
++    # ── GOVERNANCE / TAMPER-EVIDENT LOG on TRAP_SINK ──────────────────────────
++    if assessment.route == RouteDecision.TRAP_SINK and request.session_id:
++        logic_budget_force_trap = "logic_budget_pressure" in (assessment.reasons or []) or \
++            any("logic_budget" in r for r in (assessment.reasons or []))
++        agenticity_classification = merged_behavior_flags.get("agenticity_classification", "")
++        agenticity_score = float(merged_behavior_flags.get("agenticity_score") or 0.0)
++        cbr = float(merged_behavior_flags.get("cbr") or 0.0)
++        tbcr = float(merged_behavior_flags.get("tbcr") or 0.0)
++
++        # Emit action-critical world event (triggers Triune recompute + constitutional veto check)
++        if soar_enabled and emit_world_event is not None:
++            try:
++                import asyncio
++                asyncio.ensure_future(emit_world_event(
++                    db=None,
++                    event_type="ai_logic_budget_trap",
++                    entity_refs=[request.session_id, request.ip or "unknown"],
++                    payload={
++                        "session_id": request.session_id,
++                        "ip": request.ip,
++                        "score": assessment.score,
++                        "reasons": assessment.reasons,
++                        "campaign_id": assessment.campaign_id,
++                        "agenticity_score": agenticity_score,
++                        "agenticity_classification": agenticity_classification,
++                        "cbr": cbr,
++                        "tbcr": tbcr,
++                        "logic_budget_force_trap": logic_budget_force_trap,
++                        "impact_level": "critical",
++                    },
++                    source="deception_engine",
++                ))
++            except Exception:
++                pass
++
++        # Revoke active capability tokens for the AI session principal
++        if token_broker is not None and _feature_enabled("TOKEN_BROKER_ENABLED"):
++            try:
++                token_broker.apply_ai_trust_degradation(
++                    session_id=request.session_id,
++                    agenticity_score=agenticity_score,
++                    agenticity_classification=agenticity_classification or "HIGH",
++                    cbr=cbr,
++                    tbcr=tbcr,
++                    logic_budget_force_trap=logic_budget_force_trap,
++                )
++            except Exception:
++                pass
++
++    # ── DISINFORMATION ─────────────────────────────────────────────────────────
++    # When route is DISINFORMATION: generate a poisoned-but-plausible response
++    # and emit a world event (STRATEGIC class) for the governance layer.
++    disinfo_payload: Optional[Dict[str, Any]] = None
++
++    if assessment.route == RouteDecision.DISINFORMATION and get_disinfo_engine is not None:
++        try:
++            disinfo_svc = get_disinfo_engine()
++            disinfo_payload = disinfo_svc.generate(
++                path=request.path,
++                session_id=request.session_id,
++                campaign_id=assessment.campaign_id,
++                risk_score=assessment.score,
++                reasons=assessment.reasons,
++                behavior_flags=merged_behavior_flags,
++            )
++            if soar_enabled and emit_world_event is not None:
++                import asyncio
++                asyncio.ensure_future(emit_world_event(
++                    db=None,
++                    event_type="ai_adversary_disinformation_served",
++                    entity_refs=[request.session_id or "anon", request.ip or "unknown"],
++                    payload={
++                        "session_id": request.session_id,
++                        "ip": request.ip,
++                        "path": request.path,
++                        "campaign_id": assessment.campaign_id,
++                        "risk_score": assessment.score,
++                        "disinfo_category": disinfo_payload.get("category"),
++                        "reasons": assessment.reasons,
++                    },
++                    source="disinformation_engine",
++                ))
++        except Exception as exc:
++            logger.warning(f"Disinformation generation failed: {exc}")
++
++    # ── MYSTIQUE MIRROR WORLD MAZE ────────────────────────────────────────────
++    # Activate the maze when:
++    #   (a) route is HONEYPOT, OR
++    #   (b) TRAP_SINK and agenticity is HIGH/VERY_HIGH
++    maze_id: Optional[str] = None
++    maze_surface: Optional[List[Dict[str, Any]]] = None
++
++    should_activate_maze = (
++        _feature_enabled("MIRROR_MAZE_ENABLED")
++        and _feature_enabled("MYSTIQUE_ENABLED")
++        and (
++            assessment.route == RouteDecision.HONEYPOT
++            or (
++                assessment.route == RouteDecision.TRAP_SINK
++                and request.session_id
++                and (
++                    # Layer 1: AATL timing-based machine plausibility (real tempo signal)
++                    merged_behavior_flags.get("machine_plausibility", 0.0) >= 0.6
++                    # Layer 2: Agenticity behavioral feature vector (fallback)
++                    or merged_behavior_flags.get("agenticity_score", 0.0) >= 0.6
++                )
++            )
++        )
++    )
++
++    if should_activate_maze and request.session_id and get_mystique_maze is not None:
++        try:
++            maze_svc = get_mystique_maze()
++            maze_state = await maze_svc.get_or_create_maze(
++                session_id=request.session_id,
++                campaign_id=assessment.campaign_id,
++                agenticity_score=float(merged_behavior_flags.get("agenticity_score", 0.0)),
++                agenticity_classification=str(
++                    merged_behavior_flags.get("agenticity_classification", "HIGH")
++                ),
++            )
++            maze_id = maze_state.maze_id
++            maze_surface = maze_svc.get_surface_nodes(request.session_id)
++
++            # World-event for maze activation
++            if soar_enabled and emit_world_event is not None:
++                import asyncio
++                asyncio.ensure_future(emit_world_event(
++                    db=None,
++                    event_type="ai_adversary_maze_activated",
++                    entity_refs=[request.session_id, assessment.campaign_id or ""],
++                    payload={
++                        "maze_id": maze_id,
++                        "session_id": request.session_id,
++                        "campaign_id": assessment.campaign_id,
++                        "agenticity_score": float(merged_behavior_flags.get("agenticity_score", 0.0)),
++                        "tier": maze_state.tier.value,
++                        "surface_nodes": len(maze_state.root_node_ids),
++                    },
++                    source="mystique_maze",
++                ))
++        except Exception as exc:
++            logger.warning(f"Mystique maze activation failed: {exc}")
++
+     return RiskAssessmentResponse(
+         score=assessment.score,
+         reasons=assessment.reasons,
+@@ -185,7 +420,14 @@ async def assess_risk(request: RiskAssessmentRequest):
+         delay_ms=assessment.delay_ms,
+         campaign_id=assessment.campaign_id,
+         fingerprint_id=assessment.fingerprint_id,
+-        escalation_level=assessment.escalation_level.value
++        escalation_level=assessment.escalation_level.value,
++        maze_id=maze_id,
++        maze_surface_nodes=maze_surface,
++        disinformation_payload=disinfo_payload,
++        machine_plausibility=float(merged_behavior_flags.get("machine_plausibility", 0.0)) or None,
++        aatl_actor_type=merged_behavior_flags.get("aatl_actor_type"),
++        aatl_indicators=list(merged_behavior_flags.get("aatl_indicators") or []),
++        agenticity_score=float(merged_behavior_flags.get("agenticity_score", 0.0)) or None,
+     )
+ 
+ 
+@@ -633,3 +875,316 @@ async def get_campaigns_timeline(hours: int = 24):
+     ]
+     
+     return {"timeline": sorted_timeline[-hours:], "hours": hours}
++
++
++# =============================================================================
++# DISINFORMATION ENGINE
++# =============================================================================
++
++@router.get("/disinformation/history")
++async def get_disinformation_history(
++    limit: int = 50,
++    current_user: dict = Depends(get_current_user),
++):
++    """Return recent DISINFORMATION route activations (poisoned responses served)."""
++    if get_disinfo_engine is None:
++        return {"error": "Disinformation engine unavailable", "history": []}
++    try:
++        history = get_disinfo_engine().get_history(limit=limit)
++        return {"count": len(history), "history": history}
++    except Exception as exc:
++        logger.error(f"Failed to retrieve disinformation history: {exc}")
++        return {"error": str(exc), "history": []}
++
++
++@router.get("/disinformation/stats")
++async def get_disinformation_stats(current_user: dict = Depends(get_current_user)):
++    """Return aggregate statistics for the disinformation engine."""
++    if get_disinfo_engine is None:
++        return {"error": "Disinformation engine unavailable"}
++    try:
++        return get_disinfo_engine().get_stats()
++    except Exception as exc:
++        logger.error(f"Failed to retrieve disinformation stats: {exc}")
++        return {"error": str(exc)}
++
++
++# =============================================================================
++# MYSTIQUE MIRROR WORLD MAZE
++# =============================================================================
++
++class MazeProbeRequest(BaseModel):
++    session_id: str
++    node_id: str
++    agenticity_score: float = 0.0
++    cbr: float = 0.0
++    tbcr: float = 0.0
++
++
++@router.get("/maze/active")
++async def list_active_mazes(current_user: dict = Depends(get_current_user)):
++    """
++    List all currently active mirror-world maze sessions with collected
++    adversary intelligence.
++    """
++    if get_mystique_maze is None:
++        raise HTTPException(status_code=503, detail="Maze service unavailable")
++    maze_svc = get_mystique_maze()
++    return {
++        "mazes": maze_svc.list_active_mazes(),
++        "total": len(maze_svc.list_active_mazes()),
++    }
++
++
++@router.get("/maze/{session_id}/surface")
++async def get_maze_surface(session_id: str, current_user: dict = Depends(get_current_user)):
++    """
++    Return the surface-level (entry) nodes of a session's mirror world.
++    Used by defenders to see what lures are currently presented to an adversary.
++    """
++    if get_mystique_maze is None:
++        raise HTTPException(status_code=503, detail="Maze service unavailable")
++    maze_svc = get_mystique_maze()
++    telemetry = maze_svc.get_maze_telemetry(session_id)
++    if telemetry is None:
++        raise HTTPException(status_code=404, detail="No maze for this session")
++    return {
++        "session_id": session_id,
++        "telemetry": telemetry,
++        "surface_nodes": maze_svc.get_surface_nodes(session_id),
++    }
++
++
++@router.post("/maze/probe")
++async def maze_probe(request: MazeProbeRequest):
++    """
++    Simulate an adversary probing a maze node.
++    Returns the fabricated payload + list of newly spawned child nodes.
++
++    In a live deployment this endpoint is called transparently by Seraph when
++    an AI adversary session interacts with a resource that has been replaced
++    by the mirror world. The adversary sees a realistic response; Seraph
++    collects intent telemetry.
++    """
++    if get_mystique_maze is None:
++        raise HTTPException(status_code=503, detail="Maze service unavailable")
++    maze_svc = get_mystique_maze()
++
++    if maze_svc.get_maze_telemetry(request.session_id) is None:
++        raise HTTPException(status_code=404, detail="No maze for this session — call /assess first")
++
++    payload, new_node_ids = await maze_svc.probe_node(
++        session_id=request.session_id,
++        node_id=request.node_id,
++        agenticity_score=request.agenticity_score,
++        cbr=request.cbr,
++        tbcr=request.tbcr,
++    )
++
++    # Emit world event for each maze traversal step
++    if emit_world_event is not None:
++        try:
++            import asyncio
++            telemetry = maze_svc.get_maze_telemetry(request.session_id) or {}
++            asyncio.ensure_future(emit_world_event(
++                db=None,
++                event_type="ai_adversary_maze_traversal",
++                entity_refs=[request.session_id, request.node_id],
++                payload={
++                    "session_id": request.session_id,
++                    "node_id": request.node_id,
++                    "new_nodes_spawned": len(new_node_ids),
++                    "inferred_intent": telemetry.get("inferred_intent"),
++                    "tier": telemetry.get("tier"),
++                    "total_probes": telemetry.get("total_probes"),
++                    "total_bytes_consumed": telemetry.get("total_bytes_consumed"),
++                    "agenticity_score": request.agenticity_score,
++                },
++                source="mystique_maze",
++            ))
++        except Exception:
++            pass
++
++    return {
++        "node_id": request.node_id,
++        "payload": payload,
++        "new_node_ids": new_node_ids,
++        "telemetry_snapshot": maze_svc.get_maze_telemetry(request.session_id),
++    }
++
++
++@router.get("/maze/{session_id}/telemetry")
++async def get_maze_telemetry(session_id: str, current_user: dict = Depends(get_current_user)):
++    """
++    Return full adversary intelligence collected from a mirror-world maze session.
++    Shows inferred intent, observed TTPs, reasoning budget burned, and probe history.
++    """
++    if get_mystique_maze is None:
++        raise HTTPException(status_code=503, detail="Maze service unavailable")
++    maze_svc = get_mystique_maze()
++    telemetry = maze_svc.get_maze_telemetry(session_id)
++    if telemetry is None:
++        raise HTTPException(status_code=404, detail="No maze for this session")
++    return telemetry
++
++
++# =============================================================================
++# EXPLAINABILITY ENDPOINTS
++# =============================================================================
++
++@router.get("/explain/{session_id}")
++async def explain_session_decision(session_id: str, db=Depends(get_db), current_user: dict = Depends(get_current_user)):
++    """
++    Explain why a session received its route decision.
++    
++    Returns comprehensive analysis including:
++    - Risk assessment breakdown
++    - Agenticity score components  
++    - Maze telemetry (if applicable)
++    - Campaign correlation
++    - Decision confidence factors
++    """
++    try:
++        # Get deception engine analysis
++        session_analysis = deception_engine.get_session_analysis(session_id)
++        if not session_analysis:
++            raise HTTPException(status_code=404, detail="Session not found in deception engine")
++        
++        explanation = {
++            "session_id": session_id,
++            "decision": session_analysis.get("route_decision"),
++            "confidence": session_analysis.get("confidence", 0),
++            "timestamp": session_analysis.get("last_updated"),
++            "campaign_id": session_analysis.get("campaign_id"),
++        }
++        
++        # Add risk assessment breakdown
++        risk_assessment = session_analysis.get("risk_assessment", {})
++        explanation["risk_breakdown"] = {
++            "score": risk_assessment.get("score", 0),
++            "reasons": risk_assessment.get("reasons", []),
++            "behavior_flags": risk_assessment.get("behavior_flags", {}),
++        }
++        
++        # Add agenticity analysis if available
++        try:
++            from services.agenticity import get_agenticity_persistence
++            agenticity_persist = get_agenticity_persistence(db)
++            if agenticity_persist:
++                session_summary = await agenticity_persist.get_session_summary(session_id)
++                if session_summary.get("latest_score"):
++                    explanation["agenticity"] = {
++                        "score": session_summary["latest_score"]["score"],
++                        "classification": session_summary["latest_score"]["classification"],
++                        "feature_vector": session_summary["latest_score"]["feature_vector"],
++                        "weights": session_summary["latest_score"]["weights"],
++                        "weighted_components": session_summary["latest_score"]["weighted_components"],
++                        "generated_at": session_summary["latest_score"]["generated_at"],
++                    }
++                if session_summary.get("latest_exhaustion"):
++                    explanation["exhaustion_metrics"] = session_summary["latest_exhaustion"]
++        except Exception as e:
++            explanation["agenticity_error"] = str(e)
++        
++        # Add maze analysis if applicable
++        if get_mystique_maze is not None:
++            try:
++                maze_svc = get_mystique_maze()
++                maze_telemetry = maze_svc.get_maze_telemetry(session_id)
++                if maze_telemetry:
++                    explanation["maze_analysis"] = {
++                        "maze_id": maze_telemetry["maze_id"],
++                        "tier": maze_telemetry["tier"],
++                        "inferred_intent": maze_telemetry["inferred_intent"],
++                        "total_probes": maze_telemetry["total_probes"],
++                        "total_bytes_consumed": maze_telemetry["total_bytes_consumed"],
++                        "observed_ttps": maze_telemetry["observed_ttps"],
++                        "nodes_total": maze_telemetry["nodes_total"],
++                        "nodes_accessed": maze_telemetry["nodes_accessed"],
++                    }
++            except Exception as e:
++                explanation["maze_error"] = str(e)
++        
++        # Add campaign context
++        campaign_id = session_analysis.get("campaign_id")
++        if campaign_id:
++            campaign_stats = deception_engine.get_campaign_stats(campaign_id)
++            if campaign_stats:
++                explanation["campaign_context"] = {
++                    "campaign_id": campaign_id,
++                    "total_events": campaign_stats.get("total_events", 0),
++                    "unique_sessions": campaign_stats.get("unique_sessions", 0),
++                    "risk_trend": campaign_stats.get("risk_trend", []),
++                    "last_activity": campaign_stats.get("last_activity"),
++                }
++        
++        # Add decision confidence factors
++        explanation["confidence_factors"] = {
++            "escalation_level": session_analysis.get("escalation_level"),
++            "stonewall_triggers": session_analysis.get("stonewall_triggers", []),
++            "mystique_active": session_analysis.get("mystique_active", False),
++            "disinformation_eligible": session_analysis.get("disinformation_eligible", False),
++        }
++        
++        return explanation
++        
++    except HTTPException:
++        raise
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=f"Explanation generation failed: {str(e)}")
++
++
++# =============================================================================
++# PERSISTENCE ENDPOINTS
++# =============================================================================
++
++@router.get("/maze/sessions")
++async def get_maze_sessions(limit: int = 50, db=Depends(get_db), current_user: dict = Depends(get_current_user)):
++    """Get list of active maze sessions with persistence."""
++    try:
++        from services.mystique_maze import get_maze_persistence
++        persistence = get_maze_persistence(db)
++        if persistence:
++            sessions = await persistence.get_maze_sessions(limit)
++            return {"sessions": sessions, "count": len(sessions)}
++        else:
++            return {"sessions": [], "count": 0, "note": "Database persistence not available"}
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=f"Failed to retrieve maze sessions: {str(e)}")
++
++
++@router.get("/agenticity/sessions/{session_id}")
++async def get_agenticity_session_history(session_id: str, limit: int = 10, db=Depends(get_db), current_user: dict = Depends(get_current_user)):
++    """Get agenticity score history for a session."""
++    try:
++        from services.agenticity import get_agenticity_persistence
++        persistence = get_agenticity_persistence(db)
++        if persistence:
++            scores = await persistence.get_score_history(session_id, limit)
++            exhaustion = await persistence.get_exhaustion_history(session_id, limit)
++            return {
++                "session_id": session_id,
++                "scores": scores,
++                "exhaustion_metrics": exhaustion,
++                "score_count": len(scores),
++                "exhaustion_count": len(exhaustion),
++            }
++        else:
++            return {"error": "Database persistence not available"}
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=f"Failed to retrieve agenticity history: {str(e)}")
++
++
++@router.get("/agenticity/sessions/{session_id}/summary")
++async def get_agenticity_session_summary(session_id: str, db=Depends(get_db), current_user: dict = Depends(get_current_user)):
++    """Get comprehensive agenticity session summary."""
++    try:
++        from services.agenticity import get_agenticity_persistence
++        persistence = get_agenticity_persistence(db)
++        if persistence:
++            summary = await persistence.get_session_summary(session_id)
++            return summary
++        else:
++            return {"error": "Database persistence not available"}
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=f"Failed to retrieve session summary: {str(e)}")

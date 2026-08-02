@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bluetooth \
     # WireGuard VPN
     wireguard-tools \
+    openresolv \
     # Security / malware scanning
     yara \
     clamav \

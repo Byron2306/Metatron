@@ -13,6 +13,7 @@ import {
   Zap
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 import {
@@ -31,10 +32,42 @@ const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl ===
 
 const AlertCard = ({ alert, onStatusChange }) => {
   const severityColors = {
-    critical: { bg: 'bg-red-500/10', border: 'border-red-500/30', text: 'text-red-400', icon: 'text-red-400' },
-    high: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-400', icon: 'text-amber-400' },
-    medium: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-400', icon: 'text-yellow-400' },
-    low: { bg: 'bg-green-500/10', border: 'border-green-500/30', text: 'text-green-400', icon: 'text-green-400' }
+    critical: { 
+      bg: 'bg-neon-red/10', 
+      border: 'border-neon-red/30', 
+      text: 'text-neon-red', 
+      icon: 'text-neon-red', 
+      textHex: '#EF4444', 
+      borderHex: 'rgba(239,68,68,0.3)', 
+      tint: 'rgba(239,68,68,0.12)' 
+    },
+    high: { 
+      bg: 'bg-neon-amber/10', 
+      border: 'border-neon-amber/30', 
+      text: 'text-neon-amber', 
+      icon: 'text-neon-amber', 
+      textHex: '#F59E0B', 
+      borderHex: 'rgba(245,158,11,0.3)', 
+      tint: 'rgba(245,158,11,0.11)' 
+    },
+    medium: { 
+      bg: 'bg-neon-cyan/10', 
+      border: 'border-neon-cyan/30', 
+      text: 'text-neon-cyan', 
+      icon: 'text-neon-cyan', 
+      textHex: '#06B6D4', 
+      borderHex: 'rgba(6,182,212,0.3)', 
+      tint: 'rgba(6,182,212,0.1)' 
+    },
+    low: { 
+      bg: 'bg-neon-green/10', 
+      border: 'border-neon-green/30', 
+      text: 'text-neon-green', 
+      icon: 'text-neon-green', 
+      textHex: '#10B981', 
+      borderHex: 'rgba(16,185,129,0.3)', 
+      tint: 'rgba(16,185,129,0.1)' 
+    }
   };
 
   const colors = severityColors[alert.severity] || severityColors.medium;
@@ -52,17 +85,22 @@ const AlertCard = ({ alert, onStatusChange }) => {
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      className={`p-5 ${colors.bg} border-l-4 ${colors.border} rounded-r bg-slate-900/30`}
+      className={`p-5 ${colors.bg} border-l-4 ${colors.border} rounded-r`}
+      style={{
+        background: `linear-gradient(140deg, ${colors.tint}, rgba(4,11,22,0.92))`,
+        borderLeftColor: colors.borderHex,
+        boxShadow: `0 0 16px ${colors.tint}`,
+      }}
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-start gap-3">
           <div className={`w-10 h-10 rounded flex items-center justify-center ${colors.bg}`}>
-            <TypeIcon className={`w-5 h-5 ${colors.icon}`} />
+            <TypeIcon className={`w-5 h-5 ${colors.icon}`} style={{ color: colors.textHex }} />
           </div>
           <div>
-            <h3 className="font-medium text-white">{alert.title}</h3>
+            <div className="font-medium" style={{ color: '#e6fbff' }}>{alert.title}</div>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant="outline" className={`${colors.text} ${colors.border} text-xs`}>
+              <Badge variant="outline" className={`${colors.text} ${colors.border} text-xs`} style={{ color: colors.textHex }}>
                 {alert.severity}
               </Badge>
               <Badge variant="outline" className="text-slate-400 border-slate-600 text-xs">
@@ -150,6 +188,9 @@ const AlertsPage = () => {
 
   useEffect(() => {
     fetchAlerts();
+    const id = setInterval(fetchAlerts, 10000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
   const handleStatusChange = async (alertId, newStatus) => {
@@ -181,26 +222,13 @@ const AlertsPage = () => {
 
   return (
     <div className="p-6 lg:p-8 space-y-6" data-testid="alerts-page">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-mono font-bold text-white flex items-center gap-3">
-            <Bell className="w-7 h-7 text-blue-400" />
-            Alert Management
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Monitor and respond to security alerts
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {alertStats.critical > 0 && (
-            <Badge className="bg-red-500/20 text-red-400 border-red-500/30 animate-pulse">
-              <AlertTriangle className="w-3 h-3 mr-1" />
-              {alertStats.critical} Critical
-            </Badge>
-          )}
-        </div>
-      </div>
+      <SeraphPageHeader
+        eyebrow="seraph · alerts · siem stream"
+        title={<span className="seraph-heading-flood-rtl">Alert Management</span>}
+        tagline="> live correlation · severity triage · response routing"
+        accent={alertStats.critical > 0 ? 'pink' : 'cyan'}
+        status={alertStats.critical > 0 ? `${alertStats.critical} CRITICAL` : 'NOMINAL'}
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -256,9 +284,8 @@ const AlertsPage = () => {
         </Select>
 
         <Button
-          variant="outline"
           size="sm"
-          className="ml-auto border-slate-700 text-slate-400"
+          className="ml-auto seraph-btn-primary"
           onClick={fetchAlerts}
           data-testid="refresh-alerts-btn"
         >

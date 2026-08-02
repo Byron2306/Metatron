@@ -54,6 +54,7 @@ const AuditLogPage = () => {
 
   useEffect(() => {
     fetchLogs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
   const formatDate = (isoString) => {

@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    APP_MODULE=asset_app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl tcpdump iproute2 wireguard-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN mkdir -p -m 700 /var/lib/arda
+COPY live_arda_fabric/controller_app.py live_arda_fabric/asset_app.py /app/
+COPY backend /app/backend
+RUN pip install --no-cache-dir fastapi==0.115.6 uvicorn[standard]==0.34.0 cryptography>=44
+
+CMD ["sh", "-lc", "uvicorn ${APP_MODULE}:app --host 0.0.0.0 --port 8080"]

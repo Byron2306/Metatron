@@ -3,20 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional, List, Dict, Any, Set
 import asyncio
 from routers.dependencies import get_db
-from services.world_model import WorldModelService
+from backend.services.world_model import WorldModelService
+from backend.services.governance_epoch import get_governance_epoch_service
 try:
-    from services.governance_epoch import get_governance_epoch_service
-except Exception:
-    from backend.services.governance_epoch import get_governance_epoch_service
-try:
-    from schemas.triune_models import MetatronState
+    from backend.schemas.triune_models import MetatronState
 except Exception:
     MetatronState = None
 
-try:
-    from services.vns import vns
-except Exception:
-    from backend.services.vns import vns
+from backend.services.vns import vns
 
 router = APIRouter()
 

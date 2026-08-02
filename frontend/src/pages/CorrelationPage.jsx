@@ -12,6 +12,7 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -34,6 +35,7 @@ const CorrelationPage = () => {
     fetchStats();
     fetchCorrelations();
     fetchAutoActions();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchStats = async () => {
@@ -104,16 +106,15 @@ const CorrelationPage = () => {
   };
 
   return (
-    <div className="p-6 space-y-6" data-testid="correlation-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <GitBranch className="w-6 h-6 text-purple-400" />
-            Threat Correlation
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Automated threat intelligence correlation engine</p>
-        </div>
-        <div className="flex items-center gap-4">
+    <div className="p-6 lg:p-8 space-y-6" data-testid="correlation-page">
+      <SeraphPageHeader
+        eyebrow="seraph · correlation · signal fusion"
+        title="Threat Correlation"
+        tagline="> automated threat intelligence correlation engine"
+        accent="cyan"
+        status={autoCorrelate ? 'AUTO-CORRELATE ON' : 'MANUAL'}
+        actions={
+          <div className="flex items-center gap-4 flex-wrap justify-end">
           <div className="flex items-center gap-2">
             <span className="text-slate-400 text-sm">Auto-Correlate</span>
             <Switch 
@@ -131,13 +132,14 @@ const CorrelationPage = () => {
             <Brain className={`w-4 h-4 mr-2 ${correlating ? 'animate-pulse' : ''}`} />
             {correlating ? 'Correlating...' : 'Correlate All'}
           </Button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="seraph-stat-grid grid grid-cols-1 md:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="seraph-stat-tile bg-slate-900/50 border border-slate-800 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
               <GitBranch className="w-5 h-5 text-purple-400" />
@@ -150,7 +152,7 @@ const CorrelationPage = () => {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="seraph-stat-tile bg-slate-900/50 border border-slate-800 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
               <Users className="w-5 h-5 text-red-400" />
@@ -163,7 +165,7 @@ const CorrelationPage = () => {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="seraph-stat-tile bg-slate-900/50 border border-slate-800 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
               <Target className="w-5 h-5 text-amber-400" />
@@ -176,7 +178,7 @@ const CorrelationPage = () => {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          className={`p-4 rounded-lg border ${autoCorrelate ? 'bg-green-500/10 border-green-500/30' : 'bg-slate-900/50 border-slate-800'}`}>
+          className={`seraph-stat-tile p-4 rounded-lg border ${autoCorrelate ? 'bg-green-500/10 border-green-500/30' : 'bg-slate-900/50 border-slate-800'}`}>
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${autoCorrelate ? 'bg-green-500/20' : 'bg-slate-800'}`}>
               <Zap className={`w-5 h-5 ${autoCorrelate ? 'text-green-400' : 'text-slate-400'}`} />
@@ -192,7 +194,7 @@ const CorrelationPage = () => {
       </div>
 
       {aiSummary && (
-        <Card className="bg-slate-900/50 border-slate-800">
+        <Card className="seraph-content-panel bg-slate-900/50 border-slate-800">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Brain className="w-5 h-5 text-purple-400" />
@@ -213,7 +215,7 @@ const CorrelationPage = () => {
       )}
 
       {/* Recent Correlations */}
-      <Card className="bg-slate-900/50 border-slate-800">
+      <Card className="seraph-content-panel bg-slate-900/50 border-slate-800">
         <CardHeader>
           <CardTitle className="text-white flex items-center gap-2">
             <LinkIcon className="w-5 h-5 text-purple-400" />

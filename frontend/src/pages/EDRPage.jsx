@@ -12,9 +12,24 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = (!envBackendUrl || envBackendUrl.includes('localhost')) ? '/api' : `${envBackendUrl}/api`;
+
+const EDR_ACCENTS = {
+  green: { border: 'rgba(124,226,163,0.28)', glow: 'rgba(124,226,163,0.1)', text: '#dcffe8' },
+  gold: { border: 'rgba(255,209,102,0.3)', glow: 'rgba(255,209,102,0.1)', text: '#fff0c9' },
+  violet: { border: 'rgba(197,162,235,0.32)', glow: 'rgba(197,162,235,0.12)', text: '#f0ddff' },
+  magenta: { border: 'rgba(255,138,217,0.34)', glow: 'rgba(255,138,217,0.12)', text: '#ffd8f4' },
+};
+
+const edrPanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
 
 const EDRPage = () => {
   const { token } = useAuth();
@@ -31,6 +46,7 @@ const EDRPage = () => {
   useEffect(() => {
     fetchStatus();
     fetchTelemetry();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchStatus = async () => {
@@ -169,20 +185,20 @@ const EDRPage = () => {
   };
 
   return (
-    <div className="p-6 space-y-6" data-testid="edr-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Shield className="w-6 h-6 text-green-400" />
-            EDR & Memory Forensics
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Endpoint detection, file integrity & USB control</p>
-        </div>
-        <Button onClick={fetchTelemetry} variant="outline" className="border-green-500/50 text-green-400">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh Telemetry
-        </Button>
-      </div>
+    <div className="p-6 lg:p-8 space-y-6" data-testid="edr-page">
+      <SeraphPageHeader
+        eyebrow="seraph · edr · sensor mesh"
+        title="EDR & Memory Forensics"
+        tagline="> endpoint detection · file integrity · usb control · memory dumps"
+        accent="green"
+        status="ARMED"
+        actions={
+          <Button onClick={fetchTelemetry} variant="outline" className="border-green-500/50 text-green-400">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh Telemetry
+          </Button>
+        }
+      />
 
       {/* Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -202,10 +218,10 @@ const EDRPage = () => {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={edrPanelStyle(EDR_ACCENTS.violet)}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <Database className="w-5 h-5 text-blue-400" />
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(255,209,102,0.12)' }}>
+              <Database className="w-5 h-5" style={{ color: '#ffd166' }} />
             </div>
             <div>
               <p className="text-slate-400 text-sm">Baselined Files</p>
@@ -230,7 +246,7 @@ const EDRPage = () => {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+          className="p-4" style={edrPanelStyle(EDR_ACCENTS.magenta)}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
               <Activity className="w-5 h-5 text-purple-400" />
@@ -245,7 +261,7 @@ const EDRPage = () => {
 
       {/* Telemetry Overview */}
       {telemetry && (
-        <Card className="bg-slate-900/50 border-slate-800">
+        <Card style={edrPanelStyle(EDR_ACCENTS.violet)}>
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Activity className="w-5 h-5 text-cyan-400" />
@@ -267,7 +283,7 @@ const EDRPage = () => {
                 <p className="text-slate-400 text-xs">Disk Usage</p>
               </div>
               <div className="p-3 bg-slate-800/50 rounded-lg text-center">
-                <p className="text-2xl font-bold text-blue-400">{telemetry.network_connections || 0}</p>
+                <p className="text-2xl font-bold" style={{ color: '#ffd166' }}>{telemetry.network_connections || 0}</p>
                 <p className="text-slate-400 text-xs">Network Conns</p>
               </div>
               <div className="p-3 bg-slate-800/50 rounded-lg text-center">
@@ -294,7 +310,7 @@ const EDRPage = () => {
       )}
 
       {/* Process Tree */}
-      <Card className="bg-slate-900/50 border-slate-800">
+      <Card style={edrPanelStyle(EDR_ACCENTS.violet)}>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-white flex items-center gap-2">
             <FolderTree className="w-5 h-5 text-cyan-400" />
@@ -320,7 +336,7 @@ const EDRPage = () => {
       </Card>
 
       {/* File Integrity Monitoring */}
-      <Card className="bg-slate-900/50 border-slate-800">
+      <Card style={edrPanelStyle(EDR_ACCENTS.green)}>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-white flex items-center gap-2">
             <FileSearch className="w-5 h-5 text-green-400" />
@@ -345,7 +361,7 @@ const EDRPage = () => {
               onChange={(e) => setNewPath(e.target.value)}
               className="bg-slate-800 border-slate-700 text-white"
             />
-            <Button onClick={handleAddMonitorPath}>
+            <Button onClick={handleAddMonitorPath} className="seraph-btn-primary">
               Add Path
             </Button>
           </div>
@@ -393,7 +409,7 @@ const EDRPage = () => {
       </Card>
 
       {/* USB Device Control */}
-      <Card className="bg-slate-900/50 border-slate-800">
+      <Card style={edrPanelStyle(EDR_ACCENTS.magenta)}>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-white flex items-center gap-2">
             <Usb className="w-5 h-5 text-purple-400" />
@@ -460,7 +476,7 @@ const EDRPage = () => {
       </Card>
 
       {/* Memory Forensics Info */}
-      <Card className="bg-slate-900/50 border-slate-800">
+      <Card style={edrPanelStyle(EDR_ACCENTS.gold)}>
         <CardHeader>
           <CardTitle className="text-white flex items-center gap-2">
             <Brain className="w-5 h-5 text-amber-400" />

@@ -1,377 +1,143 @@
-# CAS Shield Sentinel Playbook
-Version: 1.1  
-Classification: Defensive Security Architecture  
-Deployment Model: Sidecar Plugin (Non-Intrusive)  
-Target System: CAS Authentication Infrastructure  
-
-------------------------------------------------------------
-
-## 1. Executive Summary
-
-CAS Shield Sentinel is a defensive authentication protection layer deployed as a sidecar reverse proxy in front of a Central Authentication Service (CAS).
-
-It provides five defensive functions:
-
-1. Authentication traffic classification  
-2. Adaptive defensive friction  
-3. Attack diversion and sink containment  
-4. Trace correlation through Pebbles in My Pocket  
-5. Automated blocking escalation through Stonewall  
-
-CAS remains the system of record. The shield does not modify CAS.
-
-Safety constraints enforced by design:
-
-- No decoy login forms  
-- No credential harvesting  
-- No password parsing  
-- No request body storage  
-- TRAP_SINK never forwards upstream  
-
-------------------------------------------------------------
-
-## 2. System Design
-
-### 2.1 Architecture Summary
-
-The shield sits between clients and CAS, deciding one of three paths per request:
-
-- PASS_THROUGH: forward immediately  
-- FRICTION: delay then forward  
-- TRAP_SINK: tarpit + deny, never forward  
-
-### 2.2 Data Flow
-
-1. Request enters sidecar  
-2. Rate limiter evaluates rate pressure  
-3. Risk scorer computes score and reasons  
-4. Pebbles creates trace identifiers for correlation  
-5. Mystique adjusts defensive knobs per campaign (bounded)  
-6. Router applies PASS_THROUGH, FRICTION, or TRAP_SINK  
-7. Logs written: audit.jsonl (all), telemetry.jsonl (sink events)  
-8. Optional export to SIEM (not enabled in this bundle)  
-
-### 2.3 Full Vectoring
-
-Inputs (per request)
-
-- Source IP (and X-Forwarded-For if present)  
-- HTTP method, path, query string  
-- Header fingerprint fields (User-Agent, Accept, Accept-Language, Accept-Encoding)  
-- Rate pressure signals: token bucket failures per IP and per IP+path  
-- Upstream health status from periodic health check  
-
-Feature vectors and derived indicators
-
-- Fingerprint ID: stable hash of selected headers  
-- Campaign ID: time-windowed hash of salt + bucket + ip + fingerprint + path prefix  
-- Risk reasons: categorical flags (bad_user_agent, missing_headers, rate_pressure, suspicious_path)  
-- Route decision: PASS_THROUGH | FRICTION | TRAP_SINK  
-- Latency buckets: implied via applied delays and upstream response latency  
-
-Outputs
-
-- Audit ledger event (append-only JSONL)  
-- Telemetry event for TRAP_SINK and canary hits (append-only JSONL)  
-- Stonewall state changes (banlist, blocklist) observable via /__shield/status  
-
-------------------------------------------------------------
-
-## 3. Component Model
-
-### 3.1 Edge Proxy
-
-- Receives inbound HTTP  
-- Forwards to CAS only in PASS_THROUGH and FRICTION paths  
-- Normalizes host header handling  
-
-### 3.2 Risk Scorer
-
-Deterministic weighted scoring with reasons.
-
-Signals:
-
-- Suspicious path prefixes (.env, wp-admin, etc.)  
-- Missing or low-quality User-Agent  
-- Missing Accept / Accept-Language  
-- Rate pressure conditions (token bucket failures)  
-- Allowlist and blocklist overrides  
-
-### 3.3 Rate Limiter
-
-Token buckets:
-
-- Per IP  
-- Per IP + path  
-
-Used to increase risk score via rate_pressure and, indirectly, to drive routing decisions.
-
-### 3.4 Pebbles in My Pocket
-
-Trace identifiers written for correlation:
-
-- trace_id: request UUID  
-- fingerprint_id: hash of selected headers  
-- campaign_id: time-windowed campaign correlation key  
-
-Optional echo header:
-
-- X-Pebble-Trace is returned on FRICTION and TRAP_SINK (configurable)  
-
-### 3.5 Mystique Mode
-
-Mystique never interacts with attackers. It only adapts defense parameters using observed telemetry.
-
-It adjusts, per campaign:
-
-- friction_multiplier  
-- tarpit_multiplier  
-- sink_score_override (bounded floor)  
-
-Trigger conditions:
-
-- campaign_promote_threshold: minimum events before adaptation  
-- adapt_every_n_events: periodic adaptation cadence  
-- trap_ratio threshold: only when campaign shows strong malicious profile  
-
-### 3.6 TRAP_SINK Containment
-
-TRAP_SINK:
-
-- Applies tarpit delay  
-- Returns 403  
-- Never calls upstream forward function  
-- Writes telemetry entry  
-
-### 3.7 Stonewall Escalation
-
-Escalation logic (per campaign):
-
-- repeat_threshold: triggers ban_seconds_first  
-- repeated thresholds trigger ban_seconds_repeat  
-- trap_hits_to_blocklist triggers adding IP to in-memory blocklist  
-
-This is edge-only enforcement.
-
-------------------------------------------------------------
-
-## 4. Operational Procedures
-
-### 4.1 Normal Operations
-
-- Keep sidecar running in front of CAS  
-- Monitor /__shield/status for upstream health and counters  
-- Ship logs from ./logs to SIEM if required  
-
-### 4.2 Response Procedure
-
-When campaigns appear in logs:
-
-1. Pivot by campaign_id in audit.jsonl and telemetry.jsonl  
-2. Confirm the routes, reasons, and timestamps  
-3. Identify top paths, IPs, and fingerprints for the campaign  
-4. Increase enforcement by adding IPs to blocklist or updating WAF rules externally  
-5. Retain evidence: export matching JSONL slices and hash them for chain-of-custody  
-
-### 4.3 Investigation Workflow
-
-Primary keys:
-
-- campaign_id  
-- fingerprint_id  
-- ip  
-
-Workflow:
-
-1. Identify high-rate TRAP_SINK bursts in telemetry.jsonl  
-2. Group by campaign_id to detect coordinated attacks  
-3. Compare fingerprints across IP changes to identify distributed tools  
-4. Validate whether any suspicious traffic reached CAS by comparing CAS logs to PASS_THROUGH or FRICTION events  
-5. Produce timeline report:
-   - first_seen  
-   - last_seen  
-   - routes count  
-   - top paths  
-   - enforcement actions taken  
-
-------------------------------------------------------------
-
-## 5. Expected Behaviour Tests
-
-These map directly to the implementation in this bundle.
-
-### 5.1 FRICTION: delay applied then forward, audit includes reasons
-
-Trigger:
-
-- Missing headers or bot-like User-Agent  
-- High rate pressure  
-
-Expected:
-
-- route=FRICTION  
-- audit event includes reasons and delay_ms  
-- request forwarded upstream successfully  
-
-### 5.2 TRAP_SINK: probes to /.env or /wp-admin
-
-Trigger:
-
-- suspicious_path rule  
-
-Expected:
-
-- route=TRAP_SINK  
-- response 403 with tarpit delay  
-- telemetry event written  
-- upstream not called  
-
-### 5.3 Repeat trap hits: stonewall escalation
-
-Trigger:
-
-- repeated TRAP_SINK events for same campaign  
-
-Expected:
-
-- banlist_size increases in /__shield/status  
-- blocklist_size increases after trap threshold  
-- subsequent requests may be denied immediately  
-
-### 5.4 Upstream health down: 503 and circuit breaker
-
-Trigger:
-
-- CAS health endpoint fails  
-
-Expected:
-
-- response 503  
-- audit reason upstream_unhealthy_or_circuit_open  
-- /__shield/status shows upstream_healthy false or circuit_open true  
-
-------------------------------------------------------------
-
-## 6. Self-Check Assertions
-
-All must remain true:
-
-- The code never renders a login form  
-- The code never stores request bodies  
-- The code only reads bodies when forwarding to CAS  
-- The trap path does not forward upstream  
-
-You can verify:
-
-- Only forward_to_cas reads req.body  
-- TRAP_SINK and canary paths do not call forward_to_cas  
-- Responses from the sidecar are either:
-  - upstream CAS responses
-  - PlainText 403 / 503
-  - 204 for canary hits  
-
-------------------------------------------------------------
-
-## 7. Deployment Architecture
-
-### 7.1 Production Topology
-
-Recommended:
-
-- External load balancer terminates TLS  
-- Sidecar runs as an internal service  
-- CAS behind it on private network  
-
-ASCII diagram:
-
-```
-Internet
-  |
-[LB / TLS]
-  |
-  v
-[CAS Shield Sentinel]  -> logs -> SIEM (optional)
-  |
-  v
-[CAS]
-```
-
-Mermaid diagram (for markdown renderers that support it):
-
-```mermaid
-flowchart LR
-  A[Clients] --> B[Load Balancer / TLS]
-  B --> C[CAS Shield Sentinel]
-  C -->|PASS_THROUGH| D[CAS]
-  C -->|FRICTION| D
-  C -->|TRAP_SINK| E[Sink Response]
-  C --> F[(Audit JSONL)]
-  C --> G[(Telemetry JSONL)]
-  F --> H[SIEM Export Optional]
-  G --> H
-```
-
-### 7.2 Sidecar Compatibility
-
-- Works with any CAS deployment that can be reached via HTTP(S) upstream  
-- No CAS code changes  
-- No schema changes  
-- No directory integration changes  
-
-------------------------------------------------------------
-
-## 8. Deployment Bundle Contents
-
-This bundle includes:
-
-- Dockerfile for the sidecar  
-- docker-compose.yml for sidecar + optional demo upstream  
-- src/cas_shield_sidecar.py  
-- config/cas_shield_config.json  
-- scripts/smoke_test.sh and scripts/smoke_test.py  
-
-------------------------------------------------------------
-
-## 9. Quick Start
-
-### 9.1 Run with Docker Compose (recommended)
-
-1. Set environment variables (example):
-
-- CAS_BASE_URL points to your CAS upstream  
-- PEBBLES_SALT must be a long random string  
-
-2. Start:
-
-- docker compose up --build
-
-3. Check status:
-
-- GET http://localhost:8080/__shield/status
-
-### 9.2 Run locally without containers
-
-pip install fastapi uvicorn httpx requests
-
-export CAS_SHIELD_CONFIG=./config/cas_shield_config.json  
-export CAS_BASE_URL=http://127.0.0.1:9090  
-export PEBBLES_SALT=long_random_value  
-
-python src/cas_shield_sidecar.py
-
-------------------------------------------------------------
-
-## 10. Evidence Handling
-
-If you need audit-ready artefacts:
-
-- Retain the relevant slice of audit.jsonl and telemetry.jsonl  
-- Produce a hash of the slice and store with timestamp  
-- Document enforcement actions:
-  - bans applied
-  - IPs moved to blocklist  
-- Store /__shield/status output at time of incident  
-
-------------------------------------------------------------
-
-END OF PLAYBOOK
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.3
+aiohttp-retry==2.9.1
+aiosignal==1.4.0
+annotated-types==0.7.0
+anyio==4.12.1
+attrs==25.4.0
+bcrypt==4.1.3
+black==26.1.0
+boto3==1.42.42
+botocore==1.42.42
+certifi==2026.1.4
+cffi==2.0.0
+charset-normalizer==3.4.4
+click==8.3.1
+cryptography==46.0.4
+distro==1.9.0
+dnspython==2.8.0
+ecdsa==0.19.1
+elastic-transport==9.2.1
+elasticsearch==9.3.0
+email-validator==2.3.0
+fastapi==0.110.1
+fastuuid==0.14.0
+filelock==3.20.3
+flake8==7.3.0
+frozenlist==1.8.0
+fsspec==2026.1.0
+google-ai-generativelanguage==0.6.15
+google-api-core==2.29.0
+google-api-python-client==2.189.0
+google-auth==2.49.0.dev0
+google-auth-httplib2==0.3.0
+google-genai==1.62.0
+google-generativeai==0.8.6
+googleapis-common-protos==1.72.0
+grpcio==1.76.0
+grpcio-status==1.71.2
+h11==0.16.0
+hf-xet==1.2.0
+httpcore==1.0.9
+httplib2==0.31.2
+httpx==0.28.1
+huggingface_hub==1.4.0
+idna==3.11
+importlib_metadata==8.7.1
+iniconfig==2.3.0
+invoke==2.2.1
+ipaddress==1.0.23
+isort==7.0.0
+Jinja2==3.1.6
+jiter==0.13.0
+jmespath==1.1.0
+jq==1.11.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+librt==0.7.8
+litellm==1.80.0
+markdown-it-py==4.0.0
+MarkupSafe==3.0.3
+mccabe==0.7.0
+mdurl==0.1.2
+motor==3.3.1
+multidict==6.7.1
+mypy==1.19.1
+mypy_extensions==1.1.0
+numpy==2.4.2
+oauthlib==3.3.1
+openai==1.99.9
+packaging==26.0
+pandas==3.0.0
+paramiko==4.0.0
+passlib==1.7.4
+pathspec==1.0.4
+pefile==2024.8.26
+pillow==12.1.0
+platformdirs==4.5.1
+pluggy==1.6.0
+propcache==0.4.1
+proto-plus==1.27.1
+protobuf==5.29.6
+psutil==7.2.2
+pyasn1==0.6.2
+pyasn1_modules==0.4.2
+pycodestyle==2.14.0
+pycparser==3.0
+pydantic==2.12.5
+pydantic_core==2.41.5
+pyflakes==3.4.0
+Pygments==2.19.2
+PyJWT==2.11.0
+pymongo==4.5.0
+PyNaCl==1.6.2
+pyparsing==3.3.2
+pyspnego==0.12.0
+pytest==9.0.2
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
+python-http-client==3.3.7
+python-jose==3.5.0
+python-multipart==0.0.22
+python-nmap==0.7.1
+pytokens==0.4.1
+pywinrm==0.5.0
+PyYAML==6.0.3
+referencing==0.37.0
+regex==2026.1.15
+reportlab==4.4.9
+requests==2.32.5
+requests-oauthlib==2.0.0
+requests_ntlm==1.3.0
+rich==14.3.2
+rpds-py==0.30.0
+rsa==4.9.1
+s3transfer==0.16.0
+s5cmd==0.2.0
+sendgrid==6.12.5
+shellingham==1.5.4
+six==1.17.0
+sniffio==1.3.1
+starlette==0.37.2
+stripe==14.3.0
+tenacity==9.1.2
+tiktoken==0.12.0
+tokenizers==0.22.2
+tqdm==4.67.3
+twilio==9.10.1
+typer==0.21.1
+typer-slim==0.21.1
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2025.3
+uritemplate==4.2.0
+urllib3==2.6.3
+uvicorn==0.25.0
+volatility3==2.27.0
+watchfiles==1.1.1
+websocket-client==1.9.0
+websockets==15.0.1
+Werkzeug==3.1.5
+xmltodict==1.0.2
+yarl==1.22.0
+zipp==3.23.0

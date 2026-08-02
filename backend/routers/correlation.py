@@ -24,6 +24,8 @@ async def get_correlation_stats(current_user: dict = Depends(get_current_user)):
 async def correlate_threat(threat_id: str, current_user: dict = Depends(get_current_user)):
     """Correlate a specific threat with threat intelligence"""
     db = get_db()
+    if db is not None:
+        ThreatCorrelationEngine.set_database(db)
     
     # Get threat from database
     threat = await db.threats.find_one({"id": threat_id}, {"_id": 0})
@@ -75,6 +77,10 @@ async def get_correlation(threat_id: str, current_user: dict = Depends(get_curre
 @router.post("/all-active")
 async def correlate_all_active(current_user: dict = Depends(check_permission("write"))):
     """Correlate all active threats"""
+    db = get_db()
+    if db is not None:
+        ThreatCorrelationEngine.set_database(db)
+
     from dataclasses import asdict
     results = await correlation_engine.correlate_all_active_threats()
     correlations = [asdict(r) for r in results]

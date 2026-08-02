@@ -49,6 +49,11 @@ class CapabilityToken:
     issued_at: str
     issuer: str
     nonce: str
+    
+    # Governance
+    governance_decision_id: Optional[str]
+    governance_queue_id: Optional[str]
+    governance_action_type: Optional[str]
 
 
 @dataclass
@@ -116,6 +121,9 @@ class TokenBroker:
         self.access_log: List[Dict] = []
         
         logger.info("Token Broker / Secrets Vault initialized")
+        # Administrative audit log for token issuance/revocation actions
+        self.token_admin_audit_log: List[Dict] = []
+
     
     def _encrypt(self, plaintext: str) -> str:
         """Simple encryption (in production, use proper crypto)"""
@@ -254,7 +262,11 @@ class TokenBroker:
     def issue_token(self, principal: str, principal_identity: str,
                     action: str, targets: List[str],
                     tool_id: str = None, ttl_seconds: int = 300,
-                    max_uses: int = 1, constraints: Dict = None) -> CapabilityToken:
+                    max_uses: int = 1, constraints: Dict = None,
+                    governance_context: Dict = None,
+                    polyphonic_token_context: Dict = None,
+                    future_notation_token_ref: str = None,
+                    issued_by: str = "token_broker") -> CapabilityToken:
         """
         Issue a scoped capability token.
         
@@ -267,10 +279,18 @@ class TokenBroker:
             ttl_seconds: Token lifetime
             max_uses: Maximum uses
             constraints: Additional constraints
+            governance_context: Required governance approval context
+            polyphonic_token_context: Polyphonic token context for advanced scenarios
+            future_notation_token_ref: Reference to future notation token
+            issued_by: Who issued this token
         
         Returns:
             CapabilityToken
         """
+        # Require governance approval for all token issuance
+        if not governance_context or not governance_context.get("approved", False):
+            raise PermissionError("Token issuance requires approved governance context")
+        
         import uuid
         
         token_id = f"tok-{uuid.uuid4().hex[:16]}"
@@ -305,11 +325,26 @@ class TokenBroker:
             constraints=constraints or {},
             signature=signature,
             issued_at=now.isoformat(),
-            issuer="token_broker",
-            nonce=nonce
+            issuer=issued_by,
+            nonce=nonce,
+            governance_decision_id=governance_context.get("decision_id"),
+            governance_queue_id=governance_context.get("queue_id"),
+            governance_action_type=governance_context.get("action_type")
         )
         
         self.active_tokens[token_id] = token
+        
+        # Audit log
+        self.token_admin_audit_log.append({
+            "action": "issue",
+            "token_id": token_id,
+            "principal": principal,
+            "action": action,
+            "targets": targets,
+            "governance_context": governance_context,
+            "issued_by": issued_by,
+            "timestamp": now.isoformat()
+        })
         
         logger.info(f"TOKEN: Issued {token_id} for {principal} | Action: {action} | TTL: {ttl_seconds}s")
         
@@ -373,18 +408,38 @@ class TokenBroker:
         
         return True, "Token valid"
     
-    def revoke_token(self, token_id: str) -> bool:
+    def revoke_token(
+        self,
+        token_id: str,
+        governance_context: Dict = None,
+        revoked_by: str = "token_broker",
+    ) -> bool:
         """Revoke a token"""
+        now = datetime.now(timezone.utc)
+
         if token_id in self.active_tokens:
             del self.active_tokens[token_id]
         
         self.revoked_tokens.add(token_id)
+
+        self.token_admin_audit_log.append({
+            "action": "revoke",
+            "token_id": token_id,
+            "governance_context": governance_context,
+            "revoked_by": revoked_by,
+            "timestamp": now.isoformat(),
+        })
         
         logger.info(f"TOKEN: Revoked {token_id}")
         
         return True
     
-    def revoke_tokens_for_principal(self, principal: str) -> int:
+    def revoke_tokens_for_principal(
+        self,
+        principal: str,
+        governance_context: Dict = None,
+        revoked_by: str = "token_broker",
+    ) -> int:
         """Revoke all tokens for a principal (e.g., on trust degradation)"""
         count = 0
         
@@ -394,12 +449,73 @@ class TokenBroker:
         ]
         
         for token_id in tokens_to_revoke:
-            self.revoke_token(token_id)
+            self.revoke_token(
+                token_id,
+                governance_context=governance_context,
+                revoked_by=revoked_by,
+            )
             count += 1
         
         logger.warning(f"TOKEN: Revoked {count} tokens for principal {principal}")
         
         return count
+
+    def apply_ai_trust_degradation(
+        self,
+        session_id: str,
+        agenticity_score: float = 0.0,
+        agenticity_classification: str = "LOW",
+        cbr: float = 0.0,
+        tbcr: float = 0.0,
+        logic_budget_force_trap: bool = False,
+    ) -> Dict:
+        """
+        Degrade trust and revoke tokens for an AI session based on formal metrics.
+        Called when agenticity classification is HIGH/VERY_HIGH or logic-budget
+        exhaustion forces a TRAP_SINK.  CBR and TBCR are used to constrain future
+        token TTLs (the higher the compute burn, the shorter the allowed lifetime).
+        Returns a summary of actions taken.
+        """
+        principal = f"ai_session:{session_id}"
+        actions_taken = []
+
+        # Always revoke on forced trap — the session is adversarial.
+        if logic_budget_force_trap or agenticity_classification in ("HIGH", "VERY_HIGH"):
+            revoked = self.revoke_tokens_for_principal(
+                principal=principal,
+                governance_context={
+                    "approved": True,
+                    "decision_id": f"ai-trust-degrade-{session_id}",
+                    "action_type": "ai_adversary_token_revocation",
+                    "agenticity_score": agenticity_score,
+                    "agenticity_classification": agenticity_classification,
+                    "logic_budget_force_trap": logic_budget_force_trap,
+                },
+                revoked_by="ai_defense_engine",
+            )
+            if revoked > 0:
+                actions_taken.append(f"revoked:{revoked}_tokens")
+            logger.warning(
+                f"TOKEN: AI trust degradation for session {session_id} "
+                f"| classification={agenticity_classification} "
+                f"| force_trap={logic_budget_force_trap} "
+                f"| revoked={revoked} tokens"
+            )
+
+        # Compute an advisory TTL cap for future tokens (seconds).
+        # At CBR=1.0 (budget exhausted) → 30 s max; at CBR=0 → 300 s default.
+        max_cbr = max(cbr, tbcr, 0.01)
+        advisory_ttl_cap = max(30, int(300 * (1.0 - min(1.0, max_cbr))))
+        actions_taken.append(f"advisory_ttl_cap:{advisory_ttl_cap}s")
+
+        return {
+            "session_id": session_id,
+            "principal": principal,
+            "agenticity_classification": agenticity_classification,
+            "logic_budget_force_trap": logic_budget_force_trap,
+            "advisory_ttl_cap_seconds": advisory_ttl_cap,
+            "actions_taken": actions_taken,
+        }
     
     def get_active_tokens(self, principal: str = None) -> List[Dict]:
         """Get active tokens (optionally filtered by principal)"""

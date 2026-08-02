@@ -3,12 +3,9 @@
 from typing import Any
 
 try:
-    from services.world_events import emit_world_event
+    from backend.services.world_events import emit_world_event
 except Exception:
-    try:
-        from backend.services.world_events import emit_world_event
-    except Exception:
-        emit_world_event = None
+    emit_world_event = None
 
 # placeholder: will use networkx or similar when implemented
 

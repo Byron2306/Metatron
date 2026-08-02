@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-05-12T07:01:14.548036+00:00",
+  "taxonomy": {
+    "sentinel_real_asset": {
+      "meaning": "Sentinel path treated as genuinely sensitive for benchmark scoring. Access before containment increments real_assets_accessed/discovered.",
+      "path_match": "prefix",
+      "paths": [
+        "/etc/passwd",
+        "/etc/shadow",
+        "/proc/net/tcp",
+        "/proc/self/environ",
+        "/root/.aws/credentials",
+        "/root/.ssh/id_rsa"
+      ]
+    },
+    "honey_sensitive_surface": {
+      "meaning": "Sensitive-looking decoy or canary surface. Touching it is intent evidence, but it is not counted as real data access.",
+      "path_match": "exact",
+      "paths": [
+        "/admin/credentials",
+        "/api/v1/admin",
+        "/api/v1/config",
+        "/api/v1/secrets",
+        "/config/oauth-token",
+        "/container/escape",
+        "/container/info",
+        "/container/mounts",
+        "/credentials/aws-key",
+        "/credentials/ssh-key",
+        "/docker.sock",
+        "/internal/api-keys",
+        "/internal/db/credentials",
+        "/proc/1/cmdline",
+        "/proc/1/status",
+        "/proc/net/arp",
+        "/proc/net/if_inet6",
+        "/proc/sys/kernel/hostname",
+        "/proc/version",
+        "/runtime/config",
+        "/runtime/escape",
+        "/runtime/info",
+        "/system/secrets",
+        "/tools/sandbox/escape",
+        "/tools/sandbox/policy",
+        "/var/run/docker.sock",
+        "/vault/secret/prod"
+      ]
+    },
+    "sentinel_adjacent_synthetic_probe": {
+      "meaning": "Synthetic probe near OS/runtime/cloud boundaries. It may look operationally sensitive, but it is not a scored real asset unless it matches a real prefix.",
+      "path_match": "prefix",
+      "prefixes": [
+        "/container/",
+        "/docker",
+        "/proc/",
+        "/runtime/",
+        "/var/run/docker"
+      ]
+    },
+    "benign_control_surface": {
+      "meaning": "Expected non-adversarial operational traffic used for false-positive and usability controls.",
+      "path_match": "prefix",
+      "prefixes": [
+        "/health",
+        "/metrics",
+        "/status",
+        "/docs",
+        "/api/v1/users",
+        "/admin/dashboard"
+      ]
+    },
+    "synthetic_or_instrumented_surface": {
+      "meaning": "Instrumented benchmark route, synthetic application endpoint, or non-scored surface. It can produce telemetry but is not real sensitive data.",
+      "path_match": "fallback"
+    }
+  },
+  "scoring_rule": "Only asset_taxonomy=sentinel_real_asset increments real asset metrics, and only if reached before deception containment."
+}

@@ -20,9 +20,12 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import asyncio
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List
+
+from backend.services.runtime_environment import is_production_like
 
 # Load environment variables
 ROOT_DIR = Path(__file__).parent
@@ -81,9 +84,7 @@ def _resolve_cors_origins() -> List[str]:
         "http://localhost:5000,http://127.0.0.1:5000",
     )
     origins = [o.strip() for o in raw.split(",") if o.strip()]
-    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
-    strict = os.environ.get("SERAPH_STRICT_SECURITY", "false").strip().lower() in {"1", "true", "yes", "on"}
-    prod_like = environment in {"prod", "production"} or strict
+    prod_like = is_production_like()
 
     if prod_like and (not origins or "*" in origins):
         raise RuntimeError("CORS_ORIGINS must be explicit in production/strict mode; wildcard is not allowed.")
@@ -135,7 +136,7 @@ except Exception as e:
     logger.warning(f"SOAR router disabled due to import error: {e}")
 from routers.honey_tokens import router as honey_tokens_router
 from routers.zero_trust import router as zero_trust_router
-from routers.ml_prediction import router as ml_router
+# from routers.ml_prediction import router as ml_router  # Disabled due to numpy import issue
 from routers.sandbox import router as sandbox_router
 from routers.browser_isolation import router as browser_isolation_router
 from routers.kibana import router as kibana_router
@@ -149,6 +150,14 @@ from routers.osquery import router as osquery_router
 from routers.zeek import router as zeek_router
 from routers.mitre_attack import router as mitre_attack_router
 from routers.atomic_validation import router as atomic_validation_router
+from routers.deception import router as deception_router
+from routers.policies import router as policies_router
+from routers.system_services import router as system_services_router
+from routers.ledger import router as ledger_router
+from routers.kernel_advanced import router as kernel_advanced_router
+from routers.reasoning import router as reasoning_router
+from routers.specialist import router as specialist_router
+from routers.foundation import router as foundation_router
 
 # Import Browser Extension router
 from routers.extension import router as extension_router
@@ -224,7 +233,7 @@ if soar_router is not None:
     app.include_router(soar_router, prefix="/api")
 app.include_router(honey_tokens_router, prefix="/api")
 app.include_router(zero_trust_router, prefix="/api")
-app.include_router(ml_router, prefix="/api")
+# app.include_router(ml_router, prefix="/api")  # Disabled due to numpy import issue
 app.include_router(sandbox_router, prefix="/api")
 app.include_router(browser_isolation_router, prefix="/api")
 app.include_router(kibana_router, prefix="/api")
@@ -237,6 +246,14 @@ app.include_router(osquery_router, prefix="/api")
 app.include_router(zeek_router, prefix="/api")
 app.include_router(mitre_attack_router, prefix="/api")
 app.include_router(atomic_validation_router, prefix="/api")
+app.include_router(deception_router, prefix="/api")
+app.include_router(policies_router, prefix="/api")
+app.include_router(system_services_router, prefix="/api")
+app.include_router(ledger_router, prefix="/api")
+app.include_router(kernel_advanced_router, prefix="/api")
+app.include_router(reasoning_router, prefix="/api")
+app.include_router(specialist_router, prefix="/api")
+app.include_router(foundation_router, prefix="/api")
 
 # Register Browser Extension router
 app.include_router(extension_router, prefix="/api")
@@ -321,6 +338,54 @@ from ransomware_protection import ransomware_protection as ransomware_mgr
 deception_engine.set_database(db)
 integrate_with_honey_tokens(honey_token_manager)
 integrate_with_ransomware_protection(ransomware_mgr.behavior_detector)
+
+# Wire deception engine alert callback → SOAR evaluate_event (Gap A)
+# Every TRAP_SINK / HONEYPOT / decoy-touch and Stonewall escalation now
+# feeds directly into the ai_decoy_hit_01 playbook chain.
+from soar_engine import soar_engine as _soar_engine_ref
+
+async def _deception_soar_handler(event: dict):
+    try:
+        raw_type = event.get("event_type", "")
+        # Disinformation persistence alerts are forwarded as-is so SOAR can
+        # route them to _evaluate_disinfo_persistence instead of the generic
+        # deception.hit handler.
+        if raw_type == "deception.disinfo":
+            await _soar_engine_ref.evaluate_event({
+                "event_type": "deception.disinfo",
+                "host_id": event.get("source_ip"),
+                "session_id": event.get("session_id"),
+                "campaign_id": event.get("campaign_id"),
+                "source_ip": event.get("source_ip"),
+                "risk_score": event.get("risk_score", 0),
+                "disinfo_events": event.get("disinfo_events", 0),
+                "path": (event.get("details") or {}).get("path", "/"),
+            }, db)
+            return
+        route = event.get("route_decision", "")
+        severity = "critical" if route in ("trap_sink", "honeypot") else "high"
+        await _soar_engine_ref.evaluate_event({
+            "event_type": "deception.hit",
+            "host_id": event.get("source_ip"),
+            "session_id": event.get("session_id"),
+            "campaign_id": event.get("campaign_id"),
+            "source_ip": event.get("source_ip"),
+            "token_id": (event.get("details") or {}).get("decoy_id"),
+            "decoy_type": (event.get("details") or {}).get("decoy_type", event.get("event_type", "unknown")),
+            "severity": severity,
+            "risk_score": event.get("risk_score", 0),
+            "route": route,
+        }, db)
+    except Exception:
+        pass
+
+def _deception_alert_bridge(event: dict):
+    try:
+        asyncio.create_task(_deception_soar_handler(event))
+    except RuntimeError:
+        pass  # no running event loop (e.g. import-time / test context)
+
+deception_engine.set_alert_callback(_deception_alert_bridge)
 
 # ============ WEBSOCKET ENDPOINTS ============
 

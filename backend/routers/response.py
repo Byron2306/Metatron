@@ -22,6 +22,14 @@ def _configure_response_engine_db(db):
     """Ensure threat response durability writes use the active DB handle."""
     response_engine.configure_db(db)
 
+
+def _result_to_dict(result) -> dict:
+    """Serialize a ResponseResult dataclass to a JSON-safe dict."""
+    from dataclasses import asdict
+    from enum import Enum
+    raw = asdict(result)
+    return {k: (v.value if isinstance(v, Enum) else v) for k, v in raw.items()}
+
 class BlockIPRequest(BaseModel):
     ip: str
     reason: str = "Manual block"
@@ -56,7 +64,7 @@ async def block_ip(request: BlockIPRequest, current_user: dict = Depends(check_p
             request.duration_hours,
             current_user.get("name", "admin")
         )
-        return result
+        return _result_to_dict(result)
     except Exception as e:
         logger.error(f"Failed to block IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -67,7 +75,7 @@ async def unblock_ip(ip: str, current_user: dict = Depends(check_permission("wri
     try:
         _configure_response_engine_db(get_db())
         result = await manual_unblock_ip(ip, current_user.get("name", "admin"))
-        return result
+        return _result_to_dict(result)
     except Exception as e:
         logger.error(f"Failed to unblock IP: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -185,7 +193,7 @@ async def update_response_settings(settings: dict, current_user: dict = Depends(
 async def test_sms(request: SMSTestRequest, current_user: dict = Depends(check_permission("write"))):
     """Test SMS alerting"""
     try:
-        result = await sms_service.send_alert(request.phone_number, request.message)
+        result = await sms_service.send_emergency_sms(message=request.message, recipients=[request.phone_number] if request.phone_number else None)
         if result:
             return {"success": True, "message": "SMS sent"}
         else:
@@ -227,7 +235,7 @@ async def analyze_with_openclaw(threat_data: dict, current_user: dict = Depends(
 async def get_forensics(incident_id: str, current_user: dict = Depends(get_current_user)):
     """Get forensic evidence for an incident"""
     try:
-        evidence = await forensics.get_evidence(incident_id)
+        evidence = await forensics.get_evidence_by_id(incident_id)
         return evidence
     except Exception as e:
         logger.error(f"Forensics retrieval failed: {str(e)}")

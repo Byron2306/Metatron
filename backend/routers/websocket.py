@@ -26,7 +26,7 @@ async def send_command_to_agent(agent_id: str, command: Dict[str, Any], current_
     """Send a command to a specific agent"""
     message = WSMessage(
         type=WSMessageType.COMMAND,
-        data={
+        payload={
             "command": command.get("command"),
             "params": command.get("params", {}),
             "issued_by": current_user.get("name", "admin")
@@ -44,7 +44,7 @@ async def request_agent_scan(agent_id: str, scan_type: str = "full", current_use
     """Request an agent to perform a scan"""
     message = WSMessage(
         type=WSMessageType.SCAN_REQUEST,
-        data={
+        payload={
             "scan_type": scan_type,
             "requested_by": current_user.get("name", "admin")
         }

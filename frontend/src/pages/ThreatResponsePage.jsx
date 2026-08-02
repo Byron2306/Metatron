@@ -6,11 +6,26 @@ import {
   Server, Globe, Unlock, FileText, Settings2, Send
 } from 'lucide-react';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
   ? ''
   : envBackendUrl.replace(/\/+$/, '');
+
+const RESPONSE_ACCENTS = {
+  magenta: { border: 'rgba(255,138,217,0.34)', glow: 'rgba(255,138,217,0.12)', text: '#ffd8f4', icon: '#ff8ad9' },
+  gold: { border: 'rgba(255,209,102,0.3)', glow: 'rgba(255,209,102,0.1)', text: '#fff0c9', icon: '#ffd166' },
+  green: { border: 'rgba(124,226,163,0.28)', glow: 'rgba(124,226,163,0.1)', text: '#dcffe8', icon: '#7ce2a3' },
+  violet: { border: 'rgba(197,162,235,0.32)', glow: 'rgba(197,162,235,0.12)', text: '#f0ddff', icon: '#c5a2eb' },
+};
+
+const responsePanelStyle = (accent) => ({
+  background: 'linear-gradient(160deg, rgba(8,18,34,0.92), rgba(3,9,18,0.96))',
+  border: `1px solid ${accent.border}`,
+  boxShadow: `0 0 14px ${accent.glow}, inset 0 0 8px rgba(255,255,255,0.02)`,
+  borderRadius: '14px',
+});
 
 const ThreatResponsePage = () => {
   const [loading, setLoading] = useState(true);
@@ -187,32 +202,31 @@ const ThreatResponsePage = () => {
   if (loading && !stats) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
+        <RefreshCw className="w-8 h-8 animate-spin" style={{ color: '#ffd8f4' }} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6" data-testid="threat-response-page">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded bg-red-500/20">
-            <Zap className="w-6 h-6 text-red-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-mono font-bold">Automated Response</h1>
-            <p className="text-slate-400 text-sm">Autonomous threat detection and mitigation</p>
-          </div>
-        </div>
+    <div className="space-y-6" data-testid="threat-response-page" data-accent="magenta">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <SeraphPageHeader
+          eyebrow="seraph · response · autonomous containment"
+          title="Automated Response"
+          tagline="> autonomous threat detection and mitigation"
+          accent="pink"
+          status={settings?.auto_response?.auto_block_enabled ? 'AUTO-BLOCK ON' : 'AUTO-BLOCK OFF'}
+        />
         <div className="flex items-center gap-2">
           <button
             onClick={handleToggleAutoBlock}
             disabled={actionLoading === 'toggle'}
             className={`flex items-center gap-2 px-4 py-2 rounded font-semibold transition-all ${
               settings?.auto_response?.auto_block_enabled 
-                ? 'bg-green-600 hover:bg-green-500 text-white' 
-                : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                ? 'text-white' 
+                : 'text-slate-300'
             }`}
+              style={settings?.auto_response?.auto_block_enabled ? { background: 'linear-gradient(135deg, #7ce2a3, #c5a2eb)', color: '#071018' } : { background: 'rgba(8,20,38,0.82)', border: '1px solid rgba(115,163,185,0.16)' }}
             data-testid="auto-block-toggle"
           >
             {settings?.auto_response?.auto_block_enabled ? (
@@ -230,7 +244,8 @@ const ThreatResponsePage = () => {
           <button
             onClick={fetchData}
             disabled={loading}
-            className="p-2 bg-slate-700 hover:bg-slate-600 rounded"
+            className="p-2 rounded"
+            style={{ background: 'rgba(8,20,38,0.82)', border: '1px solid rgba(255,138,217,0.24)' }}
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -242,7 +257,8 @@ const ThreatResponsePage = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+          className="p-4"
+          style={responsePanelStyle(RESPONSE_ACCENTS.magenta)}
         >
           <div className="flex items-center gap-2 text-slate-400 mb-1">
             <Activity className="w-4 h-4" />
@@ -255,7 +271,8 @@ const ThreatResponsePage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+          className="p-4"
+          style={responsePanelStyle(RESPONSE_ACCENTS.magenta)}
         >
           <div className="flex items-center gap-2 text-red-400 mb-1">
             <Ban className="w-4 h-4" />
@@ -268,7 +285,8 @@ const ThreatResponsePage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+          className="p-4"
+          style={responsePanelStyle(RESPONSE_ACCENTS.gold)}
         >
           <div className="flex items-center gap-2 text-amber-400 mb-1">
             <Globe className="w-4 h-4" />
@@ -281,7 +299,8 @@ const ThreatResponsePage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+          className="p-4"
+          style={responsePanelStyle(RESPONSE_ACCENTS.violet)}
         >
           <div className="flex items-center gap-2 text-cyan-400 mb-1">
             <Phone className="w-4 h-4" />
@@ -300,7 +319,8 @@ const ThreatResponsePage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+          className="p-4"
+          style={responsePanelStyle(RESPONSE_ACCENTS.violet)}
         >
           <div className="flex items-center gap-2 text-purple-400 mb-1">
             <Bot className="w-4 h-4" />
@@ -323,7 +343,8 @@ const ThreatResponsePage = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-lg p-6"
+          className="p-6"
+          style={responsePanelStyle(RESPONSE_ACCENTS.magenta)}
         >
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded bg-red-500/20">
@@ -383,7 +404,8 @@ const ThreatResponsePage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-lg p-6"
+          className="p-6"
+          style={responsePanelStyle(RESPONSE_ACCENTS.gold)}
         >
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -435,7 +457,8 @@ const ThreatResponsePage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-lg p-6"
+          className="p-6"
+          style={responsePanelStyle(RESPONSE_ACCENTS.violet)}
         >
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded bg-purple-500/20">
@@ -510,7 +533,8 @@ const ThreatResponsePage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-lg p-6"
+          className="p-6"
+          style={responsePanelStyle(RESPONSE_ACCENTS.green)}
         >
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded bg-cyan-500/20">
@@ -571,7 +595,13 @@ const ThreatResponsePage = () => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
-        className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-500/30 rounded-lg p-6"
+        className="p-6"
+        style={{
+          background: 'linear-gradient(135deg, rgba(255,138,217,0.12), rgba(197,162,235,0.08), rgba(8,18,34,0.92))',
+          border: '1px solid rgba(255,138,217,0.28)',
+          boxShadow: '0 0 16px rgba(255,138,217,0.1)',
+          borderRadius: '14px',
+        }}
       >
         <div className="flex items-start gap-4">
           <Bot className="w-8 h-8 text-purple-400 flex-shrink-0" />

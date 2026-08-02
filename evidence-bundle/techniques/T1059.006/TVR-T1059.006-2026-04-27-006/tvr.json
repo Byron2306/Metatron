@@ -1,0 +1,1990 @@
+{
+  "record_type": "technique_validation_record",
+  "schema_version": "1.0.0",
+  "validation_id": "TVR-T1059.006-2026-04-27-006",
+  "technique": {
+    "attack_id": "T1059.006",
+    "name": "T1059.006",
+    "tactics": [
+      "execution"
+    ],
+    "platforms": [
+      "Linux"
+    ]
+  },
+  "procedure": {
+    "source": "atomic_red_team",
+    "procedure_id": "ART-T1059.006-1",
+    "name": "Atomic Red Team validation for T1059.006",
+    "description": "Automated emulation procedure for T1059.006 executed via Invoke-AtomicRedTeam inside the Metatron lab environment.",
+    "test_ref": "atomics/T1059.006/T1059.006.yaml#test-1"
+  },
+  "environment": {
+    "lab_id": "metatron-lab-a",
+    "hostname": "debian-node-01",
+    "asset_id": "asset-001",
+    "os": {
+      "family": "linux",
+      "name": "Debian",
+      "version": "12"
+    },
+    "kernel_version": "6.12.74+deb12-amd64",
+    "sensor_stack": [
+      {
+        "name": "sigma-engine",
+        "version": "2026.04.27",
+        "rules_loaded": 505
+      },
+      {
+        "name": "osquery",
+        "version": "5.15.0"
+      },
+      {
+        "name": "atomic_red_team",
+        "version": "2025.01"
+      }
+    ]
+  },
+  "execution": {
+    "started_at": "2026-04-18T11:37:35.978176Z",
+    "ended_at": "2026-04-18T11:37:35.978176Z",
+    "executor": "atomic_red_team",
+    "operator": "Byron Bunt",
+    "status": "completed",
+    "exit_code": 0,
+    "real_execution": true,
+    "execution_mode": "docker_sandbox",
+    "execution_trust_level": "docker_sandbox_verified",
+    "sandbox_verified": true,
+    "evidence_inheritance": "direct",
+    "expected_outcome": "detect",
+    "command_line": "Invoke-AtomicTest T1059.006",
+    "run_count": 6,
+    "direct_run_count": 6,
+    "run_ids": [
+      "20f776450eb14884a230090b1d2dcffc",
+      "46851cbc73374b24a72b6a90204b300e",
+      "54c3c5d9a1124d95972cad7a47ba46a0",
+      "627a40a8e2984ca9ac72c6d2a6d8b8e4",
+      "f45ce38ba4e040188e3213ddb80811f9",
+      "f45ce38ba4e040188e3213ddb80811f9"
+    ],
+    "job_ids": [
+      "fix-remediation-t1059-006",
+      "sandbox-real-sweep"
+    ],
+    "runs": [
+      {
+        "run_id": "20f776450eb14884a230090b1d2dcffc",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T14:37:50.171247+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-20f776450eb1",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1059.006 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.006-1 Execute shell script via python's command mode arguement\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    sock = connection.create_connection(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n           ^^^^^^^^^^^^^\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    retries = retries.increment(\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTraceback (most recent call last):\nDuring handling of the above exception, another exception occurred:\n  File \"<string>\", line 1, in <module>\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    return self.request(\"GET\", url, **kwargs)\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-1 Execute shell script via python's command mode arguement\nExecuting test: T1059.006-2 Execute Python via scripts\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    raise new_e\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"/tmp/T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-2 Execute Python via scripts\nExecuting test: T1059.006-3 Execute Python via Python executables\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    response = self._make_request(\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n                       ^^^^^^^^^^^^^^^^\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n           ^^^^^^^^^^^^^\n    resp = conn.urlopen(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    resp = self.send(prep, **send_kwargs)\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-3 Execute Python via Python executables\nExecuting test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\nProcess Timed out after 120 seconds, use '-TimeoutSeconds' to specify a different timeout\nExit code: \nDone executing test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\n",
+        "stdout_sha256": "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "46851cbc73374b24a72b6a90204b300e",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T18:56:19.745875+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-46851cbc7337",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1059.006 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.006-1 Execute shell script via python's command mode arguement\nFile \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    sock = connection.create_connection(\nTraceback (most recent call last):\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\nTraceback (most recent call last):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\nThe above exception was the direct cause of the following exception:\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n           ^^^^^^^^^^^^^\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-1 Execute shell script via python's command mode arguement\nExecuting test: T1059.006-2 Execute Python via scripts\nTraceback (most recent call last):\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    sock = connection.create_connection(\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n               ^^^^^^^^^^^^^^^^^^^\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n                       ^^^^^^^^^^^^^^^^\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\nThe above exception was the direct cause of the following exception:\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"/tmp/T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-2 Execute Python via scripts\nExecuting test: T1059.006-3 Execute Python via Python executables\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nThe above exception was the direct cause of the following exception:\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\n  File \"T1059.006.py\", line 6, in <module>\nTraceback (most recent call last):\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-3 Execute Python via Python executables\nExecuting test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\nProcess Timed out after 120 seconds, use '-TimeoutSeconds' to specify a different timeout\n#\nKilled\nExit code: 137\nDone executing test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\n",
+        "stdout_sha256": "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "54c3c5d9a1124d95972cad7a47ba46a0",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T14:31:05.154177+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-54c3c5d9a112",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1059.006 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.006-1 Execute shell script via python's command mode arguement\nTraceback (most recent call last):\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    sock = connection.create_connection(\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\nTraceback (most recent call last):\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    response = self._make_request(\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n                       ^^^^^^^^^^^^^^^^\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-1 Execute shell script via python's command mode arguement\nExecuting test: T1059.006-2 Execute Python via scripts\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    self._validate_conn(conn)\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    self.sock = sock = self._new_conn()\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\nTraceback (most recent call last):\n    resp = conn.urlopen(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n           ^^^^^^^^^^^^^\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    retries = retries.increment(\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"/tmp/T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-2 Execute Python via scripts\nExecuting test: T1059.006-3 Execute Python via Python executables\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\nTraceback (most recent call last):\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    conn.connect()\n    self.sock = sock = self._new_conn()\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-3 Execute Python via Python executables\nExecuting test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\nProcess Timed out after 120 seconds, use '-TimeoutSeconds' to specify a different timeout\n#\nKilled\nExit code: 137\nDone executing test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\n",
+        "stdout_sha256": "1a84eaa290a935a0e878c9c12e892f2d90d3b81d1dcbdd2c11d3fe981f52dadd",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "627a40a8e2984ca9ac72c6d2a6d8b8e4",
+        "job_id": "sandbox-real-sweep",
+        "job_name": "Full Real Execution Sandbox Sweep",
+        "finished_at": "2026-04-18T18:50:00.818705+00:00",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "real_execution",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "seraph-sandbox-627a40a8e298",
+          "--network",
+          "none",
+          "--cap-drop",
+          "ALL",
+          "--cap-add",
+          "SETUID",
+          "--cap-add",
+          "SETGID",
+          "--cap-add",
+          "CHOWN",
+          "--cap-add",
+          "DAC_OVERRIDE",
+          "--cap-add",
+          "FOWNER",
+          "--cap-add",
+          "SYS_PTRACE",
+          "--security-opt",
+          "no-new-privileges:false",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+          "-v",
+          "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+          "seraph-sandbox-tools:latest",
+          "pwsh",
+          "-NonInteractive",
+          "-NoProfile",
+          "-Command",
+          "Import-Module '/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1' -ErrorAction Stop; $env:PathToAtomicsFolder='/opt/atomic-red-team/atomics'; Invoke-AtomicTest T1059.006 -PathToAtomicsFolder '/opt/atomic-red-team/atomics'"
+        ],
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.006-1 Execute shell script via python's command mode arguement\nFile \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\nTraceback (most recent call last):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTraceback (most recent call last):\nThe above exception was the direct cause of the following exception:\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\nThe above exception was the direct cause of the following exception:\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-1 Execute shell script via python's command mode arguement\nExecuting test: T1059.006-2 Execute Python via scripts\nFile \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\nTraceback (most recent call last):\n    sock = connection.create_connection(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n              ^^^^^^^^^^^^^^^^^^\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"/tmp/T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    resp = self.send(prep, **send_kwargs)\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-2 Execute Python via scripts\nExecuting test: T1059.006-3 Execute Python via Python executables\nTraceback (most recent call last):\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\nTraceback (most recent call last):\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    conn.connect()\n    self.sock = sock = self._new_conn()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n                       ^^^^^^^^^^^^^^^^\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nDuring handling of the above exception, another exception occurred:\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nTraceback (most recent call last):\n  File \"T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-3 Execute Python via Python executables\nExecuting test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\nProcess Timed out after 120 seconds, use '-TimeoutSeconds' to specify a different timeout\n#\nKilled\nExit code: 137\nDone executing test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\n",
+        "stdout_sha256": "bd4ca72491746ef2b8f13416b59a4fb0376440f0d42f76785cab88334abfaf43",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "f45ce38ba4e040188e3213ddb80811f9",
+        "job_id": "fix-remediation-t1059-006",
+        "job_name": "T1059.006-remediation-python-scripting",
+        "finished_at": "2026-04-18T11:37:35.978176Z",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": "Invoke-AtomicTest T1059.006",
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.006-1 Execute shell script via python's command mode arguement\nTraceback (most recent call last):\n    sock = connection.create_connection(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n    response = self._make_request(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n               ^^^^^^^^^^^^^^^^^^^\n    raise new_e\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    self.sock = sock = self._new_conn()\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n                       ^^^^^^^^^^^^^^^^\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\nTraceback (most recent call last):\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n    return self.request(\"GET\", url, **kwargs)\n  File \"<string>\", line 1, in <module>\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    resp = self.send(prep, **send_kwargs)\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\n    r = adapter.send(request, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nExit code: 1\nDone executing test: T1059.006-1 Execute shell script via python's command mode arguement\nExecuting test: T1059.006-2 Execute Python via scripts\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"/tmp/T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-2 Execute Python via scripts\nPathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.006-3 Execute Python via Python executables\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    sock = connection.create_connection(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    self.sock = sock = self._new_conn()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n                       ^^^^^^^^^^^^^^^^\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n           ^^^^^^^^^^^^^\n    resp = conn.urlopen(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-3 Execute Python via Python executables\nExecuting test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\nProcess Timed out after 120 seconds, use '-TimeoutSeconds' to specify a different timeout\n#\nKilled\nExit code: 137\nDone executing test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\n",
+        "stdout_sha256": "54a19130cf268a20f13d1255d059a4c52b79728399ce53271f27e0e39d4d6467",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      },
+      {
+        "run_id": "f45ce38ba4e040188e3213ddb80811f9",
+        "job_id": "fix-remediation-t1059-006",
+        "job_name": "T1059.006-remediation-python-scripting",
+        "finished_at": "2026-04-18T11:37:35.978176Z",
+        "exit_code": 0,
+        "sandbox": "docker-network-none-cap-drop-all",
+        "status": "success",
+        "outcome": "",
+        "command": "Invoke-AtomicTest T1059.006",
+        "stdout": "PathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.006-1 Execute shell script via python's command mode arguement\nTraceback (most recent call last):\n    sock = connection.create_connection(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n    response = self._make_request(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n               ^^^^^^^^^^^^^^^^^^^\n    raise new_e\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    self.sock = sock = self._new_conn()\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n                       ^^^^^^^^^^^^^^^^\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\nTraceback (most recent call last):\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n    return self.request(\"GET\", url, **kwargs)\n  File \"<string>\", line 1, in <module>\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    resp = self.send(prep, **send_kwargs)\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\n    r = adapter.send(request, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nExit code: 1\nDone executing test: T1059.006-1 Execute shell script via python's command mode arguement\nExecuting test: T1059.006-2 Execute Python via scripts\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n    self.sock = sock = self._new_conn()\n                       ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n    resp = conn.urlopen(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"/tmp/T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-2 Execute Python via scripts\nPathToAtomicsFolder = /opt/atomic-red-team/atomics\n\nExecuting test: T1059.006-3 Execute Python via Python executables\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py\", line 60, in create_connection\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsocket.gaierror: [Errno -3] Temporary failure in name resolution\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 787, in urlopen\n    response = self._make_request(\n               ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 488, in _make_request\n    raise new_e\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 464, in _make_request\n    self._validate_conn(conn)\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 1093, in _validate_conn\n    conn.connect()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 759, in connect\n  File \"/usr/local/lib/python3.11/socket.py\", line 974, in getaddrinfo\n    sock = connection.create_connection(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 204, in _new_conn\n    self.sock = sock = self._new_conn()\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connection.py\", line 211, in _new_conn\n                       ^^^^^^^^^^^^^^^^\n    raise NameResolutionError(self.host, self, e) from e\nurllib3.exceptions.NameResolutionError: HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\nThe above exception was the direct cause of the following exception:\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 644, in send\n           ^^^^^^^^^^^^^\n    resp = conn.urlopen(\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py\", line 841, in urlopen\n    retries = retries.increment(\n              ^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py\", line 535, in increment\n    for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):\n    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nurllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nDuring handling of the above exception, another exception occurred:\nTraceback (most recent call last):\n  File \"T1059.006.py\", line 6, in <module>\n    source = session.get(url).content\n             ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 602, in get\n    return self.request(\"GET\", url, **kwargs)\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 589, in request\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    resp = self.send(prep, **send_kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/sessions.py\", line 703, in send\n    r = adapter.send(request, **kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/requests/adapters.py\", line 677, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh (Caused by NameResolutionError(\"HTTPSConnection(host='github.com', port=443): Failed to resolve 'github.com' ([Errno -3] Temporary failure in name resolution)\"))\nExit code: 1\nDone executing test: T1059.006-3 Execute Python via Python executables\nExecuting test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\nProcess Timed out after 120 seconds, use '-TimeoutSeconds' to specify a different timeout\n#\nKilled\nExit code: 137\nDone executing test: T1059.006-4 Python pty module and spawn function used to spawn sh or bash\n",
+        "stdout_sha256": "54a19130cf268a20f13d1255d059a4c52b79728399ce53271f27e0e39d4d6467",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "real_execution": true
+      }
+    ]
+  },
+  "telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "c792e934f88d9e42c86e4d55c0b1d688a32f4dad5018b716ebabe30873480046"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "54a19130cf268a20f13d1255d059a4c52b79728399ce53271f27e0e39d4d6467"
+      }
+    ],
+    "key_events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1776166996-pack_seraph_processe",
+        "timestamp": "Tue Apr 14 06:43:16 AM CDT 2026",
+        "query_name": "pack_seraph_processes",
+        "action": "added",
+        "columns": {
+          "pid": "1",
+          "name": "uvicorn",
+          "cmdline": "uvicorn server:app --host 0.0.0.0 --port 8001",
+          "cwd": "/app",
+          "root": "/"
+        },
+        "host_identifier": "seraph-backend"
+      }
+    ]
+  },
+  "execution_evidence": {
+    "observed": true,
+    "command_line": "Invoke-AtomicTest T1059.006",
+    "exit_code": 0,
+    "run_ids": [
+      "20f776450eb14884a230090b1d2dcffc",
+      "46851cbc73374b24a72b6a90204b300e",
+      "54c3c5d9a1124d95972cad7a47ba46a0",
+      "627a40a8e2984ca9ac72c6d2a6d8b8e4",
+      "f45ce38ba4e040188e3213ddb80811f9",
+      "f45ce38ba4e040188e3213ddb80811f9"
+    ],
+    "process_ids": [
+      1,
+      4242
+    ],
+    "timestamps": [
+      "2026-04-18T14:37:50.171247+00:00",
+      "2026-04-18T18:56:19.745875+00:00",
+      "2026-04-18T14:31:05.154177+00:00",
+      "2026-04-18T18:50:00.818705+00:00",
+      "2026-04-18T11:37:35.978176Z",
+      "Tue Apr 14 06:43:16 AM CDT 2026",
+      "2026-04-22T21:04:19.384992+00:00",
+      "2026-04-19T02:31:50.248131+00:00"
+    ]
+  },
+  "host_telemetry_evidence": {
+    "observed": true,
+    "sources": [
+      {
+        "source_name": "osquery",
+        "file": "telemetry/osquery.ndjson",
+        "sha256": "c792e934f88d9e42c86e4d55c0b1d688a32f4dad5018b716ebabe30873480046"
+      },
+      {
+        "source_name": "atomic_execution",
+        "file": "telemetry/atomic_stdout.ndjson",
+        "sha256": "54a19130cf268a20f13d1255d059a4c52b79728399ce53271f27e0e39d4d6467"
+      }
+    ],
+    "events": [
+      {
+        "source": "osquery",
+        "event_id": "osq-1776166996-pack_seraph_processe",
+        "timestamp": "Tue Apr 14 06:43:16 AM CDT 2026",
+        "query_name": "pack_seraph_processes",
+        "action": "added",
+        "columns": {
+          "pid": "1",
+          "name": "uvicorn",
+          "cmdline": "uvicorn server:app --host 0.0.0.0 --port 8001",
+          "cwd": "/app",
+          "root": "/"
+        },
+        "host_identifier": "seraph-backend"
+      }
+    ]
+  },
+  "network_telemetry_evidence": {
+    "sources": [
+      {
+        "source_name": "zeek_conn",
+        "file": "conn.log",
+        "match_methods": [
+          "ip_match"
+        ]
+      }
+    ],
+    "key_events": [
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300771.484556",
+        "src_ip": "172.28.0.11",
+        "src_port": "57246",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "-",
+        "connection_uid": "CnuBP03o3FUojgdLC3"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300772.319617",
+        "src_ip": "172.28.0.11",
+        "src_port": "55552",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "-",
+        "connection_uid": "CWPjYr5bkquDG6lne"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.565468",
+        "src_ip": "172.28.0.11",
+        "src_port": "49256",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "Cw93bS3Xc6VUHkBa6e"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.577756",
+        "src_ip": "172.28.0.11",
+        "src_port": "49266",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "C25vqNvFkihNl16rc"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.586769",
+        "src_ip": "172.28.0.11",
+        "src_port": "49282",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CF8hGg3O2dEEEBCE0f"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.596450",
+        "src_ip": "172.28.0.11",
+        "src_port": "49288",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CKdwKd43ly3dxh1itb"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.602740",
+        "src_ip": "172.28.0.11",
+        "src_port": "49304",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "C4O2qA4fPHe7xcSzT6"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.618019",
+        "src_ip": "172.28.0.11",
+        "src_port": "49308",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "Cd38AF1Gt77JZuS0z1"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300774.467546",
+        "src_ip": "172.28.0.15",
+        "src_port": "55050",
+        "dest_ip": "34.95.113.255",
+        "dest_port": "443",
+        "proto": "tcp",
+        "service": "ssl",
+        "connection_uid": "C3I2Df3PAJw0Xqc2s2"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300772.892133",
+        "src_ip": "172.28.0.1",
+        "src_port": "47408",
+        "dest_ip": "172.28.0.4",
+        "dest_port": "80",
+        "proto": "tcp",
+        "service": "-",
+        "connection_uid": "CfhmMn21fOSCp6wMgb"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.914923",
+        "src_ip": "172.28.0.4",
+        "src_port": "48966",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CJXm972OtNd9DxjPDh"
+      },
+      {
+        "source": "zeek_conn",
+        "match_method": "ip_match",
+        "timestamp": "1777300775.921487",
+        "src_ip": "172.28.0.4",
+        "src_port": "48986",
+        "dest_ip": "172.28.0.7",
+        "dest_port": "8001",
+        "proto": "tcp",
+        "service": "http",
+        "connection_uid": "CVP9rt2j6MEW2Ab4p4"
+      }
+    ],
+    "observed": true
+  },
+  "analytic_evidence": {
+    "sigma": [
+      {
+        "analytic_id": "SIG-401e5d00-b944-11ea-8f9a-00163ecd60ae",
+        "rule_id": "401e5d00-b944-11ea-8f9a-00163ecd60ae",
+        "source_id": "401e5d00-b944-11ea-8f9a-00163ecd60ae",
+        "title": "AppLocker Prevented Application or Script from Running",
+        "rule_file": "win_applocker_application_was_prevented_from_running.yml",
+        "rule_sha256": "5e2716f363cb3706e2d3a241fa3f22d842def878526e4c6fd7ab7374859e0f16",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-9637e8a5-7131-4f7f-bdc7-2b05d8670c43",
+        "rule_id": "9637e8a5-7131-4f7f-bdc7-2b05d8670c43",
+        "source_id": "9637e8a5-7131-4f7f-bdc7-2b05d8670c43",
+        "title": "Suspicious File Characteristics Due to Missing Fields",
+        "rule_file": "proc_creation_win_susp_file_characteristics.yml",
+        "rule_sha256": "863049160157abb480cdef90db92c82a283de12b001a7aebdf10184ecc29dc60",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-72af37e2-ec32-47dc-992b-bc288a2708cb",
+        "rule_id": "72af37e2-ec32-47dc-992b-bc288a2708cb",
+        "source_id": "72af37e2-ec32-47dc-992b-bc288a2708cb",
+        "title": "Azure New CloudShell Created",
+        "rule_file": "azure_new_cloudshell_created.yml",
+        "rule_sha256": "f16f35a64b57eea73f9cca12d76e5e97ac215c24a4d33acfc68295135147ce8c",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-808146b2-9332-4d78-9416-d7e47012d83d",
+        "rule_id": "808146b2-9332-4d78-9416-d7e47012d83d",
+        "source_id": "808146b2-9332-4d78-9416-d7e47012d83d",
+        "title": "BPFDoor Abnormal Process ID or Lock File Accessed",
+        "rule_file": "lnx_auditd_bpfdoor_file_accessed.yml",
+        "rule_sha256": "ec14ad2f81662f6e4834cfceae37806ddf67d6f33067d02ed6fb32088606a9cc",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-8c1a5675-cb85-452f-a298-b01b22a51856",
+        "rule_id": "8c1a5675-cb85-452f-a298-b01b22a51856",
+        "source_id": "8c1a5675-cb85-452f-a298-b01b22a51856",
+        "title": "Suspicious Invocation of Shell via AWK - Linux",
+        "rule_file": "proc_creation_lnx_awk_shell_spawn.yml",
+        "rule_sha256": "e79ec9f19754454997835bf43ca0a28274a5eb9c51642ca54eadaceb292cb32c",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-db1ac3be-f606-4e3a-89e0-9607cbe6b98a",
+        "rule_id": "db1ac3be-f606-4e3a-89e0-9607cbe6b98a",
+        "source_id": "db1ac3be-f606-4e3a-89e0-9607cbe6b98a",
+        "title": "Capsh Shell Invocation - Linux",
+        "rule_file": "proc_creation_lnx_capsh_shell_invocation.yml",
+        "rule_sha256": "e2f8ca06e33d13990fd9866031115a591ce153d70d6965f7f0ed248689b08094",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-bed978f8-7f3a-432b-82c5-9286a9b3031a",
+        "rule_id": "bed978f8-7f3a-432b-82c5-9286a9b3031a",
+        "source_id": "bed978f8-7f3a-432b-82c5-9286a9b3031a",
+        "title": "Shell Invocation via Env Command - Linux",
+        "rule_file": "proc_creation_lnx_env_shell_invocation.yml",
+        "rule_sha256": "c3c8358745a32fad3a43649f7b2ecb8ae0e6ae91b2a85afc5708fd33d3cb1d10",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      },
+      {
+        "analytic_id": "SIG-47b3bbd4-1bf7-48cc-84ab-995362aaa75a",
+        "rule_id": "47b3bbd4-1bf7-48cc-84ab-995362aaa75a",
+        "source_id": "47b3bbd4-1bf7-48cc-84ab-995362aaa75a",
+        "title": "Shell Execution via Git - Linux",
+        "rule_file": "proc_creation_lnx_git_shell_execution.yml",
+        "rule_sha256": "d4b5ccea4904e8f522d51d36d18606e9c9941d65cf514bb6a396e90908a44331",
+        "matched": false,
+        "match_count": 0,
+        "supporting_event_ids": [],
+        "match_type": "none",
+        "live_sigma_evaluation": false,
+        "sigma_telemetry_source": "",
+        "sigma_detection_basis": ""
+      }
+    ],
+    "osquery": [
+      {
+        "query_id": "OSQ-T1059_006_PYTHON_PROC",
+        "name": "t1059_006_python_proc",
+        "query_text": "SELECT pid, parent, name, path, cmdline FROM processes WHERE name LIKE 'python%' OR cmdline LIKE '%python%' ORDER BY start_time DESC LIMIT 100;",
+        "matched": true,
+        "result_count": 1,
+        "supporting_event_ids": [
+          "osq-1776166996-pack_seraph_processe"
+        ],
+        "osquery_evidence_type": "direct_match"
+      }
+    ],
+    "custom": []
+  },
+  "detection_evidence": {
+    "observed": true,
+    "sigma_matches": [],
+    "osquery_matches": [
+      {
+        "query_id": "OSQ-T1059_006_PYTHON_PROC",
+        "name": "t1059_006_python_proc",
+        "query_text": "SELECT pid, parent, name, path, cmdline FROM processes WHERE name LIKE 'python%' OR cmdline LIKE '%python%' ORDER BY start_time DESC LIMIT 100;",
+        "matched": true,
+        "result_count": 1,
+        "supporting_event_ids": [
+          "osq-1776166996-pack_seraph_processe"
+        ],
+        "osquery_evidence_type": "direct_match"
+      }
+    ]
+  },
+  "artifact_evidence": {
+    "files": [
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/opt/atomic-red-team/atomics",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/usr/local/lib/python3.11/site-packages/urllib3/connection.py",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/usr/local/lib/python3.11/socket.py",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/usr/local/lib/python3.11/site-packages/requests/adapters.py",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      },
+      {
+        "path": "/usr/local/lib/python3.11/site-packages/requests/sessions.py",
+        "hashes": [
+          "20f776450eb14884a230090b1d2dcffc",
+          "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "46851cbc73374b24a72b6a90204b300e",
+          "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+          "54c3c5d9a1124d95972cad7a47ba46a0"
+        ]
+      }
+    ],
+    "hashes": [
+      "20f776450eb14884a230090b1d2dcffc",
+      "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "46851cbc73374b24a72b6a90204b300e",
+      "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+      "54c3c5d9a1124d95972cad7a47ba46a0",
+      "1a84eaa290a935a0e878c9c12e892f2d90d3b81d1dcbdd2c11d3fe981f52dadd",
+      "627a40a8e2984ca9ac72c6d2a6d8b8e4",
+      "bd4ca72491746ef2b8f13416b59a4fb0376440f0d42f76785cab88334abfaf43",
+      "f45ce38ba4e040188e3213ddb80811f9",
+      "54a19130cf268a20f13d1255d059a4c52b79728399ce53271f27e0e39d4d6467"
+    ],
+    "observed": true
+  },
+  "response_evidence": {
+    "executions": [
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:04:19.384992+00:00",
+        "completed_at": "2026-04-22T21:04:19.386324+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1059.006",
+        "pid": 4242,
+        "file_path": "/tmp/T1059.006.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:04:19.385068+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385107+00:00",
+              "session_id": "mitre-session-T1059.006",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:04:19.385314+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:04:19.385351+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385387+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:04:19.385504+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:04:19.385533+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385566+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:04:19.385655+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:04:19.385683+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385715+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:04:19.385813+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:04:19.385841+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385873+00:00",
+              "forensics_id": "forensics_1161eaf12dd2",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:04:19.385992+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:04:19.386020+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.386053+00:00",
+              "ticket_id": "TKT-629FDBC0",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:04:19.386152+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:04:19.386179+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.386209+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:04:19.386288+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:04:19.384992+00:00",
+        "completed_at": "2026-04-22T21:04:19.386324+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1059.006",
+        "pid": 4242,
+        "file_path": "/tmp/T1059.006.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:04:19.385068+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385107+00:00",
+              "session_id": "mitre-session-T1059.006",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:04:19.385314+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:04:19.385351+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385387+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:04:19.385504+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:04:19.385533+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385566+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:04:19.385655+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:04:19.385683+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385715+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:04:19.385813+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:04:19.385841+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385873+00:00",
+              "forensics_id": "forensics_1161eaf12dd2",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:04:19.385992+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:04:19.386020+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.386053+00:00",
+              "ticket_id": "TKT-629FDBC0",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:04:19.386152+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:04:19.386179+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.386209+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:04:19.386288+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "status": "completed",
+        "started_at": "2026-04-22T21:04:19.384992+00:00",
+        "completed_at": "2026-04-22T21:04:19.386324+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "source_ip": "203.0.113.10",
+        "session_id": "mitre-session-T1059.006",
+        "pid": 4242,
+        "file_path": "/tmp/T1059.006.bin",
+        "reason": "Live SOAR response execution for MITRE S5 linkage evidence",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "tag_session",
+            "started_at": "2026-04-22T21:04:19.385068+00:00",
+            "status": "completed",
+            "result": {
+              "action": "tag_session",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385107+00:00",
+              "session_id": "mitre-session-T1059.006",
+              "tags_applied": [
+                "mitre_s5",
+                "soar_response"
+              ],
+              "status": "tagged"
+            },
+            "completed_at": "2026-04-22T21:04:19.385314+00:00"
+          },
+          {
+            "step": 2,
+            "action": "enable_enhanced_logging",
+            "started_at": "2026-04-22T21:04:19.385351+00:00",
+            "status": "completed",
+            "result": {
+              "action": "enable_enhanced_logging",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385387+00:00",
+              "level": "verbose",
+              "include_keystrokes": false,
+              "network_capture": true,
+              "full_packet_capture": false,
+              "status": "enabled"
+            },
+            "completed_at": "2026-04-22T21:04:19.385504+00:00"
+          },
+          {
+            "step": 3,
+            "action": "update_firewall",
+            "started_at": "2026-04-22T21:04:19.385533+00:00",
+            "status": "completed",
+            "result": {
+              "action": "update_firewall",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385566+00:00",
+              "firewall_updated": true,
+              "rule_type": "rate_limit",
+              "block_lateral": false,
+              "emergency_block": false,
+              "status": "updated"
+            },
+            "completed_at": "2026-04-22T21:04:19.385655+00:00"
+          },
+          {
+            "step": 4,
+            "action": "isolate_endpoint",
+            "started_at": "2026-04-22T21:04:19.385683+00:00",
+            "status": "completed",
+            "result": {
+              "action": "isolate_endpoint",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385715+00:00",
+              "isolated_agent": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "network_blocked": false,
+              "usb_blocked": false,
+              "hard_isolation": false,
+              "preserve_state": true,
+              "status": "isolated"
+            },
+            "completed_at": "2026-04-22T21:04:19.385813+00:00"
+          },
+          {
+            "step": 5,
+            "action": "collect_forensics",
+            "started_at": "2026-04-22T21:04:19.385841+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.385873+00:00",
+              "forensics_id": "forensics_1161eaf12dd2",
+              "forensics_collected": true,
+              "params": {
+                "process_tree": true,
+                "network": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-22T21:04:19.385992+00:00"
+          },
+          {
+            "step": 6,
+            "action": "create_ticket",
+            "started_at": "2026-04-22T21:04:19.386020+00:00",
+            "status": "completed",
+            "result": {
+              "action": "create_ticket",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.386053+00:00",
+              "ticket_id": "TKT-629FDBC0",
+              "ticket_created": true,
+              "category": "mitre_s5_response_link",
+              "priority": "P2",
+              "escalate_to_ciso": false,
+              "status": "created"
+            },
+            "completed_at": "2026-04-22T21:04:19.386152+00:00"
+          },
+          {
+            "step": 7,
+            "action": "send_alert",
+            "started_at": "2026-04-22T21:04:19.386179+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+              "timestamp": "2026-04-22T21:04:19.386209+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": "mitre_s5_live",
+              "status": "sent"
+            },
+            "completed_at": "2026-04-22T21:04:19.386288+00:00"
+          }
+        ],
+        "source_file": "/var/lib/seraph-ai/artifacts/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_6d3055dd93b5",
+        "playbook_id": "pb_suspicious_process",
+        "playbook_name": "Suspicious Process Response",
+        "status": "completed",
+        "started_at": "2026-04-19T02:31:50.248131+00:00",
+        "completed_at": "2026-04-19T02:31:50.248403+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "collect_forensics",
+            "started_at": "2026-04-19T02:31:50.248219+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:50.248236+00:00",
+              "forensics_id": "forensics_30081b5d09d7",
+              "forensics_collected": true,
+              "params": {
+                "process_info": true,
+                "network_connections": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-19T02:31:50.248283+00:00"
+          },
+          {
+            "step": 2,
+            "action": "kill_process",
+            "started_at": "2026-04-19T02:31:50.248296+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:50.248309+00:00",
+              "killed_pid": null,
+              "force": false,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-19T02:31:50.248334+00:00"
+          },
+          {
+            "step": 3,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:31:50.248343+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:50.248351+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": null,
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:31:50.248372+00:00"
+          }
+        ],
+        "source_file": "/app/data/generated_soar_executions.json"
+      },
+      {
+        "execution_id": "exec_6d3055dd93b5",
+        "playbook_id": "pb_suspicious_process",
+        "playbook_name": "Suspicious Process Response",
+        "status": "completed",
+        "started_at": "2026-04-19T02:31:50.248131+00:00",
+        "completed_at": "2026-04-19T02:31:50.248403+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "collect_forensics",
+            "started_at": "2026-04-19T02:31:50.248219+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:50.248236+00:00",
+              "forensics_id": "forensics_30081b5d09d7",
+              "forensics_collected": true,
+              "params": {
+                "process_info": true,
+                "network_connections": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-19T02:31:50.248283+00:00"
+          },
+          {
+            "step": 2,
+            "action": "kill_process",
+            "started_at": "2026-04-19T02:31:50.248296+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:50.248309+00:00",
+              "killed_pid": null,
+              "force": false,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-19T02:31:50.248334+00:00"
+          },
+          {
+            "step": 3,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:31:50.248343+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:31:50.248351+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": null,
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:31:50.248372+00:00"
+          }
+        ],
+        "source_file": "/app/data/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_59230ae8b477",
+        "playbook_id": "pb_suspicious_process",
+        "playbook_name": "Suspicious Process Response",
+        "status": "completed",
+        "started_at": "2026-04-19T02:43:46.781463+00:00",
+        "completed_at": "2026-04-19T02:43:46.781696+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "collect_forensics",
+            "started_at": "2026-04-19T02:43:46.781533+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:43:46.781548+00:00",
+              "forensics_id": "forensics_3efb78801209",
+              "forensics_collected": true,
+              "params": {
+                "process_info": true,
+                "network_connections": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-19T02:43:46.781592+00:00"
+          },
+          {
+            "step": 2,
+            "action": "kill_process",
+            "started_at": "2026-04-19T02:43:46.781604+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:43:46.781615+00:00",
+              "killed_pid": null,
+              "force": false,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-19T02:43:46.781635+00:00"
+          },
+          {
+            "step": 3,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:43:46.781644+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:43:46.781651+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": null,
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:43:46.781668+00:00"
+          }
+        ],
+        "source_file": "/app/data/soar_executions_archive.json"
+      },
+      {
+        "execution_id": "exec_1617985d882d",
+        "playbook_id": "pb_suspicious_process",
+        "playbook_name": "Suspicious Process Response",
+        "status": "completed",
+        "started_at": "2026-04-19T02:46:34.565648+00:00",
+        "completed_at": "2026-04-19T02:46:34.565838+00:00",
+        "host_id": "",
+        "source_ip": "",
+        "session_id": "",
+        "pid": null,
+        "file_path": "",
+        "reason": "",
+        "step_results": [
+          {
+            "step": 1,
+            "action": "collect_forensics",
+            "started_at": "2026-04-19T02:46:34.565721+00:00",
+            "status": "completed",
+            "result": {
+              "action": "collect_forensics",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:46:34.565732+00:00",
+              "forensics_id": "forensics_1c1ed69dd8da",
+              "forensics_collected": true,
+              "params": {
+                "process_info": true,
+                "network_connections": true
+              },
+              "status": "collecting"
+            },
+            "completed_at": "2026-04-19T02:46:34.565766+00:00"
+          },
+          {
+            "step": 2,
+            "action": "kill_process",
+            "started_at": "2026-04-19T02:46:34.565774+00:00",
+            "status": "completed",
+            "result": {
+              "action": "kill_process",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:46:34.565783+00:00",
+              "killed_pid": null,
+              "force": false,
+              "status": "terminated"
+            },
+            "completed_at": "2026-04-19T02:46:34.565799+00:00"
+          },
+          {
+            "step": 3,
+            "action": "send_alert",
+            "started_at": "2026-04-19T02:46:34.565805+00:00",
+            "status": "completed",
+            "result": {
+              "action": "send_alert",
+              "host_id": null,
+              "timestamp": "2026-04-19T02:46:34.565810+00:00",
+              "channels_notified": [
+                "slack"
+              ],
+              "priority": "medium",
+              "template": null,
+              "status": "sent"
+            },
+            "completed_at": "2026-04-19T02:46:34.565822+00:00"
+          }
+        ],
+        "source_file": "/app/data/soar_executions_archive.json"
+      }
+    ],
+    "actions": [
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385314+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385504+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385655+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385813+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385992+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.386152+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.386288+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385314+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385504+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385655+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385813+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385992+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.386152+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.386288+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "tag_session",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385314+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "enable_enhanced_logging",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385504+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "update_firewall",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385655+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "isolate_endpoint",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385813+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.385992+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "create_ticket",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.386152+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_1a7462a22b2e",
+        "playbook_id": "mitre_s5_live_response",
+        "playbook_name": "MITRE S5 Live SOAR Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-22T21:04:19.386288+00:00",
+        "host_id": "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2",
+        "session_id": "mitre-session-T1059.006"
+      },
+      {
+        "execution_id": "exec_6d3055dd93b5",
+        "playbook_id": "pb_suspicious_process",
+        "playbook_name": "Suspicious Process Response",
+        "action": "collect_forensics",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:31:50.248283+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_6d3055dd93b5",
+        "playbook_id": "pb_suspicious_process",
+        "playbook_name": "Suspicious Process Response",
+        "action": "kill_process",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:31:50.248334+00:00",
+        "host_id": "",
+        "session_id": ""
+      },
+      {
+        "execution_id": "exec_6d3055dd93b5",
+        "playbook_id": "pb_suspicious_process",
+        "playbook_name": "Suspicious Process Response",
+        "action": "send_alert",
+        "status": "completed",
+        "timestamp": "2026-04-19T02:31:50.248372+00:00",
+        "host_id": "",
+        "session_id": ""
+      }
+    ],
+    "observed": true
+  },
+  "integration_evidence_summary": {
+    "arda_bpf_status": "simulated_backend_event",
+    "arda_substrate_proof": "none",
+    "arda_event_count": 1,
+    "live_osquery_row_count": 9,
+    "live_osquery_direct_match": true,
+    "deception_event_count": 0,
+    "deception_chain_of_custody_status": "absent"
+  },
+  "correlation": {
+    "direct_detection": true,
+    "correlated_detection": true,
+    "evidence_chain": [
+      "execution.command_line",
+      "telemetry_evidence.key_events[0]",
+      "network_telemetry_evidence.key_events[0]",
+      "analytic_evidence.osquery[0]",
+      "artifact_evidence.files[0]",
+      "response_evidence.actions[0]"
+    ],
+    "anchors": {
+      "timestamp_window": {
+        "first_seen": "2026-04-18T14:37:50.171247+00:00",
+        "last_seen": "1777300775.921487",
+        "samples": [
+          "2026-04-18T14:37:50.171247+00:00",
+          "2026-04-18T18:56:19.745875+00:00",
+          "2026-04-18T14:31:05.154177+00:00",
+          "2026-04-18T18:50:00.818705+00:00",
+          "2026-04-18T11:37:35.978176Z",
+          "Tue Apr 14 06:43:16 AM CDT 2026",
+          "2026-04-22T21:04:19.384992+00:00",
+          "2026-04-19T02:31:50.248131+00:00"
+        ]
+      },
+      "host_ids": [
+        "seraph-backend",
+        "mitre-host-f0736972-aea7-4c46-a0a2-144eb5e812c2"
+      ],
+      "process_ids": [
+        1,
+        4242
+      ],
+      "ip_addresses": [
+        "0.0.0.0",
+        "203.0.113.10",
+        "172.28.0.11",
+        "172.28.0.7",
+        "172.28.0.15",
+        "34.95.113.255",
+        "172.28.0.1",
+        "172.28.0.4"
+      ],
+      "file_paths": [
+        "/app",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/atomic-red-team:/opt/atomic-red-team:ro",
+        "/home/byron/Downloads/Metatron-triune-outbound-gate/tools/invoke-atomicredteam:/opt/invoke-atomicredteam:ro",
+        "/opt/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1",
+        "/opt/atomic-red-team/atomics",
+        "/usr/local/lib/python3.11/site-packages/urllib3/connection.py",
+        "/usr/local/lib/python3.11/site-packages/urllib3/util/connection.py",
+        "/usr/local/lib/python3.11/socket.py",
+        "/usr/local/lib/python3.11/site-packages/urllib3/connectionpool.py",
+        "/usr/local/lib/python3.11/site-packages/requests/adapters.py",
+        "/usr/local/lib/python3.11/site-packages/urllib3/util/retry.py",
+        "/carlospolop/PEASS-ng/releases/download/20220214/linpeas.sh"
+      ],
+      "hashes": [
+        "20f776450eb14884a230090b1d2dcffc",
+        "3ffc351b3f1c8856fb890422124e50cb0149706f07987d33cf2ea14d93c01376",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "46851cbc73374b24a72b6a90204b300e",
+        "9dd3babc55fff0e63ab2f7bc94784aeebbbd5901dde08c3a6428260a3b392268",
+        "54c3c5d9a1124d95972cad7a47ba46a0",
+        "1a84eaa290a935a0e878c9c12e892f2d90d3b81d1dcbdd2c11d3fe981f52dadd",
+        "627a40a8e2984ca9ac72c6d2a6d8b8e4",
+        "bd4ca72491746ef2b8f13416b59a4fb0376440f0d42f76785cab88334abfaf43",
+        "f45ce38ba4e040188e3213ddb80811f9",
+        "54a19130cf268a20f13d1255d059a4c52b79728399ce53271f27e0e39d4d6467"
+      ],
+      "event_ids": [
+        "osq-1776166996-pack_seraph_processe"
+      ]
+    },
+    "story_assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 2,
+        "ip_addresses": 8,
+        "file_paths": 12,
+        "hashes": 11,
+        "event_ids": 1
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    }
+  },
+  "quality": {
+    "repeated_runs": 6,
+    "successful_detections": 6,
+    "effective_runs": 6,
+    "unique_successful_direct_run_ids": [
+      "20f776450eb14884a230090b1d2dcffc",
+      "46851cbc73374b24a72b6a90204b300e",
+      "54c3c5d9a1124d95972cad7a47ba46a0",
+      "627a40a8e2984ca9ac72c6d2a6d8b8e4",
+      "f45ce38ba4e040188e3213ddb80811f9"
+    ],
+    "clean_run_count": 0,
+    "quality_run_count": 6,
+    "run_validity_summary": {
+      "success_with_warnings": 6
+    },
+    "has_fatal_stdout_markers": false,
+    "has_vns_or_simulation_only": false,
+    "evidence_inheritance": "direct",
+    "execution_source": "docker_sandbox",
+    "osquery_status": "matched",
+    "baseline_window_minutes": 60,
+    "baseline_false_positives": 0,
+    "analyst_reviewed": true,
+    "reviewer": "Byron Bunt",
+    "review_class": "internal_author_reviewed",
+    "reviewed_at": "2026-04-27T17:54:49.999625+00:00"
+  },
+  "story": {
+    "goal": "one_event_many_witnesses_one_story",
+    "layered_presence": {
+      "execution": true,
+      "host_telemetry": true,
+      "network_telemetry": true,
+      "detection": true,
+      "artifact": true,
+      "response": true
+    },
+    "assessment": {
+      "present_layers": [
+        "execution",
+        "host_telemetry",
+        "network_telemetry",
+        "detection",
+        "artifact",
+        "response"
+      ],
+      "missing_layers": [],
+      "layer_count": 6,
+      "anchor_counts": {
+        "host_ids": 2,
+        "process_ids": 2,
+        "ip_addresses": 8,
+        "file_paths": 12,
+        "hashes": 11,
+        "event_ids": 1
+      },
+      "has_anchor_overlap": true,
+      "perfect_story": true
+    },
+    "narrative": "Execution, telemetry, detections, artifacts, network observations, and SOAR response are tracked as separate witnesses and tied together through shared anchors."
+  },
+  "promotion": {
+    "score": 3,
+    "tier": "S3",
+    "tier_name": "silver",
+    "certification_tier": "S3",
+    "certification_label": "silver",
+    "status": "partial",
+    "reason": "S3 Silver (Linux Docker sandbox): 6 direct run(s) ran successfully, raw telemetry available, Sigma detection not confirmed (0/8 rules matched, 1 osquery)."
+  },
+  "integrity": {
+    "record_sha256": "ddaf3b5844cfc1564de60175adc4dfccfd4ba3cafdb37e46397f425cf41722cb",
+    "hash_method": "SHA-256 of canonical JSON (sort_keys=True, default=str) excluding the integrity block itself",
+    "created_at": "2026-04-27T17:54:49.999625+00:00"
+  }
+}
