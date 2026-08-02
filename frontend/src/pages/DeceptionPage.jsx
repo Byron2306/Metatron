@@ -6,35 +6,27 @@ import {
   Shield, 
   RefreshCw, 
   AlertTriangle, 
-  Target,
-  Crosshair,
-  Zap,
   Activity,
   Eye,
   EyeOff,
   Layers,
   Network,
-  Users,
-  Clock,
-  TrendingUp,
-  Filter,
-  ChevronRight,
-  AlertOctagon,
   CheckCircle2,
-  XCircle,
-  Flame,
   Fingerprint,
   Ban,
   Timer,
   Gauge,
-  Radio,
   Radar,
   Skull,
-  Siren
+  Siren,
+  Gavel,
+  Orbit,
+  BrainCircuit
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import SeraphPageHeader from '../components/SeraphPageHeader';
 
 const envBackendUrl = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl === 'null'
@@ -49,12 +41,16 @@ const DeceptionPage = () => {
   const [campaigns, setCampaigns] = useState([]);
   const [events, setEvents] = useState([]);
   const [selectedCampaign, setSelectedCampaign] = useState(null);
+  const [platformSummary, setPlatformSummary] = useState(null);
+  const [worldState, setWorldState] = useState(null);
   const [stats, setStats] = useState({
     active_campaigns: 0,
     total_events: 0,
     blocked_ips: 0,
     decoys_triggered: 0,
-    avg_risk_score: 0
+    avg_risk_score: 0,
+    disinformation_sessions: 0,
+    harmonic_reviews: 0
   });
   const [viewMode, setViewMode] = useState('overview'); // overview, campaigns, events
   const [eventFilter, setEventFilter] = useState(null);
@@ -63,21 +59,26 @@ const DeceptionPage = () => {
   const fetchDeceptionData = useCallback(async () => {
     try {
       setLoading(true);
-      const [statusRes, capabilitiesRes, campaignsRes, eventsRes] = await Promise.all([
+      const [statusRes, capabilitiesRes, campaignsRes, eventsRes, advancedRes, worldRes] = await Promise.all([
         axios.get(`${API}/v1/deception/status`, { headers: getAuthHeaders() }),
         axios.get(`${API}/v1/deception/capabilities`, { headers: getAuthHeaders() }),
         axios.get(`${API}/v1/deception/campaigns?min_events=1&limit=50`, { headers: getAuthHeaders() }),
-        axios.get(`${API}/v1/deception/events?limit=100`, { headers: getAuthHeaders() })
+        axios.get(`${API}/v1/deception/events?limit=100`, { headers: getAuthHeaders() }),
+        axios.get(`${API}/advanced/dashboard`, { headers: getAuthHeaders() }),
+        axios.get(`${API}/metatron/state?lite=true`, { headers: getAuthHeaders() })
       ]);
       
       setStatus(statusRes.data);
       setCapabilities(capabilitiesRes.data.capabilities || []);
       setCampaigns(campaignsRes.data.campaigns || []);
       setEvents(eventsRes.data.events || []);
+      setPlatformSummary(advancedRes.data || null);
+      setWorldState(worldRes.data || null);
       
       // Calculate stats
       const campaignList = campaignsRes.data.campaigns || [];
       const eventList = eventsRes.data.events || [];
+      const dashboard = advancedRes.data || {};
       
       setStats({
         active_campaigns: campaignList.length,
@@ -86,7 +87,9 @@ const DeceptionPage = () => {
         decoys_triggered: eventList.filter(e => e.decoy_triggered).length,
         avg_risk_score: eventList.length > 0 
           ? Math.round(eventList.reduce((sum, e) => sum + (e.score || 0), 0) / eventList.length)
-          : 0
+          : 0,
+        disinformation_sessions: Number(dashboard?.deception?.disinformation_sessions || eventList.filter(e => e.route === 'disinformation').length),
+        harmonic_reviews: Number(dashboard?.governance?.harmonic_review_required || 0)
       });
       
     } catch (error) {
@@ -178,7 +181,19 @@ const DeceptionPage = () => {
       total_events: 370,
       blocked_ips: 65,
       decoys_triggered: 23,
-      avg_risk_score: 72
+      avg_risk_score: 72,
+      disinformation_sessions: 18,
+      harmonic_reviews: 4
+    });
+    setPlatformSummary({
+      deception: { trap_hits: 65, disinformation_sessions: 18, route_mix: { trap_sink: 65, disinformation: 18, friction: 24 } },
+      governance: { harmonic_review_required: 4, notation_narrowed: 3, world_state_mismatches: 1 },
+      world: { risk_level: 'elevated', trust: { identity: 'guarded', telemetry: 'verified' }, triune_analyses: 8, world_state_hash: 'demo-world-hash' },
+      vns: { beacon_detections: 2, suspicious_flows: 11 },
+    });
+    setWorldState({
+      hypotheses: [{ candidate: 'coordinated recon campaign', score: 0.84 }],
+      actions: [{ action: 'contain_session', entity_id: 'campaign-001', reason: 'high_risk_deception_pressure' }],
     });
   };
 
@@ -261,35 +276,32 @@ const DeceptionPage = () => {
     fetchDeceptionData();
   }, [fetchDeceptionData]);
 
+  const routeMix = platformSummary?.deception?.route_mix || {};
+  const trustEntries = Object.entries(platformSummary?.world?.trust || {});
+  const topHypothesis = worldState?.hypotheses?.[0];
+  const topAction = worldState?.actions?.[0];
+
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-gray-100 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-purple-500/20 rounded-lg">
-            <Eye className="h-6 w-6 text-purple-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Deception Engine</h1>
-            <p className="text-gray-400 text-sm">Pebbles • Mystique • Stonewall</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            onClick={fetchDeceptionData}
-            disabled={loading}
-            className="border-gray-700"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          <Button className="bg-purple-600 hover:bg-purple-700" onClick={deployDecoy} disabled={loading}>
-            <Siren className="h-4 w-4 mr-2" />
-            Deploy Decoy
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6 p-6 lg:p-8" data-testid="deception-page">
+      <SeraphPageHeader
+        eyebrow="seraph · deception · adversary entrapment"
+        title="Deception Engine"
+        tagline="> pebbles · mystique · stonewall · canary lures · honey routing"
+        accent="red"
+        status={loading ? 'REFRESHING' : 'BAITED'}
+        actions={
+          <>
+            <Button variant="outline" onClick={fetchDeceptionData} disabled={loading} className="border-gray-700">
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button className="bg-purple-600 hover:bg-purple-700" onClick={deployDecoy} disabled={loading}>
+              <Siren className="h-4 w-4 mr-2" />
+              Deploy Decoy
+            </Button>
+          </>
+        }
+      />
 
       {/* Engine Status */}
       {status && (
@@ -331,8 +343,54 @@ const DeceptionPage = () => {
         </motion.div>
       )}
 
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4 mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="xl:col-span-4 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 border border-cyan-500/20 rounded-xl p-4"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Shield className="h-4 w-4 text-cyan-400" />
+                <span className="text-gray-400 text-sm">Deception Runtime</span>
+              </div>
+              <p className="text-sm text-cyan-200">
+                dominant route: {Object.entries(routeMix).sort((a, b) => b[1] - a[1])[0]?.[0]?.replace('_', ' ') || 'unknown'}
+              </p>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Gavel className="h-4 w-4 text-pink-400" />
+                <span className="text-gray-400 text-sm">Harmonic Governance</span>
+              </div>
+              <p className="text-sm text-pink-200">{platformSummary?.governance?.harmonic_review_required || 0} live reviews</p>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Orbit className="h-4 w-4 text-purple-400" />
+                <span className="text-gray-400 text-sm">World State</span>
+              </div>
+              <p className="text-sm text-purple-200">{platformSummary?.world?.risk_level || 'unknown'}</p>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Radar className="h-4 w-4 text-green-400" />
+                <span className="text-gray-400 text-sm">VNS Pulse</span>
+              </div>
+              <p className="text-sm text-green-200">{platformSummary?.vns?.beacon_detections || 0} beacons · {platformSummary?.vns?.suspicious_flows || 0} suspicious flows</p>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <BrainCircuit className="h-4 w-4 text-orange-400" />
+                <span className="text-gray-400 text-sm">Triune Link</span>
+              </div>
+              <p className="text-sm text-orange-200">{platformSummary?.world?.triune_analyses || 0} analyses</p>
+            </div>
+          </div>
+        </motion.div>
+
       {/* Stats Cards */}
-      <div className="grid grid-cols-5 gap-4 mb-6">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -396,6 +454,32 @@ const DeceptionPage = () => {
           </div>
           <p className="text-2xl font-bold">{stats.avg_risk_score}</p>
         </motion.div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          className="bg-gray-900/50 border border-blue-900/50 rounded-xl p-4"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <EyeOff className="h-4 w-4 text-blue-400" />
+            <span className="text-gray-400 text-sm">Disinformation</span>
+          </div>
+          <p className="text-2xl font-bold text-blue-300">{stats.disinformation_sessions}</p>
+        </motion.div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+          className="bg-gray-900/50 border border-pink-900/50 rounded-xl p-4"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <Gavel className="h-4 w-4 text-pink-400" />
+            <span className="text-gray-400 text-sm">Harmonic Reviews</span>
+          </div>
+          <p className="text-2xl font-bold text-pink-300">{stats.harmonic_reviews}</p>
+        </motion.div>
       </div>
 
       {/* View Mode Tabs */}
@@ -423,6 +507,35 @@ const DeceptionPage = () => {
           {/* Capabilities Overview */}
           {viewMode === 'overview' && (
             <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="p-4 bg-gray-900/50 border border-cyan-900/50 rounded-xl">
+                  <h3 className="font-semibold mb-3 text-cyan-200">Cross-Plane Linkage</h3>
+                  <div className="space-y-2 text-sm text-gray-300">
+                    <p>Notation narrowed: <span className="text-orange-300">{platformSummary?.governance?.notation_narrowed || 0}</span></p>
+                    <p>World drift holds: <span className="text-red-300">{platformSummary?.governance?.world_state_mismatches || 0}</span></p>
+                    <p>Trap hits: <span className="text-red-300">{platformSummary?.deception?.trap_hits || 0}</span></p>
+                    <p>World hash: <span className="text-cyan-200 font-mono">{platformSummary?.world?.world_state_hash ? `${String(platformSummary.world.world_state_hash).slice(0, 16)}...` : 'unavailable'}</span></p>
+                  </div>
+                </div>
+                <div className="p-4 bg-gray-900/50 border border-purple-900/50 rounded-xl">
+                  <h3 className="font-semibold mb-3 text-purple-200">Triune Reading</h3>
+                  <div className="space-y-2 text-sm text-gray-300">
+                    <p>{topHypothesis ? `${topHypothesis.candidate} (${Math.round((topHypothesis.score || 0) * 100)}%)` : 'No ranked deception hypothesis yet.'}</p>
+                    <p className="text-purple-300">{topAction ? `${topAction.action} on ${topAction.entity_id}` : 'No direct triune action published.'}</p>
+                  </div>
+                </div>
+                <div className="p-4 bg-gray-900/50 border border-green-900/50 rounded-xl">
+                  <h3 className="font-semibold mb-3 text-green-200">Trust Dimensions</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {(trustEntries.length ? trustEntries : [['status', 'unknown']]).map(([key, value]) => (
+                      <Badge key={key} variant="outline" className="border-green-800 text-green-200">
+                        {key}: {String(value)}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               {capabilities.map((cap, idx) => {
                 const Icon = getCapabilityIcon(cap.name);
                 return (

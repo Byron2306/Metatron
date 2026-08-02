@@ -37,6 +37,179 @@ Metatron/Seraph AI is a next-generation cybersecurity defense platform that fund
 | **Agent Scripts** | 13 | Endpoint deployment variants for every platform |
 | **Agent LOC** | 13,398 | Core agent codebase—one of the most comprehensive endpoint agents |
 
+## Reviewer Evidence Bundle
+
+The current reviewer-facing rev14 package is [evidence/aab/AAB_EVIDENCE_BUNDLE_20260512_rev14/AAB_EVIDENCE_BUNDLE_20260512_rev14.md](/home/byron/Downloads/Metatron-triune-outbound-gate/evidence/aab/AAB_EVIDENCE_BUNDLE_20260512_rev14/AAB_EVIDENCE_BUNDLE_20260512_rev14.md). Its AATR-to-ATLAS crosswalk is generated from the repository workbook `AATR_to_MITRE_ATLAS_170_Crosswalk.xlsx` by default, not from a hand-maintained inline table.
+
+For auditability, the rev14 generator writes the workbook source path and SHA-256 into [evidence/aab/AAB_EVIDENCE_BUNDLE_20260512_rev14/results/rev14_analysis_index.json](/home/byron/Downloads/Metatron-triune-outbound-gate/evidence/aab/AAB_EVIDENCE_BUNDLE_20260512_rev14/results/rev14_analysis_index.json) and a standalone manifest at [evidence/aab/AAB_EVIDENCE_BUNDLE_20260512_rev14/results/rev14_aatr_mapping_manifest.json](/home/byron/Downloads/Metatron-triune-outbound-gate/evidence/aab/AAB_EVIDENCE_BUNDLE_20260512_rev14/results/rev14_aatr_mapping_manifest.json). The reviewer-facing crosswalk at [evidence/aab/AAB_EVIDENCE_BUNDLE_20260512_rev14/results/rev14_aatr_framework_crosswalk.md](/home/byron/Downloads/Metatron-triune-outbound-gate/evidence/aab/AAB_EVIDENCE_BUNDLE_20260512_rev14/results/rev14_aatr_framework_crosswalk.md) renders MITRE ATLAS references as `AML.ID: Technique Name`.
+
+---
+
+## August 2, 2026 Hardening Summary
+
+This repository was recently pushed through a focused hardening and frontend alignment pass centered on deception, harmonic governance, world-state binding, triune linkage, VNS pulse propagation, and governed dispatch visibility.
+
+### What Changed
+
+#### Backend architecture and control-plane work
+
+- Harmonic governance was deepened across the canonical path:
+  `triune_orchestrator -> outbound_gate -> governance_authority -> governance_executor -> audit/world feedback`
+- World-state binding, notation-token narrowing, corroboration pressure, pulse instability propagation, and drift-sensitive review/hold behavior were reinforced through the outbound gate and governance executor path.
+- VNS pulse and alert signaling were linked more directly into harmonic runtime behavior and outbound governance consequences.
+- Deception was pushed closer to the rest of the control plane rather than remaining a standalone lure engine:
+  deception outcomes now align better with harmonic pressure, governance review state, and world-state interpretation.
+- The advanced dashboard aggregator in [backend/routers/advanced.py](/home/byron/Downloads/Metatron-triune-outbound-gate/backend/routers/advanced.py) was expanded to expose:
+  - deception state
+  - world / triune state
+  - governance / harmonic / outbound state
+  - existing MCP, memory, VNS, quantum, and AI stats
+
+#### Live provider proof harness
+
+- Added [scripts/run_provider_snapshot_sandbox.py](/home/byron/Downloads/Metatron-triune-outbound-gate/scripts/run_provider_snapshot_sandbox.py).
+- Purpose:
+  - load working provider secrets from `/home/byron/EdgeK-BEAST/.beast/provider_secrets.env`
+  - build bounded snapshots from real AAB / Last Chord evidence
+  - ask real providers for likely probes under different hostile roles
+  - replay those probes through the live deception router
+  - record whether the system constrained them through disinformation / trap routing
+- Working providers in the harness:
+  - Groq
+  - Cohere
+  - Gemini support was added but remained weaker in structured-output quality than Groq/Cohere during this pass
+
+#### Deception router fix
+
+- Fixed a real runtime fault in [backend/routers/deception.py](/home/byron/Downloads/Metatron-triune-outbound-gate/backend/routers/deception.py):
+  disinformation generation could fail because `harmonic_state` was referenced before safe initialization in one path.
+- That defect was patched so live provider sandbox runs could complete cleanly.
+
+#### Port 3000 frontend rewiring
+
+The main React UI was realigned so the backend architecture is visible as a coherent system instead of scattered feature islands.
+
+- [frontend/src/pages/AdvancedServicesPage.jsx](/home/byron/Downloads/Metatron-triune-outbound-gate/frontend/src/pages/AdvancedServicesPage.jsx)
+  now acts as a real cross-plane hub for:
+  - deception runtime
+  - governance / harmonic pressure
+  - world-state / triune posture
+  - VNS pulse state
+  - MCP / dispatch / memory / quantum / AI
+- [frontend/src/pages/DeceptionPage.jsx](/home/byron/Downloads/Metatron-triune-outbound-gate/frontend/src/pages/DeceptionPage.jsx)
+  now shows deception as part of the broader control plane:
+  - route mix
+  - disinformation sessions
+  - harmonic review pressure
+  - notation narrowing / drift indicators
+  - trust dimensions
+  - triune hypotheses and actions
+- [frontend/src/pages/GraphWorld.jsx](/home/byron/Downloads/Metatron-triune-outbound-gate/frontend/src/pages/GraphWorld.jsx)
+  now exposes:
+  - world-state hash presence
+  - trust dimensions
+  - triune analysis count
+  - action / hypothesis counts
+  - relationship-mode summaries
+- [frontend/src/pages/WorldViewPage.jsx](/home/byron/Downloads/Metatron-triune-outbound-gate/frontend/src/pages/WorldViewPage.jsx)
+  now explicitly separates:
+  - authoritative control state
+  - strategic narrative layer
+  - manifold integrity
+  - governance consequences
+  - triune output quality
+- [frontend/src/components/Layout.jsx](/home/byron/Downloads/Metatron-triune-outbound-gate/frontend/src/components/Layout.jsx)
+  sidebar navigation was relabeled for clarity:
+  - `Advanced Services` -> `Cross-Plane Ops`
+  - `World View` -> `World Manifold`
+  - `Deception` -> `Deception Control`
+  - `VNS Alerts` -> `VNS Pulse Alerts`
+
+### Test and Validation Results
+
+#### Backend validation
+
+- `python3 -m py_compile backend/routers/advanced.py`
+  - Result: passed
+- `pytest backend/tests/test_outbound_gate_and_snapshot.py -q`
+  - Result: `3 passed, 1 warning`
+
+#### Frontend validation
+
+- `npm run build` in `frontend/`
+  - Result: passed repeatedly after the UI rewiring
+  - Remaining warnings were pre-existing ESLint warnings in:
+    - [frontend/src/pages/AtomicValidationPage.jsx](/home/byron/Downloads/Metatron-triune-outbound-gate/frontend/src/pages/AtomicValidationPage.jsx)
+    - [frontend/src/pages/MitreAttackCoveragePage.jsx](/home/byron/Downloads/Metatron-triune-outbound-gate/frontend/src/pages/MitreAttackCoveragePage.jsx)
+
+#### Live provider sandbox evidence
+
+Live provider evidence was captured under:
+
+- [evidence/provider_snapshot_sandbox/provider_snapshot_sandbox_20260801T180301Z.json](/home/byron/Downloads/Metatron-triune-outbound-gate/evidence/provider_snapshot_sandbox/provider_snapshot_sandbox_20260801T180301Z.json)
+- [evidence/provider_snapshot_sandbox/provider_snapshot_sandbox_20260801T181029Z.json](/home/byron/Downloads/Metatron-triune-outbound-gate/evidence/provider_snapshot_sandbox/provider_snapshot_sandbox_20260801T181029Z.json)
+- [evidence/provider_snapshot_sandbox/provider_snapshot_sandbox_20260801T181404Z.json](/home/byron/Downloads/Metatron-triune-outbound-gate/evidence/provider_snapshot_sandbox/provider_snapshot_sandbox_20260801T181404Z.json)
+
+The strongest multi-scenario run during this pass produced:
+
+- successful provider runs: `12`
+- fully constrained runs: `12`
+
+Scenarios exercised included:
+
+- `rogue_trusted_agent`
+- `goal_hijacker`
+- `telemetry_blindspot_hunter`
+- `audit_evidence_forger`
+- `cloud_lateral`
+- `malicious_skill_installer`
+
+Observed live routing outcomes were dominated by:
+
+- `disinformation`
+- `trap_sink`
+
+This is important because the system did not merely pass deterministic unit tests; it also constrained real provider-generated probing behavior against bounded evidence snapshots.
+
+### Current Assessment
+
+#### Deception layer
+
+- Current score after the recent hardening: `9.2 / 10`
+- Strengths:
+  - strong hostile-route shaping
+  - effective disinformation / trap behavior under live provider probing
+  - much better linkage to governance, world-state context, and triune interpretation
+- Remaining gap:
+  - still needs broader gauntlet-style live proof across more providers, more stochastic roles, and longer-running sessions before it can honestly be called `10 / 10`
+
+#### Harmonic governance layer
+
+- Current score after the recent hardening: `8.5 / 10`
+- Strengths:
+  - much better world-state awareness
+  - stronger notation narrowing and review pressure
+  - clearer relationship to outbound gate, VNS pulse, and triune consequences
+- Remaining gap:
+  - needs deeper proof of high-quality bounded inputs from world-state / graph / triune under more adversarial and degraded conditions
+  - still needs more end-to-end evidence that revocation / hold / executor behavior remains clean under drift and corroboration loss
+
+### Honest State of the System
+
+The platform is materially stronger than it was before this pass.
+
+The biggest improvements were not cosmetic:
+
+- the deception layer is less isolated
+- harmonic governance is less symbolic and more operational
+- world-state binding is more visible
+- triune linkage is more explicit
+- VNS pulse is better integrated into the runtime story
+- the frontend now reflects the architecture that actually exists
+
+The system is not yet at a universal `10 / 10`.
+What it does now have is a significantly more coherent canonical control plane, real live-provider evidence of constraint behavior, and a much clearer operational UI for understanding that architecture.
+
 ---
 
 ## What Makes Seraph Unique

@@ -113,6 +113,9 @@ async def get_advanced_dashboard(current_user: dict = Depends(get_current_user))
         "mcp": {},
         "memory": {},
         "vns": {},
+        "deception": {},
+        "world": {},
+        "governance": {},
         "quantum": {},
         "ai": {},
         "errors": {},
@@ -205,6 +208,206 @@ async def get_advanced_dashboard(current_user: dict = Depends(get_current_user))
             "beacon_detections": 0,
         }
         payload["errors"]["vns"] = str(e)
+
+    # Deception state
+    try:
+        from deception_engine import deception_engine
+
+        deception_status = deception_engine.get_status()
+        db = get_db()
+        recent_events = []
+        active_campaigns = 0
+        route_mix: Dict[str, int] = {}
+        disinformation_sessions = 0
+
+        try:
+            recent_events = await db.deception_events.find({}, {"_id": 0}).sort("timestamp", -1).limit(100).to_list(100)
+        except Exception:
+            recent_events = []
+
+        try:
+            active_campaigns = await db.deception_campaigns.count_documents({})
+        except Exception:
+            active_campaigns = 0
+
+        for event in recent_events:
+            route = str(event.get("route") or "unknown")
+            route_mix[route] = route_mix.get(route, 0) + 1
+            if route == "disinformation":
+                disinformation_sessions += 1
+
+        payload["deception"] = {
+            "engine": "Seraph Deception Engine",
+            "status": "active",
+            "active_campaigns": active_campaigns,
+            "recent_events": len(recent_events),
+            "route_mix": route_mix,
+            "trap_hits": route_mix.get("trap_sink", 0),
+            "disinformation_sessions": disinformation_sessions,
+            "config": deception_status.get("config", {}) if isinstance(deception_status, dict) else {},
+        }
+    except Exception as e:
+        payload["deception"] = {
+            "engine": "Seraph Deception Engine",
+            "status": "degraded",
+            "active_campaigns": 0,
+            "recent_events": 0,
+            "route_mix": {},
+            "trap_hits": 0,
+            "disinformation_sessions": 0,
+            "config": {},
+        }
+        payload["errors"]["deception"] = str(e)
+
+    # World / triune state
+    try:
+        db = get_db()
+        world_summary: Dict[str, Any] = {
+            "risk_level": "unknown",
+            "ml_confidence": 0.0,
+            "active_campaigns": 0,
+            "trust": {},
+            "hotspots": 0,
+            "actions": 0,
+            "hypotheses": 0,
+            "triune_analyses": 0,
+        }
+
+        try:
+            from backend.services.world_manifold import world_manifold
+
+            manifold = world_manifold.get_current_manifold() or {}
+            snapshot = manifold.get("snapshot") if isinstance(manifold, dict) else {}
+            trust = snapshot.get("trust") if isinstance(snapshot, dict) else {}
+            if isinstance(trust, dict):
+                world_summary["trust"] = trust
+            if isinstance(manifold, dict):
+                world_summary["world_state_hash"] = manifold.get("world_state_hash")
+                world_summary["snapshot_version"] = manifold.get("version")
+        except Exception:
+            pass
+
+        try:
+            triune_count = await db.triune_analysis.count_documents({})
+        except Exception:
+            triune_count = 0
+
+        try:
+            threats = await db.threats.find({}, {"_id": 0, "severity": 1, "status": 1}).sort("created_at", -1).limit(25).to_list(25)
+        except Exception:
+            threats = []
+
+        severity_weights = {"critical": 95, "high": 78, "medium": 52, "low": 28}
+        active_threat_scores = [
+            severity_weights.get(str(t.get("severity") or "medium").lower(), 45)
+            for t in threats
+            if str(t.get("status") or "active").lower() in {"active", "open", "new"}
+        ]
+        max_risk = max(active_threat_scores) if active_threat_scores else 18
+        if max_risk >= 90:
+            risk_level = "critical"
+        elif max_risk >= 70:
+            risk_level = "elevated"
+        elif max_risk >= 45:
+            risk_level = "guarded"
+        else:
+            risk_level = "stable"
+
+        try:
+            campaigns_count = await db.threat_campaigns.count_documents({})
+        except Exception:
+            campaigns_count = 0
+
+        world_summary.update(
+            {
+                "risk_level": risk_level,
+                "ml_confidence": round(min(0.98, max_risk / 100), 2),
+                "active_campaigns": campaigns_count,
+                "hotspots": min(len(active_threat_scores), 8),
+                "actions": min(len(active_threat_scores), 8),
+                "hypotheses": min(max(1, len(threats)), 8) if threats else 0,
+                "triune_analyses": triune_count,
+            }
+        )
+        payload["world"] = world_summary
+    except Exception as e:
+        payload["world"] = {
+            "risk_level": "unknown",
+            "ml_confidence": 0.0,
+            "active_campaigns": 0,
+            "trust": {},
+            "hotspots": 0,
+            "actions": 0,
+            "hypotheses": 0,
+            "triune_analyses": 0,
+        }
+        payload["errors"]["world"] = str(e)
+
+    # Governance / harmonic / outbound state
+    try:
+        db = get_db()
+        pending_decisions = []
+        executor_ready = 0
+        harmonic_review_required = 0
+        world_state_mismatches = 0
+        notation_narrowed = 0
+        pulse_alerts = 0
+
+        try:
+            pending_decisions = await db.triune_decisions.find(
+                {"status": "pending"},
+                {"_id": 0, "decision_id": 1, "decision_type": 1, "created_at": 1},
+            ).sort("created_at", 1).limit(50).to_list(50)
+        except Exception:
+            pending_decisions = []
+
+        try:
+            queue_docs = await db.outbound_gate_queue.find(
+                {},
+                {
+                    "_id": 0,
+                    "status": 1,
+                    "harmonic_review_required": 1,
+                    "world_state_hash_match": 1,
+                    "harmonic_notation_controls": 1,
+                    "vns_events": 1,
+                },
+            ).sort("created_at", -1).limit(100).to_list(100)
+        except Exception:
+            queue_docs = []
+
+        for doc in queue_docs:
+            if str(doc.get("status") or "").lower() in {"approved", "approved_pending_harmonic_controls", "pending_executor"}:
+                executor_ready += 1
+            if bool(doc.get("harmonic_review_required")):
+                harmonic_review_required += 1
+            if doc.get("world_state_hash_match") is False:
+                world_state_mismatches += 1
+            notation_controls = doc.get("harmonic_notation_controls") or {}
+            if isinstance(notation_controls, dict) and notation_controls.get("notation_narrowing_required"):
+                notation_narrowed += 1
+            pulse_alerts += len(doc.get("vns_events") or [])
+
+        payload["governance"] = {
+            "pending_decisions": len(pending_decisions),
+            "executor_ready": executor_ready,
+            "harmonic_review_required": harmonic_review_required,
+            "world_state_mismatches": world_state_mismatches,
+            "notation_narrowed": notation_narrowed,
+            "pulse_events": pulse_alerts,
+            "recent_pending": pending_decisions[:5],
+        }
+    except Exception as e:
+        payload["governance"] = {
+            "pending_decisions": 0,
+            "executor_ready": 0,
+            "harmonic_review_required": 0,
+            "world_state_mismatches": 0,
+            "notation_narrowed": 0,
+            "pulse_events": 0,
+            "recent_pending": [],
+        }
+        payload["errors"]["governance"] = str(e)
 
     # Quantum security
     try:
