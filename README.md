@@ -4,6 +4,8 @@
   <img src="Seraph.png" width="600"/>
 </p>
 
+Copyright: North-West University, South Africa - Subject to AGPLv 3 with Commercial Exception - Inquiries for commercial license: Hannes.malan@nwu.ac.za
+
 <p align="center">
   <strong>Enterprise AI-Powered EDR + XDR + SOAR + Zero Trust Defense Platform</strong><br>
   <em>The first security platform purpose-built to detect and counter autonomous AI attackers</em>
