@@ -42,6 +42,7 @@ SUPPORTED_RUNTIME_TOOLS = {
     "sigma",
     "atomic",
     "falco",
+    "docker-posture",
     "yara",
     "suricata",
     "trivy",
@@ -1169,6 +1170,26 @@ async def run_falco(governance_context: Dict[str, Any] = None, params: Dict[str,
         return _jobs[job_id]
 
 
+async def run_docker_posture(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    assert_governance_context(governance_context, action="integrations.run_docker_posture")
+    payload = params or {}
+    action = str(payload.get("action") or "status").lower().strip()
+    job_id = await _new_running_job("docker-posture", {"action": action, "params": payload})
+    try:
+        from container_security import container_security
+
+        if action in {"scan", "scan_all", "posture"}:
+            result = await container_security.scan_docker_posture(limit=int(payload.get("limit") or 100))
+        else:
+            status = await container_security.get_runtime_security_status()
+            result = status.get("docker_posture", status)
+        await _persist_job(job_id, status="completed", result={"action": action, "result": result})
+        return _jobs[job_id]
+    except Exception as exc:
+        await _persist_job(job_id, status="failed", result={"action": action, "error": str(exc)})
+        return _jobs[job_id]
+
+
 async def run_suricata(governance_context: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
     assert_governance_context(governance_context, action="integrations.run_suricata")
     payload = params or {}
@@ -1667,6 +1688,8 @@ async def run_runtime_tool(
             return await run_trivy(governance_context=context, params=payload)
         if t == "falco":
             return await run_falco(governance_context=context, params=payload)
+        if t == "docker-posture":
+            return await run_docker_posture(governance_context=context, params=payload)
         if t == "suricata":
             return await run_suricata(governance_context=context, params=payload)
         if t == "yara":

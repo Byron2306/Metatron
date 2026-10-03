@@ -50,10 +50,13 @@ def normalize_server_url(url: str, fallback: str = "http://localhost:8001") -> s
 
 
 DEFAULT_CONTROL_PLANE_URL = normalize_server_url(
-    os.getenv("METATRON_SERVER_URL", os.getenv("METATRON_BACKEND_URL", "http://localhost:8001"))
+    os.getenv(
+        "SERAPH_BACKEND_URL",
+        os.getenv("METATRON_SERVER_URL", os.getenv("METATRON_BACKEND_URL", "http://localhost:8001")),
+    )
 )
 DEFAULT_BACKEND_URL = normalize_server_url(
-    os.getenv("METATRON_BACKEND_URL", DEFAULT_CONTROL_PLANE_URL)
+    os.getenv("SERAPH_BACKEND_URL", os.getenv("METATRON_BACKEND_URL", DEFAULT_CONTROL_PLANE_URL))
 )
 
 # =============================================================================

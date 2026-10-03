@@ -118,6 +118,13 @@ async def get_runtime_events(limit: int = 50, current_user: dict = Depends(get_c
     return {"events": events, "count": len(events)}
 
 
+@router.post("/posture-scan")
+async def scan_docker_posture(current_user: dict = Depends(check_permission("write"))):
+    """Run Docker runtime posture checks without Falco/eBPF."""
+    result = await container_security.scan_docker_posture()
+    return result
+
+
 def _docker_container_status(name: str) -> dict:
     """Check the status of a named Docker container via the CLI."""
     try:
@@ -137,15 +144,22 @@ def _docker_container_status(name: str) -> dict:
 
 @router.get("/runtime-status")
 async def get_runtime_status(current_user: dict = Depends(get_current_user)):
-    """Get status of Falco and Suricata runtime security services"""
+    """Get status of container runtime security services"""
     db = get_db()
 
     falco = _docker_container_status("seraph-falco")
     suricata = _docker_container_status("seraph-suricata")
+    posture_status = {}
+    try:
+        runtime_status = await container_security.get_runtime_security_status()
+        posture_status = runtime_status.get("docker_posture", {})
+    except Exception:
+        posture_status = {}
 
     # Get event counts from DB
     falco_events = await db.container_runtime_events.count_documents({"source": "falco"}) if db is not None else 0
     suricata_events = await db.container_runtime_events.count_documents({"source": "suricata"}) if db is not None else 0
+    posture_events = await db.container_runtime_events.count_documents({"source": "docker_posture"}) if db is not None else 0
     total_runtime_events = await db.container_runtime_events.count_documents({}) if db is not None else 0
 
     return {
@@ -158,6 +172,17 @@ async def get_runtime_status(current_user: dict = Depends(get_current_user)):
             **suricata,
             "description": "Network IDS/IPS for container traffic",
             "event_count": suricata_events,
+        },
+        "docker_posture": {
+            "name": "docker-posture",
+            "available": bool(posture_status.get("available", True)),
+            "running": bool(posture_status.get("enabled", True)),
+            "status": posture_status.get("status", "ready"),
+            "description": posture_status.get(
+                "description",
+                "Docker CLI posture scanner for privileged containers, dangerous capabilities, sensitive mounts, and suspicious processes.",
+            ),
+            "event_count": posture_events,
         },
         "total_runtime_events": total_runtime_events,
     }

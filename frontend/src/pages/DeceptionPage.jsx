@@ -21,7 +21,9 @@ import {
   Siren,
   Gavel,
   Orbit,
-  BrainCircuit
+  BrainCircuit,
+  Crosshair,
+  TrendingUp
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -59,26 +61,48 @@ const DeceptionPage = () => {
   const fetchDeceptionData = useCallback(async () => {
     try {
       setLoading(true);
-      const [statusRes, capabilitiesRes, campaignsRes, eventsRes, advancedRes, worldRes] = await Promise.all([
-        axios.get(`${API}/v1/deception/status`, { headers: getAuthHeaders() }),
-        axios.get(`${API}/v1/deception/capabilities`, { headers: getAuthHeaders() }),
-        axios.get(`${API}/v1/deception/campaigns?min_events=1&limit=50`, { headers: getAuthHeaders() }),
-        axios.get(`${API}/v1/deception/events?limit=100`, { headers: getAuthHeaders() }),
-        axios.get(`${API}/advanced/dashboard`, { headers: getAuthHeaders() }),
-        axios.get(`${API}/metatron/state?lite=true`, { headers: getAuthHeaders() })
+      const headers = getAuthHeaders();
+      const [statusRes, capabilitiesRes, campaignsRes, eventsRes, advancedRes, worldRes] = await Promise.allSettled([
+        axios.get(`${API}/v1/deception/status`, { headers }),
+        axios.get(`${API}/v1/deception/capabilities`, { headers }),
+        axios.get(`${API}/v1/deception/campaigns?min_events=1&limit=50`, { headers }),
+        axios.get(`${API}/v1/deception/events?limit=100`, { headers }),
+        axios.get(`${API}/advanced/dashboard`, { headers }),
+        axios.get(`${API}/metatron/state?lite=true`, { headers })
       ]);
+
+      const valueOf = (result, fallback = {}) => (
+        result.status === 'fulfilled' ? (result.value?.data || fallback) : fallback
+      );
+      const statusData = valueOf(statusRes, null);
+      const capabilitiesData = valueOf(capabilitiesRes, {});
+      const campaignsData = valueOf(campaignsRes, {});
+      const eventsData = valueOf(eventsRes, {});
+      const dashboard = valueOf(advancedRes, {});
+      const world = valueOf(worldRes, {});
+
+      if (!statusData && !capabilitiesData.capabilities && !campaignsData.campaigns && !eventsData.events) {
+        loadDemoData();
+        return;
+      }
       
-      setStatus(statusRes.data);
-      setCapabilities(capabilitiesRes.data.capabilities || []);
-      setCampaigns(campaignsRes.data.campaigns || []);
-      setEvents(eventsRes.data.events || []);
-      setPlatformSummary(advancedRes.data || null);
-      setWorldState(worldRes.data || null);
+      setStatus(statusData || {
+        engine: 'Seraph Deception Engine',
+        status: 'unknown',
+        uptime: 'n/a',
+        pebbles_enabled: false,
+        mystique_enabled: false,
+        stonewall_enabled: false,
+      });
+      setCapabilities(capabilitiesData.capabilities || []);
+      setCampaigns(campaignsData.campaigns || []);
+      setEvents(eventsData.events || []);
+      setPlatformSummary(dashboard || null);
+      setWorldState(world || null);
       
       // Calculate stats
-      const campaignList = campaignsRes.data.campaigns || [];
-      const eventList = eventsRes.data.events || [];
-      const dashboard = advancedRes.data || {};
+      const campaignList = campaignsData.campaigns || [];
+      const eventList = eventsData.events || [];
       
       setStats({
         active_campaigns: campaignList.length,

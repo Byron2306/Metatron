@@ -20,8 +20,16 @@ const API = !envBackendUrl || envBackendUrl === 'undefined' || envBackendUrl ===
 
 const INTEGRATION_RUNTIME_DEFAULT_ACTIONS = {
   trivy: 'scan_all',
+  'docker-posture': 'scan',
   falco: 'alerts',
   suricata: 'alerts',
+};
+
+const INTEGRATION_RUNTIME_LABELS = {
+  trivy: 'Trivy',
+  'docker-posture': 'Docker Posture',
+  falco: 'Falco',
+  suricata: 'Suricata',
 };
 
 const CONTAINER_ACCENTS = {
@@ -149,6 +157,7 @@ const ContainerSecurityPage = () => {
       toast.success(`Launched ${tool} (${action})`);
       await fetchIntegrationStatus();
       await fetchContainers();
+      await fetchRuntimeStatus();
     } catch (err) {
       toast.error(err?.response?.data?.detail || `Failed to launch ${tool}`);
     } finally {
@@ -289,7 +298,7 @@ const ContainerSecurityPage = () => {
         </motion.div>
       </div>
 
-      {/* Runtime Security: Falco + Suricata */}
+      {/* Runtime Security Engines */}
       <Card className="bg-slate-900/50 border-slate-800">
         <CardHeader>
           <CardTitle className="text-white flex items-center gap-2">
@@ -298,7 +307,38 @@ const ContainerSecurityPage = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Docker Posture */}
+            <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Container className="w-5 h-5 text-emerald-400" />
+                  <span className="text-white font-medium">Docker Posture</span>
+                </div>
+                <Badge variant="outline" className={
+                  runtimeStatus?.docker_posture?.running
+                    ? 'text-green-400 border-green-500/30'
+                    : 'text-slate-400 border-slate-500/30'
+                }>
+                  {runtimeStatus?.docker_posture?.status || 'Unknown'}
+                </Badge>
+              </div>
+              <p className="text-slate-400 text-sm">Falco-safe runtime posture checks via Docker inspect/top/stats</p>
+              <p className="text-slate-500 text-xs mt-2">
+                Events captured: {runtimeStatus?.docker_posture?.event_count ?? '—'}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+                onClick={() => handleRunIntegration('docker-posture')}
+                disabled={integrationBusy}
+              >
+                <Activity className="w-3 h-3 mr-1" />
+                Scan
+              </Button>
+            </div>
+
             {/* Falco */}
             <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
               <div className="flex items-center justify-between mb-2">
@@ -316,7 +356,7 @@ const ContainerSecurityPage = () => {
                   {runtimeStatus?.falco?.running ? 'Running' : runtimeStatus?.falco?.status || 'Unknown'}
                 </Badge>
               </div>
-              <p className="text-slate-400 text-sm">Runtime threat detection for containers</p>
+              <p className="text-slate-400 text-sm">Kernel-level runtime detection when eBPF/kmod is available</p>
               <p className="text-slate-500 text-xs mt-2">
                 Events captured: {runtimeStatus?.falco?.event_count ?? '—'}
               </p>
@@ -398,7 +438,7 @@ const ContainerSecurityPage = () => {
               return (
                 <div key={tool} className="p-3 rounded-lg border border-slate-700 bg-slate-800/40">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-cyan-300 font-medium">{tool}</span>
+                  <span className="text-cyan-300 font-medium">{INTEGRATION_RUNTIME_LABELS[tool] || tool}</span>
                     <Badge
                       variant="outline"
                       className={ok ? 'text-green-400 border-green-500/30' : 'text-slate-300 border-slate-600/40'}

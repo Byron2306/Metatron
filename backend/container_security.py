@@ -55,6 +55,7 @@ class ContainerSecurityConfig:
     def __init__(self):
         self.trivy_enabled = os.environ.get("TRIVY_ENABLED", "true").lower() == "true"
         self.falco_enabled = os.environ.get("FALCO_ENABLED", "true").lower() == "true"
+        self.docker_posture_enabled = os.environ.get("DOCKER_POSTURE_ENABLED", "true").lower() == "true"
         self.auto_scan_new_images = os.environ.get("AUTO_SCAN_IMAGES", "true").lower() == "true"
         self.block_vulnerable_images = os.environ.get("BLOCK_VULNERABLE", "false").lower() == "true"
         self.severity_threshold = os.environ.get("VULN_SEVERITY_THRESHOLD", "HIGH")
@@ -1713,12 +1714,113 @@ class EnhancedContainerSecurityManager:
     
     async def get_runtime_security_status(self) -> Dict[str, Any]:
         """Get runtime security status"""
+        docker_available = False
+        try:
+            result = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"], capture_output=True, text=True, timeout=5)
+            docker_available = result.returncode == 0
+        except Exception:
+            docker_available = False
+
         return {
             "falco_available": self.falco._falco_available,
             "falco_monitoring": self.falco._monitoring,
+            "docker_posture": {
+                "available": docker_available,
+                "enabled": config.docker_posture_enabled,
+                "status": "ready" if docker_available and config.docker_posture_enabled else "unavailable",
+                "description": "Docker CLI posture and suspicious-process scanner; no eBPF, kernel module, or Secure Boot changes required.",
+            },
             "recent_alerts": self.falco.get_alerts(limit=10),
             "escape_attempts": self.falco.get_escape_attempts(limit=10),
             "runtime_events": len(self.runtime_monitor.runtime_events)
+        }
+
+    async def scan_docker_posture(self, limit: int = 100) -> Dict[str, Any]:
+        """
+        Run a best-effort Docker runtime posture sweep without Falco/eBPF.
+
+        This is intentionally polling-based: it uses Docker inspect/top/stats and
+        the existing container checks, so it works under Secure Boot lockdown where
+        Falco's BPF and kmod paths can be unavailable.
+        """
+        if not config.docker_posture_enabled:
+            return {
+                "available": False,
+                "status": "disabled",
+                "containers_scanned": 0,
+                "issues": [],
+                "events": [],
+            }
+
+        containers = await self.get_containers()
+        issues: List[Dict[str, Any]] = []
+        events: List[Dict[str, Any]] = []
+        severity_rank = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+        highest = "low"
+
+        for container in containers[: max(1, int(limit or 100))]:
+            container_id = str(container.get("container_id") or "")
+            if not container_id:
+                continue
+            check = await self.check_container(container_id)
+            for issue in check.get("issues") or []:
+                severity = str(issue.get("severity") or "medium").lower()
+                if severity_rank.get(severity, 0) > severity_rank.get(highest, 0):
+                    highest = severity
+                event_id = hashlib.sha256(
+                    f"docker-posture:{container_id}:{issue.get('type')}:{datetime.now(timezone.utc).isoformat()}".encode()
+                ).hexdigest()[:16]
+                event = {
+                    "event_id": event_id,
+                    "source": "docker_posture",
+                    "container_id": container_id,
+                    "container_name": container.get("name", ""),
+                    "image_name": container.get("image", ""),
+                    "event_type": issue.get("type", "container_posture_issue"),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "severity": severity,
+                    "rule_name": f"Docker posture: {issue.get('type', 'container_issue')}",
+                    "description": issue.get("description", ""),
+                    "details": {
+                        **issue,
+                        "risk_level": check.get("risk_level"),
+                        "security_score": container.get("security_score"),
+                    },
+                }
+                issues.append(event)
+                events.append(event)
+                self.runtime_monitor.runtime_events.append(ContainerRuntimeEvent(
+                    event_id=event_id,
+                    container_id=container_id,
+                    container_name=container.get("name", ""),
+                    image_name=container.get("image", ""),
+                    event_type=event["event_type"],
+                    timestamp=event["timestamp"],
+                    severity=severity,
+                    rule_name=event["rule_name"],
+                    description=event["description"],
+                    details=event["details"],
+                ))
+
+        if self._db is not None and events:
+            try:
+                await self._db.container_runtime_events.insert_many(events)
+            except Exception as exc:
+                logger.debug(f"Failed to persist docker posture events: {exc}")
+
+        return {
+            "available": True,
+            "status": "completed",
+            "scanner": "docker_posture",
+            "containers_scanned": len(containers),
+            "issue_count": len(issues),
+            "highest_severity": highest if issues else "none",
+            "issues": issues[:50],
+            "events": events[:50],
+            "notes": [
+                "Polling-based runtime posture scan.",
+                "Designed as a Falco fallback for Secure Boot/kernel-lockdown hosts.",
+            ],
         }
     
     async def audit_kubernetes(self) -> Dict[str, Any]:
@@ -1745,6 +1847,7 @@ class EnhancedContainerSecurityManager:
         return {
             "trivy_enabled": trivy_available,
             "falco_enabled": config.falco_enabled,
+            "docker_posture_enabled": config.docker_posture_enabled,
             "secret_scanning": config.secret_scanning,
             "cosign_verify": config.cosign_verify,
             "cis_benchmark": config.cis_benchmark,
@@ -1761,6 +1864,7 @@ class EnhancedContainerSecurityManager:
         return {
             "trivy_enabled": bool(stats.get("trivy_enabled")),
             "falco_enabled": bool(stats.get("falco_enabled")),
+            "docker_posture_enabled": bool(stats.get("docker_posture_enabled")),
             "auto_scan": config.auto_scan_new_images,
             "cached_scans": int(stats.get("cached_scans", 0)),
             "runtime_events": int(stats.get("runtime_events", 0)),

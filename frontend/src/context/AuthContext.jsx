@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 
 const rawBackendUrl = process.env.REACT_APP_BACKEND_URL?.trim();
@@ -40,12 +40,12 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
 
-  const applyAuthResponse = ({ access_token, user: userData }) => {
+  const applyAuthResponse = useCallback(({ access_token, user: userData }) => {
     localStorage.setItem('token', access_token);
     setToken(access_token);
     setUser(userData);
     return userData;
-  };
+  }, []);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -68,17 +68,17 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
-  const login = async (email, password) => {
+  const login = useCallback(async (email, password) => {
     const response = await axios.post(`${API}/auth/login`, { email, password });
     return applyAuthResponse(response.data);
-  };
+  }, [applyAuthResponse]);
 
-  const register = async (email, password, name) => {
+  const register = useCallback(async (email, password, name) => {
     const response = await axios.post(`${API}/auth/register`, { email, password, name });
     return applyAuthResponse(response.data);
-  };
+  }, [applyAuthResponse]);
 
-  const setupAdmin = async (email, password, name, setupToken = '') => {
+  const setupAdmin = useCallback(async (email, password, name, setupToken = '') => {
     const headers = setupToken ? { 'X-Setup-Token': setupToken } : {};
     const response = await axios.post(
       `${API}/auth/setup`,
@@ -86,27 +86,47 @@ export const AuthProvider = ({ children }) => {
       { headers }
     );
     return applyAuthResponse(response.data);
-  };
+  }, [applyAuthResponse]);
 
-  const getBootstrapStatus = async () => {
+  const getBootstrapStatus = useCallback(async () => {
     const response = await axios.get(`${API}/auth/bootstrap-status`);
     return response.data;
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);
-  };
+  }, []);
 
-  const getAuthHeaders = () => ({
+  const getAuthHeaders = useCallback(() => ({
     Authorization: `Bearer ${token}`
-  });
+  }), [token]);
+
+  const value = useMemo(() => ({
+    user,
+    token,
+    loading,
+    login,
+    register,
+    setupAdmin,
+    getBootstrapStatus,
+    logout,
+    getAuthHeaders
+  }), [
+    user,
+    token,
+    loading,
+    login,
+    register,
+    setupAdmin,
+    getBootstrapStatus,
+    logout,
+    getAuthHeaders
+  ]);
 
   return (
-    <AuthContext.Provider
-      value={{ user, token, loading, login, register, setupAdmin, getBootstrapStatus, logout, getAuthHeaders }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

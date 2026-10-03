@@ -212,6 +212,13 @@ class WebAgentBridge:
 
     def __init__(self):
         self.agent = UnifiedAgentCore()
+        backend_url = self._resolve_backend_url()
+        if backend_url:
+            try:
+                self.agent.config.server_url = backend_url
+                self.agent.BACKEND_URL = backend_url
+            except Exception as e:
+                logger.debug(f"Could not align embedded agent backend URL: {e}")
         self._cached_jwt: Optional[str] = None
         self.monolithic_agent = None
         self.monolithic_init_error = None
@@ -265,6 +272,18 @@ class WebAgentBridge:
         # Initialize monolithic core in-process so localhost:5000 is the canonical surface.
         self._setup_monolithic_bridge()
         self._maybe_run_startup_discovery()
+
+    def _resolve_backend_url(self) -> str:
+        """Resolve backend URL without an /api suffix."""
+        configured = (
+            os.environ.get("SERAPH_BACKEND_URL")
+            or os.environ.get("REMOTE_SERVER_URL")
+            or os.environ.get("BACKEND_URL")
+            or os.environ.get("METATRON_BACKEND_URL")
+            or getattr(getattr(self, "agent", None), "config", None).server_url
+            or "http://backend:8001"
+        )
+        return str(configured or "").strip().rstrip("/").removesuffix("/api")
 
     def _startup_discovery_enabled(self) -> bool:
         """Run one startup sweep, then leave heavy scans to explicit user actions."""
@@ -358,7 +377,12 @@ class WebAgentBridge:
                     self.log(f"Failed to load agent_auth.json: {e}", "WARN")
 
             mono_cfg = MonolithicAgentConfig(
-                server_url=getattr(self.agent.config, "server_url", "") or os.environ.get("REMOTE_SERVER_URL", "") or os.environ.get("BACKEND_URL", "http://backend:8001"),
+                server_url=(
+                    os.environ.get("SERAPH_BACKEND_URL", "")
+                    or getattr(self.agent.config, "server_url", "")
+                    or os.environ.get("REMOTE_SERVER_URL", "")
+                    or os.environ.get("BACKEND_URL", "http://backend:8001")
+                ),
                 agent_id=persisted_auth.get("agent_id") or getattr(self.agent.config, "agent_id", "") or f"metatron-{socket.gethostname()}-local",
                 agent_name=persisted_auth.get("agent_id") or getattr(self.agent.config, "agent_name", socket.gethostname()),
                 enrollment_key=os.environ.get("SERAPH_AGENT_SECRET") or os.environ.get("SERAPH_ENROLLMENT_KEY", "dev-agent-secret-change-in-production"),
@@ -375,7 +399,7 @@ class WebAgentBridge:
                 threat_hunting=str(os.environ.get("SERAPH_AGENT_THREAT_HUNTING", "true")).lower() in {"1", "true", "yes", "on"},
                 local_ui_enabled=False,
                 local_ui_port=5000,
-                vpn_auto_configure=str(os.environ.get("SERAPH_AGENT_VPN_AUTO_CONFIGURE", "true")).lower() in {"1", "true", "yes", "on"},
+                vpn_auto_configure=str(os.environ.get("SERAPH_AGENT_VPN_AUTO_CONFIGURE", "false")).lower() in {"1", "true", "yes", "on"},
             )
             self.monolithic_agent = MonolithicUnifiedAgent(config=mono_cfg)
             self.log("Monolithic core bridge initialized for canonical UI")
@@ -396,6 +420,9 @@ class WebAgentBridge:
         if not getattr(agent_config, "server_url", ""):
             return
         if not getattr(agent_config, "vpn_auto_configure", False):
+            return
+        if not self._env_flag("SERAPH_VPN_USE_MONOLITHIC_AUTOCONFIG", False):
+            self.log("Automatic VPN bootstrap disabled; set SERAPH_VPN_USE_MONOLITHIC_AUTOCONFIG=true to enable", "WARN")
             return
 
         self._vpn_autoboot_started = True
@@ -990,7 +1017,8 @@ class WebAgentBridge:
     def _backend_api_base(self) -> str:
         """Resolve backend API base URL for integration orchestration calls."""
         configured = (
-            os.environ.get("REMOTE_SERVER_URL")
+            os.environ.get("SERAPH_BACKEND_URL")
+            or os.environ.get("REMOTE_SERVER_URL")
             or os.environ.get("BACKEND_URL")
             or getattr(self.agent.config, "server_url", "")
             or "http://backend:8001"
@@ -1231,6 +1259,103 @@ class WebAgentBridge:
             if iface not in ordered:
                 ordered.append(iface)
         return ordered
+
+    def _wireguard_config_candidates(self, iface: str) -> List[Path]:
+        """Return possible config paths for a WireGuard interface name."""
+        return [
+            Path("/etc/wireguard") / f"{iface}.conf",
+            Path("/var/lib/seraph-agent") / f"{iface}.conf",
+            Path("/var/lib/seraph-agent/wireguard-configs") / f"{iface}.conf",
+        ]
+
+    def _env_flag(self, name: str, default: bool = False) -> bool:
+        """Parse a bool-ish environment flag."""
+        fallback = "true" if default else "false"
+        return str(os.environ.get(name, fallback)).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _vpn_allowed_ips(self) -> str:
+        """Return the split-tunnel routes Seraph is allowed to install by default."""
+        return os.environ.get("SERAPH_VPN_ALLOWED_IPS", "10.200.200.0/24").strip() or "10.200.200.0/24"
+
+    def _allowed_ips_has_default_route(self, value: str) -> bool:
+        """Detect full-tunnel WireGuard routes."""
+        return any(part.strip() in {"0.0.0.0/0", "::/0"} for part in (value or "").split(","))
+
+    def _wireguard_config_has_default_route(self, iface: str) -> bool:
+        """Return True when a managed WireGuard config would take over all traffic."""
+        for path in self._wireguard_config_candidates(iface):
+            try:
+                if not path.exists():
+                    continue
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    stripped = line.strip()
+                    if stripped.lower().startswith("allowedips"):
+                        _, _, value = stripped.partition("=")
+                        if self._allowed_ips_has_default_route(value):
+                            return True
+            except Exception as e:
+                logger.warning(f"Could not inspect WireGuard routes in {path}: {e}")
+        return False
+
+    def _prepare_wireguard_client_config(self, iface: str) -> None:
+        """
+        Normalize Seraph client configs before wg-quick starts them.
+
+        The agent dashboard often runs on developer hosts that already have a
+        WireGuard-based overlay such as NetBird. A client config with a fixed
+        ListenPort can collide with that existing interface and fail at
+        `ip link set ... up` with "Address already in use". Client tunnels do
+        not require a fixed listen port, so remove it from Seraph client configs.
+
+        Developer workstations should also avoid full-tunnel configs by default.
+        A peer route of 0.0.0.0/0 or ::/0 takes over the host default route; keep
+        Seraph limited to its private subnet unless explicitly allowed.
+        """
+        allow_full_tunnel = self._env_flag("SERAPH_VPN_ALLOW_FULL_TUNNEL", False)
+        apply_dns = self._env_flag("SERAPH_VPN_APPLY_DNS", False)
+        safe_allowed_ips = self._vpn_allowed_ips()
+        for path in self._wireguard_config_candidates(iface):
+            try:
+                if not path.exists():
+                    continue
+                original = path.read_text(encoding="utf-8")
+                sanitized_lines = []
+                removed_listen_port = False
+                removed_dns = False
+                stripped_full_tunnel = False
+                for line in original.splitlines():
+                    stripped = line.strip()
+                    lowered = stripped.lower()
+                    if lowered.startswith("listenport"):
+                        removed_listen_port = True
+                        continue
+                    if lowered.startswith("dns") and not apply_dns:
+                        removed_dns = True
+                        continue
+                    if lowered.startswith("allowedips"):
+                        _, _, value = stripped.partition("=")
+                        if self._allowed_ips_has_default_route(value) and not allow_full_tunnel:
+                            sanitized_lines.append(f"AllowedIPs = {safe_allowed_ips}")
+                            stripped_full_tunnel = True
+                            continue
+                    sanitized_lines.append(line)
+                sanitized = "\n".join(sanitized_lines).rstrip() + "\n"
+                if sanitized != original:
+                    path.write_text(sanitized, encoding="utf-8")
+                    try:
+                        os.chmod(path, 0o600)
+                    except OSError:
+                        pass
+                    changes = []
+                    if removed_listen_port:
+                        changes.append("ListenPort")
+                    if removed_dns:
+                        changes.append("DNS")
+                    if stripped_full_tunnel:
+                        changes.append(f"full-tunnel AllowedIPs -> {safe_allowed_ips}")
+                    logger.info(f"Normalized WireGuard config {path}: removed/changed {', '.join(changes)}")
+            except Exception as e:
+                logger.warning(f"Could not normalize WireGuard config {path}: {e}")
 
     def _monitors(self) -> Dict[str, Any]:
         """Return active monitor map, preferring monolithic UnifiedAgent when available."""
@@ -2933,12 +3058,16 @@ class WebAgentBridge:
         # Check local WireGuard
         try:
             result = subprocess.run(['wg', 'show', 'interfaces'], capture_output=True, text=True, timeout=5)
-            status["running"] = result.returncode == 0
             if result.returncode == 0:
                 interfaces = [i.strip() for i in result.stdout.split() if i.strip()]
-                status["active_interfaces"] = interfaces
-                if interfaces:
-                    status["interface"] = interfaces[0]
+                managed_names = set(self._vpn_interface_order())
+                active_managed = [iface for iface in interfaces if iface in managed_names]
+                external_interfaces = [iface for iface in interfaces if iface not in managed_names]
+                status["running"] = bool(active_managed)
+                status["active_interfaces"] = active_managed
+                status["external_wireguard_interfaces"] = external_interfaces
+                if active_managed:
+                    status["interface"] = active_managed[0]
                 show_detail = subprocess.run(['wg', 'show'], capture_output=True, text=True, timeout=5)
                 if show_detail.returncode == 0:
                     status["wg_output"] = show_detail.stdout[:500]
@@ -3019,7 +3148,11 @@ class WebAgentBridge:
                 if vpn is not None:
                     if getattr(vpn, "is_connected", False):
                         return {"success": True, "message": "VPN already connected"}
-                    if getattr(self.monolithic_agent.config, "server_url", "") and getattr(self.monolithic_agent.config, "vpn_auto_configure", False):
+                    if (
+                        self._env_flag("SERAPH_VPN_USE_MONOLITHIC_AUTOCONFIG", False)
+                        and getattr(self.monolithic_agent.config, "server_url", "")
+                        and getattr(self.monolithic_agent.config, "vpn_auto_configure", False)
+                    ):
                         configured = vpn.auto_configure()
                         if configured:
                             if getattr(vpn, "is_connected", False):
@@ -3058,12 +3191,29 @@ class WebAgentBridge:
                 # Try interface candidates in stable preferred order.
                 result = None
                 for iface in self._vpn_interface_order():
+                    self._prepare_wireguard_client_config(iface)
+                    if (
+                        self._wireguard_config_has_default_route(iface)
+                        and not self._env_flag("SERAPH_VPN_ALLOW_FULL_TUNNEL", False)
+                    ):
+                        return {
+                            "success": False,
+                            "error": (
+                                "Refusing to start full-tunnel WireGuard config. "
+                                "Set SERAPH_VPN_ALLOWED_IPS for split-tunnel routes, or set "
+                                "SERAPH_VPN_ALLOW_FULL_TUNNEL=true if this host should route all traffic through Seraph."
+                            ),
+                        }
                     result = subprocess.run(['wg-quick', 'up', iface], capture_output=True, text=True, timeout=15)
                     if result.returncode == 0:
                         break
 
             # If shell path fails but monolithic core is available, use its VPN setup/start path.
-            if result.returncode != 0 and self.monolithic_agent is not None:
+            if (
+                result.returncode != 0
+                and self.monolithic_agent is not None
+                and self._env_flag("SERAPH_VPN_USE_MONOLITHIC_AUTOCONFIG", False)
+            ):
                 configured = self.monolithic_agent.vpn.auto_configure()
                 if configured and self.monolithic_agent.vpn.get_status().get("configured"):
                     return {"success": True, "message": "VPN configured via monolithic core"}
