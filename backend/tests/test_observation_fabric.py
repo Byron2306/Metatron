@@ -195,3 +195,127 @@ async def test_promotion_decision_survives_death_after_material_state_update():
     assert decision.promote is True
     assert decision.kind == "novel_material_observation"
     assert (await PromotionService(db).evaluate(obs)) == decision
+
+
+async def projection_inputs():
+    from backend.services.observation_fabric import ObservationStore, PromotionService
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    obs = alert_observation()
+    decision = await PromotionService(db).evaluate(obs)
+    return db, obs, decision
+
+
+@pytest.mark.asyncio
+async def test_promoted_observation_creates_alert_entity_and_world_event():
+    from backend.services.observation_fabric import WorldObservationProjector
+    db, obs, decision = await projection_inputs()
+    result = await WorldObservationProjector(db).project(obs, decision)
+    assert result["projected"] is True
+    entity = await db.world_entities.find_one({})
+    assert entity["type"] == "alert"
+    assert entity["attributes"]["observation_id"] == obs.observation_id
+    assert entity["attributes"]["native_severity"] == 2
+    assert entity["attributes"]["payload"]["signature"] == "Native signature"
+    assert entity["attributes"]["payload"]["category"] == "Native category"
+    assert "risk_score" not in entity["attributes"]
+    assert "techniques" not in entity["attributes"]
+    event = await db.world_events.find_one({})
+    assert event["type"] == "observation_promoted"
+    assert event["payload"]["schema"] == "seraph.observation.world.v1"
+    assert event["payload"]["evidence_digest"] == obs.evidence_digest
+    assert event["source"] == "observation_fabric"
+    assert event["triune_triggered"] is False
+
+
+@pytest.mark.asyncio
+async def test_retained_observation_creates_no_world_event():
+    from backend.services.observation_fabric import PromotionService, WorldObservationProjector
+    db, obs, decision = await projection_inputs()
+    repeat = alert_observation(source_event_id="eve-002")
+    retained = await PromotionService(db).evaluate(repeat)
+    result = await WorldObservationProjector(db).project(repeat, retained)
+    assert result["projected"] is False
+    assert await db.world_events.count_documents({}) == 0
+    assert await db.world_entities.count_documents({}) == 0
+
+
+@pytest.mark.asyncio
+async def test_projection_replay_keeps_one_world_event():
+    from backend.services.observation_fabric import WorldObservationProjector
+    db, obs, decision = await projection_inputs()
+    await asyncio.gather(*(WorldObservationProjector(db).project(obs, decision) for _ in range(10)))
+    assert await db.world_events.count_documents({}) == 1
+    assert await db.world_entities.count_documents({}) == 1
+
+
+@pytest.mark.asyncio
+async def test_crash_after_entity_upsert_reconciles_to_one_world_event():
+    from backend.services.observation_fabric import WorldObservationProjector
+    db, obs, decision = await projection_inputs()
+    db.world_events.failure = RuntimeError("process died after entity upsert")
+    with pytest.raises(RuntimeError):
+        await WorldObservationProjector(db).project(obs, decision)
+    assert await db.world_entities.count_documents({}) == 1
+    assert (await db.canonical_observations.find_one({}))["promotion_state"] == "pending"
+    db.world_events.failure = None
+    await WorldObservationProjector(db).project(obs, decision)
+    await WorldObservationProjector(db).project(obs, decision)
+    assert await db.world_events.count_documents({}) == 1
+
+
+@pytest.mark.asyncio
+async def test_world_event_persistence_failure_does_not_report_emitted():
+    from backend.services.observation_fabric import WorldObservationProjector
+    from test_suricata_observation_bridge import evidence
+    db, obs, decision = await projection_inputs()
+    await db.suricata_alert_evidence.insert_one(evidence(world_fanout_status="observed", observation_id=obs.observation_id))
+    db.world_events.failure = RuntimeError("Mongo unavailable")
+    with pytest.raises(RuntimeError):
+        await WorldObservationProjector(db).project(obs, decision)
+    assert (await db.suricata_alert_evidence.find_one({}))["world_fanout_status"] == "observed"
+    assert await db.world_events.count_documents({}) == 0
+
+
+@pytest.mark.asyncio
+async def test_projection_never_triggers_triune(monkeypatch):
+    from backend.services.observation_fabric import WorldObservationProjector
+    from backend.services import world_events
+    def forbidden():
+        pytest.fail("Triune was loaded during passive observation promotion")
+    monkeypatch.setattr(world_events, "_load_triune_orchestrator", forbidden)
+    db, obs, decision = await projection_inputs()
+    await WorldObservationProjector(db).project(obs, decision)
+    assert (await db.world_events.find_one({}))["triune_triggered"] is False
+
+
+@pytest.mark.asyncio
+async def test_emit_world_event_strict_persistence_raises_on_insert_failure():
+    from backend.services.world_events import emit_world_event
+    db = Database()
+    db.world_events.failure = RuntimeError("Mongo unavailable")
+    with pytest.raises(RuntimeError, match="Mongo unavailable"):
+        await emit_world_event(db, "test", trigger_triune=False, strict_persistence=True)
+    # Legacy callers retain their best-effort contract.
+    result = await emit_world_event(db, "test", trigger_triune=False)
+    assert result["event"]["type"] == "test"
+
+
+@pytest.mark.asyncio
+async def test_strict_persistence_rejects_missing_database():
+    from backend.services.world_events import emit_world_event
+    with pytest.raises(RuntimeError):
+        await emit_world_event(None, "test", trigger_triune=False, strict_persistence=True)
+
+
+@pytest.mark.asyncio
+async def test_passive_entity_upsert_avoids_collection_truthiness_and_risk_synthesis():
+    from backend.services.world_model import WorldModelService, WorldEntity, EntityType
+    from observation_db_helpers import Collection
+    class MotorLikeCollection(Collection):
+        def __bool__(self):
+            raise NotImplementedError("Mongo collections cannot be truth-tested")
+    db = Database()
+    db.collections["world_entities"] = MotorLikeCollection(db.raw.world_entities)
+    await WorldModelService(db).upsert_entity(WorldEntity(id="alert-test", type=EntityType.alert), recalculate_risk=False)
+    assert (await db.world_entities.find_one({"id": "alert-test"}))["attributes"] == {}

@@ -101,6 +101,9 @@ class ObservationStore:
             [("payload.observation_id", 1)], unique=True,
             partialFilterExpression={"type": "observation_promoted"},
             name="uniq_promoted_observation_id")
+        await self.db.world_entities.create_index(
+            [("id", 1)], unique=True, name="uniq_observation_alert_entity_id",
+            partialFilterExpression={"type": "alert", "attributes.schema": "seraph.observation.world.v1"})
         for collection, name in (
             ("vns_flows", "uniq_suricata_flow_source_event_id"),
             ("vns_dns_queries", "uniq_suricata_dns_source_event_id"),
@@ -272,3 +275,68 @@ class PromotionService:
                 if not result.modified_count:
                     continue
             # Re-read and finish the receipt; death here is repaired on replay.
+
+
+class WorldObservationProjector:
+    def __init__(self, db):
+        self.db = db
+        self.store = ObservationStore(db)
+
+    async def _finish(self, observation, state, source_status):
+        # Canonical completion is last so a failed source update is retryable.
+        await self.db.suricata_alert_evidence.update_one(
+            {"witness": observation.witness, "source_event_id": observation.source_event_id,
+             "observation_id": observation.observation_id},
+            {"$set": {"world_fanout_status": source_status}})
+        await self.db.canonical_observations.update_one(
+            {"observation_id": observation.observation_id},
+            {"$set": {"promotion_state": state}})
+
+    async def project(self, observation: CanonicalObservation, decision: PromotionDecision) -> dict:
+        from backend.services.world_model import WorldModelService, WorldEntity, EntityType
+        from backend.services.world_events import emit_world_event
+
+        stored = await self.store.get(observation.observation_id)
+        if stored is None or stored.get("promotion_decision") != asdict(decision):
+            raise ValueError("Projection requires a durable promotion decision")
+        if not decision.promote:
+            await self._finish(observation, "retained_without_promotion", "retained_without_promotion")
+            return {"projected": False, "triune_triggered": False}
+
+        event_query = {"type": "observation_promoted", "payload.observation_id": observation.observation_id}
+        existing = await self.db.world_events.find_one(event_query)
+        if existing is None:
+            entity_id = "alert-" + hashlib.sha256(decision.material_key.encode()).hexdigest()[:24]
+            observed = datetime.fromisoformat(observation.observed_at.replace("Z", "+00:00"))
+            entity = WorldEntity(
+                id=entity_id, type=EntityType.alert, first_seen=observed, last_seen=observed,
+                attributes={"schema": "seraph.observation.world.v1",
+                            "observation_id": observation.observation_id,
+                            "witness": observation.witness, "evidence_digest": observation.evidence_digest,
+                            "observed_at": observation.observed_at,
+                            "native_severity": observation.native_severity,
+                            "native_confidence": observation.native_confidence,
+                            "payload": observation.payload})
+            try:
+                await WorldModelService(self.db).upsert_entity(entity, recalculate_risk=False)
+            except DuplicateKeyError:
+                # A concurrent projector inserted this deterministic entity first.
+                if await self.db.world_entities.find_one({"id": entity_id, "type": "alert"}) is None:
+                    raise
+            try:
+                emitted = await emit_world_event(
+                    self.db, "observation_promoted",
+                    entity_refs=[entity_id, *observation.entity_refs],
+                    payload={"schema": "seraph.observation.world.v1",
+                             "observation_id": observation.observation_id,
+                             "witness": observation.witness, "promotion_reason": decision.kind,
+                             "evidence_digest": observation.evidence_digest,
+                             "material_key": decision.material_key},
+                    trigger_triune=False, source="observation_fabric", strict_persistence=True)
+                existing = emitted["event"]
+            except DuplicateKeyError:
+                existing = await self.db.world_events.find_one(event_query)
+                if existing is None:
+                    raise
+        await self._finish(observation, "promoted", "emitted")
+        return {"projected": True, "event_id": existing["id"], "triune_triggered": False}
