@@ -34,7 +34,7 @@ class AnalyzeCLIRequest(BaseModel):
 @router.get("/aatl/summary")
 async def get_aatl_summary(current_user: dict = Depends(get_current_user)):
     """Get AATL threat summary"""
-    from backend.services.aatl import get_aatl_engine
+    from services.aatl import get_aatl_engine
     
     engine = get_aatl_engine()
     if engine is None:
@@ -57,7 +57,7 @@ async def get_aatl_assessments(
     current_user: dict = Depends(get_current_user)
 ):
     """Get AATL assessments"""
-    from backend.services.aatl import get_aatl_engine
+    from services.aatl import get_aatl_engine
     
     engine = get_aatl_engine()
     if engine is None:
@@ -78,7 +78,7 @@ async def get_specific_assessment(
     current_user: dict = Depends(get_current_user)
 ):
     """Get specific session assessment"""
-    from backend.services.aatl import get_aatl_engine
+    from services.aatl import get_aatl_engine
     
     engine = get_aatl_engine()
     if engine is None:
@@ -97,7 +97,7 @@ async def analyze_cli_session(
     current_user: dict = Depends(get_current_user)
 ):
     """Manually trigger AATL analysis on a CLI session"""
-    from backend.services.aatl import get_aatl_engine
+    from services.aatl import get_aatl_engine
     
     engine = get_aatl_engine()
     if engine is None:
@@ -125,7 +125,7 @@ async def analyze_cli_session(
 @router.get("/aatl/lifecycle-stages")
 async def get_lifecycle_stages(current_user: dict = Depends(get_current_user)):
     """Get all lifecycle stages with descriptions"""
-    from backend.services.aatl import AgentLifecycleStage
+    from services.aatl import AgentLifecycleStage
     
     stages = {
         "reconnaissance": "Initial information gathering and mapping",
@@ -191,7 +191,7 @@ async def get_response_strategies(current_user: dict = Depends(get_current_user)
 @router.get("/aatr/summary")
 async def get_aatr_summary(current_user: dict = Depends(get_current_user)):
     """Get AATR registry summary"""
-    from backend.services.aatr import get_aatr
+    from services.aatr import get_aatr
     
     aatr = get_aatr()
     if aatr is None:
@@ -208,7 +208,7 @@ async def get_aatr_entries(
     current_user: dict = Depends(get_current_user)
 ):
     """Get AATR registry entries"""
-    from backend.services.aatr import get_aatr
+    from services.aatr import get_aatr
     
     aatr = get_aatr()
     if aatr is None:
@@ -232,7 +232,7 @@ async def get_aatr_entry(
     current_user: dict = Depends(get_current_user)
 ):
     """Get specific AATR entry"""
-    from backend.services.aatr import get_aatr
+    from services.aatr import get_aatr
     
     aatr = get_aatr()
     if aatr is None:
@@ -251,7 +251,7 @@ async def get_defensive_indicators(
     current_user: dict = Depends(get_current_user)
 ):
     """Get all defensive indicators"""
-    from backend.services.aatr import get_aatr
+    from services.aatr import get_aatr
     
     aatr = get_aatr()
     if aatr is None:
@@ -268,7 +268,7 @@ async def match_behavior_to_registry(
     current_user: dict = Depends(get_current_user)
 ):
     """Match observed behavior against AATR registry"""
-    from backend.services.aatr import get_aatr
+    from services.aatr import get_aatr
     
     aatr = get_aatr()
     if aatr is None:
@@ -302,8 +302,8 @@ async def get_classifications(current_user: dict = Depends(get_current_user)):
 @router.get("/intelligence/dashboard")
 async def get_intelligence_dashboard(current_user: dict = Depends(get_current_user)):
     """Get combined AI threat intelligence dashboard data"""
-    from backend.services.aatl import get_aatl_engine
-    from backend.services.aatr import get_aatr
+    from services.aatl import get_aatl_engine
+    from services.aatr import get_aatr
     
     result = {
         "aatl": {},

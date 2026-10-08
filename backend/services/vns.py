@@ -573,12 +573,27 @@ class VirtualNetworkSensor:
         return lines[-max_lines:] if len(lines) > max_lines else lines
 
     def _parse_zeek_tsv_tail(self, path: str, *, max_lines: int = 2000) -> List[Dict[str, str]]:
-        """Parse Zeek TSV logs (conn.log/dns.log) from the tail chunk."""
+        """Parse Zeek TSV tail rows using the file's canonical #fields header."""
+        fields: Optional[List[str]] = None
+
+        # Zeek writes #fields near the beginning of the active log. Large logs
+        # may no longer include that header inside a bounded tail read, so learn
+        # the schema separately without loading the whole file.
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if line.startswith("#fields"):
+                        fields = line.rstrip("\n").split("\t")[1:]
+                        break
+                    if not line.startswith("#"):
+                        break
+        except Exception:
+            return []
+
         lines = self._tail_lines(path, max_lines=max_lines)
         if not lines:
             return []
 
-        fields: Optional[List[str]] = None
         rows: List[Dict[str, str]] = []
         for line in lines:
             if not line:
