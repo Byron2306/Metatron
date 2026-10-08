@@ -484,6 +484,31 @@ def test_mcp_chorus_detects_missing_companions_without_blocking_execution():
         assert chorus["audit_closure_score"] == 1.0
         assert chorus["companion_presence_score"] < 1.0
 
+        # Chorus feeds the Harmonic Governance Layer without
+        # retroactively changing the completed execution result.
+        assert execution.harmonic_state is not None
+        assert execution.harmonic_guidance is not None
+        assert execution.harmonic_enforcement is not None
+
+        assert "resonance_score" in execution.harmonic_state
+        assert "discord_score" in execution.harmonic_state
+        assert "confidence" in execution.harmonic_state
+
+        assert execution.harmonic_guidance["band"]
+        assert isinstance(
+            execution.harmonic_guidance["obligations"],
+            list,
+        )
+
+        assert (
+            "token_narrowing_required"
+            in execution.harmonic_enforcement
+        )
+        assert (
+            "additional_approval_required"
+            in execution.harmonic_enforcement
+        )
+
         memory = vector_memory.get_entry(
             execution.vector_memory_entry_id
         )
@@ -494,6 +519,11 @@ def test_mcp_chorus_detects_missing_companions_without_blocking_execution():
                 "chorus_resolution_class"
             ]
             == "strained"
+        )
+
+        assert (
+            memory.structured_data["harmonic_state"]
+            == execution.harmonic_state
         )
 
     asyncio.run(run())

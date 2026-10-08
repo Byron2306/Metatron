@@ -187,6 +187,11 @@ class MCPToolExecution:
     chorus_state: Optional[Dict[str, Any]] = None
     edge_observation: Optional[Dict[str, Any]] = None
 
+    # Harmonic feedback derived from observed execution cadence/coherence.
+    harmonic_state: Optional[Dict[str, Any]] = None
+    harmonic_guidance: Optional[Dict[str, Any]] = None
+    harmonic_enforcement: Optional[Dict[str, Any]] = None
+
     # Semantic recollection. Informational only, never authority.
     vector_memory_entry_id: Optional[str] = None
 
@@ -1876,7 +1881,12 @@ class MCPServer:
         
         # Compute MCP-local execution hash.
         execution.audit_hash = hashlib.sha256(
-            json.dumps(asdict(execution), sort_keys=True).encode()
+            json.dumps(
+                asdict(execution),
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode()
         ).hexdigest()[:32]
 
         # --------------------------------------------------------------
@@ -2302,10 +2312,129 @@ class MCPServer:
                 chorus_exc,
             )
 
+        # --------------------------------------------------------------
+        # HARMONIC FEEDBACK
+        #
+        # Chorus tells us whether the distributed performance cohered.
+        # Harmonic feedback turns that observed performance into guidance
+        # for future governance. It does not retroactively authorize or
+        # revoke an execution that has already settled.
+        # --------------------------------------------------------------
+        try:
+            from backend.services.harmonic_engine import (
+                get_harmonic_engine,
+            )
+            from backend.services.harmonic_policy import (
+                get_harmonic_policy_service,
+            )
+
+            harmonic = get_harmonic_engine(
+                getattr(self, "db", None)
+            )
+            harmonic_policy = (
+                get_harmonic_policy_service()
+            )
+
+            harmonic_observation = (
+                harmonic.score_observation(
+                    actor_id=str(message.source),
+                    tool_name=str(tool_id),
+                    target_domain=str(target),
+                    environment=str(
+                        os.environ.get(
+                            "ENVIRONMENT",
+                            "local",
+                        )
+                    ),
+                    stage="chorus_settlement",
+                    timestamp_ms=(
+                        datetime.now(
+                            timezone.utc
+                        ).timestamp()
+                        * 1000.0
+                    ),
+                    operation=action,
+                    context={
+                        "outcome": execution.status,
+                        "mcp_execution_id":
+                            execution.execution_id,
+                        "gateway_execution_id":
+                            execution.gateway_execution_id,
+                        "delegation_id":
+                            execution.delegation_id,
+                        "audit_record_id":
+                            execution.audit_record_id,
+                        "world_event_id":
+                            execution.world_event_id,
+                        "chorus_event_id":
+                            execution.chorus_event_id,
+                        "chorus_resolution_class":
+                            execution.chorus_resolution_class,
+                        "chorus_quality": (
+                            (
+                                execution.chorus_state
+                                or {}
+                            ).get(
+                                "chorus_quality"
+                            )
+                        ),
+                        "missing_participants": (
+                            (
+                                execution.edge_observation
+                                or {}
+                            ).get(
+                                "missing_participants",
+                                [],
+                            )
+                        ),
+                    },
+                )
+            )
+
+            execution.harmonic_state = (
+                harmonic_observation.get(
+                    "harmonic_state"
+                )
+                or {}
+            )
+
+            harmonic_modulation = (
+                harmonic_policy.apply_harmonic_obligations(
+                    harmonic_state=
+                        execution.harmonic_state
+                )
+            )
+
+            execution.harmonic_guidance = (
+                harmonic_modulation.get(
+                    "harmonic_guidance"
+                )
+                or {}
+            )
+
+            execution.harmonic_enforcement = (
+                harmonic_modulation.get(
+                    "harmonic_enforcement"
+                )
+                or {}
+            )
+
+        except Exception as harmonic_exc:
+            logger.warning(
+                "MCP harmonic feedback failed for %s: %s",
+                execution.execution_id,
+                harmonic_exc,
+            )
+
         # Recompute after settlement references are attached so the final
         # MCP execution hash covers the completed proof envelope.
         execution.audit_hash = hashlib.sha256(
-            json.dumps(asdict(execution), sort_keys=True).encode()
+            json.dumps(
+                asdict(execution),
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode()
         ).hexdigest()[:32]
 
         # --------------------------------------------------------------
@@ -2381,6 +2510,13 @@ class MCPServer:
                         execution.chorus_state,
                     "edge_observation":
                         execution.edge_observation,
+
+                    "harmonic_state":
+                        execution.harmonic_state,
+                    "harmonic_guidance":
+                        execution.harmonic_guidance,
+                    "harmonic_enforcement":
+                        execution.harmonic_enforcement,
                 },
                 source="mcp_server:settlement",
                 source_type="pipeline",
