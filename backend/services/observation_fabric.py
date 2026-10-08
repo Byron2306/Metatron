@@ -190,6 +190,7 @@ class SuricataObservationBridge:
                 projection = await WorldObservationProjector(self.db).project(observation, decision)
                 result["promoted" if decision.promote else "retained_without_promotion"] += 1
                 result["projected"] += int(projection["projected"])
+                result["triune_triggered"] = result["triune_triggered"] or bool(projection.get("triune_triggered"))
             except Exception:
                 logger.exception("Observation promotion failed; canonical claim remains retryable")
                 result["failed"] += 1
@@ -363,11 +364,12 @@ class WorldObservationProjector:
                              "evidence_digest": observation.evidence_digest,
                              "material_revision": decision.material_revision,
                              "material_key": decision.material_key},
-                    trigger_triune=False, source="observation_fabric", strict_persistence=True)
+                    trigger_triune=None, source="observation_fabric", strict_persistence=True)
                 existing = emitted["event"]
             except DuplicateKeyError:
                 existing = await self.db.world_events.find_one(event_query)
                 if existing is None:
                     raise
         await self._finish(observation, "promoted", "emitted")
-        return {"projected": True, "event_id": existing["id"], "triune_triggered": False}
+        return {"projected": True, "event_id": existing["id"],
+                "triune_triggered": bool(existing.get("triune_triggered"))}

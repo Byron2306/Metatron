@@ -176,8 +176,10 @@ async def test_suricata_ingest_projection_failure_leaves_retryable_state(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_suricata_ingest_reports_triune_disabled(tmp_path, monkeypatch):
+async def test_suricata_ingest_promoted_observation_triggers_triune(tmp_path, monkeypatch):
     db = Database()
     await ObservationStore(db).ensure_indexes()
     result = await call_ingest(db, tmp_path, monkeypatch, [eve_alert()])
-    assert result["observation_fabric"]["triune_triggered"] is False
+    assert result["observation_fabric"]["triune_triggered"] is True
+    event = await db.world_events.find_one({"type": "observation_promoted"})
+    assert event["triune_triggered"] is True
