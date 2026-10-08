@@ -123,7 +123,7 @@ async def get_advanced_dashboard(current_user: dict = Depends(get_current_user))
 
     # MCP server
     try:
-        from services.mcp_server import mcp_server
+        from backend.services.mcp_server import mcp_server
         payload["mcp"] = mcp_server.get_server_status()
     except Exception as e:
         payload["mcp"] = {"tools_registered": 0, "pending_requests": 0, "total_executions": 0}
@@ -438,14 +438,14 @@ async def get_advanced_dashboard(current_user: dict = Depends(get_current_user))
 @router.get("/mcp/tools")
 async def list_mcp_tools(current_user: dict = Depends(get_current_user)):
     """List available MCP tools"""
-    from services.mcp_server import mcp_server
+    from backend.services.mcp_server import mcp_server
     return {"tools": mcp_server.get_tool_catalog()}
 
 
 @router.get("/mcp/tools/{tool_id}")
 async def get_mcp_tool(tool_id: str, current_user: dict = Depends(get_current_user)):
     """Get MCP tool details"""
-    from services.mcp_server import mcp_server
+    from backend.services.mcp_server import mcp_server
     
     if tool_id not in mcp_server.tools:
         raise HTTPException(status_code=404, detail="Tool not found")
@@ -470,7 +470,7 @@ async def execute_mcp_tool(
     current_user: dict = Depends(check_permission("write"))
 ):
     """Execute an MCP tool"""
-    from services.mcp_server import mcp_server, MCPMessageType
+    from backend.services.mcp_server import mcp_server, MCPMessageType
     import asyncio
     
     # Create MCP message
@@ -501,14 +501,14 @@ async def get_mcp_history(
     current_user: dict = Depends(get_current_user)
 ):
     """Get MCP execution history"""
-    from services.mcp_server import mcp_server
+    from backend.services.mcp_server import mcp_server
     return {"executions": mcp_server.get_execution_history(tool_id=tool_id, limit=limit)}
 
 
 @router.get("/mcp/status")
 async def get_mcp_status(current_user: dict = Depends(get_current_user)):
     """Get MCP server status"""
-    from services.mcp_server import mcp_server
+    from backend.services.mcp_server import mcp_server
     return mcp_server.get_server_status()
 
 
