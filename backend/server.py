@@ -584,6 +584,14 @@ async def startup():
     except Exception as e:
         logger.error(f"Failed to initialize OS Enforcement Service: {e}")
 
+    # Initialize VNS persistence on the canonical services.vns singleton
+    try:
+        from services.vns import vns
+        vns.set_db(db)
+        logger.info("VNS database persistence initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize VNS database persistence: {e}")
+
     # Initialize AATL (Autonomous Agent Threat Layer)
     try:
         from services.aatl import init_aatl_engine

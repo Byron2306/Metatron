@@ -50,6 +50,7 @@ SUPPORTED_RUNTIME_TOOLS = {
     "osquery",
     "zeek",
     "clamav",
+    "volatility",
 }
 
 
@@ -1601,6 +1602,104 @@ async def _run_tool_status_probe(tool: str, params: Dict[str, Any] = None) -> Di
         return _jobs[job_id]
 
 
+
+async def _run_volatility_runtime(params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Volatility is analysis-only on this rail.
+
+    Memory acquisition is intentionally NOT exposed here.
+    Acquisition must use the governed MCP memory-dump capability.
+    """
+    payload = dict(params or {})
+    action = str(payload.get("action") or "status").strip().lower()
+
+    job_id = await _new_job(
+        "volatility",
+        {
+            "runtime_target": payload.get("runtime_target", "server"),
+            "params": payload,
+        },
+    )
+
+    try:
+        try:
+            from edr_service import edr_manager
+        except ImportError:
+            from backend.edr_service import edr_manager
+
+        if action == "status":
+            result = edr_manager.memory_forensics.get_status()
+            await _persist_job(
+                job_id,
+                status="completed",
+                result={
+                    "action": "status",
+                    "result": result,
+                },
+            )
+            return _jobs[job_id]
+
+        if action in {"capture", "acquire", "dump", "memory_dump"}:
+            await _persist_job(
+                job_id,
+                status="failed",
+                result={
+                    "action": action,
+                    "error": "memory_acquisition_requires_governed_mcp_capability",
+                    "required_tool": "mcp.forensics.memory_dump",
+                },
+            )
+            return _jobs[job_id]
+
+        if action != "analyze":
+            await _persist_job(
+                job_id,
+                status="failed",
+                result={
+                    "action": action,
+                    "error": "unsupported_action",
+                    "supported_actions": ["status", "analyze"],
+                },
+            )
+            return _jobs[job_id]
+
+        dump_path = str(payload.get("dump_path") or "").strip()
+        if not dump_path:
+            await _persist_job(
+                job_id,
+                status="failed",
+                result={
+                    "action": "analyze",
+                    "error": "dump_path_required",
+                },
+            )
+            return _jobs[job_id]
+
+        result = await edr_manager.analyze_memory(dump_path)
+
+        await _persist_job(
+            job_id,
+            status="completed",
+            result={
+                "action": "analyze",
+                "result": result,
+                "dump_path": dump_path,
+            },
+        )
+        return _jobs[job_id]
+
+    except Exception as exc:
+        await _persist_job(
+            job_id,
+            status="failed",
+            result={
+                "action": action,
+                "error": str(exc),
+            },
+        )
+        return _jobs[job_id]
+
+
 async def run_runtime_tool(
     *,
     tool: str,
@@ -1654,6 +1753,9 @@ async def run_runtime_tool(
             actor=actor,
             agent_id=resolved_agent_id,
         )
+
+    if t == "volatility":
+        return await _run_volatility_runtime(payload)
 
     if action == "status" and t in {"amass", "velociraptor", "purplesharp", "arkime", "bloodhound", "spiderfoot", "clamav"}:
         return await _run_tool_status_probe(t, payload)

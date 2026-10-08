@@ -645,6 +645,8 @@ class AgentHeartbeatModel(BaseModel):
     edm_hits: List[EDMHitTelemetryModel] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
+    # Canonical flexible monitor census for the full endpoint sensorium.
+    monitor_fleet: Optional[Dict[str, Dict[str, Any]]] = None
     local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
     # Optional workload identity anchors (for constitutional→kernel friend/foe)
     node_id: Optional[str] = None
@@ -736,6 +738,8 @@ class AgentHeartbeatModel(BaseModel):
     edm_hits: List[EDMHitTelemetryModel] = []
     # Structured monitor telemetry
     monitors: Optional[MonitorsTelemetry] = None
+    # Canonical flexible monitor census for the full endpoint sensorium.
+    monitor_fleet: Optional[Dict[str, Dict[str, Any]]] = None
     local_ui_url: Optional[str] = None  # URL of the agent's built-in local web UI
     # Optional workload identity anchors (for constitutional→kernel friend/foe)
     node_id: Optional[str] = None
@@ -1189,7 +1193,77 @@ async def agent_heartbeat(
                 monitor_doc[monitor_name] = monitor_data.model_dump()
         
         await db.agent_monitor_telemetry.insert_one(monitor_doc)
-    
+
+    # Canonical full-fleet telemetry. Unlike the legacy ten-slot schema,
+    # this preserves every monitor surface and its implementation kind/state.
+    if heartbeat.monitor_fleet:
+        fleet_doc = {
+            "agent_id": agent_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "fleet_total": len(heartbeat.monitor_fleet),
+            "monitors": heartbeat.monitor_fleet,
+        }
+        await db.agent_monitor_fleet.insert_one(fleet_doc)
+        update_data["monitor_fleet_summary"] = {
+            name: {
+                "kind": data.get("kind"),
+                "enabled": data.get("enabled"),
+                "state": data.get("state"),
+            }
+            for name, data in heartbeat.monitor_fleet.items()
+        }
+        update_data["monitor_fleet_total"] = len(heartbeat.monitor_fleet)
+        await db.unified_agents.update_one(
+            {"agent_id": agent_id},
+            {"$set": {
+                "monitor_fleet_summary": update_data["monitor_fleet_summary"],
+                "monitor_fleet_total": update_data["monitor_fleet_total"],
+            }}
+        )
+
+    # Canonical endpoint evidence fan-out.
+    # Emit only when endpoint state materially changes.
+    previous_fleet = agent.get("monitor_fleet_summary") or {}
+    current_fleet = update_data.get("monitor_fleet_summary") or previous_fleet
+
+    endpoint_changed = any([
+        int(agent.get("threat_count") or 0) != int(heartbeat.threat_count or 0),
+        int(agent.get("network_connections") or 0) != int(heartbeat.network_connections or 0),
+        current_fleet != previous_fleet,
+    ])
+
+    if endpoint_changed:
+        try:
+            try:
+                from services.world_events import emit_world_event
+            except Exception:
+                from backend.services.world_events import emit_world_event
+
+            await emit_world_event(
+                db,
+                event_type="endpoint_evidence_observed",
+                entity_refs=[agent_id],
+                payload={
+                    "schema": "seraph.endpoint.evidence.v1",
+                    "source_kind": "unified_agent",
+                    "agent_id": agent_id,
+                    "node_id": heartbeat.node_id or agent.get("node_id"),
+                    "hostname": agent.get("hostname"),
+                    "platform": agent.get("platform"),
+                    "threat_count": heartbeat.threat_count or 0,
+                    "network_connections": heartbeat.network_connections,
+                    "cpu_usage": heartbeat.cpu_usage,
+                    "memory_usage": heartbeat.memory_usage,
+                    "disk_usage": heartbeat.disk_usage,
+                    "monitor_fleet_total": len(heartbeat.monitor_fleet or {}),
+                    "monitor_fleet_summary": current_fleet,
+                },
+                source="unified_agent",
+                trigger_triune=False,
+            )
+        except Exception as e:
+            logger.exception("endpoint evidence fan-out failed: %s", e)
+
     # Get queued commands for this agent
     commands = agent_ws_manager.get_queued_commands(agent_id)
     

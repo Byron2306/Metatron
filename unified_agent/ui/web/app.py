@@ -204,6 +204,7 @@ class WebAgentBridge:
         "yara",
         "zeek",
         "osquery",
+        "volatility",
     )
 
     # Credentials for auto-login against the local backend
@@ -236,7 +237,7 @@ class WebAgentBridge:
         self.command_history: deque = deque(maxlen=200)
         self.quarantine_items: List[Dict] = []
         # Auto-reduce settings
-        self.ar_enabled = True
+        self.ar_enabled = False
         self.ar_cpu_thresh = 80
         self.ar_mem_thresh = 85
         self.ar_disk_thresh = 90
@@ -385,7 +386,7 @@ class WebAgentBridge:
                 ),
                 agent_id=persisted_auth.get("agent_id") or getattr(self.agent.config, "agent_id", "") or f"metatron-{socket.gethostname()}-local",
                 agent_name=persisted_auth.get("agent_id") or getattr(self.agent.config, "agent_name", socket.gethostname()),
-                enrollment_key=os.environ.get("SERAPH_AGENT_SECRET") or os.environ.get("SERAPH_ENROLLMENT_KEY", "dev-agent-secret-change-in-production"),
+                enrollment_key=os.environ.get("SERAPH_AGENT_SECRET") or os.environ.get("SERAPH_ENROLLMENT_KEY", ""),
                 auth_token=persisted_auth.get("auth_token", ""),
                 update_interval=int(os.environ.get("SERAPH_AGENT_UPDATE_INTERVAL", "300") or 300),
                 heartbeat_interval=int(os.environ.get("SERAPH_AGENT_HEARTBEAT_INTERVAL", "300") or 300),
@@ -402,11 +403,70 @@ class WebAgentBridge:
                 vpn_auto_configure=str(os.environ.get("SERAPH_AGENT_VPN_AUTO_CONFIGURE", "false")).lower() in {"1", "true", "yes", "on"},
             )
             self.monolithic_agent = MonolithicUnifiedAgent(config=mono_cfg)
+            self.monolithic_agent.monitor_fleet_provider = self._build_auxiliary_monitor_fleet
             self.log("Monolithic core bridge initialized for canonical UI")
             self._maybe_autoboot_vpn()
         except Exception as e:
             self.monolithic_init_error = str(e)
             self.log(f"Monolithic core bridge failed: {e}", "WARN")
+
+    def _build_auxiliary_monitor_fleet(self) -> dict:
+        """Expose bridge/integration-backed surfaces to canonical agent telemetry."""
+
+        trusted = self.get_trusted_ai_stats() or {}
+        power = self.get_power_stats() or {}
+        trivy = self.get_trivy_monitor_stats() or {}
+        falco = self.get_falco_monitor_stats() or {}
+        suricata = self.get_suricata_monitor_stats() or {}
+        volatility = self.get_volatility_monitor_stats() or {}
+
+        def integration_state(data):
+            if data.get("ready"):
+                return "running"
+            if data.get("enabled", True):
+                return "unavailable"
+            return "disabled_by_policy"
+
+        return {
+            "trusted_ai": {
+                "kind": "auxiliary_local",
+                "enabled": bool(trusted.get("enabled", True)),
+                "state": "active" if trusted.get("enabled", True) else "disabled",
+                "details": trusted,
+            },
+            "power": {
+                "kind": "auxiliary_local",
+                "enabled": bool(power.get("enabled", True)),
+                "state": "active" if power.get("enabled", True) else "disabled",
+                "details": power,
+            },
+            "trivy": {
+                "kind": "integration_sensor",
+                "enabled": bool(trivy.get("enabled", True)),
+                "state": integration_state(trivy),
+                "details": trivy,
+            },
+            "falco": {
+                "kind": "integration_sensor",
+                "enabled": bool(falco.get("enabled", True)),
+                "state": "disabled_by_policy"
+                    if not falco.get("ready")
+                    else "running",
+                "details": falco,
+            },
+            "suricata": {
+                "kind": "integration_sensor",
+                "enabled": bool(suricata.get("enabled", True)),
+                "state": integration_state(suricata),
+                "details": suricata,
+            },
+            "volatility": {
+                "kind": "forensic_adapter",
+                "enabled": bool(volatility.get("enabled", True)),
+                "state": "ready" if volatility.get("ready") else "unavailable",
+                "details": volatility,
+            },
+        }
 
     def _maybe_autoboot_vpn(self):
         """Auto-configure the local VPN when agent config enables it."""

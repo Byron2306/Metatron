@@ -184,6 +184,15 @@ class VirtualNetworkSensor:
         self._zeek_seen_flow_key_ring: deque = deque(maxlen=50000)
         self._zeek_seen_dns_keys: set = set()
         self._zeek_seen_dns_key_ring: deque = deque(maxlen=50000)
+
+        # Suricata EVE ingest
+        self._last_suricata_ingest_at: Optional[datetime] = None
+        self._suricata_seen_flow_keys: set = set()
+        self._suricata_seen_flow_key_ring: deque = deque(maxlen=100000)
+        self._suricata_seen_dns_keys: set = set()
+        self._suricata_seen_dns_key_ring: deque = deque(maxlen=100000)
+        self._suricata_seen_alert_keys: set = set()
+        self._suricata_seen_alert_key_ring: deque = deque(maxlen=100000)
         
         # Indexes
         self.flows_by_ip: Dict[str, List[str]] = defaultdict(list)
@@ -366,6 +375,9 @@ class VirtualNetworkSensor:
         duration_ms: Optional[int] = None,
         packets_sent: int = 0,
         packets_recv: int = 0,
+        witness: Optional[str] = None,
+        source_event_type: Optional[str] = None,
+        source_event_id: Optional[str] = None,
     ) -> NetworkFlow:
         """Record a network flow"""
         
@@ -444,6 +456,9 @@ class VirtualNetworkSensor:
                 "status": flow.status.value,
                 "provenance": "vns_record_flow",
                 "reconciliation_scope": "flow",
+                "witness": witness,
+                "source_event_type": source_event_type,
+                "source_event_id": source_event_id,
             },
         )
         self._persist_reconciliation_state()
@@ -484,6 +499,9 @@ class VirtualNetworkSensor:
         response_ttl: int = 0,
         *,
         timestamp: Optional[str] = None,
+        witness: Optional[str] = None,
+        source_event_type: Optional[str] = None,
+        source_event_id: Optional[str] = None,
     ) -> DNSQuery:
         """Record a DNS query"""
         
@@ -540,6 +558,9 @@ class VirtualNetworkSensor:
                 **asdict(query),
                 "provenance": "vns_record_dns_query",
                 "reconciliation_scope": "dns",
+                "witness": witness,
+                "source_event_type": source_event_type,
+                "source_event_id": source_event_id,
             },
         )
         self._persist_reconciliation_state()
@@ -573,21 +594,24 @@ class VirtualNetworkSensor:
         return lines[-max_lines:] if len(lines) > max_lines else lines
 
     def _parse_zeek_tsv_tail(self, path: str, *, max_lines: int = 2000) -> List[Dict[str, str]]:
-        """Parse Zeek TSV tail rows using the file's canonical #fields header."""
+        """Parse recent Zeek TSV rows while preserving the header schema."""
+
         fields: Optional[List[str]] = None
 
-        # Zeek writes #fields near the beginning of the active log. Large logs
-        # may no longer include that header inside a bounded tail read, so learn
-        # the schema separately without loading the whole file.
+        # Zeek writes #fields near the beginning of the log. Large logs may
+        # not contain that header in the tail chunk, so read the schema first.
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(path, "r", errors="ignore") as f:
                 for line in f:
                     if line.startswith("#fields"):
                         fields = line.rstrip("\n").split("\t")[1:]
                         break
-                    if not line.startswith("#"):
+                    if line and not line.startswith("#"):
                         break
         except Exception:
+            return []
+
+        if not fields:
             return []
 
         lines = self._tail_lines(path, max_lines=max_lines)
@@ -596,21 +620,18 @@ class VirtualNetworkSensor:
 
         rows: List[Dict[str, str]] = []
         for line in lines:
-            if not line:
+            if not line or line.startswith("#"):
                 continue
-            if line.startswith("#fields"):
-                parts = line.split("\t")
-                fields = parts[1:]
-                continue
-            if line.startswith("#"):
-                continue
-            if fields is None:
-                continue
+
             parts = line.split("\t")
             if len(parts) < len(fields):
                 continue
-            row = {fields[i]: parts[i] for i in range(len(fields))}
-            rows.append(row)
+
+            rows.append({
+                fields[i]: parts[i]
+                for i in range(len(fields))
+            })
+
         return rows
 
     def ingest_zeek_recent(
@@ -737,6 +758,491 @@ class VirtualNetworkSensor:
             "timestamp": now.isoformat(),
         }
     
+    # =========================================================================
+    # SURICATA EVE INGEST
+    # =========================================================================
+
+    async def ingest_suricata_recent(
+        self,
+        *,
+        eve_path: Optional[str] = None,
+        max_lines: int = 10000,
+        max_bytes: int = 8_000_000,
+        min_interval_s: int = 15,
+        force: bool = False,
+    ) -> Dict[str, Any]:
+        """Ingest recent Suricata EVE flow/DNS truth into VNS.
+
+        Alerts are deliberately not flattened into flows.  Their count is
+        returned separately for the hunting/world-evidence fan-out.
+        """
+
+        import ipaddress
+        import json
+
+        now = datetime.now(timezone.utc)
+
+        if (
+            not force
+            and self._last_suricata_ingest_at
+            and (
+                now - self._last_suricata_ingest_at
+            ).total_seconds() < min_interval_s
+        ):
+            return {
+                "ingested": False,
+                "reason": "rate_limited",
+            }
+
+        path = (
+            eve_path
+            or os.environ.get("SURICATA_EVE_PATH")
+            or "/var/log/suricata/eve.json"
+        ).strip()
+
+        if not os.path.exists(path):
+            return {
+                "ingested": False,
+                "reason": "eve_not_found",
+                "eve_path": path,
+            }
+
+        lines = self._tail_lines(
+            path,
+            max_lines=max_lines,
+            max_bytes=max_bytes,
+        )
+
+        flow_added = 0
+        dns_added = 0
+        alerts_seen = 0
+        alerts_added = 0
+        parse_errors = 0
+        record_errors = 0
+
+        dns_events: List[Dict[str, Any]] = []
+        alert_evidence: List[Dict[str, Any]] = []
+
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except Exception:
+                parse_errors += 1
+                continue
+
+            event_type = str(event.get("event_type") or "").lower()
+
+            if event_type == "alert":
+                alerts_seen += 1
+
+                try:
+                    alert = event.get("alert") or {}
+                    flow_id = str(event.get("flow_id") or "")
+                    signature_id = str(alert.get("signature_id") or "")
+                    timestamp = str(event.get("timestamp") or "")
+
+                    source_event_id = "|".join([
+                        flow_id,
+                        signature_id,
+                        timestamp,
+                    ])
+
+                    if (
+                        not source_event_id.strip("|")
+                        or source_event_id in self._suricata_seen_alert_keys
+                    ):
+                        continue
+
+                    evidence = {
+                        "schema": "seraph.suricata.alert.v1",
+                        "witness": "suricata",
+                        "source_event_type": "alert",
+                        "source_event_id": source_event_id,
+                        "timestamp": timestamp,
+                        "flow_id": flow_id,
+                        "interface": event.get("in_iface"),
+                        "direction": event.get("direction"),
+                        "src_ip": event.get("src_ip"),
+                        "src_port": event.get("src_port"),
+                        "dst_ip": event.get("dest_ip"),
+                        "dst_port": event.get("dest_port"),
+                        "protocol": event.get("proto"),
+                        "action": alert.get("action"),
+                        "signature_id": alert.get("signature_id"),
+                        "signature": alert.get("signature"),
+                        "category": alert.get("category"),
+                        "severity": alert.get("severity"),
+                        "metadata": alert.get("metadata") or {},
+                        "provenance": "suricata_eve_alert",
+                        "reconciliation_scope": "network_alert",
+                        "world_fanout_status": "pending",
+                    }
+
+                    durable_new = True
+
+                    if (
+                        self.db is not None
+                        and hasattr(self.db, "suricata_alert_evidence")
+                    ):
+                        try:
+                            claim = await self.db.suricata_alert_evidence.update_one(
+                                {
+                                    "source_event_id": source_event_id
+                                },
+                                {
+                                    "$setOnInsert": evidence
+                                },
+                                upsert=True,
+                            )
+                            durable_new = claim.upserted_id is not None
+                        except Exception:
+                            logger.exception(
+                                "VNS: durable Suricata alert claim failed "
+                                "for source_event_id=%s",
+                                source_event_id,
+                            )
+                            record_errors += 1
+                            continue
+                    else:
+                        self._persist_artifact(
+                            "suricata_alert_evidence",
+                            evidence,
+                        )
+
+                    # Cache every durable claim result locally so repeated
+                    # rows in this process avoid unnecessary Mongo work.
+                    self._suricata_seen_alert_keys.add(source_event_id)
+                    self._suricata_seen_alert_key_ring.append(
+                        source_event_id
+                    )
+
+                    if (
+                        len(self._suricata_seen_alert_keys)
+                        > self._suricata_seen_alert_key_ring.maxlen
+                    ):
+                        self._suricata_seen_alert_keys = set(
+                            self._suricata_seen_alert_key_ring
+                        )
+
+                    # Only first durable observer is allowed downstream.
+                    if durable_new:
+                        alert_evidence.append(evidence)
+                        alerts_added += 1
+
+                except Exception:
+                    record_errors += 1
+
+                continue
+
+            if event_type == "dns":
+                dns_events.append(event)
+                continue
+
+            if event_type != "flow":
+                continue
+
+            try:
+                source_id = str(event.get("flow_id") or "")
+                if not source_id:
+                    continue
+
+                if source_id in self._suricata_seen_flow_keys:
+                    continue
+
+                if (
+                    self.db is not None
+                    and hasattr(self.db, "vns_flows")
+                ):
+                    existing = await self.db.vns_flows.find_one(
+                        {
+                            "witness": "suricata",
+                            "source_event_id": source_id,
+                        },
+                        {"_id": 1},
+                    )
+                    if existing:
+                        self._suricata_seen_flow_keys.add(source_id)
+                        self._suricata_seen_flow_key_ring.append(source_id)
+                        continue
+
+                src_ip = str(event.get("src_ip") or "").strip()
+                dst_ip = str(event.get("dest_ip") or "").strip()
+
+                if not src_ip or not dst_ip:
+                    continue
+
+                src_port = int(event.get("src_port") or 0)
+                dst_port = int(event.get("dest_port") or 0)
+                proto = str(event.get("proto") or "TCP").upper()
+
+                app_proto = str(event.get("app_proto") or "").strip()
+                service = app_proto if app_proto and app_proto != "failed" else None
+
+                flow_data = event.get("flow") or {}
+
+                started_at = flow_data.get("start") or event.get("timestamp")
+                ended_at = flow_data.get("end")
+
+                duration_ms = 0
+                if started_at and ended_at:
+                    try:
+                        start_dt = datetime.fromisoformat(str(started_at))
+                        end_dt = datetime.fromisoformat(str(ended_at))
+                        duration_ms = max(
+                            0,
+                            int((end_dt - start_dt).total_seconds() * 1000),
+                        )
+                    except Exception:
+                        duration_ms = int(
+                            float(flow_data.get("age") or 0) * 1000
+                        )
+
+                self.record_flow(
+                    src_ip=src_ip,
+                    src_port=src_port,
+                    dst_ip=dst_ip,
+                    dst_port=dst_port,
+                    protocol=proto,
+                    service=service,
+                    bytes_sent=int(flow_data.get("bytes_toserver") or 0),
+                    bytes_recv=int(flow_data.get("bytes_toclient") or 0),
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    duration_ms=duration_ms,
+                    packets_sent=int(flow_data.get("pkts_toserver") or 0),
+                    packets_recv=int(flow_data.get("pkts_toclient") or 0),
+                    witness="suricata",
+                    source_event_type="flow",
+                    source_event_id=source_id,
+                )
+
+                self._suricata_seen_flow_keys.add(source_id)
+                self._suricata_seen_flow_key_ring.append(source_id)
+
+                if (
+                    len(self._suricata_seen_flow_keys)
+                    > self._suricata_seen_flow_key_ring.maxlen
+                ):
+                    self._suricata_seen_flow_keys = set(
+                        self._suricata_seen_flow_key_ring
+                    )
+
+                flow_added += 1
+
+            except Exception:
+                record_errors += 1
+                continue
+
+        # --------------------------------------------------------------
+        # DNS correlation
+        # --------------------------------------------------------------
+
+        requests: Dict[str, Dict[str, Any]] = {}
+
+        def dns_items(event: Dict[str, Any]):
+            dns = event.get("dns") or {}
+            queries = dns.get("queries") or []
+
+            for query in queries:
+                rrname = str(query.get("rrname") or "").strip()
+                rrtype = str(query.get("rrtype") or "A").strip()
+
+                if not rrname:
+                    continue
+
+                key = "|".join([
+                    str(event.get("flow_id") or ""),
+                    str(dns.get("id") or ""),
+                    rrname,
+                    rrtype,
+                ])
+
+                yield key, rrname, rrtype
+
+        for event in dns_events:
+            dns = event.get("dns") or {}
+            if str(dns.get("type") or "").lower() != "request":
+                continue
+
+            for key, _, _ in dns_items(event):
+                requests[key] = event
+
+        completed_dns: set = set()
+
+        for event in dns_events:
+            dns = event.get("dns") or {}
+
+            if str(dns.get("type") or "").lower() != "response":
+                continue
+
+            for key, rrname, rrtype in dns_items(event):
+                if key in self._suricata_seen_dns_keys:
+                    completed_dns.add(key)
+                    continue
+
+                if (
+                    self.db is not None
+                    and hasattr(self.db, "vns_dns_queries")
+                ):
+                    existing = await self.db.vns_dns_queries.find_one(
+                        {
+                            "witness": "suricata",
+                            "source_event_id": key,
+                        },
+                        {"_id": 1},
+                    )
+                    if existing:
+                        self._suricata_seen_dns_keys.add(key)
+                        self._suricata_seen_dns_key_ring.append(key)
+                        completed_dns.add(key)
+                        continue
+
+                request = requests.get(key)
+
+                # On a response, dest_ip is the querying client.
+                client_ip = (
+                    str(request.get("src_ip") or "").strip()
+                    if request
+                    else str(event.get("dest_ip") or "").strip()
+                )
+
+                if not client_ip:
+                    continue
+
+                response_ips: List[str] = []
+                response_ttl = 0
+
+                for answer in dns.get("answers") or []:
+                    if not isinstance(answer, dict):
+                        continue
+
+                    value = str(
+                        answer.get("rdata")
+                        or answer.get("data")
+                        or ""
+                    ).strip()
+
+                    try:
+                        ipaddress.ip_address(value)
+                        response_ips.append(value)
+                    except Exception:
+                        pass
+
+                    if not response_ttl:
+                        try:
+                            response_ttl = int(answer.get("ttl") or 0)
+                        except Exception:
+                            response_ttl = 0
+
+                source_id = key
+                timestamp = (
+                    request.get("timestamp")
+                    if request
+                    else event.get("timestamp")
+                )
+
+                try:
+                    self.record_dns_query(
+                        src_ip=client_ip,
+                        query_name=rrname,
+                        query_type=rrtype,
+                        response_code=str(
+                            dns.get("rcode") or "NOERROR"
+                        ),
+                        response_ips=response_ips,
+                        response_ttl=response_ttl,
+                        timestamp=timestamp,
+                        witness="suricata",
+                        source_event_type="dns",
+                        source_event_id=source_id,
+                    )
+
+                    self._suricata_seen_dns_keys.add(key)
+                    self._suricata_seen_dns_key_ring.append(key)
+
+                    if (
+                        len(self._suricata_seen_dns_keys)
+                        > self._suricata_seen_dns_key_ring.maxlen
+                    ):
+                        self._suricata_seen_dns_keys = set(
+                            self._suricata_seen_dns_key_ring
+                        )
+
+                    completed_dns.add(key)
+                    dns_added += 1
+
+                except Exception:
+                    record_errors += 1
+
+        # Record requests that had no matching response in this EVE window.
+        for key, event in requests.items():
+            if key in completed_dns or key in self._suricata_seen_dns_keys:
+                continue
+
+            if (
+                self.db is not None
+                and hasattr(self.db, "vns_dns_queries")
+            ):
+                existing = await self.db.vns_dns_queries.find_one(
+                    {
+                        "witness": "suricata",
+                        "source_event_id": key,
+                    },
+                    {"_id": 1},
+                )
+                if existing:
+                    self._suricata_seen_dns_keys.add(key)
+                    self._suricata_seen_dns_key_ring.append(key)
+                    completed_dns.add(key)
+                    continue
+
+            dns = event.get("dns") or {}
+
+            for _, rrname, rrtype in dns_items(event):
+                client_ip = str(event.get("src_ip") or "").strip()
+
+                if not client_ip:
+                    continue
+
+                try:
+                    self.record_dns_query(
+                        src_ip=client_ip,
+                        query_name=rrname,
+                        query_type=rrtype,
+                        response_code=str(
+                            dns.get("rcode") or "NOERROR"
+                        ),
+                        response_ips=[],
+                        timestamp=event.get("timestamp"),
+                        witness="suricata",
+                        source_event_type="dns",
+                        source_event_id=key,
+                    )
+
+                    self._suricata_seen_dns_keys.add(key)
+                    self._suricata_seen_dns_key_ring.append(key)
+                    completed_dns.add(key)
+                    dns_added += 1
+
+                except Exception:
+                    record_errors += 1
+
+        self._last_suricata_ingest_at = now
+
+        return {
+            "ingested": True,
+            "eve_path": path,
+            "lines_examined": len(lines),
+            "flows_added": flow_added,
+            "dns_added": dns_added,
+            "alerts_seen": alerts_seen,
+            "alerts_added": alerts_added,
+            "alert_evidence": alert_evidence[:100],
+            "parse_errors": parse_errors,
+            "record_errors": record_errors,
+            "timestamp": now.isoformat(),
+        }
+
     def _looks_like_dga(self, domain: str) -> bool:
         """Check if domain looks like DGA-generated"""
         # Remove TLD

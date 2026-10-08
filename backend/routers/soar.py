@@ -217,7 +217,8 @@ async def trigger_playbooks(
     event_dict = event.model_dump()
     event_dict.update(event_dict.pop("extra", {}))
     
-    executions = await soar_engine.trigger_playbooks(event_dict)
+    db = get_db()
+    executions = await soar_engine.trigger_playbooks(event_dict, db=db)
     
     from dataclasses import asdict
     return {

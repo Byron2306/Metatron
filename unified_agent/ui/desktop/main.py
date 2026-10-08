@@ -2553,6 +2553,11 @@ class UnifiedAgentCore:
     # -------------------- Heartbeat --------------------
     def send_heartbeat(self) -> bool:
         """Send heartbeat with system metrics and queued alerts to BOTH servers."""
+        if os.environ.get("SERAPH_AGENT_CANONICAL_WRITER", "").strip().lower() == "monolithic":
+            # Monolithic UnifiedAgent owns /api/unified agent truth.
+            # Keep this legacy core alive for local scanners/UI, but do not
+            # overwrite canonical CPU/disk/threat/telemetry state.
+            return True
         if not self.registered:
             if not self.register():
                 # Even if unified registration fails, still try backend heartbeat

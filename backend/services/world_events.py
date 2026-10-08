@@ -147,8 +147,11 @@ async def emit_world_event(
         try:
             await db.world_events.insert_one(event)
         except Exception:
-            # best-effort persistence
-            pass
+            # Best-effort persistence, but never fail silently.
+            logger.exception(
+                "world_events: persistence failed for event_type=%s",
+                event_type,
+            )
 
     triune_bundle = None
     if resolved_trigger_triune:

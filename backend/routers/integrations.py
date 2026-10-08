@@ -44,6 +44,107 @@ _COMPOSE_FILE = Path(
 _IDLE_TIMEOUT_SECONDS = max(60, int(os.getenv("INTEGRATIONS_WARM_IDLE_SECONDS", "1800") or "1800"))
 _IDLE_REAPER_POLL_SECONDS = max(15, int(os.getenv("INTEGRATIONS_WARM_REAPER_POLL_SECONDS", "60") or "60"))
 
+# Canonical Seraph integration fabric.
+#
+# lifecycle:
+#   continuous          baseline sensor / evidence source
+#   scheduled           normally present, work occurs periodically/on demand
+#   on_demand           specialist warmed for a bounded investigation
+#   governed_on_demand  active validation requiring governed authorization
+#   disabled_by_policy  intentionally unavailable until policy/hardware permits
+_INTEGRATION_FABRIC: Dict[str, Dict[str, Any]] = {
+    "zeek": {
+        "role": "network_truth",
+        "family": "network",
+        "lifecycle": "continuous",
+    },
+    "suricata": {
+        "role": "network_ids",
+        "family": "network",
+        "lifecycle": "continuous",
+    },
+    "arkime": {
+        "role": "packet_session_provenance",
+        "family": "network",
+        "lifecycle": "continuous",
+    },
+    "yara": {
+        "role": "artifact_pattern_detection",
+        "family": "endpoint_detection",
+        "lifecycle": "continuous",
+    },
+    "trivy": {
+        "role": "vulnerability_posture",
+        "family": "posture",
+        "lifecycle": "scheduled",
+    },
+    "osquery": {
+        "role": "endpoint_query",
+        "family": "endpoint",
+        "lifecycle": "continuous",
+    },
+    "velociraptor": {
+        "role": "endpoint_hunting_forensics",
+        "family": "forensics",
+        "lifecycle": "on_demand",
+    },
+    "volatility": {
+        "role": "memory_forensics",
+        "family": "forensics",
+        "lifecycle": "on_demand",
+    },
+    "bloodhound": {
+        "role": "identity_attack_graph",
+        "family": "identity",
+        "lifecycle": "on_demand",
+    },
+    "amass": {
+        "role": "external_asset_discovery",
+        "family": "recon",
+        "lifecycle": "on_demand",
+    },
+    "spiderfoot": {
+        "role": "osint_enrichment",
+        "family": "recon",
+        "lifecycle": "on_demand",
+    },
+    "clamav": {
+        "role": "malware_scanning",
+        "family": "endpoint_detection",
+        "lifecycle": "on_demand",
+    },
+    "cuckoo": {
+        "role": "sandbox_detonation",
+        "family": "forensics",
+        "lifecycle": "on_demand",
+    },
+    "sigma": {
+        "role": "detection_semantics",
+        "family": "analytics",
+        "lifecycle": "continuous",
+    },
+    "atomic": {
+        "role": "controlled_attack_stimulus",
+        "family": "validation",
+        "lifecycle": "governed_on_demand",
+    },
+    "purplesharp": {
+        "role": "adversary_validation",
+        "family": "validation",
+        "lifecycle": "governed_on_demand",
+    },
+    "falco": {
+        "role": "kernel_runtime_detection",
+        "family": "runtime_security",
+        "lifecycle": "disabled_by_policy",
+    },
+    "docker-posture": {
+        "role": "container_runtime_posture",
+        "family": "runtime_security",
+        "lifecycle": "continuous",
+    },
+}
+
 # Tool name -> compose profile/services to start/stop on demand.
 _INTEGRATION_WARM_TARGETS: Dict[str, Dict[str, Any]] = {
     "amass": {"profile": "amass", "services": ["amass"]},
@@ -557,6 +658,34 @@ class HostLogIngestRequest(BaseModel):
     raw: str
 
 
+@router.get("/runtime/fabric")
+async def runtime_integration_fabric(
+    machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
+    user: Optional[dict] = Depends(get_optional_current_user),
+):
+    if machine_auth is None:
+        if user is None and not _allow_public_runtime_reads():
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if user is not None and not _runtime_user_authorized(user, "read"):
+            raise HTTPException(status_code=403, detail="Permission denied. Required: read")
+
+    fabric = {}
+    for name, meta in _INTEGRATION_FABRIC.items():
+        fabric[name] = {
+            **meta,
+            "runtime_supported": name in SUPPORTED_RUNTIME_TOOLS,
+            "warm_target": _INTEGRATION_WARM_TARGETS.get(name),
+        }
+
+    return {
+        "integrations": fabric,
+        "count": len(fabric),
+        "runtime_supported_count": sum(
+            1 for name in fabric if name in SUPPORTED_RUNTIME_TOOLS
+        ),
+    }
+
+
 @router.get("/runtime/tools")
 async def runtime_supported_tools(
     machine_auth: Optional[dict] = Depends(verify_integrations_machine_token),
@@ -616,6 +745,35 @@ async def start_runtime_launch(
         },
         trigger_triune=False,
     )
+
+    action = str((payload.params or {}).get("action") or "").strip().lower()
+    if action != "status":
+        result_payload = job.get("result") if isinstance(job.get("result"), dict) else {}
+
+        await emit_world_event(
+            get_db(),
+            event_type="integration_evidence_observed",
+            entity_refs=[
+                tool,
+                str(job.get("id") or ""),
+                str(payload.agent_id or ""),
+            ],
+            payload={
+                "schema": "seraph.integration.evidence.v1",
+                "source_kind": "integration_runtime",
+                "tool": tool,
+                "action": action or "default",
+                "job_id": job.get("id"),
+                "job_status": job.get("status"),
+                "runtime_target": payload.runtime_target or "server",
+                "agent_id": payload.agent_id,
+                "actor": actor,
+                "result": result_payload,
+            },
+            source="integration_runtime",
+            trigger_triune=False,
+        )
+
     return _runtime_job_response(job)
 
 

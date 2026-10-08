@@ -11910,7 +11910,7 @@ class CLITelemetryMonitor(MonitorModule):
     
     def scan(self) -> List[Threat]:
         """Scan for shell/CLI processes and detect suspicious commands"""
-        if not self.enabled or not HAS_PSUTIL:
+        if not self.enabled or not PSUTIL_AVAILABLE:
             return []
         
         self.threats.clear()
@@ -13020,7 +13020,7 @@ class PrivilegeEscalationMonitor(MonitorModule):
     
     def _check_suspicious_system_processes(self):
         """Check for suspicious processes running as SYSTEM"""
-        if not HAS_PSUTIL:
+        if not PSUTIL_AVAILABLE:
             return
         
         try:
@@ -14686,6 +14686,11 @@ class UnifiedAgent:
         self.registered = False
         self.last_heartbeat = None
 
+        # Optional bridge-owned monitor provider. The monolithic core owns
+        # in-process monitors; host/integration surfaces may augment the
+        # canonical fleet without pretending to be MonitorModule instances.
+        self.monitor_fleet_provider = None
+
         # Local web UI server (started in start())
         self.local_ui_server: Optional[LocalWebUIServer] = None
         self._local_ui_url: str = ""
@@ -15095,6 +15100,49 @@ class UnifiedAgent:
         # Log to SIEM
         self.siem.log_event(event_type, data.get('severity', 'info'), data)
     
+    def _build_monitor_fleet(self) -> Dict[str, Dict[str, Any]]:
+        """Build canonical telemetry for every in-process monitor."""
+        fleet: Dict[str, Dict[str, Any]] = {}
+
+        for name, monitor in self.monitors.items():
+            last_run = getattr(monitor, "last_run", None)
+            if last_run is not None:
+                if isinstance(last_run, (int, float)):
+                    last_run = datetime.fromtimestamp(
+                        last_run, tz=timezone.utc
+                    ).isoformat()
+                else:
+                    try:
+                        last_run = last_run.isoformat()
+                    except AttributeError:
+                        last_run = str(last_run)
+
+            try:
+                threats = monitor.get_threats() or []
+                threat_count = len(threats)
+            except Exception:
+                threat_count = None
+
+            fleet[name] = {
+                "kind": "in_process_monitor",
+                "enabled": bool(getattr(monitor, "enabled", True)),
+                "state": "active" if getattr(monitor, "enabled", True) else "disabled",
+                "last_run": last_run,
+                "error_count": int(getattr(monitor, "error_count", 0) or 0),
+                "threat_count": threat_count,
+            }
+
+        provider = getattr(self, "monitor_fleet_provider", None)
+        if callable(provider):
+            try:
+                extra = provider() or {}
+                if isinstance(extra, dict):
+                    fleet.update(extra)
+            except Exception as e:
+                logger.warning(f"Auxiliary monitor fleet provider failed: {e}")
+
+        return fleet
+
     def heartbeat(self) -> bool:
         """Send heartbeat to server"""
         if not REQUESTS_AVAILABLE or not self.config.server_url:
@@ -15133,6 +15181,7 @@ class UnifiedAgent:
                     "is_admin": self._is_admin,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "telemetry": asdict(self.telemetry),
+                    "monitor_fleet": self._build_monitor_fleet(),
                     "edm_hits": outbound_hits,
                     "local_ui_url": self._local_ui_url,
                 },

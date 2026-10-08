@@ -753,6 +753,21 @@ async def record_dns_query(
     }
 
 
+@router.post("/vns/suricata/ingest")
+async def ingest_suricata_vns(
+    force: bool = False,
+    max_lines: int = 10000,
+    current_user: dict = Depends(check_permission("write"))
+):
+    """Explicitly ingest Suricata EVE network truth into VNS."""
+    from services.vns import vns
+
+    return await vns.ingest_suricata_recent(
+        force=force,
+        max_lines=max_lines,
+    )
+
+
 @router.get("/vns/flows")
 async def get_network_flows(
     src_ip: str = None,
