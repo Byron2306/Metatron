@@ -57,6 +57,39 @@ class CapabilityToken:
 
 
 @dataclass
+class DelegationReceipt:
+    """Tamper-evident parent -> child capability delegation proof."""
+    delegation_id: str
+    parent_token_id: str
+    child_token_id: str
+
+    principal: str
+    principal_identity: str
+    action: str
+    target: str
+
+    parent_audience: str
+    parent_tool_id: str
+    child_audience: str
+    child_tool_id: str
+
+    governance_decision_id: Optional[str]
+    governance_queue_id: Optional[str]
+    governance_action_type: Optional[str]
+
+    delegated_at: str
+    parent_consumed: bool
+
+    receipt_hash: str
+
+    settled_at: Optional[str] = None
+    child_consumed: Optional[bool] = None
+    gateway_execution_id: Optional[str] = None
+    outcome: Optional[str] = None
+    settlement_hash: Optional[str] = None
+
+
+@dataclass
 class SecretEntry:
     """Encrypted secret storage"""
     secret_id: str
@@ -123,6 +156,10 @@ class TokenBroker:
         logger.info("Token Broker / Secrets Vault initialized")
         # Administrative audit log for token issuance/revocation actions
         self.token_admin_audit_log: List[Dict] = []
+
+        # First-class capability delegation proof objects.
+        self.delegation_receipts: Dict[str, DelegationReceipt] = {}
+        self.delegation_by_child_token: Dict[str, str] = {}
 
     
     def _encrypt(self, plaintext: str) -> str:
@@ -432,6 +469,77 @@ class TokenBroker:
 
         return True, "Token valid"
 
+    def _hash_receipt_body(self, body: Dict[str, Any]) -> str:
+        payload = json.dumps(body, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+    def get_delegation_receipt(
+        self,
+        *,
+        delegation_id: Optional[str] = None,
+        child_token_id: Optional[str] = None,
+    ) -> Optional[DelegationReceipt]:
+        if delegation_id:
+            return self.delegation_receipts.get(delegation_id)
+
+        if child_token_id:
+            resolved = self.delegation_by_child_token.get(child_token_id)
+            if resolved:
+                return self.delegation_receipts.get(resolved)
+
+        return None
+
+    def settle_delegation_receipt(
+        self,
+        *,
+        child_token_id: str,
+        gateway_execution_id: str,
+        outcome: str,
+    ) -> DelegationReceipt:
+        receipt = self.get_delegation_receipt(
+            child_token_id=child_token_id,
+        )
+        if receipt is None:
+            raise KeyError(
+                f"No delegation receipt for child token {child_token_id}"
+            )
+
+        settled_at = datetime.now(timezone.utc).isoformat()
+        child_consumed = child_token_id not in self.active_tokens
+
+        settlement_body = {
+            "delegation_id": receipt.delegation_id,
+            "receipt_hash": receipt.receipt_hash,
+            "child_token_id": receipt.child_token_id,
+            "gateway_execution_id": gateway_execution_id,
+            "outcome": outcome,
+            "child_consumed": child_consumed,
+            "settled_at": settled_at,
+        }
+
+        receipt.settled_at = settled_at
+        receipt.child_consumed = child_consumed
+        receipt.gateway_execution_id = gateway_execution_id
+        receipt.outcome = outcome
+        receipt.settlement_hash = self._hash_receipt_body(
+            settlement_body
+        )
+
+        self.token_admin_audit_log.append({
+            "action": "delegate_settle",
+            "delegation_id": receipt.delegation_id,
+            "parent_token_id": receipt.parent_token_id,
+            "child_token_id": receipt.child_token_id,
+            "gateway_execution_id": gateway_execution_id,
+            "outcome": outcome,
+            "child_consumed": child_consumed,
+            "receipt_hash": receipt.receipt_hash,
+            "settlement_hash": receipt.settlement_hash,
+            "timestamp": settled_at,
+        })
+
+        return receipt
+
     def delegate_token(
         self,
         *,
@@ -543,8 +651,39 @@ class TokenBroker:
             audience=child_audience,
         )
 
+        delegated_at = datetime.now(timezone.utc).isoformat()
+        delegation_id = f"dlg-{secrets.token_hex(6)}"
+
+        receipt_body = {
+            "delegation_id": delegation_id,
+            "parent_token_id": parent_token_id,
+            "child_token_id": child.token_id,
+            "principal": principal,
+            "principal_identity": principal_identity,
+            "action": delegated_action,
+            "target": delegated_target,
+            "parent_audience": parent_audience,
+            "parent_tool_id": parent_tool_id,
+            "child_audience": child_audience,
+            "child_tool_id": child_tool_id,
+            "governance_decision_id": parent.governance_decision_id,
+            "governance_queue_id": parent.governance_queue_id,
+            "governance_action_type": parent.governance_action_type,
+            "delegated_at": delegated_at,
+            "parent_consumed": True,
+        }
+
+        receipt = DelegationReceipt(
+            **receipt_body,
+            receipt_hash=self._hash_receipt_body(receipt_body),
+        )
+
+        self.delegation_receipts[delegation_id] = receipt
+        self.delegation_by_child_token[child.token_id] = delegation_id
+
         self.token_admin_audit_log.append({
             "action": "delegate",
+            "delegation_id": delegation_id,
             "parent_token_id": parent_token_id,
             "child_token_id": child.token_id,
             "principal": principal,
@@ -552,7 +691,8 @@ class TokenBroker:
             "child_tool_id": child_tool_id,
             "parent_audience": parent_audience,
             "child_audience": child_audience,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "receipt_hash": receipt.receipt_hash,
+            "timestamp": delegated_at,
         })
 
         logger.info(

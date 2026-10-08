@@ -164,6 +164,26 @@ class MCPToolExecution:
     token_id: Optional[str]
     audit_hash: str
 
+    # Delegated authority lineage
+    delegation_id: Optional[str] = None
+    child_token_id: Optional[str] = None
+    gateway_execution_id: Optional[str] = None
+    delegation_receipt_hash: Optional[str] = None
+    delegation_settlement_hash: Optional[str] = None
+
+    # Settlement proof
+    telemetry_event_id: Optional[str] = None
+    telemetry_event_hash: Optional[str] = None
+    audit_record_id: Optional[str] = None
+    audit_record_hash: Optional[str] = None
+    world_event_id: Optional[str] = None
+
+    # Semantic recollection. Informational only, never authority.
+    vector_memory_entry_id: Optional[str] = None
+
+    # Semantic recollection. Informational only, never authority.
+    vector_memory_entry_id: Optional[str] = None
+
 
 class MCPServer:
     """
@@ -1053,14 +1073,28 @@ class MCPServer:
             target=target,
         )
 
+        delegation_receipt = token_broker.settle_delegation_receipt(
+            child_token_id=child.token_id,
+            gateway_execution_id=execution.execution_id,
+            outcome=execution.status,
+        )
+
         if execution.status != "success":
-            raise RuntimeError(execution.stderr or f"Memory dump failed with status={execution.status}")
+            raise RuntimeError(
+                execution.stderr
+                or f"Memory dump failed with status={execution.status}"
+            )
 
         return {
             "dump_path": output_dir,
             "size_bytes": None,
             "hash": None,
             "execution_id": execution.execution_id,
+            "gateway_execution_id": execution.execution_id,
+            "child_token_id": child.token_id,
+            "delegation_id": delegation_receipt.delegation_id,
+            "delegation_receipt_hash": delegation_receipt.receipt_hash,
+            "delegation_settlement_hash": delegation_receipt.settlement_hash,
             "stdout": execution.stdout,
         }
 
@@ -1697,6 +1731,12 @@ class MCPServer:
         try:
             from backend.services.token_broker import token_broker
 
+            # Preserve signed authority provenance before validation may
+            # consume and remove the capability from the active set.
+            capability_token = token_broker.active_tokens.get(
+                str(token_id)
+            )
+
             # MCP-native handlers consume authority here.
             # Gateway-backed handlers only inspect here; delegation will
             # atomically consume the parent and mint the narrower child.
@@ -1786,6 +1826,19 @@ class MCPServer:
                 
                 execution.status = "success"
                 execution.output = result
+
+                if isinstance(result, dict):
+                    execution.delegation_id = result.get("delegation_id")
+                    execution.child_token_id = result.get("child_token_id")
+                    execution.gateway_execution_id = result.get(
+                        "gateway_execution_id"
+                    )
+                    execution.delegation_receipt_hash = result.get(
+                        "delegation_receipt_hash"
+                    )
+                    execution.delegation_settlement_hash = result.get(
+                        "delegation_settlement_hash"
+                    )
                 
             except asyncio.TimeoutError:
                 execution.status = "timeout"
@@ -1815,11 +1868,316 @@ class MCPServer:
         
         execution.completed_at = datetime.now(timezone.utc).isoformat()
         
-        # Compute audit hash
+        # Compute MCP-local execution hash.
         execution.audit_hash = hashlib.sha256(
             json.dumps(asdict(execution), sort_keys=True).encode()
         ).hexdigest()[:32]
-        
+
+        # --------------------------------------------------------------
+        # PROOF + SETTLEMENT
+        #
+        # The execution result becomes:
+        #   1. a hash-chained telemetry event,
+        #   2. a structured audit-chain record,
+        #   3. a canonical world-state settlement event.
+        #
+        # Vector memory is deliberately NOT authoritative here.
+        # --------------------------------------------------------------
+        try:
+            from backend.services.telemetry_chain import (
+                tamper_evident_telemetry,
+            )
+            from backend.services.world_events import emit_world_event
+            from backend.services.token_broker import token_broker
+
+            delegation_receipt = None
+            if execution.child_token_id:
+                delegation_receipt = (
+                    token_broker.get_delegation_receipt(
+                        child_token_id=execution.child_token_id,
+                    )
+                )
+
+            governance_decision_id = (
+                delegation_receipt.governance_decision_id
+                if delegation_receipt is not None
+                else getattr(
+                    capability_token,
+                    "governance_decision_id",
+                    None,
+                )
+            )
+
+            governance_queue_id = (
+                delegation_receipt.governance_queue_id
+                if delegation_receipt is not None
+                else getattr(
+                    capability_token,
+                    "governance_queue_id",
+                    None,
+                )
+            )
+
+            governance_action_type = (
+                delegation_receipt.governance_action_type
+                if delegation_receipt is not None
+                else getattr(
+                    capability_token,
+                    "governance_action_type",
+                    None,
+                )
+            )
+
+            lineage = {
+                "mcp_execution_id": execution.execution_id,
+                "mcp_execution_hash": execution.audit_hash,
+                "parent_token_id": execution.token_id,
+                "child_token_id": execution.child_token_id,
+                "delegation_id": execution.delegation_id,
+                "delegation_receipt_hash":
+                    execution.delegation_receipt_hash,
+                "delegation_settlement_hash":
+                    execution.delegation_settlement_hash,
+                "gateway_execution_id":
+                    execution.gateway_execution_id,
+                "governance_decision_id":
+                    governance_decision_id,
+                "governance_queue_id":
+                    governance_queue_id,
+                "governance_action_type":
+                    governance_action_type,
+            }
+
+            severity = (
+                "info"
+                if execution.status == "success"
+                else "warning"
+            )
+
+            telemetry_event = (
+                tamper_evident_telemetry.ingest_event(
+                    event_type="mcp.tool_execution.settled",
+                    severity=severity,
+                    data={
+                        "tool_id": tool_id,
+                        "principal": message.source,
+                        "principal_identity":
+                            principal_identity,
+                        "action": action,
+                        "target": target,
+                        "status": execution.status,
+                        "lineage": lineage,
+                    },
+                    trace_id=message.trace_id,
+                )
+            )
+
+            execution.telemetry_event_id = (
+                telemetry_event.event_id
+            )
+            execution.telemetry_event_hash = (
+                telemetry_event.event_hash
+            )
+
+            audit_record = (
+                tamper_evident_telemetry.record_action(
+                    principal=str(message.source),
+                    principal_trust_state="trusted",
+                    action=action,
+                    targets=[target],
+                    policy_decision_id=(
+                        execution.policy_decision_id
+                        or governance_decision_id
+                        or ""
+                    ),
+                    token_id=str(
+                        execution.token_id or ""
+                    ),
+                    constraints={
+                        "authority_lineage": lineage,
+                        "telemetry_event_id":
+                            telemetry_event.event_id,
+                        "telemetry_event_hash":
+                            telemetry_event.event_hash,
+                    },
+                    tool_id=tool_id,
+                    result=execution.status,
+                    result_details=execution.error,
+                    governance_decision_id=(
+                        governance_decision_id
+                    ),
+                    governance_queue_id=(
+                        governance_queue_id
+                    ),
+                    execution_id=execution.execution_id,
+                    trace_id=message.trace_id,
+                )
+            )
+
+            execution.audit_record_id = (
+                audit_record.record_id
+            )
+            execution.audit_record_hash = (
+                audit_record.record_hash
+            )
+
+            settlement_type = (
+                "executor_completed"
+                if execution.status == "success"
+                else "executor_failed"
+            )
+
+            world_result = await emit_world_event(
+                db=getattr(self, "db", None),
+                event_type=settlement_type,
+                entity_refs=[
+                    f"mcp_execution:{execution.execution_id}",
+                    f"tool:{tool_id}",
+                    f"target:{target}",
+                ],
+                payload={
+                    "status": execution.status,
+                    "principal": message.source,
+                    "principal_identity":
+                        principal_identity,
+                    "action": action,
+                    "target": target,
+                    "tool_id": tool_id,
+                    "mcp_execution_id":
+                        execution.execution_id,
+                    "mcp_execution_hash":
+                        execution.audit_hash,
+                    "telemetry_event_id":
+                        telemetry_event.event_id,
+                    "telemetry_event_hash":
+                        telemetry_event.event_hash,
+                    "audit_record_id":
+                        audit_record.record_id,
+                    "audit_record_hash":
+                        audit_record.record_hash,
+                    "authority_lineage": lineage,
+                },
+                # Settlement is recorded now. Chorus/Harmonic activation
+                # becomes the next bounded phase rather than recursively
+                # invoking governance from inside the execution membrane.
+                trigger_triune=False,
+                source="mcp_server",
+            )
+
+            execution.world_event_id = (
+                world_result["event"]["id"]
+            )
+
+        except Exception as proof_exc:
+            # Execution has already occurred. Proof failure must therefore
+            # never be hidden as execution success.
+            execution.status = "failed"
+            execution.error = (
+                "Execution completed but settlement proof failed: "
+                f"{proof_exc}"
+            )
+            logger.exception(
+                "MCP settlement proof failed for execution %s",
+                execution.execution_id,
+            )
+
+        # Recompute after settlement references are attached so the final
+        # MCP execution hash covers the completed proof envelope.
+        execution.audit_hash = hashlib.sha256(
+            json.dumps(asdict(execution), sort_keys=True).encode()
+        ).hexdigest()[:32]
+
+        # --------------------------------------------------------------
+        # SEMANTIC MEMORY
+        #
+        # Memory is downstream of proof + state. It may inform future
+        # reasoning, but it cannot grant authority. Failure here must not
+        # invalidate an already-settled execution.
+        # --------------------------------------------------------------
+        try:
+            from backend.services.vector_memory import (
+                vector_memory,
+                MemoryNamespace,
+                TrustLevel,
+            )
+
+            memory_entry = vector_memory.store(
+                content=(
+                    f"MCP tool execution {execution.status}: "
+                    f"{tool_id} performed action {action} "
+                    f"against {target}. "
+                    f"MCP execution {execution.execution_id}. "
+                    f"Gateway execution "
+                    f"{execution.gateway_execution_id or 'none'}."
+                ),
+                namespace=MemoryNamespace.OBSERVATIONS,
+                structured_data={
+                    "record_type": "mcp_execution_settlement",
+                    "status": execution.status,
+                    "tool_id": tool_id,
+                    "action": action,
+                    "target": target,
+                    "principal": message.source,
+
+                    "mcp_execution_id":
+                        execution.execution_id,
+                    "mcp_execution_hash":
+                        execution.audit_hash,
+
+                    "gateway_execution_id":
+                        execution.gateway_execution_id,
+
+                    "delegation_id":
+                        execution.delegation_id,
+                    "parent_token_id":
+                        execution.token_id,
+                    "child_token_id":
+                        execution.child_token_id,
+
+                    "delegation_receipt_hash":
+                        execution.delegation_receipt_hash,
+                    "delegation_settlement_hash":
+                        execution.delegation_settlement_hash,
+
+                    "telemetry_event_id":
+                        execution.telemetry_event_id,
+                    "telemetry_event_hash":
+                        execution.telemetry_event_hash,
+
+                    "audit_record_id":
+                        execution.audit_record_id,
+                    "audit_record_hash":
+                        execution.audit_record_hash,
+
+                    "world_event_id":
+                        execution.world_event_id,
+                },
+                source="mcp_server:settlement",
+                source_type="pipeline",
+                created_by="mcp_server",
+                trust_level=TrustLevel.HIGH,
+                confidence=0.95,
+                evidence_refs=[
+                    ref for ref in (
+                        execution.telemetry_event_id,
+                        execution.audit_record_id,
+                        execution.world_event_id,
+                    )
+                    if ref
+                ],
+            )
+
+            execution.vector_memory_entry_id = (
+                memory_entry.entry_id
+            )
+
+        except Exception as memory_exc:
+            logger.warning(
+                "MCP semantic memory indexing failed for %s: %s",
+                execution.execution_id,
+                memory_exc,
+            )
+
         # Create response
         return self.create_message(
             message_type=MCPMessageType.TOOL_RESPONSE,
