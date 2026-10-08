@@ -168,3 +168,107 @@ class SuricataObservationBridge:
                 logger.exception("Suricata observation claim failed; evidence remains retryable")
                 result["failed"] += 1
         return result
+
+
+@dataclass(frozen=True)
+class PromotionDecision:
+    kind: str
+    promote: bool
+    material_key: str
+    material_digest: str
+
+
+class SuricataAlertPromotionPolicy:
+    @staticmethod
+    def service_context(observation: CanonicalObservation) -> dict:
+        p = observation.payload
+        direction = p.get("direction")
+        if direction in ("to_server", "to_client"):
+            initiator, service = ("src", "dst") if direction == "to_server" else ("dst", "src")
+            return {"initiator_ip": p.get(f"{initiator}_ip"),
+                    "service_ip": p.get(f"{service}_ip"),
+                    "service_port": p.get(f"{service}_port")}
+        return {"neutral_endpoints": sorted([p.get("src_ip") or "", p.get("dst_ip") or ""])}
+
+    def material_key(self, observation: CanonicalObservation) -> str:
+        if observation.witness != "suricata" or observation.source_event_type != "alert":
+            raise ValueError("Suricata policy requires a Suricata alert")
+        return "network_alert|" + canonical_json({
+            "signature_id": observation.payload.get("signature_id"),
+            "protocol": observation.payload.get("protocol"),
+            **self.service_context(observation),
+        })
+
+    def material_digest(self, observation: CanonicalObservation) -> str:
+        p = observation.payload
+        return evidence_digest({
+            **self.service_context(observation),
+            **{key: p.get(key) for key in ("action", "category", "severity", "signature", "metadata", "protocol", "interface")},
+        })
+
+
+class PromotionService:
+    """CAS material state with a recoverable receipt in the same Mongo document.
+
+    The pending receipt closes the crash window between changing material state
+    and recording the observation's decision. Any evaluator can finish it before
+    advancing that key. No leases, process-local locks or RAM truth are required.
+    """
+    def __init__(self, db):
+        self.db = db
+        self.store = ObservationStore(db)
+        self.policy = SuricataAlertPromotionPolicy()
+
+    async def _settle_receipt(self, state):
+        receipt = state.get("pending_decision")
+        if not receipt:
+            return
+        result = await self.db.canonical_observations.update_one(
+            {"observation_id": receipt["observation_id"], "promotion_decision": {"$exists": False}},
+            {"$set": {"promotion_decision": receipt["decision"]}})
+        if not result.matched_count:
+            owner = await self.store.get(receipt["observation_id"])
+            if owner is None or owner.get("promotion_decision") != receipt["decision"]:
+                raise RuntimeError("Material decision has no matching observation receipt")
+        await self.db.observation_material_state.update_one(
+            {"material_key": state["material_key"], "revision": state["revision"],
+             "pending_decision.observation_id": receipt["observation_id"]},
+            {"$unset": {"pending_decision": ""}})
+
+    async def evaluate(self, observation: CanonicalObservation) -> PromotionDecision:
+        key = self.policy.material_key(observation)
+        digest = self.policy.material_digest(observation)
+        if await self.store.get(observation.observation_id) is None:
+            await self.store.claim(observation)
+        while True:
+            owner = await self.store.get(observation.observation_id)
+            if owner.get("promotion_decision"):
+                return PromotionDecision(**owner["promotion_decision"])
+            state = await self.db.observation_material_state.find_one({"material_key": key})
+            if state and state.get("pending_decision"):
+                await self._settle_receipt(state)
+                continue
+            kind = ("novel_material_observation" if state is None else
+                    "repeat_without_material_change" if state["material_digest"] == digest else
+                    "material_change")
+            decision = PromotionDecision(kind, kind != "repeat_without_material_change", key, digest)
+            receipt = {"observation_id": observation.observation_id, "decision": asdict(decision)}
+            if state is None:
+                try:
+                    result = await self.db.observation_material_state.update_one(
+                        {"material_key": key}, {"$setOnInsert": {
+                            "material_key": key, "material_digest": digest,
+                            "revision": 1, "pending_decision": receipt}}, upsert=True)
+                except DuplicateKeyError:
+                    continue
+                if result.upserted_id is None:
+                    continue
+            else:
+                result = await self.db.observation_material_state.update_one(
+                    {"material_key": key, "revision": state["revision"],
+                     "pending_decision": {"$exists": False}},
+                    {"$set": {"material_digest": digest, "pending_decision": receipt},
+                     "$inc": {"revision": 1}})
+                if not result.modified_count:
+                    continue
+            # Re-read and finish the receipt; death here is repaired on replay.

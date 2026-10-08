@@ -107,3 +107,91 @@ async def test_concurrent_duplicate_claim_converges_to_one_observation():
     results = await asyncio.gather(*(ObservationStore(db).claim(observation()) for _ in range(20)))
     assert sum(results) == 1
     assert await db.canonical_observations.count_documents({}) == 1
+
+
+def alert_observation(**changes):
+    from test_suricata_observation_bridge import evidence
+    from backend.services.observation_fabric import suricata_alert_to_observation
+    return suricata_alert_to_observation(evidence(**changes))
+
+
+@pytest.mark.asyncio
+async def test_first_material_alert_promotes():
+    from backend.services.observation_fabric import ObservationStore, PromotionService
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    decision = await PromotionService(db).evaluate(alert_observation())
+    assert decision.promote is True
+    assert decision.kind == "novel_material_observation"
+
+
+@pytest.mark.asyncio
+async def test_same_material_alert_with_new_source_event_is_retained_without_promotion():
+    from backend.services.observation_fabric import ObservationStore, PromotionService
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    await PromotionService(db).evaluate(alert_observation())
+    decision = await PromotionService(db).evaluate(alert_observation(source_event_id="eve-002", src_port=60001, timestamp="2026-10-08T13:00:00Z"))
+    assert decision.promote is False
+    assert decision.kind == "repeat_without_material_change"
+
+
+@pytest.mark.asyncio
+async def test_severity_change_promotes():
+    from backend.services.observation_fabric import ObservationStore, PromotionService
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    await PromotionService(db).evaluate(alert_observation())
+    decision = await PromotionService(db).evaluate(alert_observation(source_event_id="eve-002", severity=1))
+    assert decision.promote is True
+    assert decision.kind == "material_change"
+
+
+@pytest.mark.asyncio
+async def test_category_change_promotes():
+    from backend.services.observation_fabric import ObservationStore, PromotionService
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    await PromotionService(db).evaluate(alert_observation())
+    decision = await PromotionService(db).evaluate(alert_observation(source_event_id="eve-002", category="Changed native category"))
+    assert decision.promote is True
+    assert decision.kind == "material_change"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_material_state_promotes_once():
+    from backend.services.observation_fabric import ObservationStore, PromotionService
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    results = await asyncio.gather(*(PromotionService(db).evaluate(alert_observation(source_event_id=f"eve-{i}")) for i in range(20)))
+    assert sum(result.promote for result in results) == 1
+    assert await db.canonical_observations.count_documents({}) == 20
+
+
+def test_direction_normalizes_service_without_ephemeral_port_or_invented_roles():
+    from backend.services.observation_fabric import SuricataAlertPromotionPolicy
+    policy = SuricataAlertPromotionPolicy()
+    a = alert_observation()
+    reverse = alert_observation(direction="to_client", src_ip="172.28.0.5", dst_ip="172.28.0.4", src_port=443, dst_port=60000)
+    assert policy.material_key(a) == policy.material_key(reverse)
+    assert policy.material_digest(a) == policy.material_digest(reverse)
+    neutral = alert_observation(direction=None)
+    assert "service_port" not in policy.material_key(neutral)
+    assert policy.material_key(neutral) == policy.material_key(alert_observation(direction=None, src_ip="172.28.0.5", dst_ip="172.28.0.4"))
+
+
+@pytest.mark.asyncio
+async def test_promotion_decision_survives_death_after_material_state_update():
+    from backend.services.observation_fabric import ObservationStore, PromotionService
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    obs = alert_observation()
+    await ObservationStore(db).claim(obs)
+    db.canonical_observations.failure = RuntimeError("process died before decision receipt")
+    with pytest.raises(RuntimeError):
+        await PromotionService(db).evaluate(obs)
+    db.canonical_observations.failure = None
+    decision = await PromotionService(db).evaluate(obs)
+    assert decision.promote is True
+    assert decision.kind == "novel_material_observation"
+    assert (await PromotionService(db).evaluate(obs)) == decision
