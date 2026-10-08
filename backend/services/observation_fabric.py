@@ -172,6 +172,27 @@ class SuricataObservationBridge:
                 result["failed"] += 1
         return result
 
+    async def drain(self, limit: int = 250) -> dict:
+        result = await self.claim_pending(limit=limit)
+        result.update(promoted=0, retained_without_promotion=0, projected=0, triune_triggered=False)
+        # The canonical pending queue includes claims whose source was already
+        # acknowledged before a projection failure or backend death.
+        docs = await self.db.canonical_observations.find({
+            "witness": "suricata", "source_event_type": "alert", "promotion_state": "pending"
+        }).limit(limit).to_list(length=limit)
+        for doc in docs:
+            try:
+                observation = CanonicalObservation(**{
+                    field: doc[field] for field in CanonicalObservation.__dataclass_fields__})
+                decision = await PromotionService(self.db).evaluate(observation)
+                projection = await WorldObservationProjector(self.db).project(observation, decision)
+                result["promoted" if decision.promote else "retained_without_promotion"] += 1
+                result["projected"] += int(projection["projected"])
+            except Exception:
+                logger.exception("Observation promotion failed; canonical claim remains retryable")
+                result["failed"] += 1
+        return result
+
 
 @dataclass(frozen=True)
 class PromotionDecision:

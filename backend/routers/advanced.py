@@ -762,10 +762,21 @@ async def ingest_suricata_vns(
     """Explicitly ingest Suricata EVE network truth into VNS."""
     from services.vns import vns
 
-    return await vns.ingest_suricata_recent(
+    result = await vns.ingest_suricata_recent(
         force=force,
         max_lines=max_lines,
     )
+    from services.observation_fabric import SuricataObservationBridge
+    try:
+        result["observation_fabric"] = await SuricataObservationBridge(get_db()).drain()
+    except Exception:
+        logger.exception("Suricata observation fabric unavailable; durable evidence remains retryable")
+        result["observation_fabric"] = {
+            "claimed": 0, "reconciled": 0, "promoted": 0,
+            "retained_without_promotion": 0, "projected": 0,
+            "failed": 1, "triune_triggered": False,
+        }
+    return result
 
 
 @router.get("/vns/flows")
