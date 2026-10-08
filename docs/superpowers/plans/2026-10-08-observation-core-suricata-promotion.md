@@ -118,6 +118,16 @@ Required indexes:
 - unique compound canonical_observations(witness, source_event_type, source_event_id)
 - unique observation_material_state.material_key
 - partial unique world_events.payload.observation_id for type=observation_promoted
+- partial unique vns_flows.source_event_id for witness=suricata
+- partial unique vns_dns_queries.source_event_id for witness=suricata
+- partial unique suricata_alert_evidence.source_event_id for witness=suricata
+
+Use the existing Phase 4 index names where already established:
+- uniq_suricata_flow_source_event_id
+- uniq_suricata_dns_source_event_id
+- uniq_suricata_alert_source_event_id
+
+This makes the manually proven Phase 4 durability guarantees reproducible on a fresh deployment.
 
 - [ ] Step 1: Write failing tests:
   - test_observation_store_claims_source_identity_once
@@ -192,19 +202,22 @@ PYTHONPATH=. python -m pytest -q backend/tests/test_suricata_observation_bridge.
 - SuricataAlertPromotionPolicy.material_digest(observation) -> str
 - await PromotionService(db).evaluate(observation) -> PromotionDecision
 
-Suricata material_key:
+Suricata material_key is direction-aware using Suricata's own to_server/to_client semantics. This is service/initiator normalization, not Hunting local/remote inference.
+
+For direction=to_server:
 
 ~~~text
 network_alert
 | signature_id
-| src_ip
-| src_port
-| dst_ip
-| dst_port
+| initiator_ip=src_ip
+| service_ip=dst_ip
+| service_port=dst_port
 | protocol
 ~~~
 
-material_digest includes action, category, severity, signature text, and relevant native metadata. It excludes volatile timestamps and source-event identity.
+For direction=to_client, reverse the endpoint roles. If direction is absent/unknown, use a deterministic neutral endpoint ordering and omit an inferred service port rather than inventing roles.
+
+material_digest includes action, category, severity, signature text, relevant native metadata, and stable service context. It excludes volatile timestamp, source-event identity, and the initiator's ephemeral port.
 
 Decision kinds:
 - novel_material_observation → promote
