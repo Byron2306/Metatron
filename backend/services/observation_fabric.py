@@ -200,6 +200,7 @@ class PromotionDecision:
     promote: bool
     material_key: str
     material_digest: str
+    material_revision: int
 
 
 class SuricataAlertPromotionPolicy:
@@ -265,17 +266,21 @@ class PromotionService:
         if await self.store.get(observation.observation_id) is None:
             await self.store.claim(observation)
         while True:
+            # Read the CAS version BEFORE the observation decision. A stale
+            # undecided read can then never advance a version another evaluator
+            # used to settle this observation in the meantime.
+            state = await self.db.observation_material_state.find_one({"material_key": key})
             owner = await self.store.get(observation.observation_id)
             if owner.get("promotion_decision"):
                 return PromotionDecision(**owner["promotion_decision"])
-            state = await self.db.observation_material_state.find_one({"material_key": key})
             if state and state.get("pending_decision"):
                 await self._settle_receipt(state)
                 continue
             kind = ("novel_material_observation" if state is None else
                     "repeat_without_material_change" if state["material_digest"] == digest else
                     "material_change")
-            decision = PromotionDecision(kind, kind != "repeat_without_material_change", key, digest)
+            revision = state["revision"] + 1 if state else 1
+            decision = PromotionDecision(kind, kind != "repeat_without_material_change", key, digest, revision)
             receipt = {"observation_id": observation.observation_id, "decision": asdict(decision)}
             if state is None:
                 try:
@@ -337,9 +342,11 @@ class WorldObservationProjector:
                             "observed_at": observation.observed_at,
                             "native_severity": observation.native_severity,
                             "native_confidence": observation.native_confidence,
+                            "material_revision": decision.material_revision,
                             "payload": observation.payload})
             try:
-                await WorldModelService(self.db).upsert_entity(entity, recalculate_risk=False)
+                await WorldModelService(self.db).upsert_entity(
+                    entity, recalculate_risk=False, material_revision=decision.material_revision)
             except DuplicateKeyError:
                 # A concurrent projector inserted this deterministic entity first.
                 if await self.db.world_entities.find_one({"id": entity_id, "type": "alert"}) is None:
@@ -352,6 +359,7 @@ class WorldObservationProjector:
                              "observation_id": observation.observation_id,
                              "witness": observation.witness, "promotion_reason": decision.kind,
                              "evidence_digest": observation.evidence_digest,
+                             "material_revision": decision.material_revision,
                              "material_key": decision.material_key},
                     trigger_triune=False, source="observation_fabric", strict_persistence=True)
                 existing = emitted["event"]

@@ -319,3 +319,53 @@ async def test_passive_entity_upsert_avoids_collection_truthiness_and_risk_synth
     db.collections["world_entities"] = MotorLikeCollection(db.raw.world_entities)
     await WorldModelService(db).upsert_entity(WorldEntity(id="alert-test", type=EntityType.alert), recalculate_risk=False)
     assert (await db.world_entities.find_one({"id": "alert-test"}))["attributes"] == {}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_observation_evaluation_cannot_poison_material_key():
+    from backend.services.observation_fabric import ObservationStore, PromotionService
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    obs = alert_observation()
+    await ObservationStore(db).claim(obs)
+    stale = PromotionService(db)
+    original_get = stale.store.get
+    paused = asyncio.Event()
+    resume = asyncio.Event()
+    first = True
+    async def pause_after_undecided_read(observation_id):
+        nonlocal first
+        doc = await original_get(observation_id)
+        # First read is the existence check, the second is the decision read.
+        if first:
+            first = False
+        elif not doc.get("promotion_decision") and not paused.is_set():
+            paused.set()
+            await resume.wait()
+        return doc
+    stale.store.get = pause_after_undecided_read
+    task = asyncio.create_task(stale.evaluate(obs))
+    await asyncio.wait_for(paused.wait(), timeout=2)
+    winner = await PromotionService(db).evaluate(obs)
+    resume.set()
+    assert await task == winner
+    next_decision = await PromotionService(db).evaluate(alert_observation(source_event_id="eve-002"))
+    assert next_decision.kind == "repeat_without_material_change"
+
+
+@pytest.mark.asyncio
+async def test_old_projection_retry_cannot_overwrite_newer_material_revision():
+    from backend.services.observation_fabric import PromotionService, WorldObservationProjector
+    db, old, old_decision = await projection_inputs()
+    db.world_events.failure = RuntimeError("old event persistence failed")
+    with pytest.raises(RuntimeError):
+        await WorldObservationProjector(db).project(old, old_decision)
+    newer = alert_observation(source_event_id="eve-002", severity=1, timestamp="2026-10-08T13:00:00Z")
+    newer_decision = await PromotionService(db).evaluate(newer)
+    db.world_events.failure = None
+    await WorldObservationProjector(db).project(newer, newer_decision)
+    await WorldObservationProjector(db).project(old, old_decision)
+    entity = await db.world_entities.find_one({})
+    assert entity["attributes"]["native_severity"] == 1
+    assert entity["attributes"]["observation_id"] == newer.observation_id
+    assert await db.world_events.count_documents({}) == 2
