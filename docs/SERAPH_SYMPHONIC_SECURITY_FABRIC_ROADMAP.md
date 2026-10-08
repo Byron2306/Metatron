@@ -705,9 +705,9 @@ Atomic / synthetic stimulus
         ↓
 endpoint + network + identity + browser/cloud evidence
         ↓
-VNS / Hunting / Sigma / ML
+VNS / CLI-CCE / Hunting / Sigma / ML
         ↓
-AATL / AATR / CCE
+AATL / AATR / Cognition Fabric inputs
         ↓
 Cognition Fabric
         ↓
@@ -989,7 +989,7 @@ Question: **What is real?**
 
 ## II. The Music of Understanding
 
-Seraph interprets reality: VNS, Threat Hunting, Sigma, ML, AATL, AATR, CCE, Cognition Fabric, Correlation, Attack Paths, Metatron, Michael, Loki.
+Seraph interprets reality: VNS, CLI/CCE, Threat Hunting, Sigma, ML, AATL, AATR, Cognition Fabric, Correlation, Attack Paths, Metatron, Michael, Loki.
 
 Question: **What does reality mean?**
 
@@ -1044,3 +1044,156 @@ feeds World State?
 The census should expose duplicate sovereignty, missing bridges, orphan integrations, silent instruments, authority leaks, and components performing outside their intended voice/register.
 
 This census becomes the score from which the resplendent system is wired.
+
+
+# 34. CLI / CCE — adversary cadence and intent witness
+
+CLI telemetry must remain a first-class part of the Ainulindalë. It is not merely another endpoint log source.
+
+The CLI / Cognition-Correlation Engine observes the adversary's behavioral rhythm:
+
+- command velocity,
+- inter-command delay variance,
+- tool-switch latency,
+- burstiness,
+- intent transitions,
+- goal persistence,
+- adaptation after deception,
+- repeated probing,
+- and changes in behavior after throttling, latency, decoys, or false affordances.
+
+Its question is:
+
+> How is the adversary moving through time, tools, and intent?
+
+This is distinct from Harmonic Governance.
+
+```text
+CLI / CCE
+    hears the adversary's cadence
+
+Harmonic / Chorus
+    hears the system's own cadence
+```
+
+The two melodies may be compared, but they must not be collapsed into one authority surface.
+
+Target flow:
+
+```text
+CLI / shell activity
+      ↓
+cli_events
+      ↓
+CCE / Cognition Engine
+      ↓
+machine pacing
+intent
+tool switching
+goal persistence
+timing variance
+      ↓
+AATL / AATR / CCE fusion
+      ↓
+Cognition Fabric
+      ↓
+World State
+      ↓
+Metatron / Michael / Loki
+      ↓
+Harmonic / Polyphonic Governance
+```
+
+CLI / CCE may observe, classify, correlate, and contribute evidence. It must not directly authorize isolation, eradication, credential revocation, destructive response, or other high-impact actions.
+
+Those remain governed:
+
+```text
+CLI / CCE observation
+      ↓
+Cognition Fabric
+      ↓
+Triune interpretation
+      ↓
+Harmonic + Quorum state
+      ↓
+Governance
+      ↓
+Notation
+      ↓
+Token Broker
+      ↓
+MCP
+      ↓
+SOAR / Unified Agent / substrate
+```
+
+## CLI and deceptive mazes
+
+The deceptive maze is also a behavioral instrument.
+
+```text
+attacker enters maze
+      ↓
+CLI cadence changes
+      ↓
+tool switching changes
+      ↓
+goal persistence changes or remains high
+      ↓
+decoy touched
+      ↓
+latency / throttling / false affordance applied
+      ↓
+attacker adapts
+      ↓
+CCE observes the adaptation
+      ↓
+AATL / AATR update hypothesis
+      ↓
+Loki challenges confidence
+      ↓
+Harmonic posture may tighten
+```
+
+The maze therefore does not merely waste attacker time. It actively elicits behavior that can improve attribution, machine-likelihood assessment, intent inference, and response confidence.
+
+## CLI timing and Vairë
+
+CLI timing should also feed the temporal truth layer.
+
+```text
+CCE
+→ adversary cadence
+
+Vairë
+→ chronology and temporal coherence
+```
+
+This allows comparison across:
+
+- attacker timing,
+- agent timing,
+- system response timing,
+- quorum timing,
+- edge-choir timing,
+- and settlement timing.
+
+The resulting temporal relationships may become first-class TVR evidence.
+
+## CLI evidence in TVR
+
+A mature TVR should be able to preserve:
+
+- normalized CLI event sequence,
+- timing deltas,
+- command/tool transitions,
+- inferred intents,
+- machine-likelihood evidence,
+- adaptation following deception,
+- correlation references,
+- CCE assessment,
+- AATL / AATR contributions,
+- and the exact downstream governance decision that consumed the evidence.
+
+CLI is therefore an **adversary cadence and intent witness** in the Music of Understanding, not an authority and not a disposable telemetry feed.
