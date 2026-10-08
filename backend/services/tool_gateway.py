@@ -353,7 +353,11 @@ class ToolGateway:
     
     def execute(self, tool_id: str, parameters: Dict[str, Any],
                 principal: str, token_id: str,
-                trust_state: str = "unknown") -> ToolExecution:
+                trust_state: str = "unknown",
+                principal_identity: Optional[str] = None,
+                action: str = "execute",
+                target: Optional[str] = None,
+                governance_context: Optional[Dict[str, Any]] = None) -> ToolExecution:
         """
         Execute a tool through the gateway.
         
@@ -374,13 +378,61 @@ class ToolGateway:
         
         # Get tool definition
         tool = self.tools.get(tool_id)
-        
+
         if not tool:
             return self._failed_execution(
                 execution_id, tool_id, timestamp, principal, token_id,
                 parameters, f"Unknown tool: {tool_id}"
             )
-        
+
+        # --------------------------------------------------------------
+        # FINAL CAPABILITY PEP
+        #
+        # token_id is not metadata. A subprocess may execute only when
+        # Token Broker validates a capability specifically addressed to
+        # the tool_gateway execution boundary.
+        # --------------------------------------------------------------
+        if not token_id:
+            return self._failed_execution(
+                execution_id, tool_id, timestamp, principal, token_id,
+                parameters, "Missing capability token"
+            )
+
+        if not principal_identity:
+            return self._failed_execution(
+                execution_id, tool_id, timestamp, principal, token_id,
+                parameters, "Missing principal_identity"
+            )
+
+        try:
+            from backend.services.token_broker import token_broker
+
+            valid_token, token_message = token_broker.validate_token(
+                token_id=str(token_id),
+                principal=str(principal),
+                principal_identity=str(principal_identity),
+                action=str(action or "execute"),
+                target=str(target or tool_id),
+                audience="tool_gateway",
+                tool_id=tool_id,
+                consume=True,
+            )
+        except Exception as exc:
+            logger.exception(
+                "GATEWAY: capability validation error for %s",
+                tool_id,
+            )
+            return self._failed_execution(
+                execution_id, tool_id, timestamp, principal, token_id,
+                parameters, f"Capability validation error: {exc}"
+            )
+
+        if not valid_token:
+            return self._failed_execution(
+                execution_id, tool_id, timestamp, principal, token_id,
+                parameters, f"Capability denied: {token_message}"
+            )
+
         # Check trust state
         trust_order = ["trusted", "degraded", "unknown", "quarantined"]
         min_idx = trust_order.index(tool.min_trust_state)

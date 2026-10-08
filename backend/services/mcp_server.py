@@ -1002,17 +1002,55 @@ class MCPServer:
                 "message": "Set execute=true to run memory dump collection.",
             }
 
-        from runtime_paths import ensure_data_dir
+        from backend.runtime_paths import ensure_data_dir
         from backend.services.tool_gateway import tool_gateway
+        from backend.services.token_broker import token_broker
 
-        output_dir = str(params.get("output_path") or ensure_data_dir("forensics", "memory_dumps"))
-        token_id = f"mcp-{uuid.uuid4().hex[:10]}"
+        output_dir = str(
+            params.get("output_path")
+            or ensure_data_dir("forensics", "memory_dumps")
+        )
+
+        parent_token_id = str(params.get("_token_id") or "")
+        principal = str(params.get("_principal") or "")
+        principal_identity = str(params.get("_principal_identity") or "")
+        action = str(params.get("_action") or "execute")
+        target = str(params.get("_target") or "memory_dump")
+        parent_tool_id = str(
+            params.get("_mcp_tool_id")
+            or "mcp.forensics.memory_dump"
+        )
+
+        if not parent_token_id:
+            raise PermissionError(
+                "Memory dump execution requires delegated MCP capability"
+            )
+
+        child = token_broker.delegate_token(
+            parent_token_id=parent_token_id,
+            principal=principal,
+            principal_identity=principal_identity,
+            action=action,
+            target=target,
+            parent_audience="mcp_server",
+            parent_tool_id=parent_tool_id,
+            child_audience="tool_gateway",
+            child_tool_id="memory_dump",
+            ttl_seconds=60,
+        )
+
         execution = tool_gateway.execute(
             tool_id="memory_dump",
-            parameters={"pid": pid, "output_dir": output_dir},
-            principal="mcp_server",
-            token_id=token_id,
+            parameters={
+                "pid": pid,
+                "output_dir": output_dir,
+            },
+            principal=principal,
+            token_id=child.token_id,
             trust_state="trusted",
+            principal_identity=principal_identity,
+            action=action,
+            target=target,
         )
 
         if execution.status != "success":
@@ -1622,15 +1660,89 @@ class MCPServer:
             return self._error_response(message, f"Unknown message type: {message.message_type}")
     
     async def _handle_tool_request(self, message: MCPMessage) -> MCPMessage:
-        """Handle a tool execution request"""
+        """Handle a tool execution request through the capability membrane."""
         tool_id = message.destination
-        
+
         # Check if tool exists
         if tool_id not in self.tools:
             return self._error_response(message, f"Unknown tool: {tool_id}")
-        
+
         tool = self.tools[tool_id]
-        payload = message.payload
+        payload = message.payload or {}
+
+        # ------------------------------------------------------------------
+        # CAPABILITY MEMBRANE
+        #
+        # A signed MCP message proves message integrity. It does NOT prove
+        # authority to execute a tool. Tool execution requires a live,
+        # identity-bound, audience-bound, tool-bound capability token.
+        # ------------------------------------------------------------------
+        token_id = payload.get("token_id")
+        principal_identity = payload.get("principal_identity")
+        action = str(payload.get("action") or "execute")
+        target = str(payload.get("target") or tool_id)
+
+        if not token_id:
+            return self._error_response(
+                message,
+                "Capability denied: missing token_id",
+            )
+
+        if not principal_identity:
+            return self._error_response(
+                message,
+                "Capability denied: missing principal_identity",
+            )
+
+        try:
+            from backend.services.token_broker import token_broker
+
+            # MCP-native handlers consume authority here.
+            # Gateway-backed handlers only inspect here; delegation will
+            # atomically consume the parent and mint the narrower child.
+            gateway_delegation_map = {
+                "mcp.forensics.memory_dump": "memory_dump",
+            }
+            delegates_to_gateway = tool_id in gateway_delegation_map
+
+            valid_token, token_message = token_broker.validate_token(
+                token_id=str(token_id),
+                principal=str(message.source),
+                principal_identity=str(principal_identity),
+                action=action,
+                target=target,
+                audience="mcp_server",
+                tool_id=tool_id,
+                consume=not delegates_to_gateway,
+            )
+        except Exception as exc:
+            logger.exception(
+                "MCP capability validation failed for %s",
+                tool_id,
+            )
+            return self._error_response(
+                message,
+                f"Capability validation error: {exc}",
+            )
+
+        if not valid_token:
+            logger.warning(
+                "MCP: capability denied | principal=%s tool=%s reason=%s",
+                message.source,
+                tool_id,
+                token_message,
+            )
+            return self._error_response(
+                message,
+                f"Capability denied: {token_message}",
+            )
+
+        logger.info(
+            "MCP: capability accepted | principal=%s tool=%s token=%s",
+            message.source,
+            tool_id,
+            token_id,
+        )
         
         # Create execution record
         execution = MCPToolExecution(
@@ -1655,13 +1767,22 @@ class MCPServer:
         if tool_id in self.tool_handlers:
             try:
                 handler = self.tool_handlers[tool_id]
+
+                execution_params = dict(payload.get("params", {}))
+                execution_params["_token_id"] = token_id
+                execution_params["_principal"] = message.source
+                execution_params["_principal_identity"] = principal_identity
+                execution_params["_action"] = action
+                execution_params["_target"] = target
+                execution_params["_mcp_tool_id"] = tool_id
+
                 if asyncio.iscoroutinefunction(handler):
                     result = await asyncio.wait_for(
-                        handler(payload.get("params", {})),
+                        handler(execution_params),
                         timeout=tool.timeout_seconds
                     )
                 else:
-                    result = handler(payload.get("params", {}))
+                    result = handler(execution_params)
                 
                 execution.status = "success"
                 execution.output = result

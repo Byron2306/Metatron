@@ -145,17 +145,31 @@ class TokenBroker:
         payload = json.dumps(token_data, sort_keys=True)
         return hmac.new(self.signing_key.encode(), payload.encode(), hashlib.sha256).hexdigest()
     
-    def _verify_token_signature(self, token: CapabilityToken) -> bool:
-        """Verify token signature"""
-        token_data = {
+    def _token_signature_payload(self, token: CapabilityToken) -> Dict[str, Any]:
+        """Canonical immutable capability fields covered by the signature."""
+        return {
             "token_id": token.token_id,
+            "token_type": token.token_type,
             "principal": token.principal,
+            "principal_identity": token.principal_identity,
+            "audience": token.audience,
             "action": token.action,
             "targets": token.targets,
+            "tool_id": token.tool_id,
             "expires_at": token.expires_at,
-            "nonce": token.nonce
+            "max_uses": token.max_uses,
+            "constraints": token.constraints,
+            "issued_at": token.issued_at,
+            "issuer": token.issuer,
+            "nonce": token.nonce,
+            "governance_decision_id": token.governance_decision_id,
+            "governance_queue_id": token.governance_queue_id,
+            "governance_action_type": token.governance_action_type,
         }
-        expected = self._sign_token(token_data)
+
+    def _verify_token_signature(self, token: CapabilityToken) -> bool:
+        """Verify all immutable authority-bearing token fields."""
+        expected = self._sign_token(self._token_signature_payload(token))
         return hmac.compare_digest(expected, token.signature)
     
     # =========================================================================
@@ -266,7 +280,8 @@ class TokenBroker:
                     governance_context: Dict = None,
                     polyphonic_token_context: Dict = None,
                     future_notation_token_ref: str = None,
-                    issued_by: str = "token_broker") -> CapabilityToken:
+                    issued_by: str = "token_broker",
+                    audience: str = "tool_gateway") -> CapabilityToken:
         """
         Issue a scoped capability token.
         
@@ -298,24 +313,12 @@ class TokenBroker:
         now = datetime.now(timezone.utc)
         expires = now + timedelta(seconds=ttl_seconds)
         
-        # Build token data for signing
-        token_data = {
-            "token_id": token_id,
-            "principal": principal,
-            "action": action,
-            "targets": targets,
-            "expires_at": expires.isoformat(),
-            "nonce": nonce
-        }
-        
-        signature = self._sign_token(token_data)
-        
         token = CapabilityToken(
             token_id=token_id,
             token_type="capability",
             principal=principal,
             principal_identity=principal_identity,
-            audience="tool_gateway",
+            audience=audience,
             action=action,
             targets=targets,
             tool_id=tool_id,
@@ -323,13 +326,17 @@ class TokenBroker:
             max_uses=max_uses,
             uses_remaining=max_uses,
             constraints=constraints or {},
-            signature=signature,
+            signature="",
             issued_at=now.isoformat(),
             issuer=issued_by,
             nonce=nonce,
             governance_decision_id=governance_context.get("decision_id"),
             governance_queue_id=governance_context.get("queue_id"),
             governance_action_type=governance_context.get("action_type")
+        )
+
+        token.signature = self._sign_token(
+            self._token_signature_payload(token)
         )
         
         self.active_tokens[token_id] = token
@@ -350,64 +357,214 @@ class TokenBroker:
         
         return token
     
-    def validate_token(self, token_id: str, principal: str,
-                       principal_identity: str, action: str,
-                       target: str) -> Tuple[bool, str]:
+    def validate_token(
+        self,
+        token_id: str,
+        principal: str,
+        principal_identity: str,
+        action: str,
+        target: str,
+        *,
+        audience: Optional[str] = None,
+        tool_id: Optional[str] = None,
+        consume: bool = True,
+    ) -> Tuple[bool, str]:
         """
         Validate a capability token.
-        
-        Returns (valid, message) tuple.
+
+        consume=False performs an authority inspection without spending a use.
+        The final execution boundary must validate with consume=True.
         """
-        # Check if revoked
         if token_id in self.revoked_tokens:
             return False, "Token revoked"
-        
-        # Check if exists
+
         if token_id not in self.active_tokens:
             return False, "Token not found"
-        
+
         token = self.active_tokens[token_id]
-        
-        # Verify signature
+
         if not self._verify_token_signature(token):
             return False, "Invalid token signature"
-        
-        # Check principal binding
+
         if token.principal != principal:
             return False, "Token not bound to this principal"
-        
+
         if token.principal_identity != principal_identity:
             return False, "Token identity mismatch"
-        
-        # Check expiry
-        exp = datetime.fromisoformat(token.expires_at.replace('Z', '+00:00'))
+
+        exp = datetime.fromisoformat(
+            token.expires_at.replace("Z", "+00:00")
+        )
         if datetime.now(timezone.utc) > exp:
             del self.active_tokens[token_id]
             return False, "Token expired"
-        
-        # Check action
+
         if token.action != action:
             return False, f"Token not valid for action '{action}'"
-        
-        # Check target
+
         if target not in token.targets and "*" not in token.targets:
             return False, f"Token not valid for target '{target}'"
-        
-        # Check uses
+
+        if audience is not None and token.audience != audience:
+            return False, f"Token audience mismatch: expected '{audience}'"
+
+        if tool_id is not None:
+            if token.tool_id not in (None, "*", tool_id):
+                return False, f"Token not valid for tool '{tool_id}'"
+
         if token.uses_remaining <= 0:
-            del self.active_tokens[token_id]
+            self.active_tokens.pop(token_id, None)
             return False, "Token usage exhausted"
-        
-        # Decrement uses
-        token.uses_remaining -= 1
-        
-        if token.uses_remaining <= 0:
-            del self.active_tokens[token_id]
-        
-        logger.debug(f"TOKEN: Validated {token_id} | Remaining uses: {token.uses_remaining}")
-        
+
+        if consume:
+            token.uses_remaining -= 1
+            self.token_uses[token_id] += 1
+
+            if token.uses_remaining <= 0:
+                del self.active_tokens[token_id]
+
+        logger.debug(
+            "TOKEN: Validated %s | consume=%s | remaining=%s",
+            token_id,
+            consume,
+            token.uses_remaining,
+        )
+
         return True, "Token valid"
-    
+
+    def delegate_token(
+        self,
+        *,
+        parent_token_id: str,
+        principal: str,
+        principal_identity: str,
+        action: str,
+        target: str,
+        parent_audience: str,
+        parent_tool_id: str,
+        child_audience: str,
+        child_tool_id: str,
+        ttl_seconds: int = 60,
+        child_action: Optional[str] = None,
+        child_target: Optional[str] = None,
+    ) -> CapabilityToken:
+        """
+        Consume one parent capability and mint one narrower child capability.
+
+        Delegation never broadens principal, identity, action, target, lifetime,
+        or governance provenance.
+        """
+        valid, message = self.validate_token(
+            token_id=parent_token_id,
+            principal=principal,
+            principal_identity=principal_identity,
+            action=action,
+            target=target,
+            audience=parent_audience,
+            tool_id=parent_tool_id,
+            consume=False,
+        )
+        if not valid:
+            raise PermissionError(f"Parent capability invalid: {message}")
+
+        parent = self.active_tokens.get(parent_token_id)
+        if parent is None:
+            raise PermissionError("Parent capability unavailable")
+
+        if not parent.governance_decision_id and not parent.governance_queue_id:
+            raise PermissionError(
+                "Delegation requires governance provenance on parent capability"
+            )
+
+        delegated_action = str(child_action or action)
+        delegated_target = str(child_target or target)
+
+        # Delegation may narrow authority, never widen it.
+        if delegated_action != parent.action:
+            raise PermissionError("Delegation cannot change capability action")
+
+        if delegated_target not in parent.targets and "*" not in parent.targets:
+            raise PermissionError("Delegation cannot widen capability target")
+
+        now = datetime.now(timezone.utc)
+        parent_expiry = datetime.fromisoformat(
+            parent.expires_at.replace("Z", "+00:00")
+        )
+        remaining_seconds = int((parent_expiry - now).total_seconds())
+
+        if remaining_seconds <= 0:
+            raise PermissionError("Parent capability expired")
+
+        delegated_ttl = max(
+            1,
+            min(int(ttl_seconds), remaining_seconds),
+        )
+
+        governance_context = {
+            "approved": True,
+            "decision_id": parent.governance_decision_id,
+            "queue_id": parent.governance_queue_id,
+            "action_type": parent.governance_action_type,
+        }
+
+        # Spend parent authority before minting child. If child issuance fails,
+        # authority is lost rather than duplicated.
+        consumed, consume_message = self.validate_token(
+            token_id=parent_token_id,
+            principal=principal,
+            principal_identity=principal_identity,
+            action=action,
+            target=target,
+            audience=parent_audience,
+            tool_id=parent_tool_id,
+            consume=True,
+        )
+        if not consumed:
+            raise PermissionError(
+                f"Parent capability could not be consumed: {consume_message}"
+            )
+
+        child = self.issue_token(
+            principal=principal,
+            principal_identity=principal_identity,
+            action=delegated_action,
+            targets=[delegated_target],
+            tool_id=child_tool_id,
+            ttl_seconds=delegated_ttl,
+            max_uses=1,
+            constraints={
+                "delegated": True,
+                "delegated_from": parent_token_id,
+                "parent_audience": parent_audience,
+                "parent_tool_id": parent_tool_id,
+            },
+            governance_context=governance_context,
+            issued_by="token_broker:delegation",
+            audience=child_audience,
+        )
+
+        self.token_admin_audit_log.append({
+            "action": "delegate",
+            "parent_token_id": parent_token_id,
+            "child_token_id": child.token_id,
+            "principal": principal,
+            "parent_tool_id": parent_tool_id,
+            "child_tool_id": child_tool_id,
+            "parent_audience": parent_audience,
+            "child_audience": child_audience,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+        logger.info(
+            "TOKEN: Delegated %s -> %s | %s -> %s",
+            parent_token_id,
+            child.token_id,
+            parent_tool_id,
+            child_tool_id,
+        )
+
+        return child
+
     def revoke_token(
         self,
         token_id: str,

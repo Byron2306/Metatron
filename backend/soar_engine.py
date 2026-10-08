@@ -159,6 +159,7 @@ class Playbook:
     is_template: bool = False
     template_id: Optional[str] = None  # If cloned from a template
     tags: List[str] = field(default_factory=list)
+    escalation_level: DefenseEscalationLevel = DefenseEscalationLevel.OBSERVE
     mitre_techniques: List[str] = field(default_factory=list)
     state_transition_log: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -618,7 +619,8 @@ class SOAREngine:
                     timeout=30
                 )
             ],
-            tags=["ai_defense", "recon", "level_1", "degrade"]
+            tags=["ai_defense", "recon", "level_1", "degrade"],
+            escalation_level=DefenseEscalationLevel.DEGRADE
         )
         
         # =====================================================================
@@ -680,7 +682,8 @@ class SOAREngine:
                     timeout=30
                 )
             ],
-            tags=["ai_defense", "credential_access", "level_2", "deceive"]
+            tags=["ai_defense", "credential_access", "level_2", "deceive"],
+            escalation_level=DefenseEscalationLevel.DECEIVE
         )
         
         # =====================================================================
@@ -749,7 +752,8 @@ class SOAREngine:
                     timeout=30
                 )
             ],
-            tags=["ai_defense", "lateral_movement", "level_3", "contain"]
+            tags=["ai_defense", "lateral_movement", "level_3", "contain"],
+            escalation_level=DefenseEscalationLevel.CONTAIN
         )
         
         # =====================================================================
@@ -814,7 +818,8 @@ class SOAREngine:
                     timeout=30
                 )
             ],
-            tags=["ai_defense", "exfiltration", "level_4", "isolate"]
+            tags=["ai_defense", "exfiltration", "level_4", "isolate"],
+            escalation_level=DefenseEscalationLevel.ISOLATE
         )
         
         # =====================================================================
@@ -900,7 +905,8 @@ class SOAREngine:
                     timeout=30
                 )
             ],
-            tags=["ai_defense", "eradication", "level_5", "critical"]
+            tags=["ai_defense", "eradication", "level_5", "critical"],
+            escalation_level=DefenseEscalationLevel.ERADICATE
         )
         
         # =====================================================================
@@ -1384,25 +1390,30 @@ class SOAREngine:
         return False
     
     def matches_trigger(self, playbook: Playbook, event: Dict) -> bool:
-        """Check if an event matches a playbook's trigger conditions"""
+        """Check if an event strictly matches a playbook's trigger contract."""
         if playbook.status != PlaybookStatus.ACTIVE:
             return False
-        
-        # Check trigger type
+
+        # Trigger type is mandatory and must match exactly.
         event_trigger = event.get("trigger_type")
-        if event_trigger and event_trigger != playbook.trigger.value:
+        if not event_trigger:
             return False
-        
-        # Check conditions
+        if event_trigger != playbook.trigger.value:
+            return False
+
+        # Every declared trigger condition is mandatory.
         for key, allowed_values in playbook.trigger_conditions.items():
+            if key not in event:
+                return False
+
             event_value = event.get(key)
-            if event_value and allowed_values:
-                if isinstance(allowed_values, list):
-                    if event_value not in allowed_values:
-                        return False
-                elif event_value != allowed_values:
+
+            if isinstance(allowed_values, list):
+                if event_value not in allowed_values:
                     return False
-        
+            elif event_value != allowed_values:
+                return False
+
         return True
     
     async def execute_playbook(self, playbook_id: str, event: Dict, db=None) -> PlaybookExecution:
@@ -1423,7 +1434,8 @@ class SOAREngine:
             playbook_name=playbook.name,
             trigger_event=enriched_event,
             status=ExecutionStatus.RUNNING,
-            started_at=datetime.now(timezone.utc).isoformat()
+            started_at=datetime.now(timezone.utc).isoformat(),
+            escalation_level=playbook.escalation_level
         )
 
         trace_id = None
@@ -1571,6 +1583,26 @@ class SOAREngine:
             except Exception:
                 trace = None
             self._write_trace_artifact(trace, execution.id)
+
+        # Durable canonical execution receipt.
+        # Upsert by execution ID so retries cannot create duplicate SOAR records.
+        if db is not None:
+            try:
+                persisted = json.loads(
+                    json.dumps(
+                        asdict(execution),
+                        default=lambda o: o.value if isinstance(o, Enum) else str(o),
+                    )
+                )
+                await db.soar_executions.replace_one(
+                    {"id": execution.id},
+                    persisted,
+                    upsert=True,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"SOAR execution persistence failed for {execution.id}: {e}"
+                )
         
         return execution
     
@@ -2208,49 +2240,106 @@ class SOAREngine:
         event: Dict,
     ) -> Dict:
         """
-        Execute a tool via MCP for proper audit trail and governance.
-        
-        Returns MCP execution result dict.
+        Execute through the canonical MCP TOOL_REQUEST authority path.
+
+        SOAR does not invoke handlers directly and does not use a parallel
+        root-level MCP compatibility implementation.
         """
         try:
-            # Import MCP server singleton
-            import sys
-            import os
-            # Add root directory to path so we can import mcp_server
-            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if root_dir not in sys.path:
-                sys.path.insert(0, root_dir)
-            
-            import mcp_server
-            mcp_instance = mcp_server.mcp_server
-            
-            # Execute via MCP tool bus
-            result = await mcp_instance.execute_tool(
-                tool_id=tool_id,
-                parameters=params,
-                context={
+            from backend.services.mcp_server import (
+                mcp_server,
+                MCPMessageType,
+            )
+
+            token_id = (
+                event.get("token_id")
+                or event.get("capability_token_id")
+                or params.get("_token_id")
+            )
+            principal_identity = (
+                event.get("principal_identity")
+                or params.get("_principal_identity")
+                or "spiffe://seraph/soar"
+            )
+
+            target = str(
+                event.get("target")
+                or event.get("host_id")
+                or params.get("target")
+                or tool_id
+            )
+
+            payload = {
+                "params": params,
+                "token_id": token_id,
+                "principal_identity": principal_identity,
+                "action": str(
+                    event.get("capability_action")
+                    or params.get("_action")
+                    or "execute"
+                ),
+                "target": target,
+                "policy_decision_id": (
+                    event.get("policy_decision_id")
+                    or event.get("decision_id")
+                ),
+                "queue_id": event.get("queue_id"),
+                "source_context": {
                     "source": "soar_engine",
                     "event_type": event.get("event_type"),
                     "execution_id": event.get("execution_id"),
                     "session_id": event.get("session_id"),
                     "host_id": event.get("host_id"),
-                }
-            )
-            
-            return {
-                "status": "completed",
-                "mcp_tool_id": tool_id,
-                "result": result,
+                },
             }
-            
+
+            message = mcp_server.create_message(
+                message_type=MCPMessageType.TOOL_REQUEST,
+                source="service:soar",
+                destination=tool_id,
+                payload=payload,
+                trace_id=(
+                    event.get("trace_id")
+                    or event.get("execution_id")
+                    or event.get("session_id")
+                ),
+            )
+
+            response = await mcp_server.handle_message(message)
+
+            if response.message_type == MCPMessageType.ERROR:
+                return {
+                    "status": "denied",
+                    "mcp_tool_id": tool_id,
+                    "error": response.payload.get("error"),
+                    "mcp_response": response.payload,
+                }
+
+            response_status = str(
+                response.payload.get("status") or "unknown"
+            )
+
+            return {
+                "status": response_status,
+                "mcp_tool_id": tool_id,
+                "execution_id": response.payload.get("execution_id"),
+                "result": response.payload.get("output"),
+                "error": response.payload.get("error"),
+                "audit_hash": response.payload.get("audit_hash"),
+                "mcp_response": response.payload,
+            }
+
         except Exception as e:
-            logger.error(f"MCP execution failed for {tool_id}: {e}")
+            logger.exception(
+                "Canonical MCP execution failed for %s",
+                tool_id,
+            )
             return {
                 "status": "failed",
                 "mcp_tool_id": tool_id,
                 "error": str(e),
             }
-    
+
     def _update_escalation_state(
         self,
         host_id: str,
@@ -2331,7 +2420,11 @@ class SOAREngine:
         logger.info(f"SOAR Pipeline: Advanced {item_id} from {old_stage} to {new_stage}")
         return item.to_dict()
 
-    async def trigger_playbooks(self, event: Dict) -> List[PlaybookExecution]:
+    async def trigger_playbooks(
+        self,
+        event: Dict,
+        db=None,
+    ) -> List[PlaybookExecution]:
         """Trigger all matching playbooks for an event"""
         executions = []
         
