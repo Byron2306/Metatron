@@ -92,11 +92,40 @@ async def test_ensure_indexes_declares_required_unique_indexes():
                         ("suricata_alert_evidence", "uniq_suricata_alert_source_event_id")]:
         spec = (await db[name].index_information())[index]
         assert spec["unique"] is True
-        assert spec["partialFilterExpression"] == {"witness": "suricata"}
+        assert spec["partialFilterExpression"] == {
+            "witness": "suricata", "source_event_id": {"$type": "string"}}
     spec = (await db.world_events.index_information())["uniq_promoted_observation_id"]
     assert spec["partialFilterExpression"] == {"type": "observation_promoted"}
     assert spec["key"] == [("payload.observation_id", 1)]
     assert (await db.observation_material_state.index_information())["uniq_material_key"]["unique"]
+
+
+@pytest.mark.asyncio
+async def test_startup_reuses_phase4_suricata_indexes_without_replacing_them():
+    from backend.services.observation_fabric import ObservationStore
+    db = Database()
+    for collection, index in [("vns_flows", "uniq_suricata_flow_source_event_id"),
+                               ("vns_dns_queries", "uniq_suricata_dns_source_event_id"),
+                               ("suricata_alert_evidence", "uniq_suricata_alert_source_event_id")]:
+        await db[collection].create_index(
+            [("source_event_id", 1)], name=index, unique=True,
+            partialFilterExpression={"witness": "suricata", "source_event_id": {"$type": "string"}})
+    await ObservationStore(db).ensure_indexes()
+    await ObservationStore(db).ensure_indexes()
+
+
+@pytest.mark.asyncio
+async def test_suricata_index_preserves_legacy_unidentified_evidence():
+    from backend.services.observation_fabric import ObservationStore
+    from pymongo.errors import DuplicateKeyError
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    for collection in ("vns_flows", "vns_dns_queries", "suricata_alert_evidence"):
+        await db[collection].insert_one({"witness": "suricata"})
+        await db[collection].insert_one({"witness": "suricata"})
+        await db[collection].insert_one({"witness": "suricata", "source_event_id": "source-001"})
+        with pytest.raises(DuplicateKeyError):
+            await db[collection].insert_one({"witness": "suricata", "source_event_id": "source-001"})
 
 
 @pytest.mark.asyncio

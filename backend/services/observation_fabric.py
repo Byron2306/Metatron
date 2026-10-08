@@ -111,7 +111,9 @@ class ObservationStore:
         ):
             await self.db[collection].create_index(
                 [("source_event_id", 1)], unique=True,
-                partialFilterExpression={"witness": "suricata"}, name=name)
+                partialFilterExpression={
+                    "witness": "suricata", "source_event_id": {"$type": "string"}},
+                name=name)
 
     async def claim(self, observation: CanonicalObservation) -> bool:
         try:
