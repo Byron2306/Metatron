@@ -375,3 +375,125 @@ def test_root_mcp_is_compatibility_shim():
 
     assert compat.mcp_server is canonical.mcp_server
     assert compat.MCPServer is canonical.MCPServer
+
+
+def test_mcp_chorus_detects_missing_companions_without_blocking_execution():
+    async def run():
+        reset_tokens()
+        tool_gateway.executions.clear()
+
+        from backend.services.vector_memory import vector_memory
+
+        vector_memory.entries.clear()
+        vector_memory.namespace_index.clear()
+        vector_memory.case_index.clear()
+
+        calls = {"count": 0}
+
+        def fake_run(*args, **kwargs):
+            calls["count"] += 1
+            r = Mock()
+            r.returncode = 0
+            r.stdout = "chorus-regression-ok"
+            r.stderr = ""
+            return r
+
+        principal = "service:soar"
+        identity = "spiffe://seraph/soar"
+        target = "host:test"
+        tool_id = "mcp.forensics.memory_dump"
+
+        parent = token_broker.issue_token(
+            principal=principal,
+            principal_identity=identity,
+            action="execute",
+            targets=[target],
+            tool_id=tool_id,
+            max_uses=1,
+            governance_context={
+                "approved": True,
+                "decision_id": "gov-chorus-regression",
+                "queue_id": "queue-chorus-regression",
+                "action_type": "mcp_tool_execution",
+            },
+            audience="mcp_server",
+        )
+
+        message = mcp_server.create_message(
+            message_type=MCPMessageType.TOOL_REQUEST,
+            source=principal,
+            destination=tool_id,
+            payload={
+                "params": {
+                    "pid": 4242,
+                    "execute": True,
+                },
+                "token_id": parent.token_id,
+                "principal_identity": identity,
+                "action": "execute",
+                "target": target,
+                "policy_decision_id":
+                    "gov-chorus-regression",
+            },
+        )
+
+        with patch(
+            "backend.services.tool_gateway.subprocess.run",
+            fake_run,
+        ):
+            response = await mcp_server.handle_message(
+                message
+            )
+
+        assert response.payload["status"] == "success"
+        assert calls["count"] == 1
+
+        execution = mcp_server.executions[
+            response.payload["execution_id"]
+        ]
+
+        assert execution.chorus_state
+        assert execution.edge_observation
+        assert execution.chorus_event_id
+
+        chorus = execution.chorus_state
+        observation = execution.edge_observation
+
+        assert execution.chorus_resolution_class == "strained"
+
+        assert "dispatch" in observation[
+            "observed_participants"
+        ]
+        assert "executor" in observation[
+            "observed_participants"
+        ]
+        assert "audit_closure" in observation[
+            "observed_participants"
+        ]
+
+        assert "outbound_gate" in observation[
+            "missing_participants"
+        ]
+        assert "policy_bind" in observation[
+            "missing_participants"
+        ]
+
+        # Technical success and distributed coherence are
+        # deliberately independent properties.
+        assert execution.status == "success"
+        assert chorus["audit_closure_score"] == 1.0
+        assert chorus["companion_presence_score"] < 1.0
+
+        memory = vector_memory.get_entry(
+            execution.vector_memory_entry_id
+        )
+
+        assert memory is not None
+        assert (
+            memory.structured_data[
+                "chorus_resolution_class"
+            ]
+            == "strained"
+        )
+
+    asyncio.run(run())

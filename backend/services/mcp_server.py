@@ -181,6 +181,12 @@ class MCPToolExecution:
     # Semantic recollection. Informational only, never authority.
     vector_memory_entry_id: Optional[str] = None
 
+    # Polyphonic settlement
+    chorus_event_id: Optional[str] = None
+    chorus_resolution_class: Optional[str] = None
+    chorus_state: Optional[Dict[str, Any]] = None
+    edge_observation: Optional[Dict[str, Any]] = None
+
     # Semantic recollection. Informational only, never authority.
     vector_memory_entry_id: Optional[str] = None
 
@@ -2081,6 +2087,221 @@ class MCPServer:
                 execution.execution_id,
             )
 
+        # --------------------------------------------------------------
+        # CHORUS SETTLEMENT
+        #
+        # Score only participants and sequence elements that this MCP
+        # execution can actually prove occurred. Missing companions remain
+        # missing evidence rather than being inferred into existence.
+        # --------------------------------------------------------------
+        try:
+            from backend.services.chorus_engine import get_chorus_engine
+
+            chorus = get_chorus_engine(
+                getattr(self, "db", None)
+            )
+
+            def _iso_ms(value):
+                if not value:
+                    return None
+                try:
+                    return (
+                        datetime.fromisoformat(
+                            str(value).replace("Z", "+00:00")
+                        ).timestamp()
+                        * 1000.0
+                    )
+                except Exception:
+                    return None
+
+            started_ms = _iso_ms(execution.started_at)
+            completed_ms = _iso_ms(execution.completed_at)
+            closure_ms = (
+                datetime.now(timezone.utc).timestamp()
+                * 1000.0
+            )
+
+            observed_participants = ["dispatch"]
+
+            if execution.gateway_execution_id:
+                observed_participants.append("executor")
+
+            if execution.audit_record_id:
+                observed_participants.append(
+                    "audit_closure"
+                )
+
+            observed_sequence = ["dispatch"]
+
+            if execution.gateway_execution_id:
+                observed_sequence.extend([
+                    "executor_started",
+                    "executor_completed",
+                ])
+
+            if execution.audit_record_id:
+                observed_sequence.append(
+                    "audit_closure"
+                )
+
+            if execution.world_event_id:
+                observed_sequence.append(
+                    "edge_settled"
+                )
+
+            timestamps_ms = {}
+
+            if started_ms is not None:
+                timestamps_ms["dispatch"] = started_ms
+                timestamps_ms["executor_started"] = (
+                    started_ms
+                )
+
+            if completed_ms is not None:
+                timestamps_ms["executor_completed"] = (
+                    completed_ms
+                )
+
+            if execution.audit_record_id:
+                timestamps_ms["audit_closure"] = (
+                    closure_ms
+                )
+
+            if execution.world_event_id:
+                timestamps_ms["edge_settled"] = (
+                    closure_ms
+                )
+
+            observation_model = (
+                chorus.collect_edge_participants(
+                    action_id=execution.execution_id,
+                    context={
+                        "edge_type":
+                            "mcp_tool_invocation",
+                        "observed_participants":
+                            observed_participants,
+                        "observed_sequence":
+                            observed_sequence,
+                        "timestamps_ms":
+                            timestamps_ms,
+                        "audit_events": (
+                            ["audit_closed"]
+                            if execution.audit_record_id
+                            else []
+                        ),
+                        "state_events": [
+                            event
+                            for event in (
+                                "executor_started"
+                                if execution.gateway_execution_id
+                                else None,
+                                "executor_completed"
+                                if execution.gateway_execution_id
+                                else None,
+                                "edge_settled"
+                                if execution.world_event_id
+                                else None,
+                            )
+                            if event
+                        ],
+                        "vns_events": [],
+                    },
+                )
+            )
+
+            spec_model = chorus.load_edge_chorus_spec(
+                "mcp_tool_invocation"
+            )
+
+            chorus_model = chorus.assemble_chorus_state(
+                spec=spec_model,
+                observation=observation_model,
+            )
+
+            if hasattr(observation_model, "model_dump"):
+                observation_doc = (
+                    observation_model.model_dump()
+                )
+            elif hasattr(observation_model, "dict"):
+                observation_doc = observation_model.dict()
+            else:
+                observation_doc = dict(
+                    observation_model.__dict__
+                )
+
+            if hasattr(chorus_model, "model_dump"):
+                chorus_doc = chorus_model.model_dump()
+            elif hasattr(chorus_model, "dict"):
+                chorus_doc = chorus_model.dict()
+            else:
+                chorus_doc = dict(
+                    chorus_model.__dict__
+                )
+
+            execution.edge_observation = observation_doc
+            execution.chorus_state = chorus_doc
+            execution.chorus_resolution_class = str(
+                chorus_doc.get("resolution_class")
+                or "unknown"
+            )
+
+            from backend.services.world_events import (
+                emit_world_event,
+            )
+
+            chorus_event_type = (
+                "edge_chorus_fractured"
+                if execution.chorus_resolution_class
+                in {"dissonant", "fractured"}
+                else "edge_settled"
+            )
+
+            chorus_world = await emit_world_event(
+                db=getattr(self, "db", None),
+                event_type=chorus_event_type,
+                entity_refs=[
+                    f"mcp_execution:{execution.execution_id}",
+                    f"tool:{tool_id}",
+                    f"target:{target}",
+                ],
+                payload={
+                    "action_id":
+                        execution.execution_id,
+                    "edge_type":
+                        "mcp_tool_invocation",
+                    "outcome":
+                        execution.status,
+                    "chorus_state":
+                        chorus_doc,
+                    "edge_observation":
+                        observation_doc,
+                    "audit_record_id":
+                        execution.audit_record_id,
+                    "telemetry_event_id":
+                        execution.telemetry_event_id,
+                    "world_event_id":
+                        execution.world_event_id,
+                    "delegation_id":
+                        execution.delegation_id,
+                },
+                trigger_triune=(
+                    execution.chorus_resolution_class
+                    in {"dissonant", "fractured"}
+                ),
+                source="mcp_server:chorus",
+            )
+
+            execution.chorus_event_id = (
+                chorus_world["event"]["id"]
+            )
+
+        except Exception as chorus_exc:
+            logger.warning(
+                "MCP chorus settlement failed for %s: %s",
+                execution.execution_id,
+                chorus_exc,
+            )
+
         # Recompute after settlement references are attached so the final
         # MCP execution hash covers the completed proof envelope.
         execution.audit_hash = hashlib.sha256(
@@ -2151,6 +2372,15 @@ class MCPServer:
 
                     "world_event_id":
                         execution.world_event_id,
+
+                    "chorus_event_id":
+                        execution.chorus_event_id,
+                    "chorus_resolution_class":
+                        execution.chorus_resolution_class,
+                    "chorus_state":
+                        execution.chorus_state,
+                    "edge_observation":
+                        execution.edge_observation,
                 },
                 source="mcp_server:settlement",
                 source_type="pipeline",
