@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from typing import Any
+from pymongo.errors import DuplicateKeyError
 
 
 def canonical_json(value: Any) -> str:
@@ -77,3 +78,46 @@ def build_observation(*, witness: str, source_kind: str, source_event_type: str,
         provenance=provenance, evidence_digest=digest,
         payload=json.loads(canonical_json(payload)),
     )
+
+
+class ObservationStore:
+    def __init__(self, db):
+        if db is None:
+            raise ValueError("Observation fabric requires a durable database")
+        self.db = db
+
+    async def ensure_indexes(self) -> None:
+        await self.db.canonical_observations.create_index(
+            [("observation_id", 1)], unique=True, name="uniq_observation_id")
+        await self.db.canonical_observations.create_index(
+            [("witness", 1), ("source_event_type", 1), ("source_event_id", 1)],
+            unique=True, name="uniq_observation_source_identity")
+        await self.db.observation_material_state.create_index(
+            [("material_key", 1)], unique=True, name="uniq_material_key")
+        await self.db.world_events.create_index(
+            [("payload.observation_id", 1)], unique=True,
+            partialFilterExpression={"type": "observation_promoted"},
+            name="uniq_promoted_observation_id")
+        for collection, name in (
+            ("vns_flows", "uniq_suricata_flow_source_event_id"),
+            ("vns_dns_queries", "uniq_suricata_dns_source_event_id"),
+            ("suricata_alert_evidence", "uniq_suricata_alert_source_event_id"),
+        ):
+            await self.db[collection].create_index(
+                [("source_event_id", 1)], unique=True,
+                partialFilterExpression={"witness": "suricata"}, name=name)
+
+    async def claim(self, observation: CanonicalObservation) -> bool:
+        try:
+            result = await self.db.canonical_observations.update_one(
+                {"observation_id": observation.observation_id},
+                {"$setOnInsert": observation.to_document()}, upsert=True)
+            return result.upserted_id is not None
+        except DuplicateKeyError:
+            # Only a verified existing identity is a duplicate; other errors propagate.
+            if await self.get(observation.observation_id) is None:
+                raise
+            return False
+
+    async def get(self, observation_id: str) -> dict | None:
+        return await self.db.canonical_observations.find_one({"observation_id": observation_id})

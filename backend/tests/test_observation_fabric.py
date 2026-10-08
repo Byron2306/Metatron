@@ -1,5 +1,6 @@
 """Behavior gates for the canonical observation and durable promotion rail."""
 import math
+import asyncio
 from datetime import datetime
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from backend.services.observation_fabric import (
     build_observation, canonical_json, evidence_digest,
 )
+from observation_db_helpers import Database
 
 
 def observation(**changes):
@@ -53,3 +55,55 @@ def test_canonical_json_rejects_non_json_safe_values(value):
 def test_observation_rejects_missing_source_identity(value):
     with pytest.raises(ValueError):
         observation(source_event_id=value)
+
+
+@pytest.mark.asyncio
+async def test_observation_store_claims_source_identity_once():
+    from backend.services.observation_fabric import ObservationStore
+    db = Database()
+    store = ObservationStore(db)
+    await store.ensure_indexes()
+    assert await store.claim(observation()) is True
+    doc = await store.get(observation().observation_id)
+    assert doc["witness"] == "suricata"
+    assert doc["promotion_state"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_observation_store_duplicate_claim_returns_false():
+    from backend.services.observation_fabric import ObservationStore
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    assert await ObservationStore(db).claim(observation()) is True
+    assert await ObservationStore(db).claim(observation()) is False
+    assert await db.canonical_observations.count_documents({}) == 1
+
+
+@pytest.mark.asyncio
+async def test_ensure_indexes_declares_required_unique_indexes():
+    from backend.services.observation_fabric import ObservationStore
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    indexes = await db.canonical_observations.index_information()
+    assert indexes["uniq_observation_id"]["unique"] is True
+    assert indexes["uniq_observation_source_identity"]["key"] == [("witness", 1), ("source_event_type", 1), ("source_event_id", 1)]
+    for name, index in [("vns_flows", "uniq_suricata_flow_source_event_id"),
+                        ("vns_dns_queries", "uniq_suricata_dns_source_event_id"),
+                        ("suricata_alert_evidence", "uniq_suricata_alert_source_event_id")]:
+        spec = (await db[name].index_information())[index]
+        assert spec["unique"] is True
+        assert spec["partialFilterExpression"] == {"witness": "suricata"}
+    spec = (await db.world_events.index_information())["uniq_promoted_observation_id"]
+    assert spec["partialFilterExpression"] == {"type": "observation_promoted"}
+    assert spec["key"] == [("payload.observation_id", 1)]
+    assert (await db.observation_material_state.index_information())["uniq_material_key"]["unique"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_duplicate_claim_converges_to_one_observation():
+    from backend.services.observation_fabric import ObservationStore
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+    results = await asyncio.gather(*(ObservationStore(db).claim(observation()) for _ in range(20)))
+    assert sum(results) == 1
+    assert await db.canonical_observations.count_documents({}) == 1

@@ -608,6 +608,10 @@ async def startup():
     except Exception as e:
         logger.error(f"Failed to initialize AATR: {e}")
 
+    # Correctness-critical indexes must fail startup if uniqueness cannot be enforced.
+    from services.observation_fabric import ObservationStore
+    await ObservationStore(db).ensure_indexes()
+
     # MongoDB indexes for UI-critical endpoints (Command Center, dashboards).
     try:
         await db.agent_commands.create_index([("created_at", -1)])
