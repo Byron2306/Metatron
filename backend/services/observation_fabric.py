@@ -5,8 +5,11 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from typing import Any
 from pymongo.errors import DuplicateKeyError
+
+logger = logging.getLogger(__name__)
 
 
 def canonical_json(value: Any) -> str:
@@ -121,3 +124,47 @@ class ObservationStore:
 
     async def get(self, observation_id: str) -> dict | None:
         return await self.db.canonical_observations.find_one({"observation_id": observation_id})
+
+
+def suricata_alert_to_observation(evidence: dict) -> CanonicalObservation:
+    if evidence.get("witness") != "suricata" or evidence.get("source_event_type") != "alert":
+        raise ValueError("Expected source-native Suricata alert evidence")
+    # Mongo identity and mutable delivery bookkeeping are not source evidence.
+    payload = {key: value for key, value in evidence.items()
+               if key not in {"_id", "world_fanout_status", "observation_id"}}
+    return build_observation(
+        witness="suricata", source_kind="network_ids", source_event_type="alert",
+        source_event_id=evidence.get("source_event_id"),
+        observed_at=evidence.get("timestamp"), payload=payload,
+        entity_refs=list(dict.fromkeys(f"ip:{evidence[key]}" for key in ("src_ip", "dst_ip") if evidence.get(key))),
+        reconciliation_scope="network_alert", native_severity=evidence.get("severity"),
+        native_confidence=evidence.get("confidence"), provenance=evidence.get("provenance"),
+    )
+
+
+class SuricataObservationBridge:
+    def __init__(self, db):
+        self.db = db
+        self.store = ObservationStore(db)
+
+    async def claim_pending(self, limit: int = 250) -> dict:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        result = {"claimed": 0, "reconciled": 0, "failed": 0}
+        docs = await self.db.suricata_alert_evidence.find(
+            {"witness": "suricata", "world_fanout_status": "pending"}
+        ).limit(limit).to_list(length=limit)
+        for evidence in docs:
+            try:
+                observation = suricata_alert_to_observation(evidence)
+                new = await self.store.claim(observation)
+                status = "observed" if new else "reconciled"
+                await self.db.suricata_alert_evidence.update_one(
+                    {"_id": evidence["_id"], "world_fanout_status": "pending"},
+                    {"$set": {"world_fanout_status": status,
+                              "observation_id": observation.observation_id}})
+                result["claimed" if new else "reconciled"] += 1
+            except Exception:
+                logger.exception("Suricata observation claim failed; evidence remains retryable")
+                result["failed"] += 1
+        return result
