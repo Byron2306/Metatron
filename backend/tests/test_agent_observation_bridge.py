@@ -288,7 +288,8 @@ async def test_unified_agent_heartbeat_endpoint_change_projects_promoted_observa
     assert event["triune_triggered"] is True
 
     entity = await db.world_entities.find_one({})
-    assert entity["type"] == "alert"
+    assert entity["type"] == "endpoint"
+    assert entity["id"].startswith("endpoint-")
     assert entity["attributes"]["tvr_receipt_ref"] == event["payload"]["tvr_receipt_ref"]
 
 
