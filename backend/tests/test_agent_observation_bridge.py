@@ -153,3 +153,76 @@ async def test_unified_agent_heartbeat_endpoint_change_claims_canonical_observat
     assert obs["source_event_type"] == "endpoint_evidence"
     assert obs["reconciliation_scope"] == "endpoint_evidence"
     assert obs["entity_refs"] == ["agent:agent-001", "node:node-001", "host:debian"]
+
+
+@pytest.mark.asyncio
+async def test_endpoint_observation_promotes_material_agent_state_change():
+    from backend.services.agent_observation_fabric import (
+        unified_agent_endpoint_evidence_to_observation,
+    )
+    from backend.services.observation_fabric import PromotionService
+
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+
+    obs = unified_agent_endpoint_evidence_to_observation(endpoint_evidence())
+    decision = await PromotionService(db).evaluate(obs)
+
+    assert decision.promote is True
+    assert decision.kind == "novel_material_observation"
+    assert decision.material_key.startswith("endpoint_evidence|")
+    assert "agent-001" in decision.material_key
+
+    stored = await db.canonical_observations.find_one({"observation_id": obs.observation_id})
+    assert stored["promotion_decision"]["promote"] is True
+
+
+@pytest.mark.asyncio
+async def test_endpoint_observation_repeat_without_material_change_is_retained():
+    from backend.services.agent_observation_fabric import (
+        unified_agent_endpoint_evidence_to_observation,
+    )
+    from backend.services.observation_fabric import PromotionService
+
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+
+    first = unified_agent_endpoint_evidence_to_observation(endpoint_evidence())
+    repeat = unified_agent_endpoint_evidence_to_observation(endpoint_evidence(
+        timestamp="2026-10-09T05:41:00+00:00",
+    ))
+
+    first_decision = await PromotionService(db).evaluate(first)
+    repeat_decision = await PromotionService(db).evaluate(repeat)
+
+    assert first_decision.promote is True
+    assert repeat_decision.promote is False
+    assert repeat_decision.kind == "repeat_without_material_change"
+    assert repeat_decision.material_key == first_decision.material_key
+
+
+@pytest.mark.asyncio
+async def test_endpoint_observation_changed_material_promotes_revision_two():
+    from backend.services.agent_observation_fabric import (
+        unified_agent_endpoint_evidence_to_observation,
+    )
+    from backend.services.observation_fabric import PromotionService
+
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+
+    first = unified_agent_endpoint_evidence_to_observation(endpoint_evidence())
+    changed = unified_agent_endpoint_evidence_to_observation(endpoint_evidence(
+        timestamp="2026-10-09T05:42:00+00:00",
+        threat_count=2,
+        network_connections=99,
+    ))
+
+    first_decision = await PromotionService(db).evaluate(first)
+    changed_decision = await PromotionService(db).evaluate(changed)
+
+    assert first_decision.promote is True
+    assert changed_decision.promote is True
+    assert changed_decision.kind == "material_change"
+    assert changed_decision.material_key == first_decision.material_key
+    assert changed_decision.material_revision == 2
