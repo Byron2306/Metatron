@@ -19,7 +19,7 @@
 - Preserve Suricata flow/DNS/alert semantic separation and restart-safe source identity.
 - Historical Suricata evidence without world_fanout_status=pending must not be retroactively promoted.
 - Sensor observation, analytic interpretation, governance decision, and execution authority remain distinct.
-- trigger_triune=False for this entire plan.
+- Retained observations do not trigger Triune; materially promoted observations use the world-event classification policy and trigger recomputation.
 - Do not modify WorldModelService.current_world_state_hash or WorldManifoldService hashing in this plan. Their authority semantics require a separate audit.
 - No production-code change without a failing test observed first.
 - No PASS claim without fresh runtime evidence.
@@ -259,7 +259,7 @@ Projection:
 - emit type=observation_promoted
 - payload schema=seraph.observation.world.v1
 - payload includes observation_id, witness, promotion reason, evidence_digest, material_key
-- trigger_triune=False
+- promoted observations trigger Triune; retained observations do not
 - source=observation_fabric
 - do not change current_world_state_hash
 - do not rebuild WorldManifoldService
@@ -302,7 +302,7 @@ claimed, reconciled, promoted, retained_without_promotion, projected, failed, tr
   - test_suricata_ingest_repeat_does_not_duplicate_world_event
   - test_suricata_ingest_historical_alerts_are_not_backfilled
   - test_suricata_ingest_projection_failure_leaves_retryable_state
-  - test_suricata_ingest_reports_triune_disabled
+  - test_suricata_ingest_promoted_observation_triggers_triune
 
 - [ ] Step 2: Verify RED.
 - [ ] Step 3: Modify only the existing Suricata ingest route after native VNS ingestion. Do not touch Zeek, VNS stats, Suricata flow mapping, DNS mapping/correlation, alert parsing/source claim, or authority rails.
@@ -360,7 +360,7 @@ material-change promotion                        PASS
 repeat-without-change suppression                PASS
 canonical alert entity projection                PASS
 world-event exact-once projection                PASS
-Triune disabled during rollout                   PASS
+Triune trigger policy for promoted observations   PASS
 historical evidence not backfilled               PASS
 Mongo indexes source-controlled                  PASS
 authority regression                             PASS

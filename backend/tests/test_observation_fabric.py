@@ -254,7 +254,7 @@ async def test_promoted_observation_creates_alert_entity_and_world_event():
     assert event["payload"]["schema"] == "seraph.observation.world.v1"
     assert event["payload"]["evidence_digest"] == obs.evidence_digest
     assert event["source"] == "observation_fabric"
-    assert event["triune_triggered"] is False
+    assert event["triune_triggered"] is True
 
 
 @pytest.mark.asyncio
@@ -307,15 +307,30 @@ async def test_world_event_persistence_failure_does_not_report_emitted():
 
 
 @pytest.mark.asyncio
-async def test_projection_never_triggers_triune(monkeypatch):
+async def test_projection_triggers_triune_for_promoted_observation(monkeypatch):
     from backend.services.observation_fabric import WorldObservationProjector
     from backend.services import world_events
-    def forbidden():
-        pytest.fail("Triune was loaded during passive observation promotion")
-    monkeypatch.setattr(world_events, "_load_triune_orchestrator", forbidden)
+
+    calls = []
+
+    class RecordingTriune:
+        def __init__(self, db):
+            self.db = db
+
+        async def handle_world_change(self, **kwargs):
+            calls.append(kwargs)
+            return {"status": "ok"}
+
+    monkeypatch.setattr(
+        world_events, "_load_triune_orchestrator", lambda: RecordingTriune
+    )
     db, obs, decision = await projection_inputs()
-    await WorldObservationProjector(db).project(obs, decision)
-    assert (await db.world_events.find_one({}))["triune_triggered"] is False
+    result = await WorldObservationProjector(db).project(obs, decision)
+    event = await db.world_events.find_one({})
+    assert event["triune_triggered"] is True
+    assert result["triune_triggered"] is True
+    assert len(calls) == 1
+    assert calls[0]["event_type"] == "observation_promoted"
 
 
 @pytest.mark.asyncio

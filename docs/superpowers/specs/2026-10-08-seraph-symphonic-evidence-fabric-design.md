@@ -71,7 +71,7 @@ Typed world-evidence rails exist:
 - `integration_evidence_observed`
 - `endpoint_evidence_observed`
 
-Initial fan-out uses `trigger_triune=False` to avoid strategic recomputation on low-level telemetry churn.
+Retained observations do not trigger Triune. A materially promoted observation emits `observation_promoted` using the world-event classification policy, so Triune recomputes for promoted material changes rather than every telemetry claim.
 
 ### Phase 4B.1 Zeek
 
@@ -268,7 +268,7 @@ Initial material-change classes:
 
 Repeated IDS alerts that do not change world understanding remain durable evidence but do not each become strategic world events.
 
-Triune recomputation remains disabled during initial rollout.
+Triune recomputation is limited to materially promoted observations; retained claims and duplicate replays do not trigger it.
 
 ## World-state projection
 
