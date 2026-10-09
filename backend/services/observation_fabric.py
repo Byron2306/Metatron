@@ -398,10 +398,16 @@ class WorldObservationProjector:
         event_query = {"type": "observation_promoted", "payload.observation_id": observation.observation_id}
         existing = await self.db.world_events.find_one(event_query)
         if existing is None:
-            entity_id = "alert-" + hashlib.sha256(decision.material_key.encode()).hexdigest()[:24]
+            if observation.witness == "unified_agent" and observation.source_event_type == "endpoint_evidence":
+                entity_id = "endpoint-" + hashlib.sha256(decision.material_key.encode()).hexdigest()[:24]
+                entity_type = EntityType.endpoint
+            else:
+                entity_id = "alert-" + hashlib.sha256(decision.material_key.encode()).hexdigest()[:24]
+                entity_type = EntityType.alert
+
             observed = datetime.fromisoformat(observation.observed_at.replace("Z", "+00:00"))
             entity = WorldEntity(
-                id=entity_id, type=EntityType.alert, first_seen=observed, last_seen=observed,
+                id=entity_id, type=entity_type, first_seen=observed, last_seen=observed,
                 attributes={"schema": "seraph.observation.world.v1",
                             "observation_id": observation.observation_id,
                             "witness": observation.witness, "evidence_digest": observation.evidence_digest,
@@ -416,7 +422,7 @@ class WorldObservationProjector:
                     entity, recalculate_risk=False, material_revision=decision.material_revision)
             except DuplicateKeyError:
                 # A concurrent projector inserted this deterministic entity first.
-                if await self.db.world_entities.find_one({"id": entity_id, "type": "alert"}) is None:
+                if await self.db.world_entities.find_one({"id": entity_id, "type": entity_type}) is None:
                     raise
             try:
                 emitted = await emit_world_event(

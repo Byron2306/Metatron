@@ -26,6 +26,7 @@ class EntityType(str, Enum):
     host = "host"
     user = "user"
     agent = "agent"
+    endpoint = "endpoint"
     process = "process"
     session = "session"
     token = "token"
