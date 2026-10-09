@@ -258,6 +258,31 @@ async def test_promoted_observation_creates_alert_entity_and_world_event():
 
 
 @pytest.mark.asyncio
+async def test_promoted_observation_carries_tvr_receipt_reference():
+    from backend.services.observation_fabric import WorldObservationProjector
+    db, obs, decision = await projection_inputs()
+    await WorldObservationProjector(db).project(obs, decision)
+
+    entity = await db.world_entities.find_one({})
+    event = await db.world_events.find_one({})
+
+    receipt = event["payload"]["tvr_receipt_ref"]
+    assert receipt == entity["attributes"]["tvr_receipt_ref"]
+    assert receipt["schema"] == "seraph.tvr.receipt_ref.v1"
+    assert receipt["record_type"] == "technique_validation_record"
+    assert receipt["receipt_kind"] == "observation_promotion"
+    assert receipt["observation_id"] == obs.observation_id
+    assert receipt["evidence_digest"] == obs.evidence_digest
+    assert receipt["source"] == "observation_fabric"
+    assert receipt["promotion_event_type"] == "observation_promoted"
+    assert receipt["tvr_layer_targets"] == [
+        "telemetry_evidence",
+        "host_telemetry_evidence",
+        "network_telemetry_evidence",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_retained_observation_creates_no_world_event():
     from backend.services.observation_fabric import PromotionService, WorldObservationProjector
     db, obs, decision = await projection_inputs()

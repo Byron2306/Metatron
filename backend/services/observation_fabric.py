@@ -306,6 +306,34 @@ class PromotionService:
             # Re-read and finish the receipt; death here is repaired on replay.
 
 
+def tvr_receipt_ref_for_observation(
+    observation: CanonicalObservation,
+    decision: PromotionDecision,
+) -> dict[str, Any]:
+    """Build a TVR-compatible receipt pointer for downstream proof packaging."""
+    return {
+        "schema": "seraph.tvr.receipt_ref.v1",
+        "record_type": "technique_validation_record",
+        "receipt_kind": "observation_promotion",
+        "observation_id": observation.observation_id,
+        "witness": observation.witness,
+        "source_kind": observation.source_kind,
+        "source_event_type": observation.source_event_type,
+        "source_event_id": observation.source_event_id,
+        "evidence_digest": observation.evidence_digest,
+        "source": "observation_fabric",
+        "promotion_event_type": "observation_promoted",
+        "promotion_reason": decision.kind,
+        "material_key": decision.material_key,
+        "material_revision": decision.material_revision,
+        "tvr_layer_targets": [
+            "telemetry_evidence",
+            "host_telemetry_evidence",
+            "network_telemetry_evidence",
+        ],
+    }
+
+
 class WorldObservationProjector:
     def __init__(self, db):
         self.db = db
@@ -346,6 +374,7 @@ class WorldObservationProjector:
                             "native_severity": observation.native_severity,
                             "native_confidence": observation.native_confidence,
                             "material_revision": decision.material_revision,
+                            "tvr_receipt_ref": tvr_receipt_ref_for_observation(observation, decision),
                             "payload": observation.payload})
             try:
                 await WorldModelService(self.db).upsert_entity(
@@ -363,7 +392,8 @@ class WorldObservationProjector:
                              "witness": observation.witness, "promotion_reason": decision.kind,
                              "evidence_digest": observation.evidence_digest,
                              "material_revision": decision.material_revision,
-                             "material_key": decision.material_key},
+                             "material_key": decision.material_key,
+                             "tvr_receipt_ref": tvr_receipt_ref_for_observation(observation, decision)},
                     trigger_triune=None, source="observation_fabric", strict_persistence=True)
                 existing = emitted["event"]
             except DuplicateKeyError:
