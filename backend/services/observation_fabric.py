@@ -235,6 +235,27 @@ class SuricataAlertPromotionPolicy:
         })
 
 
+class EndpointEvidencePromotionPolicy:
+    def material_key(self, observation: CanonicalObservation) -> str:
+        if observation.witness != "unified_agent" or observation.source_event_type != "endpoint_evidence":
+            raise ValueError("Endpoint policy requires Unified Agent endpoint evidence")
+        return "endpoint_evidence|" + canonical_json({
+            "agent_id": observation.payload.get("agent_id"),
+            "node_id": observation.payload.get("node_id"),
+            "hostname": observation.payload.get("hostname"),
+            "platform": observation.payload.get("platform"),
+        })
+
+    def material_digest(self, observation: CanonicalObservation) -> str:
+        p = observation.payload
+        return evidence_digest({
+            "threat_count": p.get("threat_count"),
+            "network_connections": p.get("network_connections"),
+            "monitor_fleet_total": p.get("monitor_fleet_total"),
+            "monitor_fleet_summary": p.get("monitor_fleet_summary") or {},
+        })
+
+
 class PromotionService:
     """CAS material state with a recoverable receipt in the same Mongo document.
 
@@ -245,7 +266,20 @@ class PromotionService:
     def __init__(self, db):
         self.db = db
         self.store = ObservationStore(db)
-        self.policy = SuricataAlertPromotionPolicy()
+        self.policies = [
+            SuricataAlertPromotionPolicy(),
+            EndpointEvidencePromotionPolicy(),
+        ]
+
+    def _policy_for(self, observation: CanonicalObservation):
+        if observation.witness == "suricata" and observation.source_event_type == "alert":
+            return self.policies[0]
+        if observation.witness == "unified_agent" and observation.source_event_type == "endpoint_evidence":
+            return self.policies[1]
+        raise ValueError(
+            f"Unsupported observation promotion source: "
+            f"{observation.witness}/{observation.source_event_type}"
+        )
 
     async def _settle_receipt(self, state):
         receipt = state.get("pending_decision")
@@ -264,8 +298,9 @@ class PromotionService:
             {"$unset": {"pending_decision": ""}})
 
     async def evaluate(self, observation: CanonicalObservation) -> PromotionDecision:
-        key = self.policy.material_key(observation)
-        digest = self.policy.material_digest(observation)
+        policy = self._policy_for(observation)
+        key = policy.material_key(observation)
+        digest = policy.material_digest(observation)
         if await self.store.get(observation.observation_id) is None:
             await self.store.claim(observation)
         while True:
