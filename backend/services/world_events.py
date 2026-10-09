@@ -119,6 +119,7 @@ async def emit_world_event(
     trigger_triune: Optional[bool] = None,
     source: Optional[str] = None,
     event_class: Optional[str] = None,
+    strict_persistence: bool = False,
 ) -> Dict[str, Any]:
     """Persist a canonical world event and optionally execute Triune recomputation.
 
@@ -152,6 +153,10 @@ async def emit_world_event(
                 "world_events: persistence failed for event_type=%s",
                 event_type,
             )
+            if strict_persistence:
+                raise
+    elif strict_persistence:
+        raise RuntimeError("Strict world-event persistence requires a database")
 
     triune_bundle = None
     if resolved_trigger_triune:

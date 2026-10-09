@@ -289,18 +289,26 @@ class WorldModelService:
         self._governance_state["strictness_level"] = strictness_level
         return self.strictness_level
 
-    async def upsert_entity(self, entity: WorldEntity):
+    async def upsert_entity(self, entity: WorldEntity, *, recalculate_risk: bool = True,
+                            material_revision: Optional[int] = None):
         entities = getattr(self, "entities", None)
-        if not entities:
+        if entities is None:
              return
+        query = {"id": entity.id, "type": entity.type}
+        if material_revision is not None:
+            query["$or"] = [
+                {"attributes.material_revision": {"$lte": material_revision}},
+                {"attributes.material_revision": {"$exists": False}},
+            ]
         # insert or update entity record
         await entities.update_one(
-            {"id": entity.id, "type": entity.type},
+            query,
             {"$set": entity.dict()},
             upsert=True,
         )
         # recalc risk score after ingest
-        await self.calculate_risk(entity.id)
+        if recalculate_risk:
+            await self.calculate_risk(entity.id)
 
     async def calculate_risk(self, entity_id: str) -> float:
         """Recompute and persist a simple risk score for an entity."""
