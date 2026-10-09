@@ -7,6 +7,8 @@ from typing import Any
 from backend.services.observation_fabric import (
     CanonicalObservation,
     ObservationStore,
+    PromotionService,
+    WorldObservationProjector,
     build_observation,
 )
 
@@ -97,6 +99,41 @@ class AgentEndpointObservationBridge:
                 result["claimed" if new else "reconciled"] += 1
             except Exception:
                 logger.exception("Unified Agent endpoint observation claim failed; evidence remains retryable")
+                result["failed"] += 1
+
+        return result
+
+    async def drain(self, limit: int = 250) -> dict[str, int | bool]:
+        result = await self.claim_pending(limit=limit)
+        result.update(
+            promoted=0,
+            retained_without_promotion=0,
+            projected=0,
+            triune_triggered=False,
+        )
+
+        docs = await self.db.canonical_observations.find({
+            "witness": "unified_agent",
+            "source_event_type": "endpoint_evidence",
+            "promotion_state": "pending",
+        }).limit(limit).to_list(length=limit)
+
+        for doc in docs:
+            try:
+                observation = CanonicalObservation(**{
+                    field: doc[field]
+                    for field in CanonicalObservation.__dataclass_fields__
+                })
+                decision = await PromotionService(self.db).evaluate(observation)
+                projection = await WorldObservationProjector(self.db).project(observation, decision)
+                result["promoted" if decision.promote else "retained_without_promotion"] += 1
+                result["projected"] += int(projection["projected"])
+                result["triune_triggered"] = (
+                    bool(result["triune_triggered"])
+                    or bool(projection.get("triune_triggered"))
+                )
+            except Exception:
+                logger.exception("Unified Agent endpoint promotion failed; canonical claim remains retryable")
                 result["failed"] += 1
 
         return result

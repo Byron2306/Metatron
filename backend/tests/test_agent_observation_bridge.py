@@ -226,3 +226,145 @@ async def test_endpoint_observation_changed_material_promotes_revision_two():
     assert changed_decision.kind == "material_change"
     assert changed_decision.material_key == first_decision.material_key
     assert changed_decision.material_revision == 2
+
+
+@pytest.mark.asyncio
+async def test_unified_agent_heartbeat_endpoint_change_projects_promoted_observation(monkeypatch):
+    from backend.routers import unified_agent
+    from backend.routers.unified_agent import AgentHeartbeatModel
+
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+
+    await db.unified_agents.insert_one({
+        "agent_id": "agent-001",
+        "node_id": "node-001",
+        "hostname": "debian",
+        "platform": "linux",
+        "status": "online",
+        "threat_count": 0,
+        "network_connections": 0,
+        "monitor_fleet_summary": {},
+        "config": {},
+    })
+
+    monkeypatch.setattr(unified_agent, "db", db)
+    monkeypatch.setattr(unified_agent, "_process_agent_alert", lambda *args, **kwargs: None)
+    monkeypatch.setattr(unified_agent, "_hunt_telemetry", lambda *args, **kwargs: None)
+
+    class DummyWS:
+        def get_queued_commands(self, agent_id):
+            return []
+
+    monkeypatch.setattr(unified_agent, "agent_ws_manager", DummyWS())
+
+    heartbeat = AgentHeartbeatModel(
+        agent_id="agent-001",
+        status="online",
+        cpu_usage=10.0,
+        memory_usage=20.0,
+        disk_usage=30.0,
+        threat_count=1,
+        network_connections=5,
+        node_id="node-001",
+        monitor_fleet={
+            "process_tree": {"kind": "process", "enabled": True, "state": "active"},
+        },
+    )
+
+    await unified_agent.agent_heartbeat(
+        "agent-001",
+        heartbeat,
+        request=None,
+        auth={"type": "test", "ip": "127.0.0.1", "agent_id": "agent-001"},
+    )
+
+    obs = await db.canonical_observations.find_one({"witness": "unified_agent"})
+    assert obs["promotion_state"] == "promoted"
+
+    event = await db.world_events.find_one({"type": "observation_promoted"})
+    assert event["payload"]["tvr_receipt_ref"]["witness"] == "unified_agent"
+    assert event["payload"]["tvr_receipt_ref"]["source_event_type"] == "endpoint_evidence"
+    assert event["triune_triggered"] is True
+
+    entity = await db.world_entities.find_one({})
+    assert entity["type"] == "alert"
+    assert entity["attributes"]["tvr_receipt_ref"] == event["payload"]["tvr_receipt_ref"]
+
+
+@pytest.mark.asyncio
+async def test_unified_agent_repeat_endpoint_material_does_not_duplicate_world_event(monkeypatch):
+    from backend.routers import unified_agent
+    from backend.routers.unified_agent import AgentHeartbeatModel
+
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+
+    await db.unified_agents.insert_one({
+        "agent_id": "agent-001",
+        "node_id": "node-001",
+        "hostname": "debian",
+        "platform": "linux",
+        "status": "online",
+        "threat_count": 0,
+        "network_connections": 0,
+        "monitor_fleet_summary": {},
+        "config": {},
+    })
+
+    monkeypatch.setattr(unified_agent, "db", db)
+    monkeypatch.setattr(unified_agent, "_process_agent_alert", lambda *args, **kwargs: None)
+    monkeypatch.setattr(unified_agent, "_hunt_telemetry", lambda *args, **kwargs: None)
+
+    class DummyWS:
+        def get_queued_commands(self, agent_id):
+            return []
+
+    monkeypatch.setattr(unified_agent, "agent_ws_manager", DummyWS())
+
+    heartbeat = AgentHeartbeatModel(
+        agent_id="agent-001",
+        status="online",
+        cpu_usage=10.0,
+        memory_usage=20.0,
+        disk_usage=30.0,
+        threat_count=1,
+        network_connections=5,
+        node_id="node-001",
+        monitor_fleet={
+            "process_tree": {"kind": "process", "enabled": True, "state": "active"},
+        },
+    )
+
+    await unified_agent.agent_heartbeat(
+        "agent-001",
+        heartbeat,
+        request=None,
+        auth={"type": "test", "ip": "127.0.0.1", "agent_id": "agent-001"},
+    )
+
+    await db.unified_agents.update_one(
+        {"agent_id": "agent-001"},
+        {"$set": {
+            "threat_count": 0,
+            "network_connections": 0,
+            "monitor_fleet_summary": {},
+        }},
+    )
+
+    await unified_agent.agent_heartbeat(
+        "agent-001",
+        heartbeat,
+        request=None,
+        auth={"type": "test", "ip": "127.0.0.1", "agent_id": "agent-001"},
+    )
+
+    assert await db.agent_endpoint_evidence.count_documents({}) == 2
+    assert await db.world_events.count_documents({"type": "observation_promoted"}) == 1
+    assert await db.world_entities.count_documents({}) == 1
+
+    states = await db.canonical_observations.find({}, {"_id": 0, "promotion_state": 1}).to_list(10)
+    assert sorted(row["promotion_state"] for row in states) == [
+        "promoted",
+        "retained_without_promotion",
+    ]
