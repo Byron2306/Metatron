@@ -1239,24 +1239,39 @@ async def agent_heartbeat(
             except Exception:
                 from backend.services.world_events import emit_world_event
 
+            endpoint_evidence = {
+                "schema": "seraph.endpoint.evidence.v1",
+                "source_kind": "unified_agent",
+                "agent_id": agent_id,
+                "node_id": heartbeat.node_id or agent.get("node_id"),
+                "hostname": agent.get("hostname"),
+                "platform": agent.get("platform"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "threat_count": heartbeat.threat_count or 0,
+                "network_connections": heartbeat.network_connections,
+                "cpu_usage": heartbeat.cpu_usage,
+                "memory_usage": heartbeat.memory_usage,
+                "disk_usage": heartbeat.disk_usage,
+                "monitor_fleet_total": len(heartbeat.monitor_fleet or {}),
+                "monitor_fleet_summary": current_fleet,
+                "world_fanout_status": "pending",
+            }
+            await db.agent_endpoint_evidence.insert_one(endpoint_evidence)
+
+            try:
+                from services.agent_observation_fabric import AgentEndpointObservationBridge
+            except Exception:
+                from backend.services.agent_observation_fabric import AgentEndpointObservationBridge
+            await AgentEndpointObservationBridge(db).claim_pending()
+
             await emit_world_event(
                 db,
                 event_type="endpoint_evidence_observed",
                 entity_refs=[agent_id],
                 payload={
-                    "schema": "seraph.endpoint.evidence.v1",
-                    "source_kind": "unified_agent",
-                    "agent_id": agent_id,
-                    "node_id": heartbeat.node_id or agent.get("node_id"),
-                    "hostname": agent.get("hostname"),
-                    "platform": agent.get("platform"),
-                    "threat_count": heartbeat.threat_count or 0,
-                    "network_connections": heartbeat.network_connections,
-                    "cpu_usage": heartbeat.cpu_usage,
-                    "memory_usage": heartbeat.memory_usage,
-                    "disk_usage": heartbeat.disk_usage,
-                    "monitor_fleet_total": len(heartbeat.monitor_fleet or {}),
-                    "monitor_fleet_summary": current_fleet,
+                    key: value
+                    for key, value in endpoint_evidence.items()
+                    if key not in {"_id", "world_fanout_status", "observation_id"}
                 },
                 source="unified_agent",
                 trigger_triune=False,
