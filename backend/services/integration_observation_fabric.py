@@ -1,7 +1,9 @@
 """Integration evidence adapter for the canonical observation rail."""
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from backend.services.observation_fabric import (
@@ -11,6 +13,106 @@ from backend.services.observation_fabric import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def osquery_catalog_entry_to_integration_evidence(
+    entry: dict[str, Any],
+    *,
+    technique_id: str,
+    timestamp: str,
+) -> dict[str, Any]:
+    """Normalize an ATT&CK-mapped osquery catalog row into integration evidence."""
+    technique_id = str(technique_id or "").strip()
+    timestamp = str(timestamp or "").strip()
+    query_name = str(
+        entry.get("name")
+        or entry.get("query_name")
+        or entry.get("id")
+        or entry.get("title")
+        or ""
+    ).strip()
+    query = str(entry.get("query") or entry.get("sql") or "").strip()
+
+    if not technique_id:
+        raise ValueError("Missing technique_id")
+    if not timestamp:
+        raise ValueError("Missing timestamp")
+    if not query_name:
+        raise ValueError("Missing osquery query name")
+    if not query:
+        raise ValueError("Missing osquery query")
+
+    techniques = entry.get("attack_techniques") or entry.get("techniques") or []
+    if isinstance(techniques, str):
+        techniques = [techniques]
+    techniques = [str(item).strip() for item in techniques if str(item).strip()]
+
+    return {
+        "schema": "seraph.integration.evidence.v1",
+        "source_kind": "integration_evidence",
+        "integration_name": "osquery",
+        "evidence_type": "osquery_query_catalog",
+        "technique_id": technique_id,
+        "timestamp": timestamp,
+        "payload": {
+            "query_name": query_name,
+            "description": entry.get("description"),
+            "query": query,
+            "attack_techniques": techniques,
+            "platform": entry.get("platform"),
+            "interval": entry.get("interval"),
+        },
+        "world_fanout_status": "pending",
+    }
+
+
+def _walk_json(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_json(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_json(child)
+
+
+def load_osquery_catalog_integration_evidence(
+    catalog_path: str | Path,
+    *,
+    timestamp: str,
+) -> list[dict[str, Any]]:
+    """Load ATT&CK-mapped osquery catalog entries as normalized integration evidence."""
+    path = Path(catalog_path)
+    data = json.loads(path.read_text())
+
+    docs: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for entry in _walk_json(data):
+        query = entry.get("query") or entry.get("sql")
+        if not query:
+            continue
+
+        techniques = entry.get("attack_techniques") or entry.get("techniques") or []
+        if isinstance(techniques, str):
+            techniques = [techniques]
+
+        for technique_id in techniques:
+            technique_id = str(technique_id or "").strip()
+            if not technique_id:
+                continue
+            doc = osquery_catalog_entry_to_integration_evidence(
+                entry,
+                technique_id=technique_id,
+                timestamp=timestamp,
+            )
+            key = (doc["technique_id"], doc["payload"]["query_name"])
+            if key in seen:
+                continue
+            seen.add(key)
+            docs.append(doc)
+
+    return docs
 
 
 def _integration_entity_refs(evidence: dict[str, Any]) -> list[str]:
