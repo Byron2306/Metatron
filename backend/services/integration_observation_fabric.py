@@ -167,6 +167,57 @@ class IntegrationObservationBridge:
         self.db = db
         self.store = ObservationStore(db)
 
+    async def ingest_osquery_catalog(
+        self,
+        catalog_path: str | Path,
+        *,
+        timestamp: str,
+        limit: int = 250,
+    ) -> dict[str, int | bool]:
+        docs = load_osquery_catalog_integration_evidence(
+            catalog_path,
+            timestamp=timestamp,
+        )
+
+        result: dict[str, int | bool] = {
+            "ingested": True,
+            "loaded": len(docs),
+            "inserted": 0,
+            "duplicates": 0,
+            "claimed": 0,
+            "reconciled": 0,
+            "failed": 0,
+        }
+
+        for doc in docs:
+            query = {
+                "source_kind": "integration_evidence",
+                "integration_name": doc["integration_name"],
+                "evidence_type": doc["evidence_type"],
+                "technique_id": doc["technique_id"],
+                "timestamp": doc["timestamp"],
+                "payload.query_name": doc["payload"]["query_name"],
+            }
+            try:
+                write = await self.db.integration_evidence.update_one(
+                    query,
+                    {"$setOnInsert": doc},
+                    upsert=True,
+                )
+                if write.upserted_id is not None:
+                    result["inserted"] = int(result["inserted"]) + 1
+                else:
+                    result["duplicates"] = int(result["duplicates"]) + 1
+            except Exception:
+                logger.exception("Osquery catalog evidence insert failed")
+                result["failed"] = int(result["failed"]) + 1
+
+        claim = await self.claim_pending(limit=limit)
+        result["claimed"] = int(claim["claimed"])
+        result["reconciled"] = int(claim["reconciled"])
+        result["failed"] = int(result["failed"]) + int(claim["failed"])
+        return result
+
     async def claim_pending(self, limit: int = 250) -> dict[str, int]:
         if limit < 1:
             raise ValueError("limit must be positive")
