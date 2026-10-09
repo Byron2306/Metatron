@@ -1262,7 +1262,7 @@ async def agent_heartbeat(
                 from services.agent_observation_fabric import AgentEndpointObservationBridge
             except Exception:
                 from backend.services.agent_observation_fabric import AgentEndpointObservationBridge
-            await AgentEndpointObservationBridge(db).claim_pending()
+            await AgentEndpointObservationBridge(db).drain()
 
             await emit_world_event(
                 db,
