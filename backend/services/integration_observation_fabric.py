@@ -535,38 +535,44 @@ async def resolve_tvr_receipt_observation_refs(db, tvr_evidence: dict[str, Any])
     resolved: list[str] = []
     missing: list[dict[str, Any]] = []
 
-    async def add_matches(label: str, query: dict[str, Any]) -> None:
-        docs = await db.canonical_observations.find(query, {"_id": 0, "observation_id": 1}).to_list(length=1000)
+    async def add_matches(label: str, query: dict[str, Any], *, required: bool = True) -> None:
+        docs = await db.canonical_observations.find(
+            query,
+            {"_id": 0, "observation_id": 1},
+        ).to_list(length=1000)
         if not docs:
-            missing.append({"link_type": label, "query": query})
+            if required:
+                missing.append({"link_type": label, "query": query})
             return
         for doc in docs:
             observation_id = doc.get("observation_id")
             if observation_id and observation_id not in resolved:
                 resolved.append(observation_id)
 
-    def item_value(item: Any, *keys: str) -> str:
-        if isinstance(item, dict):
-            for key in keys:
-                value = item.get(key)
-                if value:
-                    return str(value).strip()
-            return ""
-        return str(item or "").strip()
+    atomic_links = links.get("atomic") or {}
+    atomic_items: list[dict[str, Any]] = []
+    if isinstance(atomic_links, dict):
+        for run_id in atomic_links.get("run_ids") or []:
+            atomic_items.append({"run_id": run_id})
+    elif isinstance(atomic_links, list):
+        atomic_items = [item for item in atomic_links if isinstance(item, dict)]
 
-    for item in links.get("atomic") or []:
-        value = item_value(item, "run_id", "id")
+    for item in atomic_items:
+        run_id = str(item.get("run_id") or "").strip()
         query = {
             "witness": "integration_evidence",
             "source_event_type": "atomic_stdout",
             "payload.payload.validation_id": validation_id,
         }
-        if value and value != validation_id:
-            query["payload.payload.run_id"] = value
+        if run_id:
+            query["payload.payload.run_id"] = run_id
         await add_matches("atomic", query)
 
-    for item in links.get("osquery") or []:
-        query_name = item_value(item, "query_name", "name", "id")
+    osquery_links = links.get("osquery") or []
+    if isinstance(osquery_links, dict):
+        osquery_links = [osquery_links]
+    for item in [item for item in osquery_links if isinstance(item, dict)]:
+        query_name = str(item.get("query_name") or item.get("name") or "").strip()
         query = {
             "witness": "integration_evidence",
             "source_event_type": "osquery_query_catalog",
@@ -576,8 +582,11 @@ async def resolve_tvr_receipt_observation_refs(db, tvr_evidence: dict[str, Any])
             query["payload.payload.query_name"] = query_name
         await add_matches("osquery", query)
 
-    for item in links.get("sigma") or []:
-        rule_id = item_value(item, "rule_id", "id")
+    sigma_links = links.get("sigma") or []
+    if isinstance(sigma_links, dict):
+        sigma_links = [sigma_links]
+    for item in [item for item in sigma_links if isinstance(item, dict)]:
+        rule_id = str(item.get("rule_id") or item.get("id") or "").strip()
         query = {
             "witness": "integration_evidence",
             "source_event_type": "sigma_rule_match",
@@ -586,6 +595,20 @@ async def resolve_tvr_receipt_observation_refs(db, tvr_evidence: dict[str, Any])
         if rule_id:
             query["payload.payload.rule_id"] = rule_id
         await add_matches("sigma", query)
+
+    if technique_id and not osquery_links:
+        await add_matches("osquery", {
+            "witness": "integration_evidence",
+            "source_event_type": "osquery_query_catalog",
+            "payload.technique_id": technique_id,
+        }, required=False)
+
+    if technique_id and not sigma_links:
+        await add_matches("sigma", {
+            "witness": "integration_evidence",
+            "source_event_type": "sigma_rule_match",
+            "payload.technique_id": technique_id,
+        }, required=False)
 
     return {
         "schema": "seraph.tvr.evidence_graph_refs.v1",
@@ -796,10 +819,62 @@ class IntegrationObservationBridge:
         *,
         limit: int = 250,
     ) -> dict[str, int | bool]:
-        return await self._insert_integration_docs(
-            load_tvr_records_integration_evidence(tvr_paths),
-            limit=limit,
-        )
+        docs = load_tvr_records_integration_evidence(tvr_paths)
+
+        result: dict[str, int | bool] = {
+            "ingested": True,
+            "loaded": len(docs),
+            "inserted": 0,
+            "duplicates": 0,
+            "claimed": 0,
+            "reconciled": 0,
+            "failed": 0,
+        }
+
+        for doc in docs:
+            try:
+                doc["payload"]["evidence_graph_refs"] = await resolve_tvr_receipt_observation_refs(
+                    self.db,
+                    doc,
+                )
+            except Exception:
+                logger.exception("TVR evidence graph resolution failed")
+                doc["payload"]["evidence_graph_refs"] = {
+                    "schema": "seraph.tvr.evidence_graph_refs.v1",
+                    "validation_id": doc.get("payload", {}).get("validation_id"),
+                    "technique_id": doc.get("technique_id"),
+                    "resolved_observation_ids": [],
+                    "missing_links": [{"link_type": "resolver_error"}],
+                }
+
+            query = {
+                "source_kind": "integration_evidence",
+                "integration_name": doc["integration_name"],
+                "evidence_type": doc["evidence_type"],
+                "technique_id": doc["technique_id"],
+                "timestamp": doc["timestamp"],
+                "payload.validation_id": doc["payload"]["validation_id"],
+            }
+            try:
+                write = await self.db.integration_evidence.update_one(
+                    query,
+                    {"$setOnInsert": doc},
+                    upsert=True,
+                )
+                if write.upserted_id is not None:
+                    result["inserted"] = int(result["inserted"]) + 1
+                else:
+                    result["duplicates"] = int(result["duplicates"]) + 1
+            except Exception:
+                logger.exception("TVR evidence insert failed")
+                result["failed"] = int(result["failed"]) + 1
+
+        claim = await self.claim_pending(limit=limit)
+        result["claimed"] = int(claim["claimed"])
+        result["reconciled"] = int(claim["reconciled"])
+        result["failed"] = int(result["failed"]) + int(claim["failed"])
+        return result
+
 
     async def ingest_atomic_stdout(
         self,

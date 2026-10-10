@@ -137,3 +137,68 @@ async def test_atomic_stdout_ingest_dedupes_and_claims_observation(tmp_path):
     obs = await db.canonical_observations.find_one({"source_event_type": "atomic_stdout"})
     assert obs["entity_refs"] == ["mitre:T1001"]
     assert obs["payload"]["payload"]["run_id"] == "run-001"
+
+@pytest.mark.asyncio
+async def test_tvr_ingest_persists_resolved_evidence_graph_refs(tmp_path):
+    from backend.services.integration_observation_fabric import IntegrationObservationBridge
+
+    db = Database()
+    await ObservationStore(db).ensure_indexes()
+
+    await db.canonical_observations.insert_many([
+        {
+            "observation_id": "obs-atomic-001",
+            "witness": "integration_evidence",
+            "source_event_type": "atomic_stdout",
+            "payload": {
+                "technique_id": "T1001",
+                "payload": {
+                    "validation_id": "TVR-T1001-2026-04-27-002",
+                    "run_id": "run-001",
+                },
+            },
+        },
+        {
+            "observation_id": "obs-osquery-001",
+            "witness": "integration_evidence",
+            "source_event_type": "osquery_query_catalog",
+            "payload": {
+                "technique_id": "T1001",
+                "payload": {"query_name": "t1001_c2_sockets"},
+            },
+        },
+        {
+            "observation_id": "obs-sigma-001",
+            "witness": "integration_evidence",
+            "source_event_type": "sigma_rule_match",
+            "payload": {
+                "technique_id": "T1001",
+                "payload": {"rule_id": "sigma-rule-001"},
+            },
+        },
+    ])
+
+    record = tvr_record()
+    record["validation_id"] = "TVR-T1001-2026-04-27-002"
+    record["technique"] = {"attack_id": "T1001", "name": "Data Obfuscation"}
+    record.setdefault("execution", {})["runs"] = [{"run_id": "run-001"}]
+
+    path = tmp_path / "tvr.json"
+    path.write_text(json.dumps(record))
+
+    result = await IntegrationObservationBridge(db).ingest_tvr_records([path])
+
+    source = await db.integration_evidence.find_one({"integration_name": "tvr"})
+    refs = source["payload"]["evidence_graph_refs"]
+
+    assert result["inserted"] == 1
+    assert refs["schema"] == "seraph.tvr.evidence_graph_refs.v1"
+    assert refs["validation_id"] == "TVR-T1001-2026-04-27-002"
+    assert refs["technique_id"] == "T1001"
+    assert refs["resolved_observation_ids"] == [
+        "obs-atomic-001",
+        "obs-osquery-001",
+        "obs-sigma-001",
+    ]
+    assert refs["missing_links"] == []
+
