@@ -79,3 +79,30 @@ async def test_unified_agent_runtime_non_status_still_queues_agent(monkeypatch):
     assert job["status"] == "queued_for_triune_approval"
     assert queued[0]["tool"] == "zeek"
     assert queued[0]["agent_id"] == "agent-001"
+
+@pytest.mark.asyncio
+async def test_agent_status_alias_runs_backend_runtime(monkeypatch):
+    integrations_manager = load_integrations_manager()
+
+    async def forbidden_agent_queue(**kwargs):
+        pytest.fail("agent status must not queue integration_runtime to unified agent")
+
+    monkeypatch.setattr(integrations_manager, "_queue_unified_agent_runtime", forbidden_agent_queue)
+
+    job = await integrations_manager.run_runtime_tool(
+        tool="velociraptor",
+        params={"action": "status"},
+        runtime_target="agent",
+        agent_id="agent-001",
+        actor="test",
+        governance_context={
+            "approved": True,
+            "decision_id": "test-decision",
+            "queue_id": "test-queue",
+        },
+    )
+
+    assert job["status"] == "completed"
+    assert job["result"]["action"] == "status"
+    assert not job["result"].get("agent_command_status")
+

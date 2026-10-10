@@ -1727,7 +1727,7 @@ async def run_runtime_tool(
         "decision_id": "integration-runtime-direct",
         "queue_id": "integration-runtime-direct",
     }
-    if rt == "unified_agent_local" and action in {"status", "health"}:
+    if rt in {"unified_agent_local", "agent"} and action in {"status", "health"}:
         payload["runtime_target"] = "server"
         if agent_id:
             payload["agent_id"] = str(agent_id).strip()
