@@ -242,6 +242,176 @@ def load_sigma_matches_integration_evidence(
     return docs
 
 
+
+def _technique_from_tvr_record(
+    record: dict[str, Any],
+    source_path: str | Path | None = None,
+) -> str:
+    technique = record.get("technique")
+    if isinstance(technique, dict):
+        for key in ("attack_id", "id", "technique_id", "external_id", "name"):
+            value = str(technique.get(key) or "").strip()
+            if value.startswith("T"):
+                return value
+    elif isinstance(technique, str) and technique.strip().startswith("T"):
+        return technique.strip()
+
+    if source_path is not None:
+        for part in Path(str(source_path)).parts:
+            if part.startswith("T"):
+                return part
+    return ""
+
+
+def tvr_record_to_integration_evidence(
+    record: dict[str, Any],
+    *,
+    source_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Normalize a Technique Validation Record into integration evidence."""
+    validation_id = str(record.get("validation_id") or "").strip()
+    technique_id = _technique_from_tvr_record(record, source_path)
+    execution = record.get("execution") or {}
+    integrity = record.get("integrity") or {}
+    timestamp = str(
+        execution.get("started_at")
+        or execution.get("ended_at")
+        or integrity.get("created_at")
+        or "1970-01-01T00:00:00+00:00"
+    ).strip()
+
+    if record.get("record_type") != "technique_validation_record":
+        raise ValueError("Expected technique_validation_record")
+    if not validation_id:
+        raise ValueError("Missing TVR validation_id")
+    if not technique_id:
+        raise ValueError("Missing TVR technique_id")
+
+    return {
+        "schema": "seraph.integration.evidence.v1",
+        "source_kind": "integration_evidence",
+        "integration_name": "tvr",
+        "evidence_type": "technique_validation_record",
+        "technique_id": technique_id,
+        "timestamp": timestamp,
+        "source_event_id": f"tvr|technique_validation_record|{validation_id}",
+        "payload": {
+            "validation_id": validation_id,
+            "record_type": record.get("record_type"),
+            "schema_version": record.get("schema_version"),
+            "technique": record.get("technique"),
+            "procedure": record.get("procedure"),
+            "execution": execution,
+            "quality": record.get("quality"),
+            "integrity": integrity,
+            "record_sha256": integrity.get("record_sha256"),
+            "analytic_evidence": record.get("analytic_evidence"),
+            "detection_evidence": record.get("detection_evidence"),
+            "artifact_evidence": record.get("artifact_evidence"),
+            "response_evidence": record.get("response_evidence"),
+            "correlation": record.get("correlation"),
+            "promotion": record.get("promotion"),
+            "source_path": str(source_path) if source_path is not None else None,
+        },
+        "world_fanout_status": "pending",
+    }
+
+
+def load_tvr_records_integration_evidence(
+    tvr_paths: list[str | Path],
+) -> list[dict[str, Any]]:
+    docs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for tvr_path in tvr_paths:
+        source_path = Path(tvr_path)
+        doc = tvr_record_to_integration_evidence(
+            json.loads(source_path.read_text()),
+            source_path=source_path,
+        )
+        if doc["source_event_id"] in seen:
+            continue
+        seen.add(doc["source_event_id"])
+        docs.append(doc)
+
+    return docs
+
+
+def atomic_stdout_event_to_integration_evidence(
+    event: dict[str, Any],
+    *,
+    technique_id: str,
+    validation_id: str,
+    source_path: str | Path | None = None,
+) -> dict[str, Any]:
+    run_id = str(event.get("run_id") or "").strip()
+    stdout_sha256 = str(event.get("stdout_sha256") or "").strip()
+    timestamp = str(event.get("finished_at") or "1970-01-01T00:00:00+00:00").strip()
+    technique_id = str(technique_id or "").strip()
+    validation_id = str(validation_id or "").strip()
+
+    if not technique_id:
+        raise ValueError("Missing atomic technique_id")
+    if not validation_id:
+        raise ValueError("Missing atomic validation_id")
+    if not run_id:
+        raise ValueError("Missing atomic run_id")
+    if not stdout_sha256:
+        raise ValueError("Missing atomic stdout_sha256")
+
+    return {
+        "schema": "seraph.integration.evidence.v1",
+        "source_kind": "integration_evidence",
+        "integration_name": "atomic_red_team",
+        "evidence_type": "atomic_stdout",
+        "technique_id": technique_id,
+        "timestamp": timestamp,
+        "source_event_id": (
+            f"atomic_red_team|atomic_stdout|{validation_id}|{run_id}|{stdout_sha256}"
+        ),
+        "payload": {
+            "validation_id": validation_id,
+            "run_id": run_id,
+            "job_id": event.get("job_id"),
+            "job_name": event.get("job_name"),
+            "finished_at": event.get("finished_at"),
+            "exit_code": event.get("exit_code"),
+            "sandbox": event.get("sandbox"),
+            "stdout": event.get("stdout"),
+            "stdout_sha256": stdout_sha256,
+            "source_path": str(source_path) if source_path is not None else None,
+        },
+        "world_fanout_status": "pending",
+    }
+
+
+def load_atomic_stdout_integration_evidence(
+    atomic_stdout_paths: list[str | Path],
+    *,
+    technique_id: str,
+    validation_id: str,
+) -> list[dict[str, Any]]:
+    docs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for atomic_path in atomic_stdout_paths:
+        source_path = Path(atomic_path)
+        for line in source_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            doc = atomic_stdout_event_to_integration_evidence(
+                json.loads(line),
+                technique_id=technique_id,
+                validation_id=validation_id,
+                source_path=source_path,
+            )
+            if doc["source_event_id"] in seen:
+                continue
+            seen.add(doc["source_event_id"])
+            docs.append(doc)
+
+    return docs
+
 def _integration_entity_refs(evidence: dict[str, Any]) -> list[str]:
     technique_id = str(evidence.get("technique_id") or "").strip()
     return [f"mitre:{technique_id}"] if technique_id else []
@@ -278,7 +448,10 @@ def integration_evidence_to_observation(evidence: dict[str, Any]) -> CanonicalOb
         witness="integration_evidence",
         source_kind="integration_evidence",
         source_event_type=evidence_type,
-        source_event_id=f"{integration_name}|{evidence_type}|{technique_id}|{timestamp}",
+        source_event_id=str(
+            evidence.get("source_event_id")
+            or f"{integration_name}|{evidence_type}|{technique_id}|{timestamp}"
+        ),
         observed_at=timestamp,
         payload=payload,
         entity_refs=_integration_entity_refs(evidence),
@@ -392,6 +565,74 @@ class IntegrationObservationBridge:
         result["reconciled"] = int(claim["reconciled"])
         result["failed"] = int(result["failed"]) + int(claim["failed"])
         return result
+
+    async def _insert_integration_docs(
+        self,
+        docs: list[dict[str, Any]],
+        *,
+        limit: int,
+    ) -> dict[str, int | bool]:
+        result: dict[str, int | bool] = {
+            "ingested": True,
+            "loaded": len(docs),
+            "inserted": 0,
+            "duplicates": 0,
+            "claimed": 0,
+            "reconciled": 0,
+            "failed": 0,
+        }
+
+        for doc in docs:
+            try:
+                write = await self.db.integration_evidence.update_one(
+                    {
+                        "source_kind": "integration_evidence",
+                        "source_event_id": doc["source_event_id"],
+                    },
+                    {"$setOnInsert": doc},
+                    upsert=True,
+                )
+                if write.upserted_id is not None:
+                    result["inserted"] = int(result["inserted"]) + 1
+                else:
+                    result["duplicates"] = int(result["duplicates"]) + 1
+            except Exception:
+                logger.exception("Integration evidence insert failed")
+                result["failed"] = int(result["failed"]) + 1
+
+        claim = await self.claim_pending(limit=limit)
+        result["claimed"] = int(claim["claimed"])
+        result["reconciled"] = int(claim["reconciled"])
+        result["failed"] = int(result["failed"]) + int(claim["failed"])
+        return result
+
+    async def ingest_tvr_records(
+        self,
+        tvr_paths: list[str | Path],
+        *,
+        limit: int = 250,
+    ) -> dict[str, int | bool]:
+        return await self._insert_integration_docs(
+            load_tvr_records_integration_evidence(tvr_paths),
+            limit=limit,
+        )
+
+    async def ingest_atomic_stdout(
+        self,
+        atomic_stdout_paths: list[str | Path],
+        *,
+        technique_id: str,
+        validation_id: str,
+        limit: int = 250,
+    ) -> dict[str, int | bool]:
+        return await self._insert_integration_docs(
+            load_atomic_stdout_integration_evidence(
+                atomic_stdout_paths,
+                technique_id=technique_id,
+                validation_id=validation_id,
+            ),
+            limit=limit,
+        )
 
     async def claim_pending(self, limit: int = 250) -> dict[str, int]:
         if limit < 1:
