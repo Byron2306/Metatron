@@ -115,6 +115,133 @@ def load_osquery_catalog_integration_evidence(
     return docs
 
 
+def _technique_from_sigma_path(path: str | Path | None) -> str:
+    if path is None:
+        return ""
+    parts = Path(str(path)).parts
+    for index, part in enumerate(parts):
+        if part == "techniques" and index + 1 < len(parts):
+            candidate = str(parts[index + 1]).strip()
+            if candidate.startswith("T"):
+                return candidate
+    return ""
+
+
+def sigma_match_to_integration_evidence(
+    match: dict[str, Any],
+    *,
+    technique_id: str | None = None,
+    source_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Normalize Sigma live/contextual match records into integration evidence."""
+    rule_id = str(
+        match.get("rule_id")
+        or match.get("sigma_rule_id")
+        or match.get("source_id")
+        or match.get("analytic_id")
+        or ""
+    ).strip()
+    title = str(match.get("title") or match.get("name") or "").strip()
+    resolved_technique = str(
+        technique_id
+        or match.get("technique")
+        or match.get("technique_id")
+        or match.get("mitre_technique")
+        or _technique_from_sigma_path(source_path)
+        or ""
+    ).strip()
+    timestamp = str(
+        match.get("timestamp")
+        or match.get("matched_event", {}).get("timestamp")
+        or "1970-01-01T00:00:00+00:00"
+    ).strip()
+
+    if not rule_id:
+        raise ValueError("Missing Sigma rule_id")
+    if not title:
+        raise ValueError("Missing Sigma title")
+    if not resolved_technique:
+        raise ValueError("Missing Sigma technique_id")
+    if not timestamp:
+        raise ValueError("Missing Sigma timestamp")
+
+    payload = {
+        "rule_id": rule_id,
+        "title": title,
+        "rule_file": match.get("rule_file"),
+        "rule_sha256": match.get("rule_sha256"),
+        "source_id": match.get("source_id"),
+        "analytic_id": match.get("analytic_id"),
+        "match_type": match.get("match_type"),
+        "match_count": match.get("match_count"),
+        "matched": match.get("matched"),
+        "live_sigma_evaluation": match.get("live_sigma_evaluation"),
+        "detection_basis": match.get("detection_basis") or match.get("sigma_detection_basis"),
+        "sigma_telemetry_source": match.get("sigma_telemetry_source"),
+        "level": match.get("level"),
+        "status": match.get("status"),
+        "source": match.get("source"),
+        "matched_event": match.get("matched_event"),
+        "supporting_event_ids": match.get("supporting_event_ids"),
+        "source_path": str(source_path) if source_path is not None else None,
+    }
+
+    return {
+        "schema": "seraph.integration.evidence.v1",
+        "source_kind": "integration_evidence",
+        "integration_name": "sigma",
+        "evidence_type": "sigma_rule_match",
+        "technique_id": resolved_technique,
+        "timestamp": timestamp,
+        "payload": payload,
+        "world_fanout_status": "pending",
+    }
+
+
+def load_sigma_matches_integration_evidence(
+    sigma_match_paths: list[str | Path],
+) -> list[dict[str, Any]]:
+    """Load Sigma live/contextual match files as normalized integration evidence."""
+    docs: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+
+    for sigma_path in sigma_match_paths:
+        path = Path(sigma_path)
+        data = json.loads(path.read_text())
+        items = data if isinstance(data, list) else (
+            data.get("matches")
+            or data.get("results")
+            or data.get("sigma_matches")
+            or []
+        )
+        if isinstance(items, dict):
+            items = list(items.values())
+        if not isinstance(items, list):
+            continue
+
+        path_technique = _technique_from_sigma_path(path)
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            doc = sigma_match_to_integration_evidence(
+                item,
+                technique_id=path_technique or None,
+                source_path=path,
+            )
+            key = (
+                doc["technique_id"],
+                doc["timestamp"],
+                doc["payload"]["rule_id"],
+                str(doc["payload"].get("source_path") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            docs.append(doc)
+
+    return docs
+
+
 def _integration_entity_refs(evidence: dict[str, Any]) -> list[str]:
     technique_id = str(evidence.get("technique_id") or "").strip()
     return [f"mitre:{technique_id}"] if technique_id else []
@@ -210,6 +337,54 @@ class IntegrationObservationBridge:
                     result["duplicates"] = int(result["duplicates"]) + 1
             except Exception:
                 logger.exception("Osquery catalog evidence insert failed")
+                result["failed"] = int(result["failed"]) + 1
+
+        claim = await self.claim_pending(limit=limit)
+        result["claimed"] = int(claim["claimed"])
+        result["reconciled"] = int(claim["reconciled"])
+        result["failed"] = int(result["failed"]) + int(claim["failed"])
+        return result
+
+    async def ingest_sigma_matches(
+        self,
+        sigma_match_paths: list[str | Path],
+        *,
+        limit: int = 250,
+    ) -> dict[str, int | bool]:
+        docs = load_sigma_matches_integration_evidence(sigma_match_paths)
+
+        result: dict[str, int | bool] = {
+            "ingested": True,
+            "loaded": len(docs),
+            "inserted": 0,
+            "duplicates": 0,
+            "claimed": 0,
+            "reconciled": 0,
+            "failed": 0,
+        }
+
+        for doc in docs:
+            query = {
+                "source_kind": "integration_evidence",
+                "integration_name": doc["integration_name"],
+                "evidence_type": doc["evidence_type"],
+                "technique_id": doc["technique_id"],
+                "timestamp": doc["timestamp"],
+                "payload.rule_id": doc["payload"]["rule_id"],
+                "payload.source_path": doc["payload"]["source_path"],
+            }
+            try:
+                write = await self.db.integration_evidence.update_one(
+                    query,
+                    {"$setOnInsert": doc},
+                    upsert=True,
+                )
+                if write.upserted_id is not None:
+                    result["inserted"] = int(result["inserted"]) + 1
+                else:
+                    result["duplicates"] = int(result["duplicates"]) + 1
+            except Exception:
+                logger.exception("Sigma match evidence insert failed")
                 result["failed"] = int(result["failed"]) + 1
 
         claim = await self.claim_pending(limit=limit)
