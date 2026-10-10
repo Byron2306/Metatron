@@ -263,6 +263,117 @@ def _technique_from_tvr_record(
     return ""
 
 
+
+def _list_unique(values: list[Any]) -> list[Any]:
+    result = []
+    for value in values:
+        if value in (None, "", [], {}):
+            continue
+        if value not in result:
+            result.append(value)
+    return result
+
+
+def _tvr_receipt_links(record: dict[str, Any]) -> dict[str, Any]:
+    execution = record.get("execution") or {}
+    analytic = record.get("analytic_evidence") or {}
+    host = record.get("host_telemetry_evidence") or {}
+    network = record.get("network_telemetry_evidence") or {}
+    artifacts = record.get("artifact_evidence") or {}
+    response = record.get("response_evidence") or {}
+    correlation = record.get("correlation") or {}
+
+    runs = execution.get("runs") or []
+    if not isinstance(runs, list):
+        runs = []
+
+    osquery_items = analytic.get("osquery") or []
+    if not isinstance(osquery_items, list):
+        osquery_items = []
+
+    sigma_items = analytic.get("sigma") or []
+    if not isinstance(sigma_items, list):
+        sigma_items = []
+
+    files = artifacts.get("files") or []
+    if not isinstance(files, list):
+        files = []
+
+    actions = response.get("actions") or []
+    if not isinstance(actions, list):
+        actions = []
+
+    anchors = correlation.get("anchors") if isinstance(correlation, dict) else {}
+    if not isinstance(anchors, dict):
+        anchors = {}
+
+    return {
+        "atomic": {
+            "run_ids": _list_unique(
+                list(execution.get("run_ids") or [])
+                + [run.get("run_id") for run in runs if isinstance(run, dict)]
+            ),
+            "job_ids": _list_unique(
+                list(execution.get("job_ids") or [])
+                + [run.get("job_id") for run in runs if isinstance(run, dict)]
+            ),
+            "stdout_sha256": _list_unique(
+                [run.get("stdout_sha256") for run in runs if isinstance(run, dict)]
+            ),
+        },
+        "osquery": [
+            {
+                "query_id": item.get("query_id"),
+                "name": item.get("name"),
+                "supporting_event_ids": list(item.get("supporting_event_ids") or []),
+                "result_count": item.get("result_count"),
+            }
+            for item in osquery_items
+            if isinstance(item, dict)
+        ],
+        "sigma": [
+            {
+                "rule_id": item.get("rule_id"),
+                "rule_sha256": item.get("rule_sha256"),
+                "supporting_event_ids": list(item.get("supporting_event_ids") or []),
+                "detection_basis": item.get("detection_basis"),
+            }
+            for item in sigma_items
+            if isinstance(item, dict)
+        ],
+        "host": {
+            key: host.get(key)
+            for key in ("agent_id", "node_id", "hostname", "supporting_event_ids")
+            if host.get(key) not in (None, "", [], {})
+        },
+        "network": {
+            key: list(network.get(key) or [])
+            for key in ("zeek_uids", "arkime_session_ids", "suricata_source_event_ids")
+            if network.get(key)
+        },
+        "artifacts": {
+            "paths": _list_unique([
+                item.get("path") for item in files if isinstance(item, dict)
+            ]),
+            "file_sha256": _list_unique([
+                (item.get("hashes") or {}).get("sha256")
+                for item in files
+                if isinstance(item, dict)
+            ]),
+        },
+        "response": {
+            "action_ids": _list_unique([
+                item.get("action_id") for item in actions if isinstance(item, dict)
+            ]),
+        },
+        "correlation": {
+            key: value
+            for key, value in anchors.items()
+            if value not in (None, "", [], {})
+        },
+    }
+
+
 def tvr_record_to_integration_evidence(
     record: dict[str, Any],
     *,
@@ -311,6 +422,7 @@ def tvr_record_to_integration_evidence(
             "response_evidence": record.get("response_evidence"),
             "correlation": record.get("correlation"),
             "promotion": record.get("promotion"),
+            "receipt_links": _tvr_receipt_links(record),
             "source_path": str(source_path) if source_path is not None else None,
         },
         "world_fanout_status": "pending",
