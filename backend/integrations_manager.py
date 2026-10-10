@@ -1727,7 +1727,20 @@ async def run_runtime_tool(
         "decision_id": "integration-runtime-direct",
         "queue_id": "integration-runtime-direct",
     }
-    if rt in {"unified_agent_local", "unified_agent_remote", "agent", "unified_agent"}:
+    if rt == "unified_agent_local" and action in {"status", "health"}:
+        payload["runtime_target"] = "server"
+        if agent_id:
+            payload["agent_id"] = str(agent_id).strip()
+        return await run_runtime_tool(
+            tool=t,
+            params=payload,
+            runtime_target="server",
+            agent_id=agent_id,
+            actor=actor,
+            governance_context=context,
+        )
+
+    if rt in {"unified_agent_remote", "agent", "unified_agent"}:
         db = get_db()
         resolved_agent_id = str(agent_id or "").strip()
         if not resolved_agent_id and db is not None:
