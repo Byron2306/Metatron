@@ -524,6 +524,78 @@ def load_atomic_stdout_integration_evidence(
 
     return docs
 
+
+async def resolve_tvr_receipt_observation_refs(db, tvr_evidence: dict[str, Any]) -> dict[str, Any]:
+    """Resolve TVR receipt links to canonical observation ids for proof packaging."""
+    payload = tvr_evidence.get("payload") or {}
+    links = payload.get("receipt_links") or {}
+    validation_id = str(payload.get("validation_id") or tvr_evidence.get("validation_id") or "").strip()
+    technique_id = str(tvr_evidence.get("technique_id") or payload.get("technique_id") or "").strip()
+
+    resolved: list[str] = []
+    missing: list[dict[str, Any]] = []
+
+    async def add_matches(label: str, query: dict[str, Any]) -> None:
+        docs = await db.canonical_observations.find(query, {"_id": 0, "observation_id": 1}).to_list(length=1000)
+        if not docs:
+            missing.append({"link_type": label, "query": query})
+            return
+        for doc in docs:
+            observation_id = doc.get("observation_id")
+            if observation_id and observation_id not in resolved:
+                resolved.append(observation_id)
+
+    def item_value(item: Any, *keys: str) -> str:
+        if isinstance(item, dict):
+            for key in keys:
+                value = item.get(key)
+                if value:
+                    return str(value).strip()
+            return ""
+        return str(item or "").strip()
+
+    for item in links.get("atomic") or []:
+        value = item_value(item, "run_id", "id")
+        query = {
+            "witness": "integration_evidence",
+            "source_event_type": "atomic_stdout",
+            "payload.payload.validation_id": validation_id,
+        }
+        if value and value != validation_id:
+            query["payload.payload.run_id"] = value
+        await add_matches("atomic", query)
+
+    for item in links.get("osquery") or []:
+        query_name = item_value(item, "query_name", "name", "id")
+        query = {
+            "witness": "integration_evidence",
+            "source_event_type": "osquery_query_catalog",
+            "payload.technique_id": technique_id,
+        }
+        if query_name:
+            query["payload.payload.query_name"] = query_name
+        await add_matches("osquery", query)
+
+    for item in links.get("sigma") or []:
+        rule_id = item_value(item, "rule_id", "id")
+        query = {
+            "witness": "integration_evidence",
+            "source_event_type": "sigma_rule_match",
+            "payload.technique_id": technique_id,
+        }
+        if rule_id:
+            query["payload.payload.rule_id"] = rule_id
+        await add_matches("sigma", query)
+
+    return {
+        "schema": "seraph.tvr.evidence_graph_refs.v1",
+        "validation_id": validation_id,
+        "technique_id": technique_id,
+        "resolved_observation_ids": sorted(resolved),
+        "missing_links": missing,
+    }
+
+
 def _integration_entity_refs(evidence: dict[str, Any]) -> list[str]:
     technique_id = str(evidence.get("technique_id") or "").strip()
     return [f"mitre:{technique_id}"] if technique_id else []
