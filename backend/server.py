@@ -143,6 +143,7 @@ from routers.kibana import router as kibana_router
 from routers.identity import router as identity_router
 from routers.attestation import router as attestation_router
 from routers.fabric import router as fabric_router
+from routers.evidence_graph import router as evidence_graph_router
 from routers.formation import router as formation_router
 from routers.metatron import router as metatron_router
 from routers.sigma import router as sigma_router
@@ -239,6 +240,7 @@ app.include_router(browser_isolation_router, prefix="/api")
 app.include_router(kibana_router, prefix="/api")
 app.include_router(attestation_router, prefix="/api")
 app.include_router(fabric_router, prefix="/api")
+app.include_router(evidence_graph_router, prefix="/api")
 app.include_router(formation_router, prefix="/api")
 app.include_router(metatron_router, prefix="/api")
 app.include_router(sigma_router, prefix="/api")
@@ -607,6 +609,10 @@ async def startup():
         logger.info("AATR initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize AATR: {e}")
+
+    # Correctness-critical indexes must fail startup if uniqueness cannot be enforced.
+    from services.observation_fabric import ObservationStore
+    await ObservationStore(db).ensure_indexes()
 
     # MongoDB indexes for UI-critical endpoints (Command Center, dashboards).
     try:
