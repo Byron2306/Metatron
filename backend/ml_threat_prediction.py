@@ -347,6 +347,25 @@ class MLThreatPredictor:
     
     def set_database(self, db):
         self._db = db
+
+    async def _persist_prediction(self, prediction: ThreatPrediction) -> None:
+        if self._db is None:
+            return
+
+        await self._db.ml_predictions.insert_one(asdict(prediction))
+
+        try:
+            try:
+                from backend.services.integration_observation_fabric import IntegrationObservationBridge
+            except Exception:
+                from services.integration_observation_fabric import IntegrationObservationBridge
+
+            await IntegrationObservationBridge(self._db).ingest_ml_predictions(
+                prediction_id=prediction.prediction_id,
+                limit=25,
+            )
+        except Exception:
+            logger.exception("ML prediction canonical observation handoff failed")
     
     def _initialize_models(self):
         """Initialize models with synthetic training data"""
@@ -568,9 +587,7 @@ class MLThreatPredictor:
         
         self.predictions[prediction_id] = prediction
         
-        # Store in database
-        if self._db is not None:
-            await self._db.ml_predictions.insert_one(asdict(prediction))
+        await self._persist_prediction(prediction)
         
         return prediction
     
@@ -624,8 +641,7 @@ class MLThreatPredictor:
         
         self.predictions[prediction_id] = prediction
         
-        if self._db is not None:
-            await self._db.ml_predictions.insert_one(asdict(prediction))
+        await self._persist_prediction(prediction)
         
         return prediction
     
@@ -690,8 +706,7 @@ class MLThreatPredictor:
         
         self.predictions[prediction_id] = prediction
         
-        if self._db is not None:
-            await self._db.ml_predictions.insert_one(asdict(prediction))
+        await self._persist_prediction(prediction)
         
         return prediction
     
@@ -773,8 +788,7 @@ class MLThreatPredictor:
         
         self.predictions[prediction_id] = prediction
         
-        if self._db is not None:
-            await self._db.ml_predictions.insert_one(asdict(prediction))
+        await self._persist_prediction(prediction)
         
         return prediction
     

@@ -73,8 +73,10 @@ class CognitionFabricService:
         ids = {str(eid) for eid in entity_ids}
         filtered = []
         for row in rows:
+            payload = row.get("payload") or {}
+            inner = payload.get("payload") or {}
             host_id = str(row.get("host_id") or "")
-            entity_id = str(row.get("entity_id") or "")
+            entity_id = str(row.get("entity_id") or payload.get("entity_id") or inner.get("entity_id") or "")
             if host_id in ids or entity_id in ids:
                 filtered.append(row)
                 continue
@@ -241,6 +243,18 @@ class CognitionFabricService:
             await self._recent_docs("ml_predictions", sort_field="timestamp", limit=25),
             entity_ids,
         )
+        ml_observation_rows = [
+            row for row in self._entity_ref_filter(
+                await self._recent_docs("canonical_observations", sort_field="observed_at", limit=50),
+                entity_ids,
+            )
+            if row.get("source_event_type") == "ml_prediction"
+        ]
+        ml_observation_ids = [
+            str(row.get("observation_id"))
+            for row in ml_observation_rows
+            if row.get("observation_id")
+        ]
 
         autonomous_rows = [row for row in aatl_rows if str(row.get("actor_type")) == "autonomous_agent"]
         high_aatl_rows = [row for row in aatl_rows if _safe_float(row.get("threat_score")) >= 70.0]
@@ -391,6 +405,8 @@ class CognitionFabricService:
             },
             "ml": {
                 "recent_prediction_count": len(ml_rows),
+                "canonical_observation_count": len(ml_observation_rows),
+                "canonical_observation_ids": ml_observation_ids,
                 "high_risk_prediction_count": len([row for row in ml_rows if _safe_float(row.get("threat_score")) >= 70.0]),
                 "max_threat_score": round(max_ml_score * 100.0, 2),
                 "snapshot_prediction": ml_snapshot,

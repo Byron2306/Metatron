@@ -748,6 +748,78 @@ def integration_tool_result_to_integration_evidence(
     return docs
 
 
+def _plain_value(value: Any) -> Any:
+    return getattr(value, "value", value)
+
+
+def ml_prediction_source_event_id(evidence: dict[str, Any]) -> str:
+    payload = evidence.get("payload") or {}
+    technique_id = str(evidence.get("technique_id") or "").strip()
+    prediction_id = str(payload.get("prediction_id") or "prediction-unknown").strip()
+    return f"ml|ml_prediction|{technique_id}|{prediction_id}"
+
+
+def ml_prediction_to_integration_evidence(
+    prediction: dict[str, Any],
+    *,
+    technique_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Normalize ML predictions into integration evidence for the canonical rail."""
+    if not prediction:
+        return []
+
+    prediction = {
+        key: _plain_value(value)
+        for key, value in prediction.items()
+        if key != "_id"
+    }
+
+    techniques: list[str] = []
+    supplied = _normalise_attack_technique(technique_id)
+    if supplied:
+        techniques.append(supplied)
+    for discovered in _collect_attack_techniques(prediction):
+        if discovered not in techniques:
+            techniques.append(discovered)
+    if not techniques:
+        return []
+
+    prediction_id = str(prediction.get("prediction_id") or "").strip()
+    if not prediction_id:
+        prediction_id = hashlib.sha256(canonical_json(prediction).encode()).hexdigest()[:16]
+
+    timestamp = str(
+        prediction.get("timestamp")
+        or prediction.get("created_at")
+        or "1970-01-01T00:00:00+00:00"
+    ).strip()
+
+    docs = []
+    for attack_id in techniques:
+        doc = {
+            "schema": "seraph.integration.evidence.v1",
+            "source_kind": "integration_evidence",
+            "integration_name": "ml",
+            "evidence_type": "ml_prediction",
+            "technique_id": attack_id,
+            "timestamp": timestamp,
+            "severity": _plain_value(prediction.get("risk_level")),
+            "confidence": prediction.get("confidence"),
+            "payload": {
+                **prediction,
+                "prediction_id": prediction_id,
+                "entity_type": prediction.get("entity_type"),
+                "entity_id": prediction.get("entity_id"),
+                "source_collection": "ml_predictions",
+            },
+            "world_fanout_status": "pending",
+        }
+        doc["source_event_id"] = ml_prediction_source_event_id(doc)
+        docs.append(doc)
+
+    return docs
+
+
 def _integration_entity_refs(evidence: dict[str, Any]) -> list[str]:
     technique_id = str(evidence.get("technique_id") or "").strip()
     return [f"mitre:{technique_id}"] if technique_id else []
@@ -1039,6 +1111,32 @@ class IntegrationObservationBridge:
             docs.extend(
                 integration_tool_result_to_integration_evidence(
                     job,
+                    technique_id=technique_id,
+                )
+            )
+
+        return await self._insert_integration_docs(docs, limit=limit)
+
+    async def ingest_ml_predictions(
+        self,
+        *,
+        prediction_id: str | None = None,
+        entity_type: str | None = None,
+        technique_id: str | None = None,
+        limit: int = 250,
+    ) -> dict[str, int | bool]:
+        query: dict[str, Any] = {}
+        if prediction_id:
+            query["prediction_id"] = str(prediction_id).strip()
+        if entity_type:
+            query["entity_type"] = str(entity_type).strip()
+
+        predictions = await self.db.ml_predictions.find(query).limit(limit).to_list(length=limit)
+        docs: list[dict[str, Any]] = []
+        for prediction in predictions:
+            docs.extend(
+                ml_prediction_to_integration_evidence(
+                    prediction,
                     technique_id=technique_id,
                 )
             )
