@@ -604,10 +604,13 @@ async def startup():
     
     # Initialize AATR (Autonomous AI Threat Registry)
     try:
-        from services.aatr import init_aatr
+        from services.aatr import init_aatr, require_aatr_ready
         await init_aatr(db)
-        logger.info("AATR initialized successfully")
+        readiness = await require_aatr_ready(db)
+        logger.info(f"AATR initialized successfully: {readiness}")
     except Exception as e:
+        if is_production_like():
+            raise
         logger.error(f"Failed to initialize AATR: {e}")
 
     # Correctness-critical indexes must fail startup if uniqueness cannot be enforced.
@@ -623,6 +626,10 @@ async def startup():
         await db.agent_commands.create_index([("command_id", 1)])
         await db.integrations_jobs.create_index([("id", 1)])
         await db.integrations_jobs.create_index([("command_id", 1)])
+        await db.soar_executions.create_index([("id", 1)], unique=True)
+        await db.soar_executions.create_index([("playbook_id", 1), ("started_at", -1)])
+        await db.soar_executions.create_index([("semantic_response_state", 1), ("started_at", -1)])
+        await db.soar_executions.create_index([("trigger_event.trigger_type", 1), ("started_at", -1)])
         await db.alerts.create_index([("created_at", -1)])
         await db.threats.create_index([("created_at", -1)])
         await db.unified_agents.create_index([("last_heartbeat", -1)])

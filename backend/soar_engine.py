@@ -205,6 +205,10 @@ class PlaybookExecution:
     ai_confidence: Optional[float] = None
     quarantine_refs: List[str] = field(default_factory=list)  # Links to quarantined items
     forensics_refs: List[str] = field(default_factory=list)   # Links to forensics data
+    semantic_response_state: str = "OBSERVE"
+    requested_response: Dict[str, Any] = field(default_factory=dict)
+    orchestration_receipt: Dict[str, Any] = field(default_factory=dict)
+    actual_effect_receipt: Dict[str, Any] = field(default_factory=dict)
     state_transition_log: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
@@ -379,6 +383,64 @@ class SOAREngine:
             path.write_text(json.dumps(list(by_id.values()), indent=2), encoding="utf-8")
         except Exception:
             return
+
+    def _semantic_response_state(self, playbook: Playbook) -> str:
+        return str(playbook.escalation_level.value or "observe").upper()
+
+    def _requested_response_receipt(
+        self,
+        playbook: Playbook,
+        event: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "schema": "seraph.soar.requested_response.v1",
+            "semantic_state": self._semantic_response_state(playbook),
+            "escalation_level": playbook.escalation_level.value,
+            "playbook_id": playbook.id,
+            "trigger_type": event.get("trigger_type"),
+            "host_id": event.get("host_id") or event.get("agent_id"),
+            "session_id": event.get("session_id"),
+        }
+
+    def _orchestration_receipt(self, execution: "PlaybookExecution") -> Dict[str, Any]:
+        steps_total = len(execution.step_results)
+        steps_completed = sum(1 for step in execution.step_results if step.get("status") == "completed")
+        steps_failed = sum(1 for step in execution.step_results if step.get("status") == "failed")
+        return {
+            "schema": "seraph.soar.orchestration_receipt.v1",
+            "execution_id": execution.id,
+            "playbook_id": execution.playbook_id,
+            "status": execution.status.value,
+            "started_at": execution.started_at,
+            "completed_at": execution.completed_at,
+            "steps_total": steps_total,
+            "steps_completed": steps_completed,
+            "steps_failed": steps_failed,
+        }
+
+    def _actual_effect_receipt(self, execution: "PlaybookExecution") -> Dict[str, Any]:
+        reported_actions: List[str] = []
+        reported_statuses: List[Dict[str, Any]] = []
+        for step in execution.step_results:
+            action = step.get("action")
+            if action:
+                reported_actions.append(str(action))
+            result = step.get("result") if isinstance(step.get("result"), dict) else {}
+            reported_statuses.append({
+                "step": step.get("step"),
+                "action": action,
+                "orchestration_status": step.get("status"),
+                "reported_effect_status": result.get("status"),
+            })
+        return {
+            "schema": "seraph.soar.actual_effect_receipt.v1",
+            "execution_id": execution.id,
+            "playbook_id": execution.playbook_id,
+            "effect_verification": "not_verified",
+            "requires_external_confirmation": True,
+            "reported_step_actions": reported_actions,
+            "reported_step_statuses": reported_statuses,
+        }
 
     def _write_trace_artifact(self, trace: Optional[Dict[str, Any]], execution_id: str) -> None:
         if not trace:
@@ -1435,7 +1497,9 @@ class SOAREngine:
             trigger_event=enriched_event,
             status=ExecutionStatus.RUNNING,
             started_at=datetime.now(timezone.utc).isoformat(),
-            escalation_level=playbook.escalation_level
+            escalation_level=playbook.escalation_level,
+            semantic_response_state=self._semantic_response_state(playbook),
+            requested_response=self._requested_response_receipt(playbook, enriched_event),
         )
 
         trace_id = None
@@ -1564,6 +1628,8 @@ class SOAREngine:
             )
         
         execution.completed_at = datetime.now(timezone.utc).isoformat()
+        execution.orchestration_receipt = self._orchestration_receipt(execution)
+        execution.actual_effect_receipt = self._actual_effect_receipt(execution)
         
         # Update playbook stats
         playbook.execution_count += 1
