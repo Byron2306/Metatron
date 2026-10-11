@@ -104,8 +104,8 @@ class ServiceHeartbeat:
         # 4. SOAR Stats
         try:
             snapshot["modules"]["soar"] = {
-                "active_playbooks": await self.db.playbook_executions.count_documents({"status": "running"}),
-                "successful_mitigations": await self.db.playbook_executions.count_documents({"status": "completed"})
+                "active_playbooks": await self.db.soar_executions.count_documents({"status": "running"}),
+                "successful_mitigations": await self.db.soar_executions.count_documents({"status": "completed"})
             }
         except Exception:
             snapshot["modules"]["soar"] = {"status": "error"}

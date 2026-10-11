@@ -1006,9 +1006,19 @@ class MCPServer:
             **event_params,
         }
 
+        try:
+            from routers.dependencies import get_db
+        except Exception:
+            try:
+                from backend.routers.dependencies import get_db
+            except Exception:
+                get_db = None
+
+        db = get_db() if get_db is not None else None
+
         from soar_engine import soar_engine
 
-        execution = await soar_engine.execute_playbook(playbook_id, event)
+        execution = await soar_engine.execute_playbook(playbook_id, event, db=db)
         step_results = execution.step_results or []
         completed_steps = len([s for s in step_results if s.get("status") == "completed"])
 

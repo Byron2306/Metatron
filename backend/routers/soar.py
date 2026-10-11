@@ -160,7 +160,7 @@ async def execute_playbook(
         event_dict = event.model_dump()
         event_dict.update(event_dict.pop("extra", {}))
         
-        execution = await soar_engine.execute_playbook(playbook_id, event_dict)
+        execution = await soar_engine.execute_playbook(playbook_id, event_dict, db=get_db())
         logger.info(f"Executed playbook {playbook_id} by user {current_user['id']}")
         
         from dataclasses import asdict
@@ -201,7 +201,7 @@ async def respond_for_technique(
         "source": "mitre_ui",
     }
     try:
-        execution = await soar_engine.execute_playbook("mitre_s5_live_response", event)
+        execution = await soar_engine.execute_playbook("mitre_s5_live_response", event, db=get_db())
         from dataclasses import asdict
         return asdict(execution)
     except Exception as e:

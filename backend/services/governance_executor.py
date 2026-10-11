@@ -1689,7 +1689,7 @@ class GovernanceExecutorService:
             if not playbook_id:
                 raise ValueError("Missing playbook_id for soar_execute_playbook")
             event = payload.get("event") or {}
-            execution = await soar_engine.execute_playbook(playbook_id, event)
+            execution = await soar_engine.execute_playbook(playbook_id, event, db=self.db)
             execution_payload = execution.to_dict() if hasattr(execution, "to_dict") else _model_dump(execution)
             execution_id = execution_payload.get("id") or execution_payload.get("execution_id")
 
