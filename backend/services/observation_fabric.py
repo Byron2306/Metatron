@@ -256,6 +256,35 @@ class EndpointEvidencePromotionPolicy:
         })
 
 
+class IntegrationEvidencePromotionPolicy:
+    def material_key(self, observation: CanonicalObservation) -> str:
+        if observation.witness != "integration_evidence":
+            raise ValueError("Integration policy requires integration evidence")
+        payload = observation.payload or {}
+        inner = payload.get("payload") or {}
+        return "integration_evidence|" + canonical_json({
+            "source_event_type": observation.source_event_type,
+            "integration_name": payload.get("integration_name"),
+            "evidence_type": payload.get("evidence_type"),
+            "technique_id": payload.get("technique_id"),
+            "validation_id": inner.get("validation_id") or payload.get("validation_id"),
+            "source_event_id": observation.source_event_id,
+        })
+
+    def material_digest(self, observation: CanonicalObservation) -> str:
+        payload = observation.payload or {}
+        inner = payload.get("payload") or {}
+        return evidence_digest({
+            "source_event_type": observation.source_event_type,
+            "integration_name": payload.get("integration_name"),
+            "evidence_type": payload.get("evidence_type"),
+            "technique_id": payload.get("technique_id"),
+            "validation_id": inner.get("validation_id") or payload.get("validation_id"),
+            "evidence_graph_refs": inner.get("evidence_graph_refs") or payload.get("evidence_graph_refs"),
+            "record_sha256": inner.get("record_sha256") or payload.get("record_sha256"),
+        })
+
+
 class PromotionService:
     """CAS material state with a recoverable receipt in the same Mongo document.
 
@@ -269,6 +298,7 @@ class PromotionService:
         self.policies = [
             SuricataAlertPromotionPolicy(),
             EndpointEvidencePromotionPolicy(),
+            IntegrationEvidencePromotionPolicy(),
         ]
 
     def _policy_for(self, observation: CanonicalObservation):
@@ -276,6 +306,8 @@ class PromotionService:
             return self.policies[0]
         if observation.witness == "unified_agent" and observation.source_event_type == "endpoint_evidence":
             return self.policies[1]
+        if observation.witness == "integration_evidence":
+            return self.policies[2]
         raise ValueError(
             f"Unsupported observation promotion source: "
             f"{observation.witness}/{observation.source_event_type}"
@@ -398,6 +430,15 @@ class WorldObservationProjector:
         event_query = {"type": "observation_promoted", "payload.observation_id": observation.observation_id}
         existing = await self.db.world_events.find_one(event_query)
         if existing is None:
+            evidence_graph_refs = None
+            if observation.witness == "integration_evidence":
+                payload = observation.payload or {}
+                inner_payload = payload.get("payload") or {}
+                evidence_graph_refs = (
+                    inner_payload.get("evidence_graph_refs")
+                    or payload.get("evidence_graph_refs")
+                )
+
             if observation.witness == "unified_agent" and observation.source_event_type == "endpoint_evidence":
                 entity_id = "endpoint-" + hashlib.sha256(decision.material_key.encode()).hexdigest()[:24]
                 entity_type = EntityType.endpoint
@@ -416,6 +457,7 @@ class WorldObservationProjector:
                             "native_confidence": observation.native_confidence,
                             "material_revision": decision.material_revision,
                             "tvr_receipt_ref": tvr_receipt_ref_for_observation(observation, decision),
+                            "evidence_graph_refs": evidence_graph_refs,
                             "payload": observation.payload})
             try:
                 await WorldModelService(self.db).upsert_entity(
@@ -434,7 +476,8 @@ class WorldObservationProjector:
                              "evidence_digest": observation.evidence_digest,
                              "material_revision": decision.material_revision,
                              "material_key": decision.material_key,
-                             "tvr_receipt_ref": tvr_receipt_ref_for_observation(observation, decision)},
+                             "tvr_receipt_ref": tvr_receipt_ref_for_observation(observation, decision),
+                             "evidence_graph_refs": evidence_graph_refs},
                     trigger_triune=None, source="observation_fabric", strict_persistence=True)
                 existing = emitted["event"]
             except DuplicateKeyError:
