@@ -748,6 +748,136 @@ def integration_tool_result_to_integration_evidence(
     return docs
 
 
+def _plain_value(value: Any) -> Any:
+    return getattr(value, "value", value)
+
+
+def ml_prediction_source_event_id(evidence: dict[str, Any]) -> str:
+    payload = evidence.get("payload") or {}
+    technique_id = str(evidence.get("technique_id") or "").strip()
+    prediction_id = str(payload.get("prediction_id") or "prediction-unknown").strip()
+    return f"ml|ml_prediction|{technique_id}|{prediction_id}"
+
+
+def ml_prediction_to_integration_evidence(
+    prediction: dict[str, Any],
+    *,
+    technique_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Normalize ML predictions into integration evidence for the canonical rail."""
+    if not prediction:
+        return []
+
+    prediction = {
+        key: _plain_value(value)
+        for key, value in prediction.items()
+        if key != "_id"
+    }
+
+    techniques: list[str] = []
+    supplied = _normalise_attack_technique(technique_id)
+    if supplied:
+        techniques.append(supplied)
+    for discovered in _collect_attack_techniques(prediction):
+        if discovered not in techniques:
+            techniques.append(discovered)
+    if not techniques:
+        return []
+
+    prediction_id = str(prediction.get("prediction_id") or "").strip()
+    if not prediction_id:
+        prediction_id = hashlib.sha256(canonical_json(prediction).encode()).hexdigest()[:16]
+
+    timestamp = str(
+        prediction.get("timestamp")
+        or prediction.get("created_at")
+        or "1970-01-01T00:00:00+00:00"
+    ).strip()
+
+    docs = []
+    for attack_id in techniques:
+        doc = {
+            "schema": "seraph.integration.evidence.v1",
+            "source_kind": "integration_evidence",
+            "integration_name": "ml",
+            "evidence_type": "ml_prediction",
+            "technique_id": attack_id,
+            "timestamp": timestamp,
+            "severity": _plain_value(prediction.get("risk_level")),
+            "confidence": prediction.get("confidence"),
+            "payload": {
+                **prediction,
+                "prediction_id": prediction_id,
+                "entity_type": prediction.get("entity_type"),
+                "entity_id": prediction.get("entity_id"),
+                "source_collection": "ml_predictions",
+            },
+            "world_fanout_status": "pending",
+        }
+        doc["source_event_id"] = ml_prediction_source_event_id(doc)
+        docs.append(doc)
+
+    return docs
+
+
+def honeytoken_access_source_event_id(evidence: dict[str, Any]) -> str:
+    payload = evidence.get("payload") or {}
+    technique_id = str(evidence.get("technique_id") or "").strip()
+    access_id = str(payload.get("access_id") or "access-unknown").strip()
+    return f"honeytoken|honey_token_access|{technique_id}|{access_id}"
+
+
+def honeytoken_access_to_integration_evidence(
+    access: dict[str, Any],
+    *,
+    technique_id: str | None = None,
+) -> dict[str, Any] | None:
+    access_id = str(access.get("id") or access.get("access_id") or "").strip()
+    if not access_id:
+        return None
+
+    resolved_technique = (
+        _normalise_attack_technique(technique_id)
+        or _normalise_attack_technique(access.get("technique_id"))
+        or "T1552"
+    )
+    timestamp = str(
+        access.get("accessed_at")
+        or access.get("timestamp")
+        or access.get("created_at")
+        or "1970-01-01T00:00:00+00:00"
+    ).strip()
+
+    doc = {
+        "schema": "seraph.integration.evidence.v1",
+        "source_kind": "integration_evidence",
+        "integration_name": "honeytoken",
+        "evidence_type": "honey_token_access",
+        "technique_id": resolved_technique,
+        "timestamp": timestamp,
+        "severity": access.get("severity") or "critical",
+        "confidence": access.get("confidence") or 1.0,
+        "payload": {
+            "access_id": access_id,
+            "token_id": access.get("token_id"),
+            "token_name": access.get("token_name"),
+            "token_type": access.get("token_type"),
+            "source_ip": access.get("source_ip"),
+            "user_agent": access.get("user_agent"),
+            "request_path": access.get("request_path"),
+            "request_method": access.get("request_method"),
+            "headers": access.get("headers") or {},
+            "deception_case_id": access.get("deception_case_id"),
+            "deception_event_id": access.get("deception_event_id") or access.get("event_id"),
+            "campaign_id": access.get("campaign_id"),
+            "source_collection": "honey_token_accesses",
+        },
+        "world_fanout_status": "pending",
+    }
+    doc["source_event_id"] = honeytoken_access_source_event_id(doc)
+    return doc
+
+
 def _integration_entity_refs(evidence: dict[str, Any]) -> list[str]:
     technique_id = str(evidence.get("technique_id") or "").strip()
     return [f"mitre:{technique_id}"] if technique_id else []
@@ -1044,6 +1174,106 @@ class IntegrationObservationBridge:
             )
 
         return await self._insert_integration_docs(docs, limit=limit)
+
+    async def ingest_ml_predictions(
+        self,
+        *,
+        prediction_id: str | None = None,
+        entity_type: str | None = None,
+        technique_id: str | None = None,
+        limit: int = 250,
+    ) -> dict[str, int | bool]:
+        query: dict[str, Any] = {}
+        if prediction_id:
+            query["prediction_id"] = str(prediction_id).strip()
+        if entity_type:
+            query["entity_type"] = str(entity_type).strip()
+
+        predictions = await self.db.ml_predictions.find(query).limit(limit).to_list(length=limit)
+        docs: list[dict[str, Any]] = []
+        for prediction in predictions:
+            docs.extend(
+                ml_prediction_to_integration_evidence(
+                    prediction,
+                    technique_id=technique_id,
+                )
+            )
+
+        return await self._insert_integration_docs(docs, limit=limit)
+
+    async def ingest_honeytoken_accesses(
+        self,
+        *,
+        token_id: str | None = None,
+        technique_id: str | None = None,
+        trigger_soar: bool = False,
+        limit: int = 250,
+    ) -> dict[str, int | bool]:
+        query: dict[str, Any] = {}
+        if token_id:
+            query["token_id"] = str(token_id).strip()
+
+        accesses = await self.db.honey_token_accesses.find(query).limit(limit).to_list(length=limit)
+        docs: list[dict[str, Any]] = []
+        source_by_event_id: dict[str, dict[str, Any]] = {}
+        for access in accesses:
+            doc = honeytoken_access_to_integration_evidence(
+                access,
+                technique_id=technique_id,
+            )
+            if doc is None:
+                continue
+            docs.append(doc)
+            source_by_event_id[doc["source_event_id"]] = access
+
+        result = await self._insert_integration_docs(docs, limit=limit)
+        result["soar_triggered"] = 0
+
+        for doc in docs:
+            evidence = await self.db.integration_evidence.find_one({
+                "source_kind": "integration_evidence",
+                "source_event_id": doc["source_event_id"],
+            })
+            if not evidence:
+                continue
+            source = source_by_event_id.get(doc["source_event_id"]) or {}
+            update = {
+                "world_fanout_status": evidence.get("world_fanout_status"),
+                "observation_id": evidence.get("observation_id"),
+                "source_event_id": doc["source_event_id"],
+            }
+            await self.db.honey_token_accesses.update_one(
+                {"id": source.get("id") or source.get("access_id")},
+                {"$set": update},
+            )
+
+            if trigger_soar and evidence.get("observation_id"):
+                try:
+                    from backend.soar_engine import SOAREngine
+
+                    event = {
+                        "trigger_type": "deception_token_access",
+                        "severity": doc.get("severity") or "critical",
+                        "token_id": doc["payload"].get("token_id"),
+                        "token_name": doc["payload"].get("token_name"),
+                        "token_type": doc["payload"].get("token_type"),
+                        "access_id": doc["payload"].get("access_id"),
+                        "source_ip": doc["payload"].get("source_ip"),
+                        "host_id": doc["payload"].get("source_ip"),
+                        "session_id": doc["payload"].get("deception_case_id"),
+                        "deception_case_id": doc["payload"].get("deception_case_id"),
+                        "deception_event_id": doc["payload"].get("deception_event_id"),
+                        "observation_id": evidence.get("observation_id"),
+                        "source_event_id": doc["source_event_id"],
+                        "mitre_techniques": [doc["technique_id"]],
+                    }
+                    executions = await SOAREngine().trigger_playbooks(event, db=self.db)
+                    result["soar_triggered"] = int(result["soar_triggered"]) + len(executions)
+                except Exception:
+                    logger.exception("Honeytoken SOAR trigger failed")
+                    result["failed"] = int(result["failed"]) + 1
+
+        return result
 
     async def claim_pending(self, limit: int = 250) -> dict[str, int]:
         if limit < 1:
