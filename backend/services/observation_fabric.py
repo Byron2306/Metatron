@@ -408,10 +408,26 @@ class WorldObservationProjector:
 
     async def _finish(self, observation, state, source_status):
         # Canonical completion is last so a failed source update is retryable.
-        await self.db.suricata_alert_evidence.update_one(
-            {"witness": observation.witness, "source_event_id": observation.source_event_id,
-             "observation_id": observation.observation_id},
-            {"$set": {"world_fanout_status": source_status}})
+        source_filter = {
+            "source_event_id": observation.source_event_id,
+            "observation_id": observation.observation_id,
+        }
+        if observation.witness == "suricata":
+            await self.db.suricata_alert_evidence.update_one(
+                source_filter,
+                {"$set": {"world_fanout_status": source_status}},
+            )
+        elif observation.witness == "integration_evidence":
+            await self.db.integration_evidence.update_one(
+                source_filter,
+                {"$set": {"world_fanout_status": source_status}},
+            )
+        elif observation.witness == "unified_agent":
+            await self.db.agent_endpoint_evidence.update_one(
+                source_filter,
+                {"$set": {"world_fanout_status": source_status}},
+            )
+
         await self.db.canonical_observations.update_one(
             {"observation_id": observation.observation_id},
             {"$set": {"promotion_state": state}})
