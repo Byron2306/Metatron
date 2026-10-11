@@ -21,11 +21,16 @@ This contains ONLY:
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+try:
+    from services.runtime_environment import current_environment, is_production_like
+except Exception:
+    from backend.services.runtime_environment import current_environment, is_production_like
 
 
 # =============================================================================
@@ -676,6 +681,52 @@ _aatr: AutonomousAIThreatRegistry = None
 
 def get_aatr() -> AutonomousAIThreatRegistry:
     return _aatr
+
+
+async def get_aatr_readiness(db: Any = None) -> Dict[str, Any]:
+    """Return a stable readiness receipt for production startup and heartbeat checks."""
+    mode = current_environment()
+    registry = _aatr
+    registry_entries = len(registry.registry) if registry is not None else 0
+    db_entries = 0
+    unsafe_reasons: List[str] = []
+
+    if registry is None:
+        unsafe_reasons.append("aatr_not_initialized")
+    if registry_entries < 1:
+        unsafe_reasons.append("aatr_registry_empty")
+
+    if db is None:
+        unsafe_reasons.append("aatr_db_unavailable")
+    else:
+        try:
+            db_entries = await db.aatr_entries.count_documents({})
+        except Exception:
+            logger.exception("AATR readiness DB check failed")
+            unsafe_reasons.append("aatr_db_check_failed")
+
+    if db is not None and registry_entries > 0 and db_entries < registry_entries:
+        unsafe_reasons.append("aatr_db_seed_missing")
+
+    return {
+        "schema": "seraph.aatr.readiness.v1",
+        "ready": not unsafe_reasons,
+        "initialized": registry is not None,
+        "db_backed": db is not None and db_entries >= registry_entries and registry_entries > 0,
+        "mode": mode,
+        "production_like": is_production_like(),
+        "registry_entries": registry_entries,
+        "db_entries": db_entries,
+        "unsafe_reasons": unsafe_reasons,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def require_aatr_ready(db: Any = None) -> Dict[str, Any]:
+    readiness = await get_aatr_readiness(db)
+    if is_production_like() and not readiness["ready"]:
+        raise RuntimeError(f"AATR readiness check failed: {readiness['unsafe_reasons']}")
+    return readiness
 
 
 async def init_aatr(db):

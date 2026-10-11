@@ -110,7 +110,17 @@ class ServiceHeartbeat:
         except Exception:
             snapshot["modules"]["soar"] = {"status": "error"}
 
-        # 5. Triune Governance Stats
+        # 5. Autonomous AI Threat Registry readiness
+        try:
+            try:
+                from services.aatr import get_aatr_readiness
+            except Exception:
+                from backend.services.aatr import get_aatr_readiness
+            snapshot["modules"]["aatr"] = await get_aatr_readiness(self.db)
+        except Exception:
+            snapshot["modules"]["aatr"] = {"status": "error"}
+
+        # 6. Triune Governance Stats
         try:
             snapshot["modules"]["triune"] = {
                 "queued_actions": await self.db.triune_outbound_queue.count_documents({"status": "gated_pending_approval"}),
@@ -121,7 +131,7 @@ class ServiceHeartbeat:
         except Exception:
             snapshot["modules"]["triune"] = {"status": "error"}
 
-        # 6. Enterprise: Ransomware Stats
+        # 7. Enterprise: Ransomware Stats
         try:
             from ransomware_protection import ransomware_protection
             snapshot["modules"]["ransomware"] = {
@@ -132,7 +142,7 @@ class ServiceHeartbeat:
         except Exception:
             snapshot["modules"]["ransomware"] = {"status": "error"}
 
-        # 7. Enterprise: VPN & Tunnels
+        # 8. Enterprise: VPN & Tunnels
         try:
             from vpn_integration import vpn_manager
             snapshot["modules"]["vpn"] = {
@@ -142,7 +152,7 @@ class ServiceHeartbeat:
         except Exception:
             snapshot["modules"]["vpn"] = {"status": "error"}
 
-        # 8. Enterprise: Container Security
+        # 9. Enterprise: Container Security
         try:
             from container_security import container_security
             snapshot["modules"]["containers"] = {
@@ -152,7 +162,7 @@ class ServiceHeartbeat:
         except Exception:
             snapshot["modules"]["containers"] = {"status": "error"}
 
-        # 9. ARDA OS & Fabric
+        # 10. ARDA OS & Fabric
         try:
             snapshot["modules"]["arda"] = {
                 "tpm_lawful": (await self.db.attestation_reports.find_one(sort=[("timestamp", -1)])) or {},
