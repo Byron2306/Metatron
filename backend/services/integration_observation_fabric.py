@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -619,6 +620,134 @@ async def resolve_tvr_receipt_observation_refs(db, tvr_evidence: dict[str, Any])
     }
 
 
+
+_INTEGRATION_TOOL_RESULT_TOOLS = {
+    "amass", "arkime", "bloodhound", "clamav", "falco", "purplesharp",
+    "spiderfoot", "trivy", "velociraptor", "yara", "zeek",
+}
+
+_INTEGRATION_TECHNIQUE_KEYS = {
+    "technique", "technique_id", "mitre_technique", "attack_technique",
+}
+
+_INTEGRATION_TECHNIQUE_LIST_KEYS = {
+    "techniques", "technique_ids", "mitre_techniques",
+    "attack_techniques", "validated_techniques",
+}
+
+
+def _normalise_attack_technique(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if text.startswith("MITRE:"):
+        text = text.split(":", 1)[1]
+    if text and not text.startswith("T") and text[0].isdigit():
+        text = "T" + text
+    return text if text.startswith("T") else ""
+
+
+def _collect_attack_techniques(value: Any) -> list[str]:
+    found: list[str] = []
+
+    def add(candidate: Any) -> None:
+        technique = _normalise_attack_technique(candidate)
+        if technique and technique not in found:
+            found.append(technique)
+
+    def walk(item: Any) -> None:
+        if isinstance(item, dict):
+            for key, child in item.items():
+                key_text = str(key or "").strip().lower()
+                if key_text in _INTEGRATION_TECHNIQUE_KEYS:
+                    add(child)
+                elif key_text in _INTEGRATION_TECHNIQUE_LIST_KEYS and isinstance(child, list):
+                    for entry in child:
+                        add(entry)
+                else:
+                    walk(child)
+        elif isinstance(item, list):
+            for child in item:
+                walk(child)
+
+    walk(value)
+    return found
+
+
+def integration_tool_result_source_event_id(evidence: dict[str, Any]) -> str:
+    payload = evidence.get("payload") or {}
+    tool = str(evidence.get("integration_name") or payload.get("tool") or "integration").strip()
+    evidence_type = str(evidence.get("evidence_type") or "integration_tool_result").strip()
+    technique_id = str(evidence.get("technique_id") or "").strip()
+    job_id = str(payload.get("job_id") or "job-unknown").strip()
+    action = str(payload.get("action") or "unknown").strip()
+    return f"{tool}|{evidence_type}|{technique_id}|{job_id}|{action}"
+
+
+def integration_tool_result_to_integration_evidence(
+    job: dict[str, Any],
+    *,
+    technique_id: str | None = None,
+) -> list[dict[str, Any]]:
+    tool = str(job.get("tool") or "").strip().lower()
+    if tool not in _INTEGRATION_TOOL_RESULT_TOOLS:
+        return []
+
+    params = job.get("params") or {}
+    result = job.get("result") or {}
+
+    techniques = []
+    supplied = _normalise_attack_technique(technique_id)
+    if supplied:
+        techniques.append(supplied)
+
+    for discovered in _collect_attack_techniques({"params": params, "result": result}):
+        if discovered not in techniques:
+            techniques.append(discovered)
+
+    if not techniques:
+        return []
+
+    job_id = str(job.get("id") or job.get("job_id") or "").strip()
+    if not job_id:
+        job_id = hashlib.sha256(canonical_json(job).encode()).hexdigest()[:16]
+
+    action = str(
+        (params.get("action") if isinstance(params, dict) else "")
+        or (result.get("action") if isinstance(result, dict) else "")
+        or "unknown"
+    ).strip().lower()
+
+    timestamp = str(
+        job.get("updated_at")
+        or job.get("created_at")
+        or "1970-01-01T00:00:00+00:00"
+    ).strip()
+
+    docs = []
+    for attack_id in techniques:
+        doc = {
+            "schema": "seraph.integration.evidence.v1",
+            "source_kind": "integration_evidence",
+            "integration_name": tool,
+            "evidence_type": "integration_tool_result",
+            "technique_id": attack_id,
+            "timestamp": timestamp,
+            "payload": {
+                "tool": tool,
+                "job_id": job_id,
+                "action": action,
+                "status": job.get("status"),
+                "params": params,
+                "result": result,
+                "source_collection": "integrations_jobs",
+            },
+            "world_fanout_status": "pending",
+        }
+        doc["source_event_id"] = integration_tool_result_source_event_id(doc)
+        docs.append(doc)
+
+    return docs
+
+
 def _integration_entity_refs(evidence: dict[str, Any]) -> list[str]:
     technique_id = str(evidence.get("technique_id") or "").strip()
     return [f"mitre:{technique_id}"] if technique_id else []
@@ -892,6 +1021,29 @@ class IntegrationObservationBridge:
             ),
             limit=limit,
         )
+
+    async def ingest_completed_tool_jobs(
+        self,
+        *,
+        tool: str | None = None,
+        technique_id: str | None = None,
+        limit: int = 250,
+    ) -> dict[str, int | bool]:
+        query: dict[str, Any] = {"status": "completed"}
+        if tool:
+            query["tool"] = str(tool).strip().lower()
+
+        jobs = await self.db.integrations_jobs.find(query).limit(limit).to_list(length=limit)
+        docs: list[dict[str, Any]] = []
+        for job in jobs:
+            docs.extend(
+                integration_tool_result_to_integration_evidence(
+                    job,
+                    technique_id=technique_id,
+                )
+            )
+
+        return await self._insert_integration_docs(docs, limit=limit)
 
     async def claim_pending(self, limit: int = 250) -> dict[str, int]:
         if limit < 1:
