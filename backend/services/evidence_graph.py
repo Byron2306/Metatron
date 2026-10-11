@@ -116,6 +116,7 @@ async def build_technique_evidence_graph(db, technique_id: str) -> dict[str, Any
         "technique_id": technique_id,
         "canonical_observation_count": len(canonical),
         "canonical_observation_ids": canonical_ids,
+        "canonical_observations": canonical,
         "resolved_observation_ids": sorted(resolved_ids),
         "missing_links": missing_links,
         "sources": {key: value for key, value in sorted(by_source.items())},
