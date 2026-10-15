@@ -406,6 +406,8 @@ class SOAREngine:
         steps_total = len(execution.step_results)
         steps_completed = sum(1 for step in execution.step_results if step.get("status") == "completed")
         steps_failed = sum(1 for step in execution.step_results if step.get("status") == "failed")
+        steps_denied = sum(1 for step in execution.step_results if step.get("status") == "denied")
+        steps_queued = sum(1 for step in execution.step_results if step.get("status") == "queued")
         return {
             "schema": "seraph.soar.orchestration_receipt.v1",
             "execution_id": execution.id,
@@ -416,28 +418,111 @@ class SOAREngine:
             "steps_total": steps_total,
             "steps_completed": steps_completed,
             "steps_failed": steps_failed,
+            "steps_denied": steps_denied,
+            "steps_queued": steps_queued,
         }
+
+    @staticmethod
+    def _effect_outcome(result: Dict[str, Any]) -> str:
+        status = str(result.get("status") or "").strip().lower()
+        if status == "denied":
+            return "denied"
+        if status in {"queued", "pending", "awaiting_approval"}:
+            return "queued"
+        if status in {"failed", "error"}:
+            return "failed"
+        return "applied"
 
     def _actual_effect_receipt(self, execution: "PlaybookExecution") -> Dict[str, Any]:
         reported_actions: List[str] = []
         reported_statuses: List[Dict[str, Any]] = []
+        effects: List[Dict[str, Any]] = []
         for step in execution.step_results:
             action = step.get("action")
             if action:
                 reported_actions.append(str(action))
             result = step.get("result") if isinstance(step.get("result"), dict) else {}
+            outcome = self._effect_outcome(result) if result else "failed"
+            verification = str(result.get("effect_verification") or "").strip().lower()
+            if outcome == "denied":
+                verification = "not_applied"
+            elif outcome == "queued":
+                verification = "pending"
+            elif outcome == "failed":
+                verification = "failed"
+            elif verification not in {"verified", "externally_verified"}:
+                verification = "unverified"
+
+            authority = None
+            if result.get("gate_status") is not None:
+                authority = "outbound_gate"
+            elif result.get("mcp_status") is not None or result.get("mcp_tool_id") is not None:
+                authority = "mcp"
+
+            reason = (
+                result.get("gate_message")
+                or result.get("mcp_message")
+                or result.get("error")
+                or step.get("error")
+            )
             reported_statuses.append({
                 "step": step.get("step"),
                 "action": action,
                 "orchestration_status": step.get("status"),
                 "reported_effect_status": result.get("status"),
             })
+            effects.append({
+                "step": step.get("step"),
+                "action": action,
+                "orchestration_status": step.get("status"),
+                "reported_effect_status": result.get("status"),
+                "outcome": outcome,
+                "verification": verification,
+                "authority": authority,
+                "reason": reason,
+                "action_id": result.get("action_id"),
+                "queue_id": result.get("queue_id"),
+            })
+
+        counts = {
+            "attempted": len(effects),
+            "applied": sum(1 for effect in effects if effect["outcome"] == "applied"),
+            "denied": sum(1 for effect in effects if effect["outcome"] == "denied"),
+            "queued": sum(1 for effect in effects if effect["outcome"] == "queued"),
+            "failed": sum(1 for effect in effects if effect["outcome"] == "failed"),
+            "verified": sum(1 for effect in effects if effect["verification"] in {"verified", "externally_verified"}),
+            "unverified": sum(1 for effect in effects if effect["verification"] == "unverified"),
+        }
+        if counts["attempted"] and counts["denied"] == counts["attempted"]:
+            effect_verification = "denied"
+        elif counts["attempted"] and counts["failed"] == counts["attempted"]:
+            effect_verification = "failed"
+        elif counts["attempted"] and counts["queued"] == counts["attempted"]:
+            effect_verification = "pending"
+        elif counts["denied"] or counts["queued"] or counts["failed"]:
+            effect_verification = "partial"
+        elif counts["attempted"] and counts["verified"] == counts["attempted"]:
+            effect_verification = "verified"
+        else:
+            effect_verification = "not_verified"
+
+        requested_vs_actual = {
+            "state": effect_verification,
+            "requested_actions": reported_actions,
+            "applied_actions": [effect["action"] for effect in effects if effect["outcome"] == "applied"],
+            "denied_actions": [effect["action"] for effect in effects if effect["outcome"] == "denied"],
+            "queued_actions": [effect["action"] for effect in effects if effect["outcome"] == "queued"],
+            "failed_actions": [effect["action"] for effect in effects if effect["outcome"] == "failed"],
+        }
         return {
             "schema": "seraph.soar.actual_effect_receipt.v1",
             "execution_id": execution.id,
             "playbook_id": execution.playbook_id,
-            "effect_verification": "not_verified",
-            "requires_external_confirmation": True,
+            "effect_verification": effect_verification,
+            "requires_external_confirmation": bool(counts["unverified"] or counts["queued"]),
+            "effect_counts": counts,
+            "requested_vs_actual": requested_vs_actual,
+            "effects": effects,
             "reported_step_actions": reported_actions,
             "reported_step_statuses": reported_statuses,
         }
@@ -1532,8 +1617,13 @@ class SOAREngine:
                         span_id = None
 
                 result = await self._execute_action(step, enriched_event, execution_id=execution.id, db=db)
-                step_result["status"] = "completed"
                 step_result["result"] = result
+                effect_outcome = self._effect_outcome(result)
+                step_result["status"] = (
+                    "completed" if effect_outcome == "applied" else effect_outcome
+                )
+                if effect_outcome in {"denied", "queued", "failed"}:
+                    all_success = False
                 step_result["completed_at"] = datetime.now(timezone.utc).isoformat()
 
                 if tamper_evident_telemetry is not None and trace_id and span_id:
@@ -1546,7 +1636,7 @@ class SOAREngine:
                                 "execution_id": execution.id,
                                 "playbook_id": playbook_id,
                                 "action": step.action.value,
-                                "status": "completed",
+                                "status": step_result["status"],
                                 "result": result,
                             },
                             agent_id=str(enriched_event.get("host_id") or enriched_event.get("agent_id") or "soar"),
@@ -1669,6 +1759,22 @@ class SOAREngine:
                 logger.warning(
                     f"SOAR execution persistence failed for {execution.id}: {e}"
                 )
+
+        # Hand every durable response receipt to the canonical observation rail.
+        # Failure is retryable through IntegrationObservationBridge.ingest_soar_executions.
+        if db is not None:
+            try:
+                from backend.services.integration_observation_fabric import (
+                    IntegrationObservationBridge,
+                )
+
+                await IntegrationObservationBridge(db).ingest_soar_executions(
+                    execution_id=execution.id,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"SOAR response evidence handoff failed for {execution.id}: {e}"
+                )
         
         return execution
     
@@ -1768,13 +1874,14 @@ class SOAREngine:
             
             if mcp_result.get("status") == "denied":
                 logger.warning(
-                    f"SOAR deception action {action.value} denied by MCP: {mcp_result.get('message')}"
+                    f"SOAR deception action {action.value} denied by MCP: "
+                    f"{mcp_result.get('message') or mcp_result.get('error')}"
                 )
                 return {
                     "action": action.value,
                     "status": "denied",
                     "mcp_status": mcp_result.get("status"),
-                    "mcp_message": mcp_result.get("message"),
+                    "mcp_message": mcp_result.get("message") or mcp_result.get("error"),
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             

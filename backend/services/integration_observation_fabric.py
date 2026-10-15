@@ -11,6 +11,7 @@ from backend.services.observation_fabric import (
     CanonicalObservation,
     ObservationStore,
     build_observation,
+    canonical_json,
 )
 
 logger = logging.getLogger(__name__)
@@ -748,6 +749,80 @@ def integration_tool_result_to_integration_evidence(
     return docs
 
 
+def soar_execution_source_event_id(evidence: dict[str, Any]) -> str:
+    payload = evidence.get("payload") or {}
+    technique_id = str(evidence.get("technique_id") or "").strip()
+    execution_id = str(payload.get("execution_id") or "execution-unknown").strip()
+    return f"soar|soar_response_effect|{technique_id}|{execution_id}"
+
+
+def soar_execution_to_integration_evidence(
+    execution: dict[str, Any],
+    *,
+    technique_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Normalize durable SOAR requested-vs-actual receipts onto the evidence rail."""
+    if not execution:
+        return []
+
+    trigger_event = execution.get("trigger_event") or {}
+    techniques: list[str] = []
+    supplied = _normalise_attack_technique(technique_id)
+    if supplied:
+        techniques.append(supplied)
+    for discovered in _collect_attack_techniques(trigger_event):
+        if discovered not in techniques:
+            techniques.append(discovered)
+    if not techniques:
+        return []
+
+    execution_id = str(execution.get("id") or execution.get("execution_id") or "").strip()
+    if not execution_id:
+        execution_id = hashlib.sha256(canonical_json(execution).encode()).hexdigest()[:16]
+
+    timestamp = str(
+        execution.get("completed_at")
+        or execution.get("started_at")
+        or "1970-01-01T00:00:00+00:00"
+    ).strip()
+    actual = execution.get("actual_effect_receipt") or {}
+    outcome = str(
+        actual.get("effect_verification")
+        or execution.get("status")
+        or "unknown"
+    ).strip().lower()
+
+    docs: list[dict[str, Any]] = []
+    for attack_id in techniques:
+        doc = {
+            "schema": "seraph.integration.evidence.v1",
+            "source_kind": "integration_evidence",
+            "integration_name": "soar",
+            "evidence_type": "soar_response_effect",
+            "technique_id": attack_id,
+            "timestamp": timestamp,
+            "severity": trigger_event.get("severity"),
+            "confidence": execution.get("ai_confidence"),
+            "payload": {
+                "execution_id": execution_id,
+                "playbook_id": execution.get("playbook_id"),
+                "playbook_name": execution.get("playbook_name"),
+                "execution_status": execution.get("status"),
+                "semantic_response_state": execution.get("semantic_response_state"),
+                "response_outcome": outcome,
+                "trigger_event": trigger_event,
+                "requested_response": execution.get("requested_response") or {},
+                "orchestration_receipt": execution.get("orchestration_receipt") or {},
+                "actual_effect_receipt": actual,
+                "source_collection": "soar_executions",
+            },
+            "world_fanout_status": "pending",
+        }
+        doc["source_event_id"] = soar_execution_source_event_id(doc)
+        docs.append(doc)
+    return docs
+
+
 def _plain_value(value: Any) -> Any:
     return getattr(value, "value", value)
 
@@ -1175,6 +1250,48 @@ class IntegrationObservationBridge:
 
         return await self._insert_integration_docs(docs, limit=limit)
 
+    async def ingest_soar_executions(
+        self,
+        *,
+        execution_id: str | None = None,
+        technique_id: str | None = None,
+        limit: int = 250,
+    ) -> dict[str, int | bool]:
+        query: dict[str, Any] = {
+            "status": {"$in": ["completed", "partial", "failed", "escalated"]},
+            "actual_effect_receipt": {"$exists": True},
+        }
+        if execution_id:
+            query["id"] = str(execution_id).strip()
+
+        executions = await self.db.soar_executions.find(query).limit(limit).to_list(length=limit)
+        docs: list[dict[str, Any]] = []
+        for execution in executions:
+            docs.extend(
+                soar_execution_to_integration_evidence(
+                    execution,
+                    technique_id=technique_id,
+                )
+            )
+
+        result = await self._insert_integration_docs(docs, limit=limit)
+        for doc in docs:
+            evidence = await self.db.integration_evidence.find_one({
+                "source_kind": "integration_evidence",
+                "source_event_id": doc["source_event_id"],
+            })
+            if not evidence or not evidence.get("observation_id"):
+                continue
+            await self.db.soar_executions.update_one(
+                {"id": doc["payload"]["execution_id"]},
+                {"$addToSet": {"response_evidence_refs": {
+                    "technique_id": doc["technique_id"],
+                    "source_event_id": doc["source_event_id"],
+                    "observation_id": evidence["observation_id"],
+                }}},
+            )
+        return result
+
     async def ingest_ml_predictions(
         self,
         *,
@@ -1228,6 +1345,8 @@ class IntegrationObservationBridge:
 
         result = await self._insert_integration_docs(docs, limit=limit)
         result["soar_triggered"] = 0
+        result["soar_evidence_claimed"] = 0
+        result["soar_evidence_linked"] = 0
 
         for doc in docs:
             evidence = await self.db.integration_evidence.find_one({
@@ -1269,6 +1388,22 @@ class IntegrationObservationBridge:
                     }
                     executions = await SOAREngine().trigger_playbooks(event, db=self.db)
                     result["soar_triggered"] = int(result["soar_triggered"]) + len(executions)
+                    for execution in executions:
+                        handoff = await self.ingest_soar_executions(
+                            execution_id=execution.id,
+                            limit=limit,
+                        )
+                        result["soar_evidence_claimed"] = (
+                            int(result["soar_evidence_claimed"])
+                            + int(handoff["claimed"])
+                        )
+                        persisted_execution = await self.db.soar_executions.find_one({
+                            "id": execution.id,
+                        })
+                        result["soar_evidence_linked"] = (
+                            int(result["soar_evidence_linked"])
+                            + len((persisted_execution or {}).get("response_evidence_refs") or [])
+                        )
                 except Exception:
                     logger.exception("Honeytoken SOAR trigger failed")
                     result["failed"] = int(result["failed"]) + 1

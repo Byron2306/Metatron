@@ -97,6 +97,26 @@ async def build_technique_evidence_graph(db, technique_id: str) -> dict[str, Any
         if doc.get("observation_id") in resolved_ids
     ]
 
+    response_counts = {
+        "attempted": 0,
+        "applied": 0,
+        "denied": 0,
+        "queued": 0,
+        "failed": 0,
+        "verified": 0,
+        "unverified": 0,
+    }
+    response_outcomes: set[str] = set()
+    for doc in by_source.get("soar", []):
+        payload = doc.get("payload") or {}
+        inner = payload.get("payload") or {}
+        actual = inner.get("actual_effect_receipt") or {}
+        for key in response_counts:
+            response_counts[key] += int((actual.get("effect_counts") or {}).get(key) or 0)
+        outcome = str(inner.get("response_outcome") or actual.get("effect_verification") or "").strip()
+        if outcome:
+            response_outcomes.add(outcome)
+
     events = [
         _clean_doc(doc)
         for doc in await db.world_events.find({}, {"_id": 0}).to_list(length=5000)
@@ -122,6 +142,10 @@ async def build_technique_evidence_graph(db, technique_id: str) -> dict[str, Any
         "sources": {key: value for key, value in sorted(by_source.items())},
         "tvr_observations": tvr_observations,
         "linked_observations": linked_observations,
+        "response_effects": {
+            **response_counts,
+            "outcomes": sorted(response_outcomes),
+        },
         "world_events": events,
         "world_entities": entities,
     }
