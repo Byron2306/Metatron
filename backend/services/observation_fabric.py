@@ -401,6 +401,39 @@ def tvr_receipt_ref_for_observation(
     }
 
 
+def integration_projection_metadata(observation: CanonicalObservation) -> dict[str, Any]:
+    """Select integration receipts that must survive world projection."""
+    metadata = {
+        "evidence_graph_refs": None,
+        "response_effect_receipt": None,
+    }
+    if observation.witness != "integration_evidence":
+        return metadata
+
+    payload = observation.payload or {}
+    inner = payload.get("payload") or {}
+    metadata["evidence_graph_refs"] = (
+        inner.get("evidence_graph_refs")
+        or payload.get("evidence_graph_refs")
+    )
+    if observation.source_event_type == "soar_response_effect":
+        actual = inner.get("actual_effect_receipt") or {}
+        metadata["response_effect_receipt"] = {
+            "schema": "seraph.response.effect_projection.v1",
+            "observation_id": observation.observation_id,
+            "execution_id": inner.get("execution_id"),
+            "playbook_id": inner.get("playbook_id"),
+            "technique_id": payload.get("technique_id"),
+            "semantic_response_state": inner.get("semantic_response_state"),
+            "response_outcome": inner.get("response_outcome"),
+            "requested_response": inner.get("requested_response") or {},
+            "orchestration_receipt": inner.get("orchestration_receipt") or {},
+            "actual_effect_receipt": actual,
+            "requested_vs_actual": actual.get("requested_vs_actual") or {},
+        }
+    return metadata
+
+
 class WorldObservationProjector:
     def __init__(self, db):
         self.db = db
@@ -446,14 +479,9 @@ class WorldObservationProjector:
         event_query = {"type": "observation_promoted", "payload.observation_id": observation.observation_id}
         existing = await self.db.world_events.find_one(event_query)
         if existing is None:
-            evidence_graph_refs = None
-            if observation.witness == "integration_evidence":
-                payload = observation.payload or {}
-                inner_payload = payload.get("payload") or {}
-                evidence_graph_refs = (
-                    inner_payload.get("evidence_graph_refs")
-                    or payload.get("evidence_graph_refs")
-                )
+            projection_metadata = integration_projection_metadata(observation)
+            evidence_graph_refs = projection_metadata["evidence_graph_refs"]
+            response_effect_receipt = projection_metadata["response_effect_receipt"]
 
             if observation.witness == "unified_agent" and observation.source_event_type == "endpoint_evidence":
                 entity_id = "endpoint-" + hashlib.sha256(decision.material_key.encode()).hexdigest()[:24]
@@ -474,6 +502,7 @@ class WorldObservationProjector:
                             "material_revision": decision.material_revision,
                             "tvr_receipt_ref": tvr_receipt_ref_for_observation(observation, decision),
                             "evidence_graph_refs": evidence_graph_refs,
+                            "response_effect_receipt": response_effect_receipt,
                             "payload": observation.payload})
             try:
                 await WorldModelService(self.db).upsert_entity(
@@ -493,7 +522,8 @@ class WorldObservationProjector:
                              "material_revision": decision.material_revision,
                              "material_key": decision.material_key,
                              "tvr_receipt_ref": tvr_receipt_ref_for_observation(observation, decision),
-                             "evidence_graph_refs": evidence_graph_refs},
+                             "evidence_graph_refs": evidence_graph_refs,
+                             "response_effect_receipt": response_effect_receipt},
                     trigger_triune=None, source="observation_fabric", strict_persistence=True)
                 existing = emitted["event"]
             except DuplicateKeyError:
